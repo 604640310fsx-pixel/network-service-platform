@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>广州三网线路监控 · 候选版</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/master.css?v=20260804-4thread-8vps">
+</head>
+<body>
+  <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
+  <main class="shell">
+    <header class="topbar" id="overview">
+      <div class="brand-block">
+        <div class="eyebrow">NETWORK QUALITY · READ ONLY</div>
+        <div class="title-row">
+          <h1>广州三网监控</h1>
+          <span class="overall-status stale" id="overallStatus"><i></i><b>读取中</b></span>
+        </div>
+        <p class="last-update">最后更新：<time id="lastUpdate">—</time><span class="live-pulse">每分钟自动刷新</span></p>
+      </div>
+      <div class="vps-picker" id="vpsPicker" aria-label="TCP VPS 测试点">
+        <button class="vps-option skeleton" disabled><i></i><span>读取 VPS</span></button>
+        <button class="vps-option skeleton" disabled><i></i><span>读取 VPS</span></button>
+        <button class="vps-option skeleton" disabled><i></i><span>读取 VPS</span></button>
+        <button class="vps-option skeleton" disabled><i></i><span>读取 VPS</span></button>
+        <button class="vps-option skeleton" disabled><i></i><span>读取 VPS</span></button>
+        <button class="vps-option skeleton" disabled><i></i><span>读取 VPS</span></button>
+        <button class="vps-option skeleton" disabled><i></i><span>读取 VPS</span></button>
+        <button class="vps-option skeleton" disabled><i></i><span>读取 VPS</span></button>
+      </div>
+    </header>
+
+    <section class="panel chart-panel" id="latencyPanel">
+      <div class="chart-toolbar">
+        <span class="axis-label">延迟（ms）</span>
+        <div class="legend-row" id="wanLegend">
+          <button class="legend-item telecom active" data-wan="telecom"><i></i><span><em class="city-prefix">广州</em>电信</span><b id="legendTelecom">—</b></button>
+          <button class="legend-item mobile active" data-wan="mobile"><i></i><span><em class="city-prefix">广州</em>移动</span><b id="legendMobile">—</b></button>
+          <button class="legend-item unicom active" data-wan="unicom"><i></i><span><em class="city-prefix">广州</em>联通</span><b id="legendUnicom">—</b></button>
+        </div>
+        <div class="chart-controls">
+          <div class="segmented" id="typeSwitch">
+            <button class="active" data-value="icmp">ICMP</button><button data-value="tcp">TCP</button>
+          </div>
+          <div class="segmented range-switch" id="rangeSwitch">
+            <button data-value="6h">6h</button><button class="active" data-value="24h">24h</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="chart-stage" id="chartStage">
+        <canvas id="latencyChart" aria-label="三网延迟趋势图"></canvas>
+        <canvas id="chartHover" aria-hidden="true"></canvas>
+        <div class="chart-tooltip" id="chartTooltip"></div>
+        <div class="chart-loading" id="chartLoading"><span></span>正在读取真实样本</div>
+      </div>
+      <div class="chart-foot">
+        <span id="chartCount">—</span>
+        <span id="chartRangeLabel">24 小时 · Asia/Shanghai</span>
+        <small id="liveStatus"><i></i>实时同步 · 5 秒轮询</small>
+        <span class="chart-update-caption">数据每分钟更新一次</span>
+      </div>
+    </section>
+
+    <section class="panel system-panel" id="systemPanel">
+      <div class="system-strip" id="systemStrip">
+        <div class="system-metric"><span>运行时间</span><b id="vpsUptime">读取中</b></div>
+        <div class="system-metric percentage-metric"><span>CPU</span><b id="vpsCpu">—</b><div class="metric-bar"><i id="vpsCpuBar"></i></div></div>
+        <div class="system-metric percentage-metric"><span>内存</span><b id="vpsMemory">—</b><div class="metric-bar"><i id="vpsMemoryBar"></i></div></div>
+        <div class="system-metric percentage-metric"><span>存储</span><b id="vpsStorage">—</b><div class="metric-bar"><i id="vpsStorageBar"></i></div></div>
+        <div class="system-metric network-metric">
+          <i class="network-arrow up" aria-hidden="true">↑</i><div><span>上传</span><b id="vpsUpload">—</b></div>
+        </div>
+        <div class="system-metric network-metric">
+          <i class="network-arrow down" aria-hidden="true">↓</i><div><span>下载</span><b id="vpsDownload">—</b></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel route-panel" id="routePanel">
+      <div class="section-head route-head">
+        <div><h2>路由追踪（广州）</h2><p>每日去回程真实结果 · 只读展示</p></div>
+        <div class="route-head-controls">
+          <div class="segmented" id="routeWanSwitch"><button class="active" data-value="telecom">电信</button><button data-value="mobile">移动</button><button data-value="unicom">联通</button></div>
+          <div class="segmented" id="routeDirectionSwitch"><button class="active" data-value="outbound">去程路由</button><button data-value="return">回程路由</button></div>
+          <button class="outline-button" id="routeToggle" aria-expanded="false">展开 <span>⌄</span></button>
+        </div>
+      </div>
+      <div class="route-body" id="routeBody">
+        <div class="route-toolbar">
+          <div class="segmented" id="routeProtocolSwitch"><button class="active" data-value="icmp">ICMP</button><button data-value="tcp">TCP</button></div>
+          <label class="select-wrap" id="routeTargetWrap"><span>回程 VPS</span><select id="routeTarget" aria-label="回程 VPS"><option value="DMIT Premium">美国 DMIT Premium</option></select></label>
+          <div class="route-result" id="routeResult" data-status="loading"><i></i><b>正在读取</b><span></span></div>
+          <div class="route-updated">最后更新 <b id="routeUpdated">—</b></div>
+        </div>
+        <div class="table-wrap empty-table" id="routeTableWrap">
+          <table><thead><tr><th>跳数</th><th>IP</th><th>延迟</th><th>地区（仅供参考）</th><th>ASN</th><th>反向解析</th></tr></thead>
+          <tbody id="routeRows"><tr><td colspan="6"><div class="empty-state"><span class="route-icon">⌁</span><b>正在读取真实路由</b><p>只展示已入库的标准化逐跳数据。<span class="premium-route-note">精品线路将以金色突出。</span></p></div></td></tr></tbody>
+          <tfoot><tr><td colspan="6"><button class="route-more" id="routeMore" aria-expanded="false" disabled>展开完整路由（共 0 跳） <span>⌄</span></button></td></tr></tfoot></table>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel bandwidth-panel" id="bandwidthPanel" data-download-capacity="200" data-upload-capacity="100" data-streams="4">
+      <div class="section-head">
+        <div><span class="section-index">04</span><h2>广州电信每日 4 线程测速</h2><p>线路带宽：下行 200 Mbps · 上行 100 Mbps · 每项 20 秒</p></div>
+        <span class="waiting-badge" id="bandwidthStatus">等待测速上线</span>
+      </div>
+      <div class="speed-grid" id="bandwidthCards">
+        <article class="speed-card" data-server="美国 DMIT Premium" data-state="empty"><div><span class="target-dot"></span><h3>美国 DMIT Premium</h3><small>4 线程 · 每项 20 秒</small></div><dl><dt>上传</dt><dd data-field="upload_mbps">—</dd><dt>下载</dt><dd data-field="download_mbps">—</dd><dt>Retr</dt><dd data-field="retr">—</dd><dt>测试时间</dt><dd data-field="tested_at">—</dd></dl></article>
+        <article class="speed-card" data-server="美国 DMIT Eyeball" data-state="empty"><div><span class="target-dot"></span><h3>美国 DMIT Eyeball</h3><small>4 线程 · 每项 20 秒</small></div><dl><dt>上传</dt><dd data-field="upload_mbps">—</dd><dt>下载</dt><dd data-field="download_mbps">—</dd><dt>Retr</dt><dd data-field="retr">—</dd><dt>测试时间</dt><dd data-field="tested_at">—</dd></dl></article>
+        <article class="speed-card" data-server="美国 NetLab Global" data-state="empty"><div><span class="target-dot"></span><h3>美国 NetLab Global</h3><small>4 线程 · 每项 20 秒</small></div><dl><dt>上传</dt><dd data-field="upload_mbps">—</dd><dt>下载</dt><dd data-field="download_mbps">—</dd><dt>Retr</dt><dd data-field="retr">—</dd><dt>测试时间</dt><dd data-field="tested_at">—</dd></dl></article>
+        <article class="speed-card" data-server="美国 Zillion Network" data-state="empty"><div><span class="target-dot"></span><h3>美国 Zillion Network</h3><small>4 线程 · 每项 20 秒</small></div><dl><dt>上传</dt><dd data-field="upload_mbps">—</dd><dt>下载</dt><dd data-field="download_mbps">—</dd><dt>Retr</dt><dd data-field="retr">—</dd><dt>测试时间</dt><dd data-field="tested_at">—</dd></dl></article>
+        <article class="speed-card" data-server="马来 Evoxt Premium" data-state="empty"><div><span class="target-dot"></span><h3>马来 Evoxt Premium</h3><small>4 线程 · 每项 20 秒</small></div><dl><dt>上传</dt><dd data-field="upload_mbps">—</dd><dt>下载</dt><dd data-field="download_mbps">—</dd><dt>Retr</dt><dd data-field="retr">—</dd><dt>测试时间</dt><dd data-field="tested_at">—</dd></dl></article>
+        <article class="speed-card" data-server="新加坡 Alibaba Cloud" data-state="empty"><div><span class="target-dot"></span><h3>新加坡 Alibaba Cloud</h3><small>4 线程 · 每项 20 秒</small></div><dl><dt>上传</dt><dd data-field="upload_mbps">—</dd><dt>下载</dt><dd data-field="download_mbps">—</dd><dt>Retr</dt><dd data-field="retr">—</dd><dt>测试时间</dt><dd data-field="tested_at">—</dd></dl></article>
+        <article class="speed-card" data-server="香港 NetLab Global" data-state="empty"><div><span class="target-dot"></span><h3>香港 NetLab Global</h3><small>4 线程 · 每项 20 秒</small></div><dl><dt>上传</dt><dd data-field="upload_mbps">—</dd><dt>下载</dt><dd data-field="download_mbps">—</dd><dt>Retr</dt><dd data-field="retr">—</dd><dt>测试时间</dt><dd data-field="tested_at">—</dd></dl></article>
+        <article class="speed-card" data-server="香港 Yecaoyun Cloud" data-state="empty"><div><span class="target-dot"></span><h3>香港 Yecaoyun Cloud</h3><small>4 线程 · 每项 20 秒</small></div><dl><dt>上传</dt><dd data-field="upload_mbps">—</dd><dt>下载</dt><dd data-field="download_mbps">—</dd><dt>Retr</dt><dd data-field="retr">—</dd><dt>测试时间</dt><dd data-field="tested_at">—</dd></dl></article>
+        <div class="speed-trend" id="bandwidthTrend">
+          <div class="mini-chart-grid"><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="speed-empty" id="bandwidthTrendEmpty"><b>8 节点 4 线程测速尚未上线</b><p>这里展示广州电信到各节点的真实链路结果；无数据时不显示 0 Mbps。</p></div>
+          <div class="trend-labels"><span>7 天上传</span><span>7 天下载</span><span>Retr 趋势</span></div>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <span>候选前端 · 端口 3003 · 数据库只读</span>
+      <span>不提供测速、重启、切换线路、修改路由或修复操作</span>
+    </footer>
+  </main>
+  <script src="/app.js?v=20260803-2030"></script>
+</body>
+</html>

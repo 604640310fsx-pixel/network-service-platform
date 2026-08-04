@@ -1,0 +1,3 @@
+# BEGIN network-monitor
+* * * * * /usr/bin/flock -n /tmp/network-monitor.lock /root/network-monitor/collect_and_send.sh || /root/network-monitor/record_skipped_overlap.sh
+# END network-monitor

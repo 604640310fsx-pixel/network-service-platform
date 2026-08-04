@@ -1,0 +1,19 @@
+[Unit]
+Description=Three WAN Network Monitor Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/vol1/1000/network-monitor
+ExecStart=/usr/bin/python3 /vol1/1000/network-monitor/dashboard/server.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/vol1/1000/network-monitor/data /vol1/1000/network-monitor/logs
+
+[Install]
+WantedBy=multi-user.target

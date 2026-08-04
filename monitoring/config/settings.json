@@ -1,0 +1,9 @@
+{
+  "collection_interval_seconds": 60,
+  "ping_count": 4,
+  "ping_timeout_seconds": 2,
+  "tcp_timeout_seconds": 3,
+  "dashboard_host": "0.0.0.0",
+  "dashboard_port": 3002,
+  "latency_retention_days": 90
+}
