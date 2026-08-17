@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "capture_id": "prod-monitor-3002-2026-08-10",
+  "source_alias": "prod-monitor-3002",
+  "captured_at_utc": "2026-08-09T19:29:25Z",
+  "purpose": "Isolated byte evidence for three-way comparison and follow-up security review",
+  "resources": [
+    {
+      "file": "raw/index.html",
+      "request_path": "/",
+      "captured_at_utc": "2026-08-09T19:29:25Z",
+      "http_status": 200,
+      "content_type": "text/html",
+      "content_length": 11548,
+      "sha256": "a330b9c6b4711ecaab84582d39e3a658e0880d73a341a54774748823d27997d0",
+      "server_signature": "NetworkMonitorNext/0.1 Python/3.11.2"
+    },
+    {
+      "file": "raw/master.css",
+      "request_path": "/master.css?v=20260804-4thread-8vps",
+      "captured_at_utc": "2026-08-09T19:29:25Z",
+      "http_status": 200,
+      "content_type": "text/css",
+      "content_length": 23431,
+      "sha256": "7dbea8a3d74a7a0c9746a280181db13b6174a0c9b98e5160abeaec5cbc30d097",
+      "server_signature": "NetworkMonitorNext/0.1 Python/3.11.2"
+    },
+    {
+      "file": "raw/app.js",
+      "request_path": "/app.js?v=20260805-route-state-1",
+      "captured_at_utc": "2026-08-09T19:29:25Z",
+      "http_status": 200,
+      "content_type": "text/javascript",
+      "content_length": 33723,
+      "sha256": "cc99ea8a34eb0950454d3bbfe735461d0dc49fdafdc77f6b3618057e91930a8b",
+      "server_signature": "NetworkMonitorNext/0.1 Python/3.11.2"
+    }
+  ],
+  "baseline_verification": {
+    "status": "matched",
+    "resources_verified": [
+      "raw/index.html",
+      "raw/master.css",
+      "raw/app.js"
+    ]
+  },
+  "sensitive_content_scan": {
+    "status": "passed",
+    "categories": [
+      "private keys",
+      "credentials and tokens",
+      "authorization and cookie material",
+      "internal addresses",
+      "embedded API responses",
+      "timestamped monitoring samples",
+      "source address literals"
+    ]
+  },
+  "integrity": {
+    "raw_resources_are_byte_preserved": true,
+    "direct_deployment_prohibited": true,
+    "follow_up_security_review_required": true
+  }
+}

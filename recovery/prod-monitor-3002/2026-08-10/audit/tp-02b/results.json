@@ -1,0 +1,3683 @@
+{
+  "schema_version": 1,
+  "audit": "TP-02B",
+  "execution_mode": "offline-localhost-fixture",
+  "generated_at_utc": "2026-08-09T21:28:05.085Z",
+  "baseline_commit": "9236e665063ae35e6afb50d71e81312f8c71bde3",
+  "environment": {
+    "node": "v23.11.0",
+    "browser": "Google Chrome 151.0.7922.108",
+    "automation": "Node standard library plus Chrome DevTools Protocol"
+  },
+  "network_boundary": {
+    "allowed_hosts": [
+      "127.0.0.1",
+      "localhost"
+    ],
+    "non_local_request_count": 0,
+    "non_local_requests": []
+  },
+  "summary": {
+    "total": 23,
+    "status_counts": {
+      "PASS": 5,
+      "CONFIRMED_FINDING": 18,
+      "INCONCLUSIVE": 0,
+      "HARNESS_ERROR": 0
+    },
+    "confirmed_finding_ids": [
+      "TP02A-001",
+      "TP02A-002",
+      "TP02A-003",
+      "TP02A-004",
+      "TP02A-005",
+      "TP02A-006",
+      "TP02A-007",
+      "TP02A-008",
+      "TP02A-009",
+      "TP02A-010",
+      "TP02A-011",
+      "TP02A-012"
+    ]
+  },
+  "results": [
+    {
+      "id": "TP02B-001",
+      "scenario": "Baseline successful initialization",
+      "status": "PASS",
+      "fixture": {
+        "name": "baseline",
+        "controls": {}
+      },
+      "expected_observation": "All eight API paths are requested and the major panels render deterministic fixture values.",
+      "actual_observation": "eight_api_paths=true; major_dom_rendered=true",
+      "request_count": 8,
+      "max_concurrency": 1,
+      "console_errors": [],
+      "dom_evidence": {
+        "overall": {
+          "class_name": "overall-status healthy",
+          "text": "Fixture healthy"
+        },
+        "last_update": "2026-08-10 08:00:00 CST",
+        "selected": {
+          "type": "icmp",
+          "range": "24h",
+          "vps": "DMIT Premium",
+          "route_wan": "telecom",
+          "route_direction": "outbound",
+          "route_protocol": "icmp",
+          "route_target": "DMIT Premium"
+        },
+        "legends": {
+          "telecom": "20.0 ms",
+          "mobile": "30.0 ms",
+          "unicom": "40.0 ms"
+        },
+        "live": {
+          "text": "实时同步 · 5 秒轮询",
+          "class_name": "",
+          "display": "none"
+        },
+        "chart": {
+          "loading_class": "chart-loading hidden",
+          "loading_text": "正在读取真实样本",
+          "count": "6 个绘图点 · 5 分钟粒度",
+          "range": "最近 24 小时 · Asia/Shanghai"
+        },
+        "route": {
+          "status": "ok",
+          "text": "Fixture route ready6 跳 · 9.50 ms",
+          "updated": "2026-08-10 08:00:00 CST",
+          "rows": 6
+        },
+        "bandwidth_status": {
+          "text": "最近更新 2026-08-10 08:00:00 CST",
+          "class_name": ""
+        },
+        "cards": {
+          "premium": {
+            "state": "ready",
+            "upload": "40.00 Mbps",
+            "download": "80.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "eyeball": {
+            "state": "ready",
+            "upload": "41.00 Mbps",
+            "download": "81.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "netlab_us": {
+            "state": "ready",
+            "upload": "42.00 Mbps",
+            "download": "82.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "zillion": {
+            "state": "ready",
+            "upload": "43.00 Mbps",
+            "download": "83.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "alibaba": {
+            "state": "disabled",
+            "upload": "已停用",
+            "download": "已停用",
+            "retr": "—",
+            "tested_at": "暂停测速",
+            "dot_color": "rgb(113, 122, 137)"
+          }
+        },
+        "hidden_summary": {
+          "trend_hidden": true,
+          "empty_hidden": true
+        }
+      },
+      "related_finding_ids": [],
+      "limitations": [],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 1,
+        "/api/bandwidth": 1,
+        "/api/latency": 1,
+        "/api/live": 1,
+        "/api/vps-status": 1
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-002",
+      "scenario": "live non-2xx and invalid JSON after a successful render",
+      "status": "CONFIRMED_FINDING",
+      "fixture": {
+        "name": "fail-live-sequence",
+        "controls": {}
+      },
+      "expected_observation": "live records both failure forms without crashing the fixture; section-specific stale/error behavior is visible.",
+      "actual_observation": "Both failures preserved the previous legend values; the stale live message changed but remained display:none.",
+      "request_count": 10,
+      "max_concurrency": 1,
+      "console_errors": [
+        "Error: 503 /api/live?type=icmp&target=DMIT%20Premium\n    at getJSON (http://127.0.0.1:58686/app.js?v=20260805-route-state-1:29:26)\n    at async loadLive (http://127.0.0.1:58686/app.js?v=20260805-route-state-1:179:16)\n    at async Promise.allSettled (index 0)",
+        "SyntaxError: Expected property name or '}' in JSON at position 2 (line 1 column 3)"
+      ],
+      "dom_evidence": {
+        "before": {
+          "overall": {
+            "class_name": "overall-status healthy",
+            "text": "Fixture healthy"
+          },
+          "last_update": "2026-08-10 08:00:00 CST",
+          "selected": {
+            "type": "icmp",
+            "range": "24h",
+            "vps": "DMIT Premium",
+            "route_wan": "telecom",
+            "route_direction": "outbound",
+            "route_protocol": "icmp",
+            "route_target": "DMIT Premium"
+          },
+          "legends": {
+            "telecom": "20.0 ms",
+            "mobile": "30.0 ms",
+            "unicom": "40.0 ms"
+          },
+          "live": {
+            "text": "实时同步 · 5 秒轮询",
+            "class_name": "",
+            "display": "none"
+          },
+          "chart": {
+            "loading_class": "chart-loading hidden",
+            "loading_text": "正在读取真实样本",
+            "count": "6 个绘图点 · 5 分钟粒度",
+            "range": "最近 24 小时 · Asia/Shanghai"
+          },
+          "route": {
+            "status": "ok",
+            "text": "Fixture route ready6 跳 · 9.50 ms",
+            "updated": "2026-08-10 08:00:00 CST",
+            "rows": 6
+          },
+          "bandwidth_status": {
+            "text": "最近更新 2026-08-10 08:00:00 CST",
+            "class_name": ""
+          },
+          "cards": {
+            "premium": {
+              "state": "ready",
+              "upload": "40.00 Mbps",
+              "download": "80.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "eyeball": {
+              "state": "ready",
+              "upload": "41.00 Mbps",
+              "download": "81.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "netlab_us": {
+              "state": "ready",
+              "upload": "42.00 Mbps",
+              "download": "82.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "zillion": {
+              "state": "ready",
+              "upload": "43.00 Mbps",
+              "download": "83.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "alibaba": {
+              "state": "disabled",
+              "upload": "已停用",
+              "download": "已停用",
+              "retr": "—",
+              "tested_at": "暂停测速",
+              "dot_color": "rgb(113, 122, 137)"
+            }
+          },
+          "hidden_summary": {
+            "trend_hidden": true,
+            "empty_hidden": true
+          }
+        },
+        "after_non_2xx": {
+          "overall": {
+            "class_name": "overall-status healthy",
+            "text": "Fixture healthy"
+          },
+          "last_update": "2026-08-10 08:00:00 CST",
+          "selected": {
+            "type": "icmp",
+            "range": "24h",
+            "vps": "DMIT Premium",
+            "route_wan": "telecom",
+            "route_direction": "outbound",
+            "route_protocol": "icmp",
+            "route_target": "DMIT Premium"
+          },
+          "legends": {
+            "telecom": "20.0 ms",
+            "mobile": "30.0 ms",
+            "unicom": "40.0 ms"
+          },
+          "live": {
+            "text": "实时同步暂时失败",
+            "class_name": "stale",
+            "display": "none"
+          },
+          "chart": {
+            "loading_class": "chart-loading hidden",
+            "loading_text": "正在读取真实样本",
+            "count": "6 个绘图点 · 5 分钟粒度",
+            "range": "最近 24 小时 · Asia/Shanghai"
+          },
+          "route": {
+            "status": "ok",
+            "text": "Fixture route ready6 跳 · 9.50 ms",
+            "updated": "2026-08-10 08:00:00 CST",
+            "rows": 6
+          },
+          "bandwidth_status": {
+            "text": "最近更新 2026-08-10 08:00:00 CST",
+            "class_name": ""
+          },
+          "cards": {
+            "premium": {
+              "state": "ready",
+              "upload": "40.00 Mbps",
+              "download": "80.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "eyeball": {
+              "state": "ready",
+              "upload": "41.00 Mbps",
+              "download": "81.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "netlab_us": {
+              "state": "ready",
+              "upload": "42.00 Mbps",
+              "download": "82.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "zillion": {
+              "state": "ready",
+              "upload": "43.00 Mbps",
+              "download": "83.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "alibaba": {
+              "state": "disabled",
+              "upload": "已停用",
+              "download": "已停用",
+              "retr": "—",
+              "tested_at": "暂停测速",
+              "dot_color": "rgb(113, 122, 137)"
+            }
+          },
+          "hidden_summary": {
+            "trend_hidden": true,
+            "empty_hidden": true
+          }
+        },
+        "after_invalid_json": {
+          "overall": {
+            "class_name": "overall-status healthy",
+            "text": "Fixture healthy"
+          },
+          "last_update": "2026-08-10 08:00:00 CST",
+          "selected": {
+            "type": "icmp",
+            "range": "24h",
+            "vps": "DMIT Premium",
+            "route_wan": "telecom",
+            "route_direction": "outbound",
+            "route_protocol": "icmp",
+            "route_target": "DMIT Premium"
+          },
+          "legends": {
+            "telecom": "20.0 ms",
+            "mobile": "30.0 ms",
+            "unicom": "40.0 ms"
+          },
+          "live": {
+            "text": "实时同步暂时失败",
+            "class_name": "stale",
+            "display": "none"
+          },
+          "chart": {
+            "loading_class": "chart-loading hidden",
+            "loading_text": "正在读取真实样本",
+            "count": "6 个绘图点 · 5 分钟粒度",
+            "range": "最近 24 小时 · Asia/Shanghai"
+          },
+          "route": {
+            "status": "ok",
+            "text": "Fixture route ready6 跳 · 9.50 ms",
+            "updated": "2026-08-10 08:00:00 CST",
+            "rows": 6
+          },
+          "bandwidth_status": {
+            "text": "最近更新 2026-08-10 08:00:00 CST",
+            "class_name": ""
+          },
+          "cards": {
+            "premium": {
+              "state": "ready",
+              "upload": "40.00 Mbps",
+              "download": "80.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "eyeball": {
+              "state": "ready",
+              "upload": "41.00 Mbps",
+              "download": "81.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "netlab_us": {
+              "state": "ready",
+              "upload": "42.00 Mbps",
+              "download": "82.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "zillion": {
+              "state": "ready",
+              "upload": "43.00 Mbps",
+              "download": "83.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "alibaba": {
+              "state": "disabled",
+              "upload": "已停用",
+              "download": "已停用",
+              "retr": "—",
+              "tested_at": "暂停测速",
+              "dot_color": "rgb(113, 122, 137)"
+            }
+          },
+          "hidden_summary": {
+            "trend_hidden": true,
+            "empty_hidden": true
+          }
+        }
+      },
+      "related_finding_ids": [
+        "TP02A-003"
+      ],
+      "limitations": [],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 1,
+        "/api/bandwidth": 1,
+        "/api/latency": 1,
+        "/api/live": 3,
+        "/api/vps-status": 1
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-003",
+      "scenario": "latency non-2xx and invalid JSON after a successful render",
+      "status": "CONFIRMED_FINDING",
+      "fixture": {
+        "name": "fail-latency-sequence",
+        "controls": {}
+      },
+      "expected_observation": "latency records both failure forms without crashing the fixture; section-specific stale/error behavior is visible.",
+      "actual_observation": "Both failures left the loading/error overlay hidden and retained the prior chart metadata.",
+      "request_count": 10,
+      "max_concurrency": 1,
+      "console_errors": [],
+      "dom_evidence": {
+        "before": {
+          "overall": {
+            "class_name": "overall-status healthy",
+            "text": "Fixture healthy"
+          },
+          "last_update": "2026-08-10 08:00:00 CST",
+          "selected": {
+            "type": "icmp",
+            "range": "24h",
+            "vps": "DMIT Premium",
+            "route_wan": "telecom",
+            "route_direction": "outbound",
+            "route_protocol": "icmp",
+            "route_target": "DMIT Premium"
+          },
+          "legends": {
+            "telecom": "20.0 ms",
+            "mobile": "30.0 ms",
+            "unicom": "40.0 ms"
+          },
+          "live": {
+            "text": "实时同步 · 5 秒轮询",
+            "class_name": "",
+            "display": "none"
+          },
+          "chart": {
+            "loading_class": "chart-loading hidden",
+            "loading_text": "正在读取真实样本",
+            "count": "6 个绘图点 · 5 分钟粒度",
+            "range": "最近 24 小时 · Asia/Shanghai"
+          },
+          "route": {
+            "status": "ok",
+            "text": "Fixture route ready6 跳 · 9.50 ms",
+            "updated": "2026-08-10 08:00:00 CST",
+            "rows": 6
+          },
+          "bandwidth_status": {
+            "text": "最近更新 2026-08-10 08:00:00 CST",
+            "class_name": ""
+          },
+          "cards": {
+            "premium": {
+              "state": "ready",
+              "upload": "40.00 Mbps",
+              "download": "80.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "eyeball": {
+              "state": "ready",
+              "upload": "41.00 Mbps",
+              "download": "81.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "netlab_us": {
+              "state": "ready",
+              "upload": "42.00 Mbps",
+              "download": "82.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "zillion": {
+              "state": "ready",
+              "upload": "43.00 Mbps",
+              "download": "83.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "alibaba": {
+              "state": "disabled",
+              "upload": "已停用",
+              "download": "已停用",
+              "retr": "—",
+              "tested_at": "暂停测速",
+              "dot_color": "rgb(113, 122, 137)"
+            }
+          },
+          "hidden_summary": {
+            "trend_hidden": true,
+            "empty_hidden": true
+          }
+        },
+        "after_non_2xx": {
+          "overall": {
+            "class_name": "overall-status healthy",
+            "text": "Fixture healthy"
+          },
+          "last_update": "2026-08-10 08:00:00 CST",
+          "selected": {
+            "type": "icmp",
+            "range": "24h",
+            "vps": "DMIT Premium",
+            "route_wan": "telecom",
+            "route_direction": "outbound",
+            "route_protocol": "icmp",
+            "route_target": "DMIT Premium"
+          },
+          "legends": {
+            "telecom": "20.0 ms",
+            "mobile": "30.0 ms",
+            "unicom": "40.0 ms"
+          },
+          "live": {
+            "text": "实时同步 · 5 秒轮询",
+            "class_name": "",
+            "display": "none"
+          },
+          "chart": {
+            "loading_class": "chart-loading hidden",
+            "loading_text": "正在读取真实样本",
+            "count": "6 个绘图点 · 5 分钟粒度",
+            "range": "最近 24 小时 · Asia/Shanghai"
+          },
+          "route": {
+            "status": "ok",
+            "text": "Fixture route ready6 跳 · 9.50 ms",
+            "updated": "2026-08-10 08:00:00 CST",
+            "rows": 6
+          },
+          "bandwidth_status": {
+            "text": "最近更新 2026-08-10 08:00:00 CST",
+            "class_name": ""
+          },
+          "cards": {
+            "premium": {
+              "state": "ready",
+              "upload": "40.00 Mbps",
+              "download": "80.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "eyeball": {
+              "state": "ready",
+              "upload": "41.00 Mbps",
+              "download": "81.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "netlab_us": {
+              "state": "ready",
+              "upload": "42.00 Mbps",
+              "download": "82.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "zillion": {
+              "state": "ready",
+              "upload": "43.00 Mbps",
+              "download": "83.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "alibaba": {
+              "state": "disabled",
+              "upload": "已停用",
+              "download": "已停用",
+              "retr": "—",
+              "tested_at": "暂停测速",
+              "dot_color": "rgb(113, 122, 137)"
+            }
+          },
+          "hidden_summary": {
+            "trend_hidden": true,
+            "empty_hidden": true
+          }
+        },
+        "after_invalid_json": {
+          "overall": {
+            "class_name": "overall-status healthy",
+            "text": "Fixture healthy"
+          },
+          "last_update": "2026-08-10 08:00:00 CST",
+          "selected": {
+            "type": "icmp",
+            "range": "24h",
+            "vps": "DMIT Premium",
+            "route_wan": "telecom",
+            "route_direction": "outbound",
+            "route_protocol": "icmp",
+            "route_target": "DMIT Premium"
+          },
+          "legends": {
+            "telecom": "20.0 ms",
+            "mobile": "30.0 ms",
+            "unicom": "40.0 ms"
+          },
+          "live": {
+            "text": "实时同步 · 5 秒轮询",
+            "class_name": "",
+            "display": "none"
+          },
+          "chart": {
+            "loading_class": "chart-loading hidden",
+            "loading_text": "正在读取真实样本",
+            "count": "6 个绘图点 · 5 分钟粒度",
+            "range": "最近 24 小时 · Asia/Shanghai"
+          },
+          "route": {
+            "status": "ok",
+            "text": "Fixture route ready6 跳 · 9.50 ms",
+            "updated": "2026-08-10 08:00:00 CST",
+            "rows": 6
+          },
+          "bandwidth_status": {
+            "text": "最近更新 2026-08-10 08:00:00 CST",
+            "class_name": ""
+          },
+          "cards": {
+            "premium": {
+              "state": "ready",
+              "upload": "40.00 Mbps",
+              "download": "80.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "eyeball": {
+              "state": "ready",
+              "upload": "41.00 Mbps",
+              "download": "81.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "netlab_us": {
+              "state": "ready",
+              "upload": "42.00 Mbps",
+              "download": "82.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "zillion": {
+              "state": "ready",
+              "upload": "43.00 Mbps",
+              "download": "83.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "alibaba": {
+              "state": "disabled",
+              "upload": "已停用",
+              "download": "已停用",
+              "retr": "—",
+              "tested_at": "暂停测速",
+              "dot_color": "rgb(113, 122, 137)"
+            }
+          },
+          "hidden_summary": {
+            "trend_hidden": true,
+            "empty_hidden": true
+          }
+        }
+      },
+      "related_finding_ids": [
+        "TP02A-004"
+      ],
+      "limitations": [],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 1,
+        "/api/bandwidth": 1,
+        "/api/latency": 3,
+        "/api/live": 1,
+        "/api/vps-status": 1
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-004",
+      "scenario": "route non-2xx and invalid JSON after a successful render",
+      "status": "PASS",
+      "fixture": {
+        "name": "fail-route-sequence",
+        "controls": {}
+      },
+      "expected_observation": "route records both failure forms without crashing the fixture; section-specific stale/error behavior is visible.",
+      "actual_observation": "Both failures produced a visible unavailable route state and cleared the route timestamp.",
+      "request_count": 10,
+      "max_concurrency": 1,
+      "console_errors": [
+        "Error: 503 /api/routes?wan=telecom&direction=outbound&protocol=icmp&target_name=DMIT+Premium\n    at getJSON (http://127.0.0.1:58727/app.js?v=20260805-route-state-1:29:26)\n    at async loadRoute (http://127.0.0.1:58727/app.js?v=20260805-route-state-1:461:16)\n    at async Promise.allSettled (index 0)",
+        "SyntaxError: Expected property name or '}' in JSON at position 2 (line 1 column 3)"
+      ],
+      "dom_evidence": {
+        "before": {
+          "overall": {
+            "class_name": "overall-status healthy",
+            "text": "Fixture healthy"
+          },
+          "last_update": "2026-08-10 08:00:00 CST",
+          "selected": {
+            "type": "icmp",
+            "range": "24h",
+            "vps": "DMIT Premium",
+            "route_wan": "telecom",
+            "route_direction": "outbound",
+            "route_protocol": "icmp",
+            "route_target": "DMIT Premium"
+          },
+          "legends": {
+            "telecom": "20.0 ms",
+            "mobile": "30.0 ms",
+            "unicom": "40.0 ms"
+          },
+          "live": {
+            "text": "实时同步 · 5 秒轮询",
+            "class_name": "",
+            "display": "none"
+          },
+          "chart": {
+            "loading_class": "chart-loading hidden",
+            "loading_text": "正在读取真实样本",
+            "count": "6 个绘图点 · 5 分钟粒度",
+            "range": "最近 24 小时 · Asia/Shanghai"
+          },
+          "route": {
+            "status": "ok",
+            "text": "Fixture route ready6 跳 · 9.50 ms",
+            "updated": "2026-08-10 08:00:00 CST",
+            "rows": 6
+          },
+          "bandwidth_status": {
+            "text": "最近更新 2026-08-10 08:00:00 CST",
+            "class_name": ""
+          },
+          "cards": {
+            "premium": {
+              "state": "ready",
+              "upload": "40.00 Mbps",
+              "download": "80.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "eyeball": {
+              "state": "ready",
+              "upload": "41.00 Mbps",
+              "download": "81.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "netlab_us": {
+              "state": "ready",
+              "upload": "42.00 Mbps",
+              "download": "82.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "zillion": {
+              "state": "ready",
+              "upload": "43.00 Mbps",
+              "download": "83.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "alibaba": {
+              "state": "disabled",
+              "upload": "已停用",
+              "download": "已停用",
+              "retr": "—",
+              "tested_at": "暂停测速",
+              "dot_color": "rgb(113, 122, 137)"
+            }
+          },
+          "hidden_summary": {
+            "trend_hidden": true,
+            "empty_hidden": true
+          }
+        },
+        "after_non_2xx": {
+          "overall": {
+            "class_name": "overall-status healthy",
+            "text": "Fixture healthy"
+          },
+          "last_update": "2026-08-10 08:00:00 CST",
+          "selected": {
+            "type": "icmp",
+            "range": "24h",
+            "vps": "DMIT Premium",
+            "route_wan": "telecom",
+            "route_direction": "outbound",
+            "route_protocol": "icmp",
+            "route_target": "DMIT Premium"
+          },
+          "legends": {
+            "telecom": "20.0 ms",
+            "mobile": "30.0 ms",
+            "unicom": "40.0 ms"
+          },
+          "live": {
+            "text": "实时同步 · 5 秒轮询",
+            "class_name": "",
+            "display": "none"
+          },
+          "chart": {
+            "loading_class": "chart-loading hidden",
+            "loading_text": "正在读取真实样本",
+            "count": "6 个绘图点 · 5 分钟粒度",
+            "range": "最近 24 小时 · Asia/Shanghai"
+          },
+          "route": {
+            "status": "unavailable",
+            "text": "路由数据读取失败",
+            "updated": "—",
+            "rows": 0
+          },
+          "bandwidth_status": {
+            "text": "最近更新 2026-08-10 08:00:00 CST",
+            "class_name": ""
+          },
+          "cards": {
+            "premium": {
+              "state": "ready",
+              "upload": "40.00 Mbps",
+              "download": "80.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "eyeball": {
+              "state": "ready",
+              "upload": "41.00 Mbps",
+              "download": "81.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "netlab_us": {
+              "state": "ready",
+              "upload": "42.00 Mbps",
+              "download": "82.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "zillion": {
+              "state": "ready",
+              "upload": "43.00 Mbps",
+              "download": "83.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "alibaba": {
+              "state": "disabled",
+              "upload": "已停用",
+              "download": "已停用",
+              "retr": "—",
+              "tested_at": "暂停测速",
+              "dot_color": "rgb(113, 122, 137)"
+            }
+          },
+          "hidden_summary": {
+            "trend_hidden": true,
+            "empty_hidden": true
+          }
+        },
+        "after_invalid_json": {
+          "overall": {
+            "class_name": "overall-status healthy",
+            "text": "Fixture healthy"
+          },
+          "last_update": "2026-08-10 08:00:00 CST",
+          "selected": {
+            "type": "icmp",
+            "range": "24h",
+            "vps": "DMIT Premium",
+            "route_wan": "telecom",
+            "route_direction": "outbound",
+            "route_protocol": "icmp",
+            "route_target": "DMIT Premium"
+          },
+          "legends": {
+            "telecom": "20.0 ms",
+            "mobile": "30.0 ms",
+            "unicom": "40.0 ms"
+          },
+          "live": {
+            "text": "实时同步 · 5 秒轮询",
+            "class_name": "",
+            "display": "none"
+          },
+          "chart": {
+            "loading_class": "chart-loading hidden",
+            "loading_text": "正在读取真实样本",
+            "count": "6 个绘图点 · 5 分钟粒度",
+            "range": "最近 24 小时 · Asia/Shanghai"
+          },
+          "route": {
+            "status": "unavailable",
+            "text": "路由数据读取失败",
+            "updated": "—",
+            "rows": 0
+          },
+          "bandwidth_status": {
+            "text": "最近更新 2026-08-10 08:00:00 CST",
+            "class_name": ""
+          },
+          "cards": {
+            "premium": {
+              "state": "ready",
+              "upload": "40.00 Mbps",
+              "download": "80.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "eyeball": {
+              "state": "ready",
+              "upload": "41.00 Mbps",
+              "download": "81.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "netlab_us": {
+              "state": "ready",
+              "upload": "42.00 Mbps",
+              "download": "82.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "zillion": {
+              "state": "ready",
+              "upload": "43.00 Mbps",
+              "download": "83.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "alibaba": {
+              "state": "disabled",
+              "upload": "已停用",
+              "download": "已停用",
+              "retr": "—",
+              "tested_at": "暂停测速",
+              "dot_color": "rgb(113, 122, 137)"
+            }
+          },
+          "hidden_summary": {
+            "trend_hidden": true,
+            "empty_hidden": true
+          }
+        }
+      },
+      "related_finding_ids": [],
+      "limitations": [],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 3,
+        "/api/bandwidth": 1,
+        "/api/latency": 1,
+        "/api/live": 1,
+        "/api/vps-status": 1
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-005",
+      "scenario": "bandwidth non-2xx and invalid JSON after a successful render",
+      "status": "CONFIRMED_FINDING",
+      "fixture": {
+        "name": "fail-bandwidth-sequence",
+        "controls": {}
+      },
+      "expected_observation": "bandwidth records both failure forms without crashing the fixture; section-specific stale/error behavior is visible.",
+      "actual_observation": "Both failures changed only the section status; prior card values, timestamps, and ready state remained.",
+      "request_count": 10,
+      "max_concurrency": 1,
+      "console_errors": [
+        "bandwidth load failed Error: 503 /api/bandwidth?limit=200\n    at getJSON (http://127.0.0.1:58747/app.js?v=20260805-route-state-1:29:26)\n    at async loadBandwidth (http://127.0.0.1:58747/app.js?v=20260805-route-state-1:713:19)\n    at async Promise.allSettled (index 0)",
+        "bandwidth load failed SyntaxError: Expected property name or '}' in JSON at position 2 (line 1 column 3)"
+      ],
+      "dom_evidence": {
+        "before": {
+          "overall": {
+            "class_name": "overall-status healthy",
+            "text": "Fixture healthy"
+          },
+          "last_update": "2026-08-10 08:00:00 CST",
+          "selected": {
+            "type": "icmp",
+            "range": "24h",
+            "vps": "DMIT Premium",
+            "route_wan": "telecom",
+            "route_direction": "outbound",
+            "route_protocol": "icmp",
+            "route_target": "DMIT Premium"
+          },
+          "legends": {
+            "telecom": "20.0 ms",
+            "mobile": "30.0 ms",
+            "unicom": "40.0 ms"
+          },
+          "live": {
+            "text": "实时同步 · 5 秒轮询",
+            "class_name": "",
+            "display": "none"
+          },
+          "chart": {
+            "loading_class": "chart-loading hidden",
+            "loading_text": "正在读取真实样本",
+            "count": "6 个绘图点 · 5 分钟粒度",
+            "range": "最近 24 小时 · Asia/Shanghai"
+          },
+          "route": {
+            "status": "ok",
+            "text": "Fixture route ready6 跳 · 9.50 ms",
+            "updated": "2026-08-10 08:00:00 CST",
+            "rows": 6
+          },
+          "bandwidth_status": {
+            "text": "最近更新 2026-08-10 08:00:00 CST",
+            "class_name": ""
+          },
+          "cards": {
+            "premium": {
+              "state": "ready",
+              "upload": "40.00 Mbps",
+              "download": "80.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "eyeball": {
+              "state": "ready",
+              "upload": "41.00 Mbps",
+              "download": "81.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "netlab_us": {
+              "state": "ready",
+              "upload": "42.00 Mbps",
+              "download": "82.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "zillion": {
+              "state": "ready",
+              "upload": "43.00 Mbps",
+              "download": "83.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "alibaba": {
+              "state": "disabled",
+              "upload": "已停用",
+              "download": "已停用",
+              "retr": "—",
+              "tested_at": "暂停测速",
+              "dot_color": "rgb(113, 122, 137)"
+            }
+          },
+          "hidden_summary": {
+            "trend_hidden": true,
+            "empty_hidden": true
+          }
+        },
+        "after_non_2xx": {
+          "overall": {
+            "class_name": "overall-status healthy",
+            "text": "Fixture healthy"
+          },
+          "last_update": "2026-08-10 08:00:00 CST",
+          "selected": {
+            "type": "icmp",
+            "range": "24h",
+            "vps": "DMIT Premium",
+            "route_wan": "telecom",
+            "route_direction": "outbound",
+            "route_protocol": "icmp",
+            "route_target": "DMIT Premium"
+          },
+          "legends": {
+            "telecom": "20.0 ms",
+            "mobile": "30.0 ms",
+            "unicom": "40.0 ms"
+          },
+          "live": {
+            "text": "实时同步 · 5 秒轮询",
+            "class_name": "",
+            "display": "none"
+          },
+          "chart": {
+            "loading_class": "chart-loading hidden",
+            "loading_text": "正在读取真实样本",
+            "count": "6 个绘图点 · 5 分钟粒度",
+            "range": "最近 24 小时 · Asia/Shanghai"
+          },
+          "route": {
+            "status": "ok",
+            "text": "Fixture route ready6 跳 · 9.50 ms",
+            "updated": "2026-08-10 08:00:00 CST",
+            "rows": 6
+          },
+          "bandwidth_status": {
+            "text": "测速数据读取失败",
+            "class_name": ""
+          },
+          "cards": {
+            "premium": {
+              "state": "ready",
+              "upload": "40.00 Mbps",
+              "download": "80.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "eyeball": {
+              "state": "ready",
+              "upload": "41.00 Mbps",
+              "download": "81.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "netlab_us": {
+              "state": "ready",
+              "upload": "42.00 Mbps",
+              "download": "82.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "zillion": {
+              "state": "ready",
+              "upload": "43.00 Mbps",
+              "download": "83.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "alibaba": {
+              "state": "disabled",
+              "upload": "已停用",
+              "download": "已停用",
+              "retr": "—",
+              "tested_at": "暂停测速",
+              "dot_color": "rgb(113, 122, 137)"
+            }
+          },
+          "hidden_summary": {
+            "trend_hidden": true,
+            "empty_hidden": true
+          }
+        },
+        "after_invalid_json": {
+          "overall": {
+            "class_name": "overall-status healthy",
+            "text": "Fixture healthy"
+          },
+          "last_update": "2026-08-10 08:00:00 CST",
+          "selected": {
+            "type": "icmp",
+            "range": "24h",
+            "vps": "DMIT Premium",
+            "route_wan": "telecom",
+            "route_direction": "outbound",
+            "route_protocol": "icmp",
+            "route_target": "DMIT Premium"
+          },
+          "legends": {
+            "telecom": "20.0 ms",
+            "mobile": "30.0 ms",
+            "unicom": "40.0 ms"
+          },
+          "live": {
+            "text": "实时同步 · 5 秒轮询",
+            "class_name": "",
+            "display": "none"
+          },
+          "chart": {
+            "loading_class": "chart-loading hidden",
+            "loading_text": "正在读取真实样本",
+            "count": "6 个绘图点 · 5 分钟粒度",
+            "range": "最近 24 小时 · Asia/Shanghai"
+          },
+          "route": {
+            "status": "ok",
+            "text": "Fixture route ready6 跳 · 9.50 ms",
+            "updated": "2026-08-10 08:00:00 CST",
+            "rows": 6
+          },
+          "bandwidth_status": {
+            "text": "测速数据读取失败",
+            "class_name": ""
+          },
+          "cards": {
+            "premium": {
+              "state": "ready",
+              "upload": "40.00 Mbps",
+              "download": "80.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "eyeball": {
+              "state": "ready",
+              "upload": "41.00 Mbps",
+              "download": "81.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "netlab_us": {
+              "state": "ready",
+              "upload": "42.00 Mbps",
+              "download": "82.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "zillion": {
+              "state": "ready",
+              "upload": "43.00 Mbps",
+              "download": "83.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "alibaba": {
+              "state": "disabled",
+              "upload": "已停用",
+              "download": "已停用",
+              "retr": "—",
+              "tested_at": "暂停测速",
+              "dot_color": "rgb(113, 122, 137)"
+            }
+          },
+          "hidden_summary": {
+            "trend_hidden": true,
+            "empty_hidden": true
+          }
+        }
+      },
+      "related_finding_ids": [
+        "TP02A-002"
+      ],
+      "limitations": [],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 1,
+        "/api/bandwidth": 3,
+        "/api/latency": 1,
+        "/api/live": 1,
+        "/api/vps-status": 1
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-006",
+      "scenario": "Connection refused after successful initialization",
+      "status": "PASS",
+      "fixture": {
+        "name": "baseline",
+        "controls": {}
+      },
+      "expected_observation": "All four loaders record their actual behavior when the localhost fixture is stopped after baseline.",
+      "actual_observation": "browser_connection_failure=true; live and bandwidth retained old values, latency overlay stayed hidden, route showed unavailable.",
+      "request_count": 8,
+      "max_concurrency": 1,
+      "console_errors": [
+        "TypeError: Failed to fetch\n    at getJSON (http://127.0.0.1:58769/app.js?v=20260805-route-state-1:28:26)\n    at loadLive (http://127.0.0.1:58769/app.js?v=20260805-route-state-1:179:22)\n    at <anonymous>:1:21",
+        "TypeError: Failed to fetch\n    at getJSON (http://127.0.0.1:58769/app.js?v=20260805-route-state-1:28:26)\n    at loadRoute (http://127.0.0.1:58769/app.js?v=20260805-route-state-1:461:22)\n    at <anonymous>:1:51",
+        "bandwidth load failed TypeError: Failed to fetch\n    at getJSON (http://127.0.0.1:58769/app.js?v=20260805-route-state-1:28:26)\n    at loadBandwidth (http://127.0.0.1:58769/app.js?v=20260805-route-state-1:713:25)\n    at <anonymous>:1:64"
+      ],
+      "dom_evidence": {
+        "before": {
+          "overall": {
+            "class_name": "overall-status healthy",
+            "text": "Fixture healthy"
+          },
+          "last_update": "2026-08-10 08:00:00 CST",
+          "selected": {
+            "type": "icmp",
+            "range": "24h",
+            "vps": "DMIT Premium",
+            "route_wan": "telecom",
+            "route_direction": "outbound",
+            "route_protocol": "icmp",
+            "route_target": "DMIT Premium"
+          },
+          "legends": {
+            "telecom": "20.0 ms",
+            "mobile": "30.0 ms",
+            "unicom": "40.0 ms"
+          },
+          "live": {
+            "text": "实时同步 · 5 秒轮询",
+            "class_name": "",
+            "display": "none"
+          },
+          "chart": {
+            "loading_class": "chart-loading hidden",
+            "loading_text": "正在读取真实样本",
+            "count": "6 个绘图点 · 5 分钟粒度",
+            "range": "最近 24 小时 · Asia/Shanghai"
+          },
+          "route": {
+            "status": "ok",
+            "text": "Fixture route ready6 跳 · 9.50 ms",
+            "updated": "2026-08-10 08:00:00 CST",
+            "rows": 6
+          },
+          "bandwidth_status": {
+            "text": "最近更新 2026-08-10 08:00:00 CST",
+            "class_name": ""
+          },
+          "cards": {
+            "premium": {
+              "state": "ready",
+              "upload": "40.00 Mbps",
+              "download": "80.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "eyeball": {
+              "state": "ready",
+              "upload": "41.00 Mbps",
+              "download": "81.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "netlab_us": {
+              "state": "ready",
+              "upload": "42.00 Mbps",
+              "download": "82.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "zillion": {
+              "state": "ready",
+              "upload": "43.00 Mbps",
+              "download": "83.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "alibaba": {
+              "state": "disabled",
+              "upload": "已停用",
+              "download": "已停用",
+              "retr": "—",
+              "tested_at": "暂停测速",
+              "dot_color": "rgb(113, 122, 137)"
+            }
+          },
+          "hidden_summary": {
+            "trend_hidden": true,
+            "empty_hidden": true
+          }
+        },
+        "after": {
+          "overall": {
+            "class_name": "overall-status healthy",
+            "text": "Fixture healthy"
+          },
+          "last_update": "2026-08-10 08:00:00 CST",
+          "selected": {
+            "type": "icmp",
+            "range": "24h",
+            "vps": "DMIT Premium",
+            "route_wan": "telecom",
+            "route_direction": "outbound",
+            "route_protocol": "icmp",
+            "route_target": "DMIT Premium"
+          },
+          "legends": {
+            "telecom": "20.0 ms",
+            "mobile": "30.0 ms",
+            "unicom": "40.0 ms"
+          },
+          "live": {
+            "text": "实时同步暂时失败",
+            "class_name": "stale",
+            "display": "none"
+          },
+          "chart": {
+            "loading_class": "chart-loading hidden",
+            "loading_text": "正在读取真实样本",
+            "count": "6 个绘图点 · 5 分钟粒度",
+            "range": "最近 24 小时 · Asia/Shanghai"
+          },
+          "route": {
+            "status": "unavailable",
+            "text": "路由数据读取失败",
+            "updated": "—",
+            "rows": 0
+          },
+          "bandwidth_status": {
+            "text": "测速数据读取失败",
+            "class_name": ""
+          },
+          "cards": {
+            "premium": {
+              "state": "ready",
+              "upload": "40.00 Mbps",
+              "download": "80.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "eyeball": {
+              "state": "ready",
+              "upload": "41.00 Mbps",
+              "download": "81.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "netlab_us": {
+              "state": "ready",
+              "upload": "42.00 Mbps",
+              "download": "82.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "zillion": {
+              "state": "ready",
+              "upload": "43.00 Mbps",
+              "download": "83.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "alibaba": {
+              "state": "disabled",
+              "upload": "已停用",
+              "download": "已停用",
+              "retr": "—",
+              "tested_at": "暂停测速",
+              "dot_color": "rgb(113, 122, 137)"
+            }
+          },
+          "hidden_summary": {
+            "trend_hidden": true,
+            "empty_hidden": true
+          }
+        }
+      },
+      "related_finding_ids": [
+        "TP02A-002",
+        "TP02A-003",
+        "TP02A-004"
+      ],
+      "limitations": [
+        "One fixture shutdown affects all same-origin API paths together; section behavior was triggered separately in one Promise.allSettled call."
+      ],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 1,
+        "/api/bandwidth": 1,
+        "/api/latency": 1,
+        "/api/live": 1,
+        "/api/vps-status": 1
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [
+        {
+          "error_text": "net::ERR_CONNECTION_REFUSED",
+          "canceled": false
+        },
+        {
+          "error_text": "net::ERR_CONNECTION_REFUSED",
+          "canceled": false
+        },
+        {
+          "error_text": "net::ERR_CONNECTION_REFUSED",
+          "canceled": false
+        },
+        {
+          "error_text": "net::ERR_CONNECTION_REFUSED",
+          "canceled": false
+        }
+      ],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-007",
+      "scenario": "Live response exceeds five-second polling period",
+      "status": "CONFIRMED_FINDING",
+      "fixture": {
+        "name": "timeout-live",
+        "controls": {
+          "live_delay_ms": 11000,
+          "scenario_limit_ms": 23000
+        }
+      },
+      "expected_observation": "Subsequent live requests delayed 11 seconds overlap under the real five-second interval.",
+      "actual_observation": "delayed_live_requests=3; maximum concurrent API requests=4.",
+      "request_count": 14,
+      "max_concurrency": 4,
+      "console_errors": [],
+      "dom_evidence": {
+        "overall": {
+          "class_name": "overall-status healthy",
+          "text": "Fixture healthy"
+        },
+        "last_update": "2026-08-10 08:00:00 CST",
+        "selected": {
+          "type": "icmp",
+          "range": "24h",
+          "vps": "DMIT Premium",
+          "route_wan": "telecom",
+          "route_direction": "outbound",
+          "route_protocol": "icmp",
+          "route_target": "DMIT Premium"
+        },
+        "legends": {
+          "telecom": "20.0 ms",
+          "mobile": "30.0 ms",
+          "unicom": "40.0 ms"
+        },
+        "live": {
+          "text": "实时同步 · 5 秒轮询",
+          "class_name": "",
+          "display": "none"
+        },
+        "chart": {
+          "loading_class": "chart-loading hidden",
+          "loading_text": "正在读取真实样本",
+          "count": "6 个绘图点 · 5 分钟粒度",
+          "range": "最近 24 小时 · Asia/Shanghai"
+        },
+        "route": {
+          "status": "ok",
+          "text": "Fixture route ready6 跳 · 9.50 ms",
+          "updated": "2026-08-10 08:00:00 CST",
+          "rows": 6
+        },
+        "bandwidth_status": {
+          "text": "最近更新 2026-08-10 08:00:00 CST",
+          "class_name": ""
+        },
+        "cards": {
+          "premium": {
+            "state": "ready",
+            "upload": "40.00 Mbps",
+            "download": "80.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "eyeball": {
+            "state": "ready",
+            "upload": "41.00 Mbps",
+            "download": "81.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "netlab_us": {
+            "state": "ready",
+            "upload": "42.00 Mbps",
+            "download": "82.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "zillion": {
+            "state": "ready",
+            "upload": "43.00 Mbps",
+            "download": "83.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "alibaba": {
+            "state": "disabled",
+            "upload": "已停用",
+            "download": "已停用",
+            "retr": "—",
+            "tested_at": "暂停测速",
+            "dot_color": "rgb(113, 122, 137)"
+          }
+        },
+        "hidden_summary": {
+          "trend_hidden": true,
+          "empty_hidden": true
+        }
+      },
+      "related_finding_ids": [
+        "TP02A-001"
+      ],
+      "limitations": [],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 1,
+        "/api/bandwidth": 1,
+        "/api/latency": 1,
+        "/api/live": 4,
+        "/api/vps-status": 4
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-008",
+      "scenario": "Bandwidth response exceeds sixty-second polling period",
+      "status": "CONFIRMED_FINDING",
+      "fixture": {
+        "name": "timeout-bandwidth",
+        "controls": {
+          "bandwidth_delay_ms": 61000,
+          "one_manual_refresh_before_real_interval": true,
+          "scenario_limit_ms": 68000
+        }
+      },
+      "expected_observation": "A manually started 61-second refresh is still active when the real 60-second interval starts another refresh.",
+      "actual_observation": "delayed_bandwidth_requests=2; maximum concurrent API requests=2.",
+      "request_count": 34,
+      "max_concurrency": 2,
+      "console_errors": [],
+      "dom_evidence": {
+        "overall": {
+          "class_name": "overall-status healthy",
+          "text": "Fixture healthy"
+        },
+        "last_update": "2026-08-10 08:00:00 CST",
+        "selected": {
+          "type": "icmp",
+          "range": "24h",
+          "vps": "DMIT Premium",
+          "route_wan": "telecom",
+          "route_direction": "outbound",
+          "route_protocol": "icmp",
+          "route_target": "DMIT Premium"
+        },
+        "legends": {
+          "telecom": "20.0 ms",
+          "mobile": "30.0 ms",
+          "unicom": "40.0 ms"
+        },
+        "live": {
+          "text": "实时同步 · 5 秒轮询",
+          "class_name": "",
+          "display": "none"
+        },
+        "chart": {
+          "loading_class": "chart-loading hidden",
+          "loading_text": "正在读取真实样本",
+          "count": "6 个绘图点 · 5 分钟粒度",
+          "range": "最近 24 小时 · Asia/Shanghai"
+        },
+        "route": {
+          "status": "ok",
+          "text": "Fixture route ready6 跳 · 9.50 ms",
+          "updated": "2026-08-10 08:00:00 CST",
+          "rows": 6
+        },
+        "bandwidth_status": {
+          "text": "最近更新 2026-08-10 08:00:00 CST",
+          "class_name": ""
+        },
+        "cards": {
+          "premium": {
+            "state": "ready",
+            "upload": "40.00 Mbps",
+            "download": "80.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "eyeball": {
+            "state": "ready",
+            "upload": "41.00 Mbps",
+            "download": "81.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "netlab_us": {
+            "state": "ready",
+            "upload": "42.00 Mbps",
+            "download": "82.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "zillion": {
+            "state": "ready",
+            "upload": "43.00 Mbps",
+            "download": "83.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "alibaba": {
+            "state": "disabled",
+            "upload": "已停用",
+            "download": "已停用",
+            "retr": "—",
+            "tested_at": "暂停测速",
+            "dot_color": "rgb(113, 122, 137)"
+          }
+        },
+        "hidden_summary": {
+          "trend_hidden": true,
+          "empty_hidden": true
+        }
+      },
+      "related_finding_ids": [
+        "TP02A-001"
+      ],
+      "limitations": [],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 1,
+        "/api/bandwidth": 3,
+        "/api/latency": 1,
+        "/api/live": 13,
+        "/api/vps-status": 13
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-009",
+      "scenario": "Rapid VPS, range, WAN, and protocol switching with out-of-order responses",
+      "status": "PASS",
+      "fixture": {
+        "name": "race-switches",
+        "controls": {}
+      },
+      "expected_observation": "Request IDs and AbortController protections preserve the final selections and reject stale latency/live/route writes.",
+      "actual_observation": "Final UI selections remained 24h, DMIT Eyeball, mobile, and TCP after old responses completed or were aborted.",
+      "request_count": 19,
+      "max_concurrency": 9,
+      "console_errors": [],
+      "dom_evidence": {
+        "overall": {
+          "class_name": "overall-status healthy",
+          "text": "Fixture healthy"
+        },
+        "last_update": "2026-08-10 08:00:00 CST",
+        "selected": {
+          "type": "icmp",
+          "range": "24h",
+          "vps": "DMIT Eyeball",
+          "route_wan": "mobile",
+          "route_direction": "outbound",
+          "route_protocol": "tcp",
+          "route_target": "DMIT Premium"
+        },
+        "legends": {
+          "telecom": "27.0 ms",
+          "mobile": "37.0 ms",
+          "unicom": "47.0 ms"
+        },
+        "live": {
+          "text": "实时同步 · 5 秒轮询",
+          "class_name": "",
+          "display": "none"
+        },
+        "chart": {
+          "loading_class": "chart-loading hidden",
+          "loading_text": "正在读取真实样本",
+          "count": "6 个绘图点 · 5 分钟粒度",
+          "range": "最近 24 小时 · Asia/Shanghai"
+        },
+        "route": {
+          "status": "ok",
+          "text": "Fixture route ready6 跳 · 9.50 ms",
+          "updated": "2026-08-10 08:00:00 CST",
+          "rows": 6
+        },
+        "bandwidth_status": {
+          "text": "最近更新 2026-08-10 08:00:00 CST",
+          "class_name": ""
+        },
+        "cards": {
+          "premium": {
+            "state": "ready",
+            "upload": "40.00 Mbps",
+            "download": "80.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "eyeball": {
+            "state": "ready",
+            "upload": "41.00 Mbps",
+            "download": "81.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "netlab_us": {
+            "state": "ready",
+            "upload": "42.00 Mbps",
+            "download": "82.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "zillion": {
+            "state": "ready",
+            "upload": "43.00 Mbps",
+            "download": "83.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "alibaba": {
+            "state": "disabled",
+            "upload": "已停用",
+            "download": "已停用",
+            "retr": "—",
+            "tested_at": "暂停测速",
+            "dot_color": "rgb(113, 122, 137)"
+          }
+        },
+        "hidden_summary": {
+          "trend_hidden": true,
+          "empty_hidden": true
+        }
+      },
+      "related_finding_ids": [],
+      "limitations": [],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 4,
+        "/api/bandwidth": 1,
+        "/api/latency": 5,
+        "/api/live": 3,
+        "/api/vps-status": 3
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [
+        {
+          "error_text": "net::ERR_ABORTED",
+          "canceled": true
+        },
+        {
+          "error_text": "net::ERR_ABORTED",
+          "canceled": true
+        },
+        {
+          "error_text": "net::ERR_ABORTED",
+          "canceled": true
+        },
+        {
+          "error_text": "net::ERR_ABORTED",
+          "canceled": true
+        },
+        {
+          "error_text": "net::ERR_ABORTED",
+          "canceled": true
+        },
+        {
+          "error_text": "net::ERR_ABORTED",
+          "canceled": true
+        }
+      ],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-010",
+      "scenario": "Out-of-order bandwidth completion",
+      "status": "CONFIRMED_FINDING",
+      "fixture": {
+        "name": "bandwidth-out-of-order",
+        "controls": {}
+      },
+      "expected_observation": "A late older request must not overwrite a faster newer response.",
+      "actual_observation": "The late older response overwrote the faster newer 90.00 Mbps render with 20.00 Mbps.",
+      "request_count": 10,
+      "max_concurrency": 2,
+      "console_errors": [],
+      "dom_evidence": {
+        "overall": {
+          "class_name": "overall-status healthy",
+          "text": "Fixture healthy"
+        },
+        "last_update": "2026-08-10 08:00:00 CST",
+        "selected": {
+          "type": "icmp",
+          "range": "24h",
+          "vps": "DMIT Premium",
+          "route_wan": "telecom",
+          "route_direction": "outbound",
+          "route_protocol": "icmp",
+          "route_target": "DMIT Premium"
+        },
+        "legends": {
+          "telecom": "20.0 ms",
+          "mobile": "30.0 ms",
+          "unicom": "40.0 ms"
+        },
+        "live": {
+          "text": "实时同步 · 5 秒轮询",
+          "class_name": "",
+          "display": "none"
+        },
+        "chart": {
+          "loading_class": "chart-loading hidden",
+          "loading_text": "正在读取真实样本",
+          "count": "6 个绘图点 · 5 分钟粒度",
+          "range": "最近 24 小时 · Asia/Shanghai"
+        },
+        "route": {
+          "status": "ok",
+          "text": "Fixture route ready6 跳 · 9.50 ms",
+          "updated": "2026-08-10 08:00:00 CST",
+          "rows": 6
+        },
+        "bandwidth_status": {
+          "text": "最近更新 2026-08-10 08:00:00 CST",
+          "class_name": ""
+        },
+        "cards": {
+          "premium": {
+            "state": "ready",
+            "upload": "20.00 Mbps",
+            "download": "60.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "eyeball": {
+            "state": "ready",
+            "upload": "21.00 Mbps",
+            "download": "61.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "netlab_us": {
+            "state": "ready",
+            "upload": "22.00 Mbps",
+            "download": "62.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "zillion": {
+            "state": "ready",
+            "upload": "23.00 Mbps",
+            "download": "63.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "alibaba": {
+            "state": "disabled",
+            "upload": "已停用",
+            "download": "已停用",
+            "retr": "—",
+            "tested_at": "暂停测速",
+            "dot_color": "rgb(113, 122, 137)"
+          }
+        },
+        "hidden_summary": {
+          "trend_hidden": true,
+          "empty_hidden": true
+        }
+      },
+      "related_finding_ids": [],
+      "limitations": [],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 1,
+        "/api/bandwidth": 3,
+        "/api/latency": 1,
+        "/api/live": 1,
+        "/api/vps-status": 1
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-011",
+      "scenario": "Initial latency failure visibility",
+      "status": "CONFIRMED_FINDING",
+      "fixture": {
+        "name": "init-latency-failure",
+        "controls": {}
+      },
+      "expected_observation": "The initial error text should remain visibly exposed after latency failure.",
+      "actual_observation": "Global initialization wrote the failure text, but latency finally left the overlay hidden.",
+      "request_count": 8,
+      "max_concurrency": 1,
+      "console_errors": [
+        "Error: 503 /api/latency?range=24h&type=icmp&target=DMIT%20Premium\n    at getJSON (http://127.0.0.1:58992/app.js?v=20260805-route-state-1:29:26)\n    at async loadChart (http://127.0.0.1:58992/app.js?v=20260805-route-state-1:349:16)\n    at async Promise.all (index 0)\n    at async init (http://127.0.0.1:58992/app.js?v=20260805-route-state-1:725:102)"
+      ],
+      "dom_evidence": {
+        "overall": {
+          "class_name": "overall-status stale",
+          "text": "读取失败"
+        },
+        "last_update": "2026-08-10 08:00:00 CST",
+        "selected": {
+          "type": "icmp",
+          "range": "24h",
+          "vps": "DMIT Premium",
+          "route_wan": "telecom",
+          "route_direction": "outbound",
+          "route_protocol": "icmp",
+          "route_target": "DMIT Premium"
+        },
+        "legends": {
+          "telecom": "20.0 ms",
+          "mobile": "30.0 ms",
+          "unicom": "40.0 ms"
+        },
+        "live": {
+          "text": "实时同步 · 5 秒轮询",
+          "class_name": "",
+          "display": "none"
+        },
+        "chart": {
+          "loading_class": "chart-loading hidden",
+          "loading_text": "候选 API 读取失败",
+          "count": "—",
+          "range": "24 小时 · Asia/Shanghai"
+        },
+        "route": {
+          "status": "ok",
+          "text": "Fixture route ready6 跳 · 9.50 ms",
+          "updated": "2026-08-10 08:00:00 CST",
+          "rows": 6
+        },
+        "bandwidth_status": {
+          "text": "最近更新 2026-08-10 08:00:00 CST",
+          "class_name": ""
+        },
+        "cards": {
+          "premium": {
+            "state": "ready",
+            "upload": "40.00 Mbps",
+            "download": "80.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "eyeball": {
+            "state": "ready",
+            "upload": "41.00 Mbps",
+            "download": "81.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "netlab_us": {
+            "state": "ready",
+            "upload": "42.00 Mbps",
+            "download": "82.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "zillion": {
+            "state": "ready",
+            "upload": "43.00 Mbps",
+            "download": "83.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "alibaba": {
+            "state": "disabled",
+            "upload": "已停用",
+            "download": "已停用",
+            "retr": "—",
+            "tested_at": "暂停测速",
+            "dot_color": "rgb(113, 122, 137)"
+          }
+        },
+        "hidden_summary": {
+          "trend_hidden": true,
+          "empty_hidden": true
+        }
+      },
+      "related_finding_ids": [
+        "TP02A-004"
+      ],
+      "limitations": [],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 1,
+        "/api/bandwidth": 1,
+        "/api/latency": 1,
+        "/api/live": 1,
+        "/api/vps-status": 1
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-012",
+      "scenario": "Latency range-switch failure visibility",
+      "status": "CONFIRMED_FINDING",
+      "fixture": {
+        "name": "latency-range-failure",
+        "controls": {}
+      },
+      "expected_observation": "A failed range change should expose an error and clear loading state without an unhandled rejection.",
+      "actual_observation": "Overlay hidden; runtime exceptions captured=1.",
+      "request_count": 9,
+      "max_concurrency": 1,
+      "console_errors": [
+        "Error: 503 /api/latency?range=6h&type=icmp&target=DMIT%20Premium\n    at getJSON (http://127.0.0.1:59010/app.js?v=20260805-route-state-1:29:26)\n    at async loadChart (http://127.0.0.1:59010/app.js?v=20260805-route-state-1:349:16)\n    at async HTMLButtonElement.<anonymous> (http://127.0.0.1:59010/app.js?v=20260805-route-state-1:510:116)"
+      ],
+      "dom_evidence": {
+        "overall": {
+          "class_name": "overall-status healthy",
+          "text": "Fixture healthy"
+        },
+        "last_update": "2026-08-10 08:00:00 CST",
+        "selected": {
+          "type": "icmp",
+          "range": "6h",
+          "vps": "DMIT Premium",
+          "route_wan": "telecom",
+          "route_direction": "outbound",
+          "route_protocol": "icmp",
+          "route_target": "DMIT Premium"
+        },
+        "legends": {
+          "telecom": "20.0 ms",
+          "mobile": "30.0 ms",
+          "unicom": "40.0 ms"
+        },
+        "live": {
+          "text": "实时同步 · 5 秒轮询",
+          "class_name": "",
+          "display": "none"
+        },
+        "chart": {
+          "loading_class": "chart-loading hidden",
+          "loading_text": "正在读取真实样本",
+          "count": "6 个绘图点 · 5 分钟粒度",
+          "range": "最近 24 小时 · Asia/Shanghai"
+        },
+        "route": {
+          "status": "ok",
+          "text": "Fixture route ready6 跳 · 9.50 ms",
+          "updated": "2026-08-10 08:00:00 CST",
+          "rows": 6
+        },
+        "bandwidth_status": {
+          "text": "最近更新 2026-08-10 08:00:00 CST",
+          "class_name": ""
+        },
+        "cards": {
+          "premium": {
+            "state": "ready",
+            "upload": "40.00 Mbps",
+            "download": "80.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "eyeball": {
+            "state": "ready",
+            "upload": "41.00 Mbps",
+            "download": "81.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "netlab_us": {
+            "state": "ready",
+            "upload": "42.00 Mbps",
+            "download": "82.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "zillion": {
+            "state": "ready",
+            "upload": "43.00 Mbps",
+            "download": "83.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "alibaba": {
+            "state": "disabled",
+            "upload": "已停用",
+            "download": "已停用",
+            "retr": "—",
+            "tested_at": "暂停测速",
+            "dot_color": "rgb(113, 122, 137)"
+          }
+        },
+        "hidden_summary": {
+          "trend_hidden": true,
+          "empty_hidden": true
+        }
+      },
+      "related_finding_ids": [
+        "TP02A-004"
+      ],
+      "limitations": [],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 1,
+        "/api/bandwidth": 1,
+        "/api/latency": 2,
+        "/api/live": 1,
+        "/api/vps-status": 1
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-013",
+      "scenario": "Latency VPS-switch failure visibility",
+      "status": "CONFIRMED_FINDING",
+      "fixture": {
+        "name": "latency-vps-failure",
+        "controls": {}
+      },
+      "expected_observation": "A failed VPS chart reload should expose an error without leaving ambiguous old chart state.",
+      "actual_observation": "Overlay hidden and previous chart metadata remained; runtime exceptions captured=1.",
+      "request_count": 11,
+      "max_concurrency": 1,
+      "console_errors": [
+        "Error: 503 /api/latency?range=24h&type=icmp&target=DMIT%20Eyeball\n    at getJSON (http://127.0.0.1:59028/app.js?v=20260805-route-state-1:29:26)\n    at async loadChart (http://127.0.0.1:59028/app.js?v=20260805-route-state-1:349:16)\n    at async Promise.all (index 0)\n    at async selectVps (http://127.0.0.1:59028/app.js?v=20260805-route-state-1:146:46)"
+      ],
+      "dom_evidence": {
+        "overall": {
+          "class_name": "overall-status healthy",
+          "text": "Fixture healthy"
+        },
+        "last_update": "2026-08-10 08:00:00 CST",
+        "selected": {
+          "type": "icmp",
+          "range": "24h",
+          "vps": "DMIT Eyeball",
+          "route_wan": "telecom",
+          "route_direction": "outbound",
+          "route_protocol": "icmp",
+          "route_target": "DMIT Premium"
+        },
+        "legends": {
+          "telecom": "20.0 ms",
+          "mobile": "30.0 ms",
+          "unicom": "40.0 ms"
+        },
+        "live": {
+          "text": "实时同步 · 5 秒轮询",
+          "class_name": "",
+          "display": "none"
+        },
+        "chart": {
+          "loading_class": "chart-loading hidden",
+          "loading_text": "正在读取真实样本",
+          "count": "6 个绘图点 · 5 分钟粒度",
+          "range": "最近 24 小时 · Asia/Shanghai"
+        },
+        "route": {
+          "status": "ok",
+          "text": "Fixture route ready6 跳 · 9.50 ms",
+          "updated": "2026-08-10 08:00:00 CST",
+          "rows": 6
+        },
+        "bandwidth_status": {
+          "text": "最近更新 2026-08-10 08:00:00 CST",
+          "class_name": ""
+        },
+        "cards": {
+          "premium": {
+            "state": "ready",
+            "upload": "40.00 Mbps",
+            "download": "80.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "eyeball": {
+            "state": "ready",
+            "upload": "41.00 Mbps",
+            "download": "81.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "netlab_us": {
+            "state": "ready",
+            "upload": "42.00 Mbps",
+            "download": "82.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "zillion": {
+            "state": "ready",
+            "upload": "43.00 Mbps",
+            "download": "83.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "alibaba": {
+            "state": "disabled",
+            "upload": "已停用",
+            "download": "已停用",
+            "retr": "—",
+            "tested_at": "暂停测速",
+            "dot_color": "rgb(113, 122, 137)"
+          }
+        },
+        "hidden_summary": {
+          "trend_hidden": true,
+          "empty_hidden": true
+        }
+      },
+      "related_finding_ids": [
+        "TP02A-004"
+      ],
+      "limitations": [],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 1,
+        "/api/bandwidth": 1,
+        "/api/latency": 2,
+        "/api/live": 2,
+        "/api/vps-status": 2
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-014",
+      "scenario": "Missing target array during initialization",
+      "status": "CONFIRMED_FINDING",
+      "fixture": {
+        "name": "malformed-missing-arrays",
+        "controls": {}
+      },
+      "expected_observation": "A missing array should not prevent unrelated sections from initializing.",
+      "actual_observation": "Second initialization group blocked=true.",
+      "request_count": 5,
+      "max_concurrency": 1,
+      "console_errors": [
+        "TypeError: Cannot read properties of undefined (reading 'filter')\n    at loadVpsTargets (http://127.0.0.1:59052/app.js?v=20260805-route-state-1:134:33)\n    at async Promise.all (index 1)\n    at async init (http://127.0.0.1:59052/app.js?v=20260805-route-state-1:725:7)"
+      ],
+      "dom_evidence": {
+        "overall": {
+          "class_name": "overall-status stale",
+          "text": "读取失败"
+        },
+        "last_update": "2026-08-10 08:00:00 CST",
+        "selected": {
+          "type": "icmp",
+          "range": "24h",
+          "route_wan": "telecom",
+          "route_direction": "outbound",
+          "route_protocol": "icmp",
+          "route_target": "DMIT Premium"
+        },
+        "legends": {
+          "telecom": "—",
+          "mobile": "—",
+          "unicom": "—"
+        },
+        "live": {
+          "text": "实时同步 · 5 秒轮询",
+          "class_name": "",
+          "display": "none"
+        },
+        "chart": {
+          "loading_class": "chart-loading",
+          "loading_text": "候选 API 读取失败",
+          "count": "—",
+          "range": "24 小时 · Asia/Shanghai"
+        },
+        "route": {
+          "status": "ok",
+          "text": "Fixture route ready6 跳 · 9.50 ms",
+          "updated": "2026-08-10 08:00:00 CST",
+          "rows": 6
+        },
+        "bandwidth_status": {
+          "text": "最近更新 2026-08-10 08:00:00 CST",
+          "class_name": ""
+        },
+        "cards": {
+          "premium": {
+            "state": "ready",
+            "upload": "40.00 Mbps",
+            "download": "80.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "eyeball": {
+            "state": "ready",
+            "upload": "41.00 Mbps",
+            "download": "81.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "netlab_us": {
+            "state": "ready",
+            "upload": "42.00 Mbps",
+            "download": "82.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "zillion": {
+            "state": "ready",
+            "upload": "43.00 Mbps",
+            "download": "83.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "alibaba": {
+            "state": "disabled",
+            "upload": "已停用",
+            "download": "已停用",
+            "retr": "—",
+            "tested_at": "暂停测速",
+            "dot_color": "rgb(113, 122, 137)"
+          }
+        },
+        "hidden_summary": {
+          "trend_hidden": true,
+          "empty_hidden": true
+        }
+      },
+      "related_finding_ids": [
+        "TP02A-007"
+      ],
+      "limitations": [],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 1,
+        "/api/bandwidth": 1
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-015",
+      "scenario": "Null nested overview object",
+      "status": "CONFIRMED_FINDING",
+      "fixture": {
+        "name": "malformed-null-overview",
+        "controls": {}
+      },
+      "expected_observation": "A null nested object should be isolated to the overview section.",
+      "actual_observation": "Null overview blocked second initialization group=true.",
+      "request_count": 5,
+      "max_concurrency": 1,
+      "console_errors": [
+        "TypeError: Cannot read properties of null (reading 'status')\n    at setOverall (http://127.0.0.1:59068/app.js?v=20260805-route-state-1:35:46)\n    at loadOverview (http://127.0.0.1:59068/app.js?v=20260805-route-state-1:41:3)\n    at async Promise.all (index 0)\n    at async init (http://127.0.0.1:59068/app.js?v=20260805-route-state-1:725:7)"
+      ],
+      "dom_evidence": {
+        "overall": {
+          "class_name": "overall-status stale",
+          "text": "读取失败"
+        },
+        "last_update": "—",
+        "selected": {
+          "type": "icmp",
+          "range": "24h",
+          "vps": "DMIT Premium",
+          "route_wan": "telecom",
+          "route_direction": "outbound",
+          "route_protocol": "icmp",
+          "route_target": "DMIT Premium"
+        },
+        "legends": {
+          "telecom": "—",
+          "mobile": "—",
+          "unicom": "—"
+        },
+        "live": {
+          "text": "实时同步 · 5 秒轮询",
+          "class_name": "",
+          "display": "none"
+        },
+        "chart": {
+          "loading_class": "chart-loading",
+          "loading_text": "候选 API 读取失败",
+          "count": "—",
+          "range": "24 小时 · Asia/Shanghai"
+        },
+        "route": {
+          "status": "ok",
+          "text": "Fixture route ready6 跳 · 9.50 ms",
+          "updated": "2026-08-10 08:00:00 CST",
+          "rows": 6
+        },
+        "bandwidth_status": {
+          "text": "最近更新 2026-08-10 08:00:00 CST",
+          "class_name": ""
+        },
+        "cards": {
+          "premium": {
+            "state": "ready",
+            "upload": "40.00 Mbps",
+            "download": "80.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "eyeball": {
+            "state": "ready",
+            "upload": "41.00 Mbps",
+            "download": "81.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "netlab_us": {
+            "state": "ready",
+            "upload": "42.00 Mbps",
+            "download": "82.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "zillion": {
+            "state": "ready",
+            "upload": "43.00 Mbps",
+            "download": "83.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "alibaba": {
+            "state": "disabled",
+            "upload": "已停用",
+            "download": "已停用",
+            "retr": "—",
+            "tested_at": "暂停测速",
+            "dot_color": "rgb(113, 122, 137)"
+          }
+        },
+        "hidden_summary": {
+          "trend_hidden": true,
+          "empty_hidden": true
+        }
+      },
+      "related_finding_ids": [
+        "TP02A-007"
+      ],
+      "limitations": [],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 1,
+        "/api/bandwidth": 1
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-016",
+      "scenario": "Non-object live response",
+      "status": "CONFIRMED_FINDING",
+      "fixture": {
+        "name": "malformed-nonobject-live",
+        "controls": {}
+      },
+      "expected_observation": "A non-object live payload should be handled as a visible section error without interrupting other second-stage loaders.",
+      "actual_observation": "Live rejected the null shape into its catch path, retained other section results, and hid the stale message through CSS.",
+      "request_count": 8,
+      "max_concurrency": 1,
+      "console_errors": [
+        "TypeError: Cannot read properties of undefined (reading 'find')\n    at loadLive (http://127.0.0.1:59083/app.js?v=20260805-route-state-1:183:74)\n    at async Promise.all (index 1)\n    at async init (http://127.0.0.1:59083/app.js?v=20260805-route-state-1:725:102)"
+      ],
+      "dom_evidence": {
+        "overall": {
+          "class_name": "overall-status healthy",
+          "text": "Fixture healthy"
+        },
+        "last_update": "2026-08-10 08:00:00 CST",
+        "selected": {
+          "type": "icmp",
+          "range": "24h",
+          "vps": "DMIT Premium",
+          "route_wan": "telecom",
+          "route_direction": "outbound",
+          "route_protocol": "icmp",
+          "route_target": "DMIT Premium"
+        },
+        "legends": {
+          "telecom": "22.3 ms",
+          "mobile": "32.5 ms",
+          "unicom": "42.8 ms"
+        },
+        "live": {
+          "text": "实时同步暂时失败",
+          "class_name": "stale",
+          "display": "none"
+        },
+        "chart": {
+          "loading_class": "chart-loading hidden",
+          "loading_text": "正在读取真实样本",
+          "count": "6 个绘图点 · 5 分钟粒度",
+          "range": "最近 24 小时 · Asia/Shanghai"
+        },
+        "route": {
+          "status": "ok",
+          "text": "Fixture route ready6 跳 · 9.50 ms",
+          "updated": "2026-08-10 08:00:00 CST",
+          "rows": 6
+        },
+        "bandwidth_status": {
+          "text": "最近更新 2026-08-10 08:00:00 CST",
+          "class_name": ""
+        },
+        "cards": {
+          "premium": {
+            "state": "ready",
+            "upload": "40.00 Mbps",
+            "download": "80.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "eyeball": {
+            "state": "ready",
+            "upload": "41.00 Mbps",
+            "download": "81.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "netlab_us": {
+            "state": "ready",
+            "upload": "42.00 Mbps",
+            "download": "82.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "zillion": {
+            "state": "ready",
+            "upload": "43.00 Mbps",
+            "download": "83.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "alibaba": {
+            "state": "disabled",
+            "upload": "已停用",
+            "download": "已停用",
+            "retr": "—",
+            "tested_at": "暂停测速",
+            "dot_color": "rgb(113, 122, 137)"
+          }
+        },
+        "hidden_summary": {
+          "trend_hidden": true,
+          "empty_hidden": true
+        }
+      },
+      "related_finding_ids": [
+        "TP02A-003",
+        "TP02A-007"
+      ],
+      "limitations": [],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 1,
+        "/api/bandwidth": 1,
+        "/api/latency": 1,
+        "/api/live": 1,
+        "/api/vps-status": 1
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-017",
+      "scenario": "Null latency samples array",
+      "status": "CONFIRMED_FINDING",
+      "fixture": {
+        "name": "malformed-latency-null",
+        "controls": {}
+      },
+      "expected_observation": "A null samples field should be rejected without hiding the resulting error or interrupting sibling panels.",
+      "actual_observation": "Null samples threw during chart rendering; global failure text was written into a hidden overlay.",
+      "request_count": 8,
+      "max_concurrency": 1,
+      "console_errors": [
+        "TypeError: samples is not iterable\n    at groupSamples (http://127.0.0.1:59102/app.js?v=20260805-route-state-1:201:23)\n    at drawChart (http://127.0.0.1:59102/app.js?v=20260805-route-state-1:226:19)\n    at loadChart (http://127.0.0.1:59102/app.js?v=20260805-route-state-1:353:5)\n    at async Promise.all (index 0)\n    at async init (http://127.0.0.1:59102/app.js?v=20260805-route-state-1:725:102)"
+      ],
+      "dom_evidence": {
+        "overall": {
+          "class_name": "overall-status stale",
+          "text": "读取失败"
+        },
+        "last_update": "2026-08-10 08:00:00 CST",
+        "selected": {
+          "type": "icmp",
+          "range": "24h",
+          "vps": "DMIT Premium",
+          "route_wan": "telecom",
+          "route_direction": "outbound",
+          "route_protocol": "icmp",
+          "route_target": "DMIT Premium"
+        },
+        "legends": {
+          "telecom": "20.0 ms",
+          "mobile": "30.0 ms",
+          "unicom": "40.0 ms"
+        },
+        "live": {
+          "text": "实时同步 · 5 秒轮询",
+          "class_name": "",
+          "display": "none"
+        },
+        "chart": {
+          "loading_class": "chart-loading hidden",
+          "loading_text": "候选 API 读取失败",
+          "count": "—",
+          "range": "24 小时 · Asia/Shanghai"
+        },
+        "route": {
+          "status": "ok",
+          "text": "Fixture route ready6 跳 · 9.50 ms",
+          "updated": "2026-08-10 08:00:00 CST",
+          "rows": 6
+        },
+        "bandwidth_status": {
+          "text": "最近更新 2026-08-10 08:00:00 CST",
+          "class_name": ""
+        },
+        "cards": {
+          "premium": {
+            "state": "ready",
+            "upload": "40.00 Mbps",
+            "download": "80.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "eyeball": {
+            "state": "ready",
+            "upload": "41.00 Mbps",
+            "download": "81.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "netlab_us": {
+            "state": "ready",
+            "upload": "42.00 Mbps",
+            "download": "82.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "zillion": {
+            "state": "ready",
+            "upload": "43.00 Mbps",
+            "download": "83.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "alibaba": {
+            "state": "disabled",
+            "upload": "已停用",
+            "download": "已停用",
+            "retr": "—",
+            "tested_at": "暂停测速",
+            "dot_color": "rgb(113, 122, 137)"
+          }
+        },
+        "hidden_summary": {
+          "trend_hidden": true,
+          "empty_hidden": true
+        }
+      },
+      "related_finding_ids": [
+        "TP02A-004",
+        "TP02A-007"
+      ],
+      "limitations": [],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 1,
+        "/api/bandwidth": 1,
+        "/api/latency": 1,
+        "/api/live": 1,
+        "/api/vps-status": 1
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-018",
+      "scenario": "Invalid timestamps, unknown WAN, NaN, negative, and extreme numbers",
+      "status": "CONFIRMED_FINDING",
+      "fixture": {
+        "name": "malformed-values",
+        "controls": {}
+      },
+      "expected_observation": "Malformed scalar values should be normalized or rejected without misleading classes, text, or partial initialization.",
+      "actual_observation": "unvalidated_overall_class=true; malformed_numeric_text=true; invalid bandwidth time changed section to failure.",
+      "request_count": 8,
+      "max_concurrency": 1,
+      "console_errors": [
+        "bandwidth load failed RangeError: Invalid time value\n    at formatShanghai (http://127.0.0.1:59122/app.js?v=20260805-route-state-1:23:62)\n    at http://127.0.0.1:59122/app.js?v=20260805-route-state-1:662:9\n    at Array.forEach (<anonymous>)\n    at renderBandwidth (http://127.0.0.1:59122/app.js?v=20260805-route-state-1:607:50)\n    at loadBandwidth (http://127.0.0.1:59122/app.js?v=20260805-route-state-1:714:5)\n    at async Promise.all (index 4)\n    at async init (http://127.0.0.1:59122/app.js?v=20260805-route-state-1:725:7)"
+      ],
+      "dom_evidence": {
+        "overall": {
+          "class_name": "overall-status healthy injected-class",
+          "text": ""
+        },
+        "last_update": "2026-08-10 08:00:00 CST",
+        "selected": {
+          "type": "icmp",
+          "range": "24h",
+          "vps": "DMIT Premium",
+          "route_wan": "telecom",
+          "route_direction": "outbound",
+          "route_protocol": "icmp",
+          "route_target": "DMIT Premium"
+        },
+        "legends": {
+          "telecom": "NaN ms",
+          "mobile": "-999999.0 ms",
+          "unicom": "暂无数据"
+        },
+        "live": {
+          "text": "实时同步 · 5 秒轮询",
+          "class_name": "",
+          "display": "none"
+        },
+        "chart": {
+          "loading_class": "chart-loading hidden",
+          "loading_text": "正在读取真实样本",
+          "count": "2 个绘图点 · 5 分钟粒度",
+          "range": "最近 24 小时 · Asia/Shanghai"
+        },
+        "route": {
+          "status": "ok",
+          "text": "Fixture route ready6 跳 · 9.50 ms",
+          "updated": "2026-08-10 08:00:00 CST",
+          "rows": 6
+        },
+        "bandwidth_status": {
+          "text": "测速数据读取失败",
+          "class_name": "waiting-badge"
+        },
+        "cards": {
+          "premium": {
+            "state": "empty",
+            "upload": "50.00 Mbps",
+            "download": "—",
+            "retr": "1",
+            "tested_at": "—",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "eyeball": {
+            "state": "empty",
+            "upload": "—",
+            "download": "—",
+            "retr": "—",
+            "tested_at": "—",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "netlab_us": {
+            "state": "empty",
+            "upload": "—",
+            "download": "—",
+            "retr": "—",
+            "tested_at": "—",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "zillion": {
+            "state": "empty",
+            "upload": "—",
+            "download": "—",
+            "retr": "—",
+            "tested_at": "—",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "alibaba": {
+            "state": "empty",
+            "upload": "—",
+            "download": "—",
+            "retr": "—",
+            "tested_at": "—",
+            "dot_color": "rgb(113, 122, 137)"
+          }
+        },
+        "hidden_summary": {
+          "trend_hidden": true,
+          "empty_hidden": true
+        }
+      },
+      "related_finding_ids": [
+        "TP02A-007",
+        "TP02A-011"
+      ],
+      "limitations": [],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 1,
+        "/api/bandwidth": 1,
+        "/api/latency": 1,
+        "/api/live": 1,
+        "/api/vps-status": 1
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-019",
+      "scenario": "HTML-special and script/img/onerror marker strings",
+      "status": "PASS",
+      "fixture": {
+        "name": "string-safety",
+        "controls": {}
+      },
+      "expected_observation": "Synthetic strings remain text/attribute data; no script, img, or event-handler node is created and no marker code executes.",
+      "actual_observation": "dangerous_nodes=0; event_attributes=0; marker remained literal text=true.",
+      "request_count": 8,
+      "max_concurrency": 1,
+      "console_errors": [],
+      "dom_evidence": {
+        "safety": {
+          "dangerous_nodes": 0,
+          "marker_visible_as_text": true,
+          "marker_attributes": []
+        },
+        "state": {
+          "overall": {
+            "class_name": "overall-status healthy",
+            "text": "&<>'\" <script type=\"application/json\">fixture</script> <img src=\"data:,\" onerror>"
+          },
+          "last_update": "2026-08-10 08:00:00 CST",
+          "selected": {
+            "type": "icmp",
+            "range": "24h",
+            "vps": "DMIT Premium",
+            "route_wan": "telecom",
+            "route_direction": "outbound",
+            "route_protocol": "icmp",
+            "route_target": "DMIT Premium"
+          },
+          "legends": {
+            "telecom": "20.0 ms",
+            "mobile": "30.0 ms",
+            "unicom": "40.0 ms"
+          },
+          "live": {
+            "text": "实时同步 · 5 秒轮询",
+            "class_name": "",
+            "display": "none"
+          },
+          "chart": {
+            "loading_class": "chart-loading hidden",
+            "loading_text": "正在读取真实样本",
+            "count": "6 个绘图点 · 5 分钟粒度",
+            "range": "最近 24 小时 · Asia/Shanghai"
+          },
+          "route": {
+            "status": "failed",
+            "text": "&<>'\" <script type=\"application/json\">fixture</script> <img src=\"data:,\" onerror>1 跳 · &<>'\" <script type=\"application/json\">fixture</script> <img src=\"data:,\" onerror>",
+            "updated": "2026-08-10 08:00:00 CST",
+            "rows": 1
+          },
+          "bandwidth_status": {
+            "text": "最近更新 2026-08-10 08:00:00 CST",
+            "class_name": ""
+          },
+          "cards": {
+            "premium": {
+              "state": "ready",
+              "upload": "40.00 Mbps",
+              "download": "80.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "eyeball": {
+              "state": "ready",
+              "upload": "41.00 Mbps",
+              "download": "81.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "netlab_us": {
+              "state": "ready",
+              "upload": "42.00 Mbps",
+              "download": "82.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "zillion": {
+              "state": "ready",
+              "upload": "43.00 Mbps",
+              "download": "83.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "alibaba": {
+              "state": "disabled",
+              "upload": "已停用",
+              "download": "已停用",
+              "retr": "—",
+              "tested_at": "暂停测速",
+              "dot_color": "rgb(113, 122, 137)"
+            }
+          },
+          "hidden_summary": {
+            "trend_hidden": true,
+            "empty_hidden": true
+          }
+        }
+      },
+      "related_finding_ids": [
+        "TP02A-014"
+      ],
+      "limitations": [],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 1,
+        "/api/bandwidth": 1,
+        "/api/latency": 1,
+        "/api/live": 1,
+        "/api/vps-status": 1
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-020",
+      "scenario": "Bandwidth duplicate, unordered, one-way, partial, disabled, and unknown rows",
+      "status": "CONFIRMED_FINDING",
+      "fixture": {
+        "name": "bandwidth-selection",
+        "controls": {}
+      },
+      "expected_observation": "Newest timestamp wins; partial and disabled states map to explicit visible tokens; unknown nodes are ignored safely.",
+      "actual_observation": "old_first_row_selected=true; ready_token_unstyled=true; aggregate_summary_hidden=true; one-way/partial success also mapped to ready.",
+      "request_count": 8,
+      "max_concurrency": 1,
+      "console_errors": [],
+      "dom_evidence": {
+        "overall": {
+          "class_name": "overall-status healthy",
+          "text": "Fixture healthy"
+        },
+        "last_update": "2026-08-10 08:00:00 CST",
+        "selected": {
+          "type": "icmp",
+          "range": "24h",
+          "vps": "DMIT Premium",
+          "route_wan": "telecom",
+          "route_direction": "outbound",
+          "route_protocol": "icmp",
+          "route_target": "DMIT Premium"
+        },
+        "legends": {
+          "telecom": "20.0 ms",
+          "mobile": "30.0 ms",
+          "unicom": "40.0 ms"
+        },
+        "live": {
+          "text": "实时同步 · 5 秒轮询",
+          "class_name": "",
+          "display": "none"
+        },
+        "chart": {
+          "loading_class": "chart-loading hidden",
+          "loading_text": "正在读取真实样本",
+          "count": "6 个绘图点 · 5 分钟粒度",
+          "range": "最近 24 小时 · Asia/Shanghai"
+        },
+        "route": {
+          "status": "ok",
+          "text": "Fixture route ready6 跳 · 9.50 ms",
+          "updated": "2026-08-10 08:00:00 CST",
+          "rows": 6
+        },
+        "bandwidth_status": {
+          "text": "最近更新 2026-08-10 08:05:00 CST",
+          "class_name": ""
+        },
+        "cards": {
+          "premium": {
+            "state": "ready",
+            "upload": "11.00 Mbps",
+            "download": "88.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:05:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "eyeball": {
+            "state": "ready",
+            "upload": "21.00 Mbps",
+            "download": "—",
+            "retr": "1",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "netlab_us": {
+            "state": "ready",
+            "upload": "—",
+            "download": "61.00 Mbps",
+            "retr": "1",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "zillion": {
+            "state": "ready",
+            "upload": "失败",
+            "download": "71.00 Mbps",
+            "retr": "1",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "alibaba": {
+            "state": "disabled",
+            "upload": "已停用",
+            "download": "已停用",
+            "retr": "—",
+            "tested_at": "暂停测速",
+            "dot_color": "rgb(113, 122, 137)"
+          }
+        },
+        "hidden_summary": {
+          "trend_hidden": true,
+          "empty_hidden": true
+        }
+      },
+      "related_finding_ids": [
+        "TP02A-005",
+        "TP02A-008",
+        "TP02A-009"
+      ],
+      "limitations": [],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 1,
+        "/api/bandwidth": 1,
+        "/api/latency": 1,
+        "/api/live": 1,
+        "/api/vps-status": 1
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-021",
+      "scenario": "Route target fallback recursion ceiling",
+      "status": "CONFIRMED_FINDING",
+      "fixture": {
+        "name": "route-recursion",
+        "controls": {
+          "maximum_inconsistent_responses": 8,
+          "ninth_response": 429
+        }
+      },
+      "expected_observation": "Client fallback must terminate independently before the fixture request ceiling.",
+      "actual_observation": "route_requests=9; client continued until fixture forced a 429 after eight inconsistent responses.",
+      "request_count": 16,
+      "max_concurrency": 1,
+      "console_errors": [
+        "Error: 429 /api/routes?wan=telecom&direction=outbound&protocol=icmp&target_name=Fixture+recursive+target+8\n    at getJSON (http://127.0.0.1:59177/app.js?v=20260805-route-state-1:29:26)\n    at async loadRoute (http://127.0.0.1:59177/app.js?v=20260805-route-state-1:461:16)\n    at async Promise.all (index 3)\n    at async init (http://127.0.0.1:59177/app.js?v=20260805-route-state-1:725:7)"
+      ],
+      "dom_evidence": {
+        "overall": {
+          "class_name": "overall-status healthy",
+          "text": "Fixture healthy"
+        },
+        "last_update": "2026-08-10 08:00:00 CST",
+        "selected": {
+          "type": "icmp",
+          "range": "24h",
+          "vps": "DMIT Premium",
+          "route_wan": "telecom",
+          "route_direction": "outbound",
+          "route_protocol": "icmp",
+          "route_target": "DMIT Premium"
+        },
+        "legends": {
+          "telecom": "20.0 ms",
+          "mobile": "30.0 ms",
+          "unicom": "40.0 ms"
+        },
+        "live": {
+          "text": "实时同步 · 5 秒轮询",
+          "class_name": "",
+          "display": "none"
+        },
+        "chart": {
+          "loading_class": "chart-loading hidden",
+          "loading_text": "正在读取真实样本",
+          "count": "6 个绘图点 · 5 分钟粒度",
+          "range": "最近 24 小时 · Asia/Shanghai"
+        },
+        "route": {
+          "status": "unavailable",
+          "text": "路由数据读取失败",
+          "updated": "—",
+          "rows": 0
+        },
+        "bandwidth_status": {
+          "text": "最近更新 2026-08-10 08:00:00 CST",
+          "class_name": ""
+        },
+        "cards": {
+          "premium": {
+            "state": "ready",
+            "upload": "40.00 Mbps",
+            "download": "80.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "eyeball": {
+            "state": "ready",
+            "upload": "41.00 Mbps",
+            "download": "81.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "netlab_us": {
+            "state": "ready",
+            "upload": "42.00 Mbps",
+            "download": "82.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "zillion": {
+            "state": "ready",
+            "upload": "43.00 Mbps",
+            "download": "83.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "alibaba": {
+            "state": "disabled",
+            "upload": "已停用",
+            "download": "已停用",
+            "retr": "—",
+            "tested_at": "暂停测速",
+            "dot_color": "rgb(113, 122, 137)"
+          }
+        },
+        "hidden_summary": {
+          "trend_hidden": true,
+          "empty_hidden": true
+        }
+      },
+      "related_finding_ids": [
+        "TP02A-010"
+      ],
+      "limitations": [],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 9,
+        "/api/bandwidth": 1,
+        "/api/latency": 1,
+        "/api/live": 1,
+        "/api/vps-status": 1
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-022",
+      "scenario": "Visibility restoration collides with five-second timer",
+      "status": "CONFIRMED_FINDING",
+      "fixture": {
+        "name": "visibility-collision",
+        "controls": {}
+      },
+      "expected_observation": "Visibility restoration and the timer should not duplicate identical live/status requests.",
+      "actual_observation": "live_requests=3; vps_status_requests=2; max_concurrency=3. Live duplicated while the VPS status promise deduplicated its same-target request.",
+      "request_count": 11,
+      "max_concurrency": 3,
+      "console_errors": [],
+      "dom_evidence": {
+        "overall": {
+          "class_name": "overall-status healthy",
+          "text": "Fixture healthy"
+        },
+        "last_update": "2026-08-10 08:00:00 CST",
+        "selected": {
+          "type": "icmp",
+          "range": "24h",
+          "vps": "DMIT Premium",
+          "route_wan": "telecom",
+          "route_direction": "outbound",
+          "route_protocol": "icmp",
+          "route_target": "DMIT Premium"
+        },
+        "legends": {
+          "telecom": "20.0 ms",
+          "mobile": "30.0 ms",
+          "unicom": "40.0 ms"
+        },
+        "live": {
+          "text": "实时同步 · 5 秒轮询",
+          "class_name": "",
+          "display": "none"
+        },
+        "chart": {
+          "loading_class": "chart-loading hidden",
+          "loading_text": "正在读取真实样本",
+          "count": "6 个绘图点 · 5 分钟粒度",
+          "range": "最近 24 小时 · Asia/Shanghai"
+        },
+        "route": {
+          "status": "ok",
+          "text": "Fixture route ready6 跳 · 9.50 ms",
+          "updated": "2026-08-10 08:00:00 CST",
+          "rows": 6
+        },
+        "bandwidth_status": {
+          "text": "最近更新 2026-08-10 08:00:00 CST",
+          "class_name": ""
+        },
+        "cards": {
+          "premium": {
+            "state": "ready",
+            "upload": "40.00 Mbps",
+            "download": "80.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "eyeball": {
+            "state": "ready",
+            "upload": "41.00 Mbps",
+            "download": "81.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "netlab_us": {
+            "state": "ready",
+            "upload": "42.00 Mbps",
+            "download": "82.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "zillion": {
+            "state": "ready",
+            "upload": "43.00 Mbps",
+            "download": "83.00 Mbps",
+            "retr": "2",
+            "tested_at": "2026-08-10 08:00:00 CST",
+            "dot_color": "rgb(113, 122, 137)"
+          },
+          "alibaba": {
+            "state": "disabled",
+            "upload": "已停用",
+            "download": "已停用",
+            "retr": "—",
+            "tested_at": "暂停测速",
+            "dot_color": "rgb(113, 122, 137)"
+          }
+        },
+        "hidden_summary": {
+          "trend_hidden": true,
+          "empty_hidden": true
+        }
+      },
+      "related_finding_ids": [
+        "TP02A-001"
+      ],
+      "limitations": [
+        "The harness dispatched visibilitychange while document.hidden was false; it validates the recovered listener/timer collision but does not emulate an operating-system tab occlusion transition."
+      ],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 1,
+        "/api/bandwidth": 1,
+        "/api/latency": 1,
+        "/api/live": 3,
+        "/api/vps-status": 2
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    },
+    {
+      "id": "TP02B-023",
+      "scenario": "Keyboard, live-region, and bandwidth status mapping",
+      "status": "CONFIRMED_FINDING",
+      "fixture": {
+        "name": "baseline",
+        "controls": {}
+      },
+      "expected_observation": "Chart details are keyboard reachable, dynamic states have programmatic announcements, and ready cards receive the intended success color.",
+      "actual_observation": "canvas_focusable=false; live_regions=0; active controls lacking aria-pressed=5; ready dot color=rgb(113, 122, 137).",
+      "request_count": 8,
+      "max_concurrency": 1,
+      "console_errors": [],
+      "dom_evidence": {
+        "accessibility": {
+          "canvas_tab_index": -1,
+          "canvas_received_focus": false,
+          "tooltip_visible_after_key": false,
+          "live_regions": [],
+          "active_segmented_without_pressed": 5
+        },
+        "state": {
+          "overall": {
+            "class_name": "overall-status healthy",
+            "text": "Fixture healthy"
+          },
+          "last_update": "2026-08-10 08:00:00 CST",
+          "selected": {
+            "type": "icmp",
+            "range": "24h",
+            "vps": "DMIT Premium",
+            "route_wan": "telecom",
+            "route_direction": "outbound",
+            "route_protocol": "icmp",
+            "route_target": "DMIT Premium"
+          },
+          "legends": {
+            "telecom": "20.0 ms",
+            "mobile": "30.0 ms",
+            "unicom": "40.0 ms"
+          },
+          "live": {
+            "text": "实时同步 · 5 秒轮询",
+            "class_name": "",
+            "display": "none"
+          },
+          "chart": {
+            "loading_class": "chart-loading hidden",
+            "loading_text": "正在读取真实样本",
+            "count": "6 个绘图点 · 5 分钟粒度",
+            "range": "最近 24 小时 · Asia/Shanghai"
+          },
+          "route": {
+            "status": "ok",
+            "text": "Fixture route ready6 跳 · 9.50 ms",
+            "updated": "2026-08-10 08:00:00 CST",
+            "rows": 6
+          },
+          "bandwidth_status": {
+            "text": "最近更新 2026-08-10 08:00:00 CST",
+            "class_name": ""
+          },
+          "cards": {
+            "premium": {
+              "state": "ready",
+              "upload": "40.00 Mbps",
+              "download": "80.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "eyeball": {
+              "state": "ready",
+              "upload": "41.00 Mbps",
+              "download": "81.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "netlab_us": {
+              "state": "ready",
+              "upload": "42.00 Mbps",
+              "download": "82.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "zillion": {
+              "state": "ready",
+              "upload": "43.00 Mbps",
+              "download": "83.00 Mbps",
+              "retr": "2",
+              "tested_at": "2026-08-10 08:00:00 CST",
+              "dot_color": "rgb(113, 122, 137)"
+            },
+            "alibaba": {
+              "state": "disabled",
+              "upload": "已停用",
+              "download": "已停用",
+              "retr": "—",
+              "tested_at": "暂停测速",
+              "dot_color": "rgb(113, 122, 137)"
+            }
+          },
+          "hidden_summary": {
+            "trend_hidden": true,
+            "empty_hidden": true
+          }
+        }
+      },
+      "related_finding_ids": [
+        "TP02A-006",
+        "TP02A-008",
+        "TP02A-012"
+      ],
+      "limitations": [
+        "Programmatic accessibility inspection does not replace a full screen-reader session."
+      ],
+      "request_breakdown": {
+        "/api/overview": 1,
+        "/api/vps-targets": 1,
+        "/api/targets": 1,
+        "/api/routes": 1,
+        "/api/bandwidth": 1,
+        "/api/latency": 1,
+        "/api/live": 1,
+        "/api/vps-status": 1
+      },
+      "rejected_fixture_requests": [],
+      "browser_network_failures": [],
+      "non_local_requests": []
+    }
+  ]
+}
