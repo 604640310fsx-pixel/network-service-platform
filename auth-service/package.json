@@ -12,6 +12,7 @@
     "test": "npm run build && node --test --test-concurrency=1 dist/test/*.test.js"
   },
   "dependencies": {
+    "argon2": "0.45.1",
     "better-sqlite3": "13.0.2",
     "fastify": "5.11.0"
   },
