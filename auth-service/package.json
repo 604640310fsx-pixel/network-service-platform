@@ -1,0 +1,22 @@
+{
+  "name": "network-service-platform-auth-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0 <23"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/server.js",
+    "test": "npm run build && node --test --test-concurrency=1 dist/test/*.test.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "13.0.2",
+    "fastify": "5.11.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "typescript": "5.9.3"
+  }
+}
