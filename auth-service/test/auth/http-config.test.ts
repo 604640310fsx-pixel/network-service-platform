@@ -21,6 +21,11 @@ async function withCredentialDirectory<Result>(
       { mode: 0o600 },
     );
     await writeFile(
+      join(directory, "invite_hmac_keyring"),
+      JSON.stringify({ version: 2, keys: { "1": KEY_V1, "2": KEY_V2 } }),
+      { mode: 0o600 },
+    );
+    await writeFile(
       join(directory, "rate_limit_key"),
       JSON.stringify({ version: 2, keys: { "1": KEY_V1, "2": KEY_V2 } }),
       { mode: 0o600 },
@@ -44,6 +49,10 @@ test("loads only the frozen credential names and strict key formats", async () =
       version: 2,
       keys: { "1": KEY_V1, "2": KEY_V2 },
     });
+    assert.deepEqual(config.inviteHmacKeyring, {
+      version: 2,
+      keys: { "1": KEY_V1, "2": KEY_V2 },
+    });
     assert.deepEqual(config.rateLimitKeyring, {
       version: 2,
       keys: { "1": KEY_V1, "2": KEY_V2 },
@@ -58,6 +67,19 @@ test("fails closed without a credential directory or with invalid key material",
     () => loadAuthCredentialConfig({}),
     /Auth credential configuration is invalid/,
   );
+
+  await withCredentialDirectory(async (directory) => {
+    await writeFile(
+      join(directory, "invite_hmac_keyring"),
+      JSON.stringify({ version: 2, keys: { "2": "not-base64" } }),
+      { mode: 0o600 },
+    );
+    assert.throws(
+      () =>
+        loadAuthCredentialConfig({ CREDENTIALS_DIRECTORY: directory }),
+      /Auth credential configuration is invalid/,
+    );
+  });
 
   await withCredentialDirectory(async (directory) => {
     await writeFile(join(directory, "csrf_signing_key"), "not-base64", {

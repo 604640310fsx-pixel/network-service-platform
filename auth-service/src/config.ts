@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import type { RateLimitKeyring } from "./http/rate-limit.js";
+import type { InviteHmacKeyring } from "./registration/invite-code.js";
 import type { TokenHmacKeyring } from "./session/session-token.js";
 
 export const LOOPBACK_HOST = "127.0.0.1" as const;
@@ -17,6 +18,7 @@ export interface AppConfig {
 
 export interface AuthCredentialConfig {
   readonly tokenHmacKeyring: TokenHmacKeyring;
+  readonly inviteHmacKeyring: InviteHmacKeyring;
   readonly rateLimitKeyring: RateLimitKeyring;
   readonly csrfSigningKey: Buffer;
 }
@@ -170,6 +172,9 @@ export function loadAuthCredentialConfig(
   const tokenHmacKeyring = parseKeyring(
     readCredential(directory, "token_hmac_keyring"),
   );
+  const inviteHmacKeyring = parseKeyring(
+    readCredential(directory, "invite_hmac_keyring"),
+  );
   const rateLimitKeyring = parseKeyring(
     readCredential(directory, "rate_limit_key"),
   );
@@ -179,6 +184,7 @@ export function loadAuthCredentialConfig(
 
   return Object.freeze({
     tokenHmacKeyring,
+    inviteHmacKeyring,
     rateLimitKeyring,
     csrfSigningKey,
   });
