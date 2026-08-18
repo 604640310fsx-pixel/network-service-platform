@@ -10,6 +10,8 @@ type DrawerContextValue = {
 };
 
 const CustomerDrawerContext = createContext<DrawerContextValue | null>(null);
+// 已迁移到客户中心视觉的路由；其余菜单继续走 disabled / 待接入策略。
+const migratedPaths = new Set<string>(["/subscribe", "/dashboard"]);
 const themeStorageKey = "nsp.customer-center.theme";
 
 export function useCustomerDrawer() {
@@ -49,7 +51,15 @@ function NavIcon({ href }: { href: string }) {
   }
 }
 
-export function CustomerCenterShell({ children }: { children: ReactNode }) {
+export function CustomerCenterShell({
+  children,
+  title,
+  description,
+}: {
+  children: ReactNode;
+  title: string;
+  description: string;
+}) {
   const [theme, setTheme] = useState<"dark" | "light">(initialTheme);
   const [activeDrawer, setActiveDrawer] = useState<DrawerKind | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -137,7 +147,7 @@ export function CustomerCenterShell({ children }: { children: ReactNode }) {
             {navigation.map((group) => (
               <div className="cc-nav-group" key={group.group}>
                 <p>{group.group}</p>
-                {group.items.map(([href, label]) => href === "/subscribe" ? (
+                {group.items.map(([href, label]) => migratedPaths.has(href) ? (
                   <NavLink key={href} to={href} onClick={closeDrawer} className={({ isActive }) => isActive ? "is-active" : ""}>
                     <NavIcon href={href} />{label}
                   </NavLink>
@@ -171,7 +181,7 @@ export function CustomerCenterShell({ children }: { children: ReactNode }) {
                 <path d="M3 6h18M3 12h18M3 18h18" />
               </svg>
             </button>
-            <div className="cc-page-title"><h1>套餐订阅</h1><p>选择网络类型、国家/地区、运营商、规格和有效期后直接下单</p></div>
+            <div className="cc-page-title"><h1>{title}</h1><p>{description}</p></div>
             <div className="cc-top-actions">
               <button
                 type="button"

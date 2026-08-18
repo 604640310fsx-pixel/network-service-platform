@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, Navigate, NavLink, useParams } from "react-router-dom";
 import { CustomerCenterShell } from "./customer/CustomerCenterShell";
+import { DashboardPage } from "./dashboard/DashboardPage";
 import { SubscribePage } from "./subscribe/SubscribePage";
 import type { SectionKey } from "../lib/sections";
 import { sectionKeys } from "../lib/sections";
@@ -215,11 +216,25 @@ export function DashboardShell() {
 
   const section = requestedSection as SectionKey;
   if (section === "subscribe") {
-    return <CustomerCenterShell><SubscribePage /></CustomerCenterShell>;
+    return (
+      <CustomerCenterShell
+        title="套餐订阅"
+        description="选择网络类型、国家/地区、运营商、规格和有效期后直接下单"
+      >
+        <SubscribePage />
+      </CustomerCenterShell>
+    );
+  }
+  if (section === "dashboard") {
+    return (
+      <CustomerCenterShell title="仪表板" description="查看服务概览、当前服务与网络状态">
+        <DashboardPage />
+      </CustomerCenterShell>
+    );
   }
 
   const meta = sectionMeta[section];
-  const showLiveMonitor = section === "dashboard" || section === "monitor";
+  const showLiveMonitor = section === "monitor";
   const monitorUrl = import.meta.env.VITE_MONITOR_URL?.trim();
 
   return (
