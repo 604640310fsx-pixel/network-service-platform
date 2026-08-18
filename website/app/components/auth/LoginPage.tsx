@@ -1,18 +1,33 @@
-import { useId, useRef, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { useId, useState, type FormEvent } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { LoginRequestError } from "../../lib/auth-errors";
+import { useAuth } from "../../lib/auth";
 import { AuthNotice, AuthShell, RevealIcon } from "./AuthShell";
 import { PASSWORD_MAX_LENGTH } from "./passwordPolicy";
 
-/* WEB-AUTH-01：仅登录页视觉母版。
-   本页不发送任何网络请求，不写 Cookie / token / session，不伪造登录成功。
-   真实 POST /api/auth/login 接线与 invalid_credentials / busy / rate_limited /
-   auth_unavailable 的错误映射留给 WEB-AUTH-02，本页不预先发明另一套 Auth 状态机制。 */
-
-const DEMO_LATENCY_MS = 900;
-
 type FormStatus = "idle" | "submitting";
 
+function loginErrorMessage(error: unknown): string {
+  if (error instanceof LoginRequestError) {
+    switch (error.code) {
+      case "invalid_credentials":
+        return "邮箱或密码错误";
+      case "busy":
+        return "服务繁忙，请稍后重试";
+      case "rate_limited":
+        return "尝试次数过多，请稍后重试";
+      case "auth_unavailable":
+        return "登录服务暂时不可用，请稍后重试";
+      case "login_failed":
+        break;
+    }
+  }
+  return "登录失败，请稍后重试";
+}
+
 export function LoginPage() {
+  const navigate = useNavigate();
+  const { login } = useAuth();
   const emailId = useId();
   const passwordId = useId();
   const errorId = useId();
@@ -22,11 +37,10 @@ export function LoginPage() {
   const [revealPassword, setRevealPassword] = useState(false);
   const [status, setStatus] = useState<FormStatus>("idle");
   const [error, setError] = useState<string | null>(null);
-  const timerRef = useRef<number | null>(null);
 
   const submitting = status === "submitting";
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) return;
 
@@ -36,15 +50,15 @@ export function LoginPage() {
       return;
     }
 
-    // 进入 loading 时不清空既有错误：清空会让错误区消失并使按钮上移，
-    // 造成 loading 期间的布局跳动。错误只在新结果到达时被替换。
     setStatus("submitting");
-    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-    timerRef.current = window.setTimeout(() => {
+    try {
+      await login(email, password);
+      navigate("/dashboard", { replace: true });
+    } catch (loginError: unknown) {
+      setError(loginErrorMessage(loginError));
+    } finally {
       setStatus("idle");
-      // 如实说明：登录服务尚未接线，不冒充任何服务端结果。
-      setError("登录服务尚未接入，当前页面仅供界面验收。");
-    }, DEMO_LATENCY_MS);
+    }
   }
 
   return (
