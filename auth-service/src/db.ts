@@ -13,8 +13,13 @@ export interface DatabaseConnection {
   pragma(source: string, options?: PragmaOptions): unknown;
   exec(source: string): void;
   prepare(source: string): DatabaseStatement;
-  transaction<Result>(operation: () => Result): () => Result;
+  transaction<Result>(operation: () => Result): DatabaseTransaction<Result>;
   close(): void;
+}
+
+export interface DatabaseTransaction<Result> {
+  (): Result;
+  immediate(): Result;
 }
 
 interface DatabaseStatement {
