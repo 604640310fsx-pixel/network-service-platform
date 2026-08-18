@@ -9,6 +9,7 @@ export const sectionKeys = [
   "status",
   "profile",
   "security",
+  "subscribe",
 ] as const;
 
 export type SectionKey = (typeof sectionKeys)[number];

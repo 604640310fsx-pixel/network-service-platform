@@ -1,9 +1,13 @@
 import { useState } from "react";
 import { Link, Navigate, NavLink, useParams } from "react-router-dom";
+import { CustomerCenterShell } from "./customer/CustomerCenterShell";
+import { SubscribePage } from "./subscribe/SubscribePage";
 import type { SectionKey } from "../lib/sections";
 import { sectionKeys } from "../lib/sections";
 
-type NavItem = { href: SectionKey; label: string; icon: string };
+type LegacySectionKey = Exclude<SectionKey, "subscribe">;
+
+type NavItem = { href: LegacySectionKey; label: string; icon: string };
 type NavGroup = { label: string; items: NavItem[] };
 
 const navigation: NavGroup[] = [
@@ -34,7 +38,7 @@ const navigation: NavGroup[] = [
   },
 ];
 
-const sectionMeta: Record<SectionKey, { title: string; eyebrow: string; description: string }> = {
+const sectionMeta: Record<LegacySectionKey, { title: string; eyebrow: string; description: string }> = {
   dashboard: { title: "网络服务总览", eyebrow: "2026 年 8 月 9 日 · 星期日", description: "早上好，所有核心服务均在正常运行。" },
   services: { title: "我的服务", eyebrow: "服务管理", description: "集中管理网络接入、边缘节点与监控服务。" },
   reports: { title: "诊断报告", eyebrow: "分析中心", description: "查看链路质量、路由与故障诊断结果。" },
@@ -177,7 +181,7 @@ function ServicesPage() {
   return <><section className="section-toolbar"><div className="filter-tabs"><button className="active">全部 12</button><button>运行中 10</button><button>维护中 2</button></div><button className="primary-button">＋ 添加服务</button></section><section className="panel"><ServiceTable /></section></>;
 }
 
-const pageContent: Record<Exclude<SectionKey, "dashboard" | "services">, { stats: string[][]; rows: string[][]; headers: string[]; action: string }> = {
+const pageContent: Record<Exclude<LegacySectionKey, "dashboard" | "services">, { stats: string[][]; rows: string[][]; headers: string[]; action: string }> = {
   reports: { stats: [["本月报告", "18", "已完成 16 份"], ["平均评分", "92", "链路质量良好"], ["待处理", "2", "需要人工复核"]], headers: ["报告名称", "类型", "生成时间", "评分", "状态"], rows: [["亚太区域链路周报", "综合诊断", "今天 08:30", "96", "已完成"], ["跨境路由质量分析", "路由分析", "昨天 21:10", "91", "已完成"], ["核心节点异常复盘", "故障分析", "8 月 7 日", "—", "分析中"]], action: "生成诊断报告" },
   monitor: { stats: [["在线探针", "36", "覆盖 8 个区域"], ["监控目标", "128", "全部正在采集"], ["今日事件", "7", "2 个仍需关注"]], headers: ["监控目标", "区域", "响应时间", "可用率", "状态"], rows: [["客户门户", "华东", "24 ms", "99.99%", "正常"], ["边缘 API", "新加坡", "48 ms", "99.97%", "正常"], ["路由分析器", "洛杉矶", "138 ms", "99.89%", "波动"]], action: "添加监控" },
   orders: { stats: [["有效订单", "8", "均已正常交付"], ["本月消费", "¥ 8,420", "较上月 +4.8%"], ["待支付", "1", "将于 3 天后到期"]], headers: ["订单编号", "服务", "金额", "创建日期", "状态"], rows: [["NSP-202608-021", "全球链路监控", "¥ 2,499", "8 月 8 日", "已完成"], ["NSP-202608-018", "边缘接入扩容", "¥ 1,280", "8 月 6 日", "已完成"], ["NSP-202608-009", "智能路由分析", "¥ 3,600", "8 月 2 日", "待支付"]], action: "创建订单" },
@@ -188,7 +192,7 @@ const pageContent: Record<Exclude<SectionKey, "dashboard" | "services">, { stats
   security: { stats: [["安全评分", "92", "状态优秀"], ["活跃会话", "3", "均为可信设备"], ["访问密钥", "4", "最近使用于今天"]], headers: ["安全项目", "方式", "最近活动", "设备 / 范围", "状态"], rows: [["双重验证", "验证器应用", "今天 08:12", "账户全局", "已启用"], ["当前会话", "密码 + 2FA", "1 分钟前", "macOS", "活跃"], ["API 访问密钥", "受限令牌", "今天 07:48", "只读监控", "正常"]], action: "添加安全方式" },
 };
 
-function StandardPage({ section }: { section: Exclude<SectionKey, "dashboard" | "services"> }) {
+function StandardPage({ section }: { section: Exclude<LegacySectionKey, "dashboard" | "services"> }) {
   const data = pageContent[section];
   return (
     <>
@@ -210,6 +214,10 @@ export function DashboardShell() {
   }
 
   const section = requestedSection as SectionKey;
+  if (section === "subscribe") {
+    return <CustomerCenterShell><SubscribePage /></CustomerCenterShell>;
+  }
+
   const meta = sectionMeta[section];
   const showLiveMonitor = section === "dashboard" || section === "monitor";
   const monitorUrl = import.meta.env.VITE_MONITOR_URL?.trim();
@@ -240,7 +248,7 @@ export function DashboardShell() {
           <div className="page-heading">
             <div><span>{meta.eyebrow}</span><h1>{meta.title}</h1><p>{meta.description}</p></div>
           </div>
-          {section === "services" ? <ServicesPage /> : <StandardPage section={section as Exclude<SectionKey, "dashboard" | "services">} />}
+          {section === "services" ? <ServicesPage /> : <StandardPage section={section as Exclude<LegacySectionKey, "dashboard" | "services">} />}
           <footer><span>© 2026 Network Service Platform</span><span>服务条款 · 隐私政策 · v1.0.0</span></footer>
         </main>}
       </div>
