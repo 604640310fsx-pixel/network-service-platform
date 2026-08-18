@@ -52,19 +52,25 @@ export function insertAuthenticationUser(
   },
 ): number {
   const inviteHash = `bootstrap-${options.email}`;
-  database
-    .prepare(
-      `INSERT INTO invite_codes (
-        code_hash, is_bootstrap, created_by_admin_id, max_uses, used_count,
-        expires_at, revoked_at, note, created_at
-      ) VALUES (?, 1, NULL, 1, 0, ?, NULL, NULL, ?)`,
-    )
-    .run(inviteHash, LATER, NOW);
-  const inviteCodeId = firstNumber(
-    database,
-    "SELECT id FROM invite_codes WHERE code_hash = ?",
-    inviteHash,
-  );
+  const existingBootstrap = database
+    .prepare("SELECT id FROM invite_codes WHERE is_bootstrap = 1")
+    .all()[0] as { readonly id: number } | undefined;
+  let inviteCodeId = existingBootstrap?.id;
+  if (inviteCodeId === undefined) {
+    database
+      .prepare(
+        `INSERT INTO invite_codes (
+          code_hash, is_bootstrap, created_by_admin_id, max_uses, used_count,
+          expires_at, revoked_at, note, created_at
+        ) VALUES (?, 1, NULL, 1, 0, ?, NULL, NULL, ?)`,
+      )
+      .run(inviteHash, LATER, NOW);
+    inviteCodeId = firstNumber(
+      database,
+      "SELECT id FROM invite_codes WHERE code_hash = ?",
+      inviteHash,
+    );
+  }
 
   database
     .prepare(

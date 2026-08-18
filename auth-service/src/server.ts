@@ -1,11 +1,20 @@
 import { buildApp } from "./app.js";
-import { loadConfig } from "./config.js";
+import { loadAuthCredentialConfig, loadConfig } from "./config.js";
 import { initializeDatabase } from "./db.js";
 
 async function start(): Promise<void> {
   const config = loadConfig();
+  const credentials = loadAuthCredentialConfig();
   const database = initializeDatabase(config.dbPath);
-  const app = buildApp();
+  const app = buildApp({
+    auth: {
+      database,
+      nodeEnv: config.nodeEnv,
+      tokenHmacKeyring: credentials.tokenHmacKeyring,
+      rateLimitKeyring: credentials.rateLimitKeyring,
+      csrfSigningKey: credentials.csrfSigningKey,
+    },
+  });
   let databaseClosed = false;
 
   const closeDatabase = (): void => {
