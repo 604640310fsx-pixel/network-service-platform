@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
+import { useThemePreference } from "../../lib/theme";
 import "./customer-center.css";
 
 type DrawerKind = "navigation" | "order";
@@ -12,19 +13,11 @@ type DrawerContextValue = {
 const CustomerDrawerContext = createContext<DrawerContextValue | null>(null);
 // 已迁移到客户中心视觉的路由；其余菜单继续走 disabled / 待接入策略。
 const migratedPaths = new Set<string>(["/subscribe", "/dashboard"]);
-const themeStorageKey = "nsp.customer-center.theme";
 
 export function useCustomerDrawer() {
   const value = useContext(CustomerDrawerContext);
   if (!value) throw new Error("useCustomerDrawer must be used inside CustomerCenterShell");
   return value;
-}
-
-function initialTheme(): "dark" | "light" {
-  if (typeof window === "undefined") return "dark";
-  const stored = window.localStorage.getItem(themeStorageKey);
-  if (stored === "dark" || stored === "light") return stored;
-  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
 }
 
 const navigation = [
@@ -60,7 +53,7 @@ export function CustomerCenterShell({
   title: string;
   description: string;
 }) {
-  const [theme, setTheme] = useState<"dark" | "light">(initialTheme);
+  const { theme, toggleTheme } = useThemePreference();
   const [activeDrawer, setActiveDrawer] = useState<DrawerKind | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const topbarRef = useRef<HTMLElement>(null);
@@ -74,15 +67,6 @@ export function CustomerCenterShell({
   function closeDrawer() {
     setActiveDrawer(null);
   }
-
-  useEffect(() => {
-    const stored = window.localStorage.getItem(themeStorageKey);
-    if (stored === "dark" || stored === "light") return;
-    const media = window.matchMedia("(prefers-color-scheme: light)");
-    const sync = (event: MediaQueryListEvent) => setTheme(event.matches ? "light" : "dark");
-    media.addEventListener("change", sync);
-    return () => media.removeEventListener("change", sync);
-  }, []);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -121,12 +105,6 @@ export function CustomerCenterShell({
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [activeDrawer]);
-
-  function toggleTheme() {
-    const next = theme === "dark" ? "light" : "dark";
-    window.localStorage.setItem(themeStorageKey, next);
-    setTheme(next);
-  }
 
   return (
     <CustomerDrawerContext.Provider value={{ activeDrawer, openDrawer, closeDrawer }}>
