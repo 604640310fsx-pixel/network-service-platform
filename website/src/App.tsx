@@ -15,9 +15,8 @@ function LoginRoute() {
 function SectionRoute() {
   const { section } = useParams();
   const { status } = useAuth();
-  const protectedSection = section === "dashboard" || section === "subscribe";
 
-  if (!protectedSection) return <DashboardShell />;
+  if (section === "subscribe") return <DashboardShell />;
   if (status === "checking") return null;
   if (status === "unauthenticated") return <Navigate to="/login" replace />;
   return <DashboardShell />;
