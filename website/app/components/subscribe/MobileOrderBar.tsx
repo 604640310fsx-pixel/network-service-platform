@@ -7,7 +7,7 @@ type MobileOrderBarProps = {
 };
 
 export function MobileOrderBar({ summary, open, onOpen }: MobileOrderBarProps) {
-  const details = [summary.type, summary.region, summary.spec, summary.duration].filter((item) => item !== "—").join(" · ") || "尚未完成选择";
+  const details = [summary.type, summary.region, summary.spec, summary.duration].filter((item) => item !== "—" && item !== "不适用").join(" · ") || "尚未完成选择";
   return (
     <div className="sub-mobile-order-bar">
       <button type="button" className="sub-mobile-order-info" aria-expanded={open} onClick={(event) => onOpen(event.currentTarget)}>

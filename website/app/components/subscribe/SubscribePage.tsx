@@ -1,4 +1,4 @@
-import { durations, networkTypes, regions } from "../../lib/subscribeCatalog";
+import { networkTypes } from "../../lib/subscribeCatalog";
 import { useCustomerDrawer } from "../customer/CustomerCenterShell";
 import { MobileOrderBar } from "./MobileOrderBar";
 import { OptionCard } from "./OptionCard";
@@ -7,12 +7,27 @@ import { StepProgress } from "./StepProgress";
 import { useSubscriptionSelection } from "./useSubscriptionSelection";
 import "./subscribe.css";
 
-const sectionIds = ["sub-section-type", "sub-section-region", "sub-section-isp", "sub-section-spec", "sub-section-duration", "sub-section-duration"];
+const stepsWithSpec = [
+  ["网络类型", "选择网络类型"],
+  ["国家/地区", "选择目标国家"],
+  ["运营商", "选择运营商"],
+  ["规格", "选择套餐规格"],
+  ["有效期", "选择购买时长"],
+  ["确认方案", "核对方案摘要"],
+] as const;
+
+const stepsWithoutSpec = [
+  ["网络类型", "选择网络类型"],
+  ["国家/地区", "选择目标国家"],
+  ["运营商", "选择运营商"],
+  ["有效期", "选择购买时长"],
+  ["确认方案", "核对方案摘要"],
+] as const;
 
 const solutionPresentation: Record<string, { code: string; label: string; highlights: string[] }> = {
-  "ai-network": {
-    code: "GLOBAL TRANSIT",
-    label: "国际骨干线路",
+  "us-local-carrier": {
+    code: "US LOCAL CARRIER",
+    label: "美国本地运营商",
     highlights: ["NTT", "GTT", "Cogent", "Charter"],
   },
   "local-isp": {
@@ -28,7 +43,7 @@ const solutionPresentation: Record<string, { code: string; label: string; highli
 };
 
 function SolutionIcon({ typeId }: { typeId: string }) {
-  if (typeId === "ai-network") {
+  if (typeId === "us-local-carrier") {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" /><path d="M4.5 9h15M4.5 15h15M12 4c2.2 2.2 3.3 4.9 3.3 8S14.2 17.8 12 20c-2.2-2.2-3.3-4.9-3.3-8S9.8 6.2 12 4Z" /></svg>;
   }
   if (typeId === "local-isp") {
@@ -41,6 +56,10 @@ export function SubscribePage() {
   const selection = useSubscriptionSelection();
   const { activeDrawer, openDrawer, closeDrawer } = useCustomerDrawer();
   const orderOpen = activeDrawer === "order";
+  const steps = selection.requiresSpec ? stepsWithSpec : stepsWithoutSpec;
+  const sectionIds = selection.requiresSpec
+    ? ["sub-section-type", "sub-section-region", "sub-section-isp", "sub-section-spec", "sub-section-duration", "sub-section-duration"]
+    : ["sub-section-type", "sub-section-region", "sub-section-isp", "sub-section-duration", "sub-section-duration"];
 
   function goToStep(step: number) {
     selection.setCurrentStep(step);
@@ -55,15 +74,15 @@ export function SubscribePage() {
             <div>
               <span className="sub-workbench-kicker">NETWORK SOLUTION CONFIGURATOR</span>
               <h1>配置适合业务场景的网络方案</h1>
-              <p>按网络架构、服务地区与使用规格逐步确认方案。页面内容与价格当前仅作 prototype 展示。</p>
+              <p>按网络架构、服务地区与所需选项逐步确认方案。目录价格已接入，未提供的周期价格保持待确认。</p>
             </div>
             <div className="sub-workbench-status" aria-label="页面状态">
               <span><i aria-hidden="true" />方案配置台</span>
-              <small>PROTOTYPE</small>
+              <small>CATALOG V1</small>
             </div>
           </header>
 
-          <StepProgress currentStep={selection.currentStep} onStep={goToStep} />
+          <StepProgress steps={steps} currentStep={selection.currentStep} onStep={goToStep} />
 
           <section className="sub-section sub-solution-section" id="sub-section-type">
             <div className="sub-section-heading">
@@ -89,7 +108,7 @@ export function SubscribePage() {
                     <span className="sub-capability-label">能力概览</span>
                     <span className="sub-features">{option.features.map((feature) => <span key={feature}>{feature}</span>)}</span>
                     <span className="sub-solution-footer">
-                      <span><small>PROTOTYPE 起价</small><b>¥{option.startingPrice}<em>/月</em></b></span>
+                      <span><small>正式价格</small><b>{option.startingPrice === null ? "—" : `¥${option.startingPrice}`}<em>{option.startingPrice === null ? "待确认" : "/月"}</em></b></span>
                       <strong>{selected ? "当前方案" : "选择方案"}<i aria-hidden="true">→</i></strong>
                     </span>
                   </OptionCard>
@@ -101,14 +120,14 @@ export function SubscribePage() {
           <section className="sub-section" id="sub-section-region">
             <div className="sub-section-heading">
               <div><span>STEP 02 · LOCATION</span><h2>选择国家/地区</h2><p>确认网络服务的目标接入区域。</p></div>
-              <small>{regions.length} 个演示区域</small>
+              <small>{selection.availableRegions.length} 个可用区域</small>
             </div>
             <div className="sub-grid sub-grid-four" role="radiogroup" aria-label="国家或地区">
-              {regions.map((option) => (
+              {selection.availableRegions.map((option) => (
                 <OptionCard key={option.id} selected={selection.regionId === option.id} onSelect={() => selection.selectRegion(option.id)} label={option.name} className="sub-region-option">
                   <span className="sub-option-head"><i className={`sub-flag is-${option.flagClass}`} aria-hidden="true" /><strong>{option.name}</strong></span>
                   <span className="sub-region-meta">
-                    {option.startingPrice ? <b>¥{option.startingPrice}<small> 起</small></b> : <small>支持更多地区</small>}
+                    {option.startingPrice !== undefined && option.startingPrice !== null ? <b>¥{option.startingPrice}<small> 起</small></b> : <small>价格待确认</small>}
                     {option.badge && <i className={`sub-tag ${option.configured ? "is-accent" : ""}`}>{option.badge}</i>}
                   </span>
                 </OptionCard>
@@ -125,14 +144,14 @@ export function SubscribePage() {
               <div className="sub-grid sub-isp-grid" role="radiogroup" aria-label="运营商">
                 {selection.availableIsps.map((option) => (
                   <OptionCard key={option.id} selected={selection.ispId === option.id} onSelect={() => selection.selectIsp(option.id)} label={option.name} className="sub-isp-option">
-                    <span className="sub-isp-logo">{option.name}</span><span><strong>{option.name}</strong><small>{option.description}</small></span>
+                    <span className="sub-isp-logo">{option.name}</span><span><strong>{option.name}</strong><small>{option.routeInfo ?? option.description}</small></span>
                   </OptionCard>
                 ))}
               </div>
             ) : <div className="sub-pending" role="status">该地区方案待配置</div>}
           </section>
 
-          <section className="sub-section" id="sub-section-spec">
+          {selection.requiresSpec && <section className="sub-section" id="sub-section-spec">
             <div className="sub-section-heading">
               <div><span>STEP 04 · SERVICE PROFILE</span><h2>选择使用规格</h2><p>按共享方式、流量与使用场景确认接入规格。</p></div>
               <small>{selection.availableSpecs.length ? `${selection.availableSpecs.length} 个规格` : "请先选择 ISP"}</small>
@@ -141,35 +160,34 @@ export function SubscribePage() {
               <div className="sub-grid sub-grid-three" role="radiogroup" aria-label="套餐规格">
                 {selection.availableSpecs.map((option) => (
                   <OptionCard key={option.id} selected={selection.specId === option.id} onSelect={() => selection.selectSpec(option.id)} label={option.name} className="sub-spec-option">
-                    <span className="sub-option-head"><strong>{option.name}</strong>{option.badge && <i className="sub-tag is-accent">{option.badge}</i>}<i className="sub-tag">¥{option.monthlyPrice} / 月</i></span>
+                    <span className="sub-option-head"><strong>{option.name}</strong>{option.badge && <i className="sub-tag is-accent">{option.badge}</i>}<i className="sub-tag">{option.monthlyPrice === null ? "价格待确认" : `¥${option.monthlyPrice} / 月`}</i></span>
                     <span className="sub-features">{option.features.map((feature) => <span key={feature}>{feature}</span>)}</span>
                     <span className="sub-option-cta">{option.description}</span>
                   </OptionCard>
                 ))}
               </div>
             ) : <div className="sub-pending">请先选择可用的运营商方案</div>}
-          </section>
+          </section>}
 
           <section className="sub-section" id="sub-section-duration">
             <div className="sub-section-heading">
-              <div><span>STEP 05 · SERVICE TERM</span><h2>选择有效期</h2><p>演示价格会根据当前规格与有效期同步更新。</p></div>
-              <small>{durations.length} 个期限</small>
+              <div><span>{selection.requiresSpec ? "STEP 05" : "STEP 04"} · SERVICE TERM</span><h2>选择有效期</h2><p>价格按当前目录展示；未提供价格的周期保持待确认。</p></div>
+              <small>{selection.availableDurations.length} 个期限</small>
             </div>
-            {selection.selectedSpec ? (
+            {selection.canSelectDuration ? (
               <div className="sub-grid sub-grid-four" role="radiogroup" aria-label="购买有效期">
-                {durations.map((option) => {
-                  const total = Math.round(selection.selectedSpec!.monthlyPrice * option.months * option.rate);
-                  const listPrice = selection.selectedSpec!.monthlyPrice * option.months;
+                {selection.availableDurations.map((option) => {
+                  const total = selection.durationPrices[option.id] ?? null;
                   return (
                     <OptionCard key={option.id} selected={selection.durationId === option.id} onSelect={() => selection.selectDuration(option.id)} label={option.name} className="sub-duration-option">
                       <span className="sub-option-head"><strong>{option.name}</strong>{option.badge && <i className="sub-tag is-accent">{option.badge}</i>}</span>
-                      <span className="sub-duration-total">¥{total}</span>
-                      <span className="sub-duration-meta"><span>¥{Math.floor(total / option.months)} / 月</span><b>{listPrice > total ? `省 ¥${listPrice - total}` : ""}</b></span>
+                      <span className="sub-duration-total">{total === null ? "—" : `¥${total}`}</span>
+                      <span className="sub-duration-meta"><span>{total === null ? "价格待确认" : `约 ¥${Math.floor(total / option.months)} / 月`}</span><b /></span>
                     </OptionCard>
                   );
                 })}
               </div>
-            ) : <div className="sub-pending">请先选择套餐规格</div>}
+            ) : <div className="sub-pending">{selection.requiresSpec ? "请先选择套餐规格" : "请先选择运营商"}</div>}
           </section>
         </div>
 

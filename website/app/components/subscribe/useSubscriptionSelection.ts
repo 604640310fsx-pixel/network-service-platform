@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
 import {
-  defaultPrototypeSelection,
-  durations,
-  ispsByRegion,
+  defaultCatalogSelection,
+  durationsByType,
+  ispsByTypeAndRegion,
   networkTypes,
-  regions,
+  regionsByType,
   specsByIsp,
 } from "../../lib/subscribeCatalog";
 
@@ -15,47 +15,71 @@ export type SelectionSummary = {
   spec: string;
   duration: string;
   traffic: string;
+  bandwidth: string;
+  ipType: string;
+  udp: string;
+  dns: string;
   total: number | null;
   listPrice: number | null;
   complete: boolean;
 };
 
 export function useSubscriptionSelection() {
-  const [typeId, setTypeId] = useState<string | null>(defaultPrototypeSelection.typeId);
-  const [regionId, setRegionId] = useState<string | null>(defaultPrototypeSelection.regionId);
-  const [ispId, setIspId] = useState<string | null>(defaultPrototypeSelection.ispId);
-  const [specId, setSpecId] = useState<string | null>(defaultPrototypeSelection.specId);
-  const [durationId, setDurationId] = useState<string | null>(defaultPrototypeSelection.durationId);
+  const [typeId, setTypeId] = useState<string | null>(defaultCatalogSelection.typeId);
+  const [regionId, setRegionId] = useState<string | null>(defaultCatalogSelection.regionId);
+  const [ispId, setIspId] = useState<string | null>(defaultCatalogSelection.ispId);
+  const [specId, setSpecId] = useState<string | null>(defaultCatalogSelection.specId);
+  const [durationId, setDurationId] = useState<string | null>(defaultCatalogSelection.durationId);
   const [currentStep, setCurrentStep] = useState(5);
 
-  const availableIsps = regionId ? (ispsByRegion[regionId] ?? []) : [];
-  const availableSpecs = ispId ? (specsByIsp[ispId] ?? []) : [];
-
   const selectedType = networkTypes.find((option) => option.id === typeId) ?? null;
-  const selectedRegion = regions.find((option) => option.id === regionId) ?? null;
+  const requiresSpec = selectedType?.requiresSpec ?? false;
+  const availableRegions = typeId ? (regionsByType[typeId] ?? []) : [];
+  const availableIsps = typeId && regionId ? (ispsByTypeAndRegion[typeId]?.[regionId] ?? []) : [];
+  const availableSpecs = requiresSpec && ispId ? (specsByIsp[ispId] ?? []) : [];
+  const availableDurations = typeId ? (durationsByType[typeId] ?? []) : [];
+
+  const selectedRegion = availableRegions.find((option) => option.id === regionId) ?? null;
   const selectedIsp = availableIsps.find((option) => option.id === ispId) ?? null;
   const selectedSpec = availableSpecs.find((option) => option.id === specId) ?? null;
-  const selectedDuration = durations.find((option) => option.id === durationId) ?? null;
+  const selectedDuration = availableDurations.find((option) => option.id === durationId) ?? null;
+  const canSelectDuration = Boolean(selectedIsp && (!requiresSpec || selectedSpec));
+  const durationPrices = useMemo<Record<string, number | null>>(
+    () => Object.fromEntries(
+      availableDurations.map((duration) => [
+        duration.id,
+        duration.price ?? selectedSpec?.pricesByDuration[duration.id] ?? null,
+      ]),
+    ),
+    [availableDurations, selectedSpec],
+  );
 
   const summary = useMemo<SelectionSummary>(() => {
-    const complete = Boolean(selectedType && selectedRegion?.configured && selectedIsp && selectedSpec && selectedDuration);
-    const listPrice = complete ? selectedSpec!.monthlyPrice * selectedDuration!.months : null;
-    const total = complete
-      ? Math.round(selectedSpec!.monthlyPrice * selectedDuration!.months * selectedDuration!.rate)
-      : null;
+    const complete = Boolean(
+      selectedType &&
+      selectedRegion?.configured &&
+      selectedIsp &&
+      (!requiresSpec || selectedSpec) &&
+      selectedDuration,
+    );
+    const total = complete && selectedDuration ? (durationPrices[selectedDuration.id] ?? null) : null;
 
     return {
       type: selectedType?.name ?? "—",
       region: selectedRegion?.name ?? "—",
       isp: selectedIsp?.name ?? "—",
-      spec: selectedSpec?.name ?? "—",
+      spec: requiresSpec ? (selectedSpec?.name ?? "—") : "不适用",
       duration: selectedDuration?.name ?? "—",
-      traffic: selectedSpec?.traffic ?? "—",
-      listPrice,
+      traffic: selectedSpec?.traffic ?? selectedType?.traffic ?? "—",
+      bandwidth: selectedType?.bandwidth ?? "—",
+      ipType: selectedType?.ipType ?? "—",
+      udp: selectedType?.udp ?? "—",
+      dns: selectedType?.dns ?? "—",
+      listPrice: null,
       total,
       complete,
     };
-  }, [selectedDuration, selectedIsp, selectedRegion, selectedSpec, selectedType]);
+  }, [durationPrices, requiresSpec, selectedDuration, selectedIsp, selectedRegion, selectedSpec, selectedType]);
 
   function selectType(nextId: string) {
     if (nextId === typeId) return;
@@ -90,7 +114,7 @@ export function useSubscriptionSelection() {
 
   function selectDuration(nextId: string) {
     setDurationId(nextId);
-    setCurrentStep(6);
+    setCurrentStep(requiresSpec ? 6 : 5);
   }
 
   return {
@@ -101,9 +125,14 @@ export function useSubscriptionSelection() {
     durationId,
     currentStep,
     setCurrentStep,
+    requiresSpec,
+    availableRegions,
     availableIsps,
     availableSpecs,
+    availableDurations,
+    durationPrices,
     selectedSpec,
+    canSelectDuration,
     summary,
     selectType,
     selectRegion,

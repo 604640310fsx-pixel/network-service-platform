@@ -1,20 +1,12 @@
 import { Fragment } from "react";
 
 type StepProgressProps = {
+  steps: readonly (readonly [string, string])[];
   currentStep: number;
   onStep: (step: number) => void;
 };
 
-const steps = [
-  ["网络类型", "选择网络类型"],
-  ["国家/地区", "选择目标国家"],
-  ["运营商", "选择运营商"],
-  ["规格", "选择套餐规格"],
-  ["有效期", "选择购买时长"],
-  ["确认方案", "核对方案摘要"],
-] as const;
-
-export function StepProgress({ currentStep, onStep }: StepProgressProps) {
+export function StepProgress({ steps, currentStep, onStep }: StepProgressProps) {
   const current = steps[currentStep - 1] ?? steps[0];
   return (
     <>
@@ -38,8 +30,8 @@ export function StepProgress({ currentStep, onStep }: StepProgressProps) {
         })}
       </nav>
       <button type="button" className="sub-mobile-progress" onClick={() => onStep(currentStep)}>
-        <span className="sub-mobile-progress-label"><b>{current[1]}</b><span>步骤 <em>{currentStep}</em> / 6</span></span>
-        <span className="sub-mobile-progress-track"><i style={{ width: `${(currentStep / 6) * 100}%` }} /></span>
+        <span className="sub-mobile-progress-label"><b>{current[1]}</b><span>步骤 <em>{currentStep}</em> / {steps.length}</span></span>
+        <span className="sub-mobile-progress-track"><i style={{ width: `${(currentStep / steps.length) * 100}%` }} /></span>
       </button>
     </>
   );

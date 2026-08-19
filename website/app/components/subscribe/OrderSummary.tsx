@@ -15,7 +15,7 @@ export function OrderSummary({ summary, drawer = false }: OrderSummaryProps) {
     <div className={`sub-summary-card ${drawer ? "is-drawer" : ""}`}>
       <div className="sub-summary-head">
         <span><small>SOLUTION SUMMARY</small><b>方案摘要</b></span>
-        <i>PROTOTYPE</i>
+        <i>CATALOG V1</i>
       </div>
       <div className="sub-summary-rows">
         <div><span>网络类型</span><b>{value(summary.type)}</b></div>
@@ -25,13 +25,13 @@ export function OrderSummary({ summary, drawer = false }: OrderSummaryProps) {
         <div><span>有效期</span><b>{value(summary.duration)}</b></div>
         <hr />
         <div><span>月流量</span><b>{value(summary.traffic)}</b></div>
-        <div><span>带宽</span><b>{summary.complete ? "最高 100M" : "—"}</b></div>
-        <div><span>IP 类型</span><b>{summary.complete ? "静态住宅 IP" : "—"}</b></div>
-        <div><span>UDP 支持</span><b className={summary.complete ? "is-accent" : ""}>{summary.complete ? "完整支持" : "—"}</b></div>
-        <div><span>DNS</span><b>{summary.complete ? "一致" : "—"}</b></div>
+        <div><span>带宽</span><b>{value(summary.bandwidth)}</b></div>
+        <div><span>IP 类型</span><b>{value(summary.ipType)}</b></div>
+        <div><span>UDP 支持</span><b>{value(summary.udp)}</b></div>
+        <div><span>DNS</span><b>{value(summary.dns)}</b></div>
       </div>
       <div className="sub-summary-total">
-        <span><small>PROTOTYPE ESTIMATE</small>演示估算</span>
+        <span><small>CATALOG PRICE</small>目录价格</span>
         <div>
           <s>{showListPrice ? `¥${summary.listPrice}` : ""}</s>
           <b>{summary.total === null ? "—" : `¥${summary.total}`}</b>
@@ -39,7 +39,7 @@ export function OrderSummary({ summary, drawer = false }: OrderSummaryProps) {
       </div>
       <div className="sub-summary-pay">
         <button type="button" disabled>方案提交待开放</button>
-        <p>仅作方案与价格演示，不创建订单或支付</p>
+        <p>价格来自产品目录，本页不创建订单或支付</p>
       </div>
     </div>
   );

@@ -121,6 +121,7 @@
 .sub-flag.is-vn { background: radial-gradient(circle at 50% 50%, #ffcd00 0 24%, transparent 25%), #da251d; }
 .sub-flag.is-my { background: linear-gradient(90deg, #010066 0 42%, transparent 42%), repeating-linear-gradient(180deg, #cc0001 0 2px, #fff 2px 4px); }
 .sub-flag.is-kr { background: radial-gradient(circle at 50% 50%, transparent 0 32%, #fff 32%), conic-gradient(from 135deg, #c60c30 0 50%, #003478 50% 100%); }
+.sub-flag.is-hk { background: radial-gradient(circle at 50% 50%, #fff 0 15%, transparent 16%), #de2910; }
 .sub-flag.is-us { background: linear-gradient(90deg, #3c3b6e 0 42%, transparent 42%), repeating-linear-gradient(180deg, #b22234 0 2px, #fff 2px 4px); }
 .sub-flag.is-tw { background: radial-gradient(circle at 26% 34%, #ffde00 0 17%, transparent 18%), #de2910; }
 .sub-flag.is-globe { display: grid; place-items: center; background: var(--cc-inset); }
