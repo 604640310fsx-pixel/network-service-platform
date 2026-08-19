@@ -17,8 +17,35 @@ export interface LoginRateLimitDependencies {
   readonly now?: () => Date;
 }
 
+export interface RegistrationStartRateLimitInput {
+  readonly ip: string;
+  readonly canonicalEmail: string;
+  readonly inviteHashIdentifiers: readonly string[];
+}
+
+export interface RegistrationResendRateLimitInput {
+  readonly ip: string;
+  readonly canonicalEmail: string;
+}
+
+export type RegistrationIpRateLimitPurpose =
+  | "register:resend:ip"
+  | "register:verify:ip"
+  | "register:complete:ip";
+
+export interface RegistrationRateLimitDependencies {
+  readonly now?: () => Date;
+}
+
 export const LOGIN_IP_LIMIT = 20;
 export const LOGIN_ACCOUNT_LIMIT = 10;
+export const REGISTRATION_START_IP_LIMIT = 10;
+export const REGISTRATION_START_EMAIL_LIMIT = 5;
+export const REGISTRATION_START_INVITE_LIMIT = 5;
+export const REGISTRATION_RESEND_IP_LIMIT = 20;
+export const REGISTRATION_RESEND_EMAIL_LIMIT = 5;
+export const REGISTRATION_VERIFY_IP_LIMIT = 30;
+export const REGISTRATION_COMPLETE_IP_LIMIT = 20;
 export const RATE_LIMIT_BUCKET_SECONDS = 300;
 export const RATE_LIMIT_WINDOW_SECONDS = 3_600;
 
@@ -182,6 +209,58 @@ function increment(
     .run(key, windowStart, now);
 }
 
+interface RateLimitDimension {
+  readonly readKeys: readonly string[];
+  readonly writeKey: string;
+  readonly limit: number;
+}
+
+function consumeDimensions(
+  database: DatabaseConnection,
+  dimensions: readonly RateLimitDimension[],
+  times: ReturnType<typeof rateLimitTimes>,
+): void {
+  const consume = database.transaction(() => {
+    for (const dimension of dimensions) {
+      if (
+        countForKeys(database, dimension.readKeys, times.windowFloor) >=
+        dimension.limit
+      ) {
+        throw new RateLimitExceededError();
+      }
+    }
+    for (const dimension of dimensions) {
+      increment(database, dimension.writeKey, times.windowStart, times.now);
+    }
+  });
+
+  consume.immediate();
+}
+
+function dimension(
+  keyring: RateLimitKeyring,
+  purpose: string,
+  identifiers: readonly string[],
+  limit: number,
+): RateLimitDimension {
+  const versions = keyVersions(keyring);
+  const readKeys = versions.flatMap((version) =>
+    identifiers.map((identifier) =>
+      computeRateLimitBucketKey(keyring, version, purpose, identifier),
+    ),
+  );
+  return {
+    readKeys: [...new Set(readKeys)],
+    writeKey: computeRateLimitBucketKey(
+      keyring,
+      keyring.version,
+      purpose,
+      identifiers[0]!,
+    ),
+    limit,
+  };
+}
+
 export function consumeLoginRateLimit(
   database: DatabaseConnection,
   keyring: RateLimitKeyring,
@@ -203,20 +282,128 @@ export function consumeLoginRateLimit(
     ),
   );
 
+  consumeDimensions(
+    database,
+    [
+      { readKeys: ipKeys, writeKey: ipKeys[0]!, limit: LOGIN_IP_LIMIT },
+      {
+        readKeys: accountKeys,
+        writeKey: accountKeys[0]!,
+        limit: LOGIN_ACCOUNT_LIMIT,
+      },
+    ],
+    times,
+  );
+}
+
+export function consumeRegistrationStartRateLimit(
+  database: DatabaseConnection,
+  keyring: RateLimitKeyring,
+  input: RegistrationStartRateLimitInput,
+  dependencies: RegistrationRateLimitDependencies = {},
+): void {
+  if (input.inviteHashIdentifiers.length === 0) {
+    throw new Error("Registration invite rate-limit identifiers are invalid");
+  }
+  const times = rateLimitTimes(dependencies.now ?? (() => new Date()));
+  consumeDimensions(
+    database,
+    [
+      dimension(
+        keyring,
+        "register:start:ip",
+        [canonicalizeIp(input.ip)],
+        REGISTRATION_START_IP_LIMIT,
+      ),
+      dimension(
+        keyring,
+        "register:start:email",
+        [input.canonicalEmail],
+        REGISTRATION_START_EMAIL_LIMIT,
+      ),
+      dimension(
+        keyring,
+        "register:start:invite",
+        input.inviteHashIdentifiers,
+        REGISTRATION_START_INVITE_LIMIT,
+      ),
+    ],
+    times,
+  );
+}
+
+export function consumeRegistrationIpRateLimit(
+  database: DatabaseConnection,
+  keyring: RateLimitKeyring,
+  purpose: RegistrationIpRateLimitPurpose,
+  ip: string,
+  dependencies: RegistrationRateLimitDependencies = {},
+): void {
+  const limits: Record<RegistrationIpRateLimitPurpose, number> = {
+    "register:resend:ip": REGISTRATION_RESEND_IP_LIMIT,
+    "register:verify:ip": REGISTRATION_VERIFY_IP_LIMIT,
+    "register:complete:ip": REGISTRATION_COMPLETE_IP_LIMIT,
+  };
+  const times = rateLimitTimes(dependencies.now ?? (() => new Date()));
+  consumeDimensions(
+    database,
+    [dimension(keyring, purpose, [canonicalizeIp(ip)], limits[purpose])],
+    times,
+  );
+}
+
+export function consumeRegistrationResendRateLimit(
+  database: DatabaseConnection,
+  keyring: RateLimitKeyring,
+  input: RegistrationResendRateLimitInput,
+  dependencies: RegistrationRateLimitDependencies = {},
+): { readonly emailSilenced: boolean } {
+  const times = rateLimitTimes(dependencies.now ?? (() => new Date()));
+  const ipDimension = dimension(
+    keyring,
+    "register:resend:ip",
+    [canonicalizeIp(input.ip)],
+    REGISTRATION_RESEND_IP_LIMIT,
+  );
+  const emailDimension = dimension(
+    keyring,
+    "register:resend:email",
+    [input.canonicalEmail],
+    REGISTRATION_RESEND_EMAIL_LIMIT,
+  );
   const consume = database.transaction(() => {
-    if (countForKeys(database, ipKeys, times.windowFloor) >= LOGIN_IP_LIMIT) {
-      throw new RateLimitExceededError();
-    }
     if (
-      countForKeys(database, accountKeys, times.windowFloor) >=
-      LOGIN_ACCOUNT_LIMIT
+      countForKeys(database, ipDimension.readKeys, times.windowFloor) >=
+      ipDimension.limit
     ) {
       throw new RateLimitExceededError();
     }
-
-    increment(database, ipKeys[0]!, times.windowStart, times.now);
-    increment(database, accountKeys[0]!, times.windowStart, times.now);
+    if (
+      countForKeys(database, emailDimension.readKeys, times.windowFloor) >=
+      emailDimension.limit
+    ) {
+      increment(
+        database,
+        ipDimension.writeKey,
+        times.windowStart,
+        times.now,
+      );
+      return { emailSilenced: true } as const;
+    }
+    increment(
+      database,
+      ipDimension.writeKey,
+      times.windowStart,
+      times.now,
+    );
+    increment(
+      database,
+      emailDimension.writeKey,
+      times.windowStart,
+      times.now,
+    );
+    return { emailSilenced: false } as const;
   });
 
-  consume.immediate();
+  return consume.immediate();
 }

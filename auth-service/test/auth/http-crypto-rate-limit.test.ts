@@ -8,8 +8,12 @@ import {
 import {
   computeRateLimitBucketKey,
   consumeLoginRateLimit,
+  consumeRegistrationResendRateLimit,
+  consumeRegistrationStartRateLimit,
   LOGIN_ACCOUNT_LIMIT,
   LOGIN_IP_LIMIT,
+  REGISTRATION_RESEND_EMAIL_LIMIT,
+  REGISTRATION_START_EMAIL_LIMIT,
   RateLimitExceededError,
   type RateLimitKeyring,
 } from "../../src/http/rate-limit.js";
@@ -40,6 +44,83 @@ test("matches frozen CSRF and rate-limit derivation vectors", () => {
   );
   assert.equal(bucket, "gHeGioL7_wHps7P49VGXRWqA56MJ_RswAD7IgjKHzPw");
   assert.equal(bucket.length, 43);
+});
+
+test("registration start checks and increments all dimensions atomically", async () => {
+  await withAuthenticationDatabase((database) => {
+    const dependencies = { now: () => new Date(NOW) };
+    for (let count = 0; count < REGISTRATION_START_EMAIL_LIMIT; count += 1) {
+      consumeRegistrationStartRateLimit(
+        database,
+        KEYRING,
+        {
+          ip: `192.0.2.${count + 1}`,
+          canonicalEmail: "registration@example.com",
+          inviteHashIdentifiers: [`invite-${count}`],
+        },
+        dependencies,
+      );
+    }
+    const rowsBefore = database
+      .prepare("SELECT COUNT(*) AS total FROM rate_limit_buckets")
+      .all()[0] as { readonly total: number };
+    assert.throws(
+      () =>
+        consumeRegistrationStartRateLimit(
+          database,
+          KEYRING,
+          {
+            ip: "192.0.2.250",
+            canonicalEmail: "registration@example.com",
+            inviteHashIdentifiers: ["unused-invite"],
+          },
+          dependencies,
+        ),
+      RateLimitExceededError,
+    );
+    const rowsAfter = database
+      .prepare("SELECT COUNT(*) AS total FROM rate_limit_buckets")
+      .all()[0] as { readonly total: number };
+    assert.equal(rowsAfter.total, rowsBefore.total);
+  });
+});
+
+test("registration resend silently suppresses email excess while retaining IP accounting", async () => {
+  await withAuthenticationDatabase((database) => {
+    const dependencies = { now: () => new Date(NOW) };
+    for (let count = 0; count < REGISTRATION_RESEND_EMAIL_LIMIT; count += 1) {
+      assert.deepEqual(
+        consumeRegistrationResendRateLimit(
+          database,
+          KEYRING,
+          { ip: "192.0.2.90", canonicalEmail: "resend@example.com" },
+          dependencies,
+        ),
+        { emailSilenced: false },
+      );
+    }
+    assert.deepEqual(
+      consumeRegistrationResendRateLimit(
+        database,
+        KEYRING,
+        { ip: "192.0.2.90", canonicalEmail: "resend@example.com" },
+        dependencies,
+      ),
+      { emailSilenced: true },
+    );
+    const ipKey = computeRateLimitBucketKey(
+      KEYRING,
+      KEYRING.version,
+      "register:resend:ip",
+      "192.0.2.90",
+    );
+    const row = database
+      .prepare(
+        "SELECT count FROM rate_limit_buckets WHERE bucket_key = ?",
+      )
+      .all(ipKey)[0] as { readonly count: number };
+    assert.equal(row.count, REGISTRATION_RESEND_EMAIL_LIMIT + 1);
+  });
 });
 
 test("enforces account and IP limits with independent buckets", async () => {

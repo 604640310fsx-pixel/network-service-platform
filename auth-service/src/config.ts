@@ -14,11 +14,13 @@ export interface AppConfig {
   readonly port: number;
   readonly dbPath: string;
   readonly nodeEnv: RuntimeEnvironment;
+  readonly registrationEnabled: boolean;
 }
 
 export interface AuthCredentialConfig {
   readonly tokenHmacKeyring: TokenHmacKeyring;
   readonly inviteHmacKeyring: InviteHmacKeyring;
+  readonly mailPayloadEncKeyring: TokenHmacKeyring;
   readonly rateLimitKeyring: RateLimitKeyring;
   readonly csrfSigningKey: Buffer;
 }
@@ -71,12 +73,20 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
 
   const port = parsePort(requireValue(environment, "PORT"));
   const dbPath = requireValue(environment, "DB_PATH");
+  const registrationEnabledValue = environment.REGISTRATION_ENABLED;
+  if (
+    registrationEnabledValue !== "true" &&
+    registrationEnabledValue !== "false"
+  ) {
+    throw new Error("REGISTRATION_ENABLED must be exactly true or false");
+  }
 
   return Object.freeze({
     host: LOOPBACK_HOST,
     port,
     dbPath,
     nodeEnv,
+    registrationEnabled: registrationEnabledValue === "true",
   });
 }
 
@@ -175,6 +185,9 @@ export function loadAuthCredentialConfig(
   const inviteHmacKeyring = parseKeyring(
     readCredential(directory, "invite_hmac_keyring"),
   );
+  const mailPayloadEncKeyring = parseKeyring(
+    readCredential(directory, "mail_payload_enc_keyring"),
+  );
   const rateLimitKeyring = parseKeyring(
     readCredential(directory, "rate_limit_key"),
   );
@@ -185,6 +198,7 @@ export function loadAuthCredentialConfig(
   return Object.freeze({
     tokenHmacKeyring,
     inviteHmacKeyring,
+    mailPayloadEncKeyring,
     rateLimitKeyring,
     csrfSigningKey,
   });

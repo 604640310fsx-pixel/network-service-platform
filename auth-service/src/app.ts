@@ -4,6 +4,10 @@ import {
   registerAuthHttpRoutes,
   type AuthHttpDependencies,
 } from "./http/auth-routes.js";
+import {
+  registerRegistrationHttpRoutes,
+  type RegistrationHttpDependencies,
+} from "./http/registration-routes.js";
 
 interface HealthResponse {
   readonly status: "ok";
@@ -20,6 +24,7 @@ const HEALTH_RESPONSE_SCHEMA = {
 
 export interface BuildAppOptions {
   readonly auth?: AuthHttpDependencies;
+  readonly registration?: RegistrationHttpDependencies;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -43,6 +48,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   if (options.auth !== undefined) {
     registerAuthHttpRoutes(app, options.auth);
+  }
+  if (options.registration !== undefined) {
+    registerRegistrationHttpRoutes(app, options.registration);
   }
 
   return app;

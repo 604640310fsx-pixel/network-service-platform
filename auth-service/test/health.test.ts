@@ -9,6 +9,7 @@ const VALID_ENVIRONMENT: NodeJS.ProcessEnv = {
   HOST: "127.0.0.1",
   PORT: "3101",
   DB_PATH: "/tmp/auth-service-test.sqlite",
+  REGISTRATION_ENABLED: "false",
 };
 
 test("loopback configuration is accepted", () => {
@@ -17,6 +18,7 @@ test("loopback configuration is accepted", () => {
     port: 3101,
     dbPath: "/tmp/auth-service-test.sqlite",
     nodeEnv: "test",
+    registrationEnabled: false,
   });
 });
 
@@ -36,6 +38,22 @@ test("missing production configuration is rejected", () => {
         PORT: "3101",
       }),
     /DB_PATH is required/,
+  );
+});
+
+test("registration feature flag is required and accepts only exact literals", () => {
+  assert.throws(
+    () => loadConfig({ ...VALID_ENVIRONMENT, REGISTRATION_ENABLED: undefined }),
+    /REGISTRATION_ENABLED must be exactly true or false/,
+  );
+  assert.throws(
+    () => loadConfig({ ...VALID_ENVIRONMENT, REGISTRATION_ENABLED: " true " }),
+    /REGISTRATION_ENABLED must be exactly true or false/,
+  );
+  assert.equal(
+    loadConfig({ ...VALID_ENVIRONMENT, REGISTRATION_ENABLED: "true" })
+      .registrationEnabled,
+    true,
   );
 });
 

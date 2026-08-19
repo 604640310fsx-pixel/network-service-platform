@@ -14,6 +14,16 @@ async function start(): Promise<void> {
       rateLimitKeyring: credentials.rateLimitKeyring,
       csrfSigningKey: credentials.csrfSigningKey,
     },
+    registration: config.registrationEnabled
+      ? {
+          database,
+          nodeEnv: config.nodeEnv,
+          tokenHmacKeyring: credentials.tokenHmacKeyring,
+          inviteHmacKeyring: credentials.inviteHmacKeyring,
+          mailPayloadEncKeyring: credentials.mailPayloadEncKeyring,
+          rateLimitKeyring: credentials.rateLimitKeyring,
+        }
+      : undefined,
   });
   let databaseClosed = false;
 

@@ -26,6 +26,11 @@ async function withCredentialDirectory<Result>(
       { mode: 0o600 },
     );
     await writeFile(
+      join(directory, "mail_payload_enc_keyring"),
+      JSON.stringify({ version: 2, keys: { "1": KEY_V1, "2": KEY_V2 } }),
+      { mode: 0o600 },
+    );
+    await writeFile(
       join(directory, "rate_limit_key"),
       JSON.stringify({ version: 2, keys: { "1": KEY_V1, "2": KEY_V2 } }),
       { mode: 0o600 },
@@ -50,6 +55,10 @@ test("loads only the frozen credential names and strict key formats", async () =
       keys: { "1": KEY_V1, "2": KEY_V2 },
     });
     assert.deepEqual(config.inviteHmacKeyring, {
+      version: 2,
+      keys: { "1": KEY_V1, "2": KEY_V2 },
+    });
+    assert.deepEqual(config.mailPayloadEncKeyring, {
       version: 2,
       keys: { "1": KEY_V1, "2": KEY_V2 },
     });
