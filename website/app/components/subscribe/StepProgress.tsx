@@ -11,7 +11,7 @@ const steps = [
   ["运营商", "选择运营商"],
   ["规格", "选择套餐规格"],
   ["有效期", "选择购买时长"],
-  ["确认订单", "确认并支付"],
+  ["确认方案", "核对方案摘要"],
 ] as const;
 
 export function StepProgress({ currentStep, onStep }: StepProgressProps) {

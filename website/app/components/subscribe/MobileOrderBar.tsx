@@ -14,7 +14,7 @@ export function MobileOrderBar({ summary, open, onOpen }: MobileOrderBarProps) {
         <span className="sub-mobile-order-price">{summary.total === null ? "—" : `¥${summary.total}`}</span>
         <span className="sub-mobile-order-detail">{details}<i aria-hidden="true">⌃</i></span>
       </button>
-      <button type="button" className="sub-order-button" disabled>立即下单</button>
+      <button type="button" className="sub-order-button" disabled>提交待开放</button>
     </div>
   );
 }

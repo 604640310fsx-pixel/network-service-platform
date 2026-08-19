@@ -9,6 +9,34 @@ import "./subscribe.css";
 
 const sectionIds = ["sub-section-type", "sub-section-region", "sub-section-isp", "sub-section-spec", "sub-section-duration", "sub-section-duration"];
 
+const solutionPresentation: Record<string, { code: string; label: string; highlights: string[] }> = {
+  "ai-network": {
+    code: "GLOBAL TRANSIT",
+    label: "国际骨干线路",
+    highlights: ["NTT", "GTT", "Cogent", "Charter"],
+  },
+  "local-isp": {
+    code: "LOCAL PREMIUM",
+    label: "本地优化线路",
+    highlights: ["CN2 GIA", "AS9929", "CMI"],
+  },
+  residential: {
+    code: "RESIDENTIAL ISP",
+    label: "住宅接入维度",
+    highlights: ["国家", "ISP", "共享", "独享"],
+  },
+};
+
+function SolutionIcon({ typeId }: { typeId: string }) {
+  if (typeId === "ai-network") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" /><path d="M4.5 9h15M4.5 15h15M12 4c2.2 2.2 3.3 4.9 3.3 8S14.2 17.8 12 20c-2.2-2.2-3.3-4.9-3.3-8S9.8 6.2 12 4Z" /></svg>;
+  }
+  if (typeId === "local-isp") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 17.5h14M7 14l3-3 2.5 2.5L17 9" /><circle cx="7" cy="14" r="1.3" /><circle cx="10" cy="11" r="1.3" /><circle cx="12.5" cy="13.5" r="1.3" /><circle cx="17" cy="9" r="1.3" /></svg>;
+  }
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 11.5 12 5l7.5 6.5V20h-15Z" /><path d="M9 20v-5h6v5M8 9.3V5.5h3" /></svg>;
+}
+
 export function SubscribePage() {
   const selection = useSubscriptionSelection();
   const { activeDrawer, openDrawer, closeDrawer } = useCustomerDrawer();
@@ -23,25 +51,58 @@ export function SubscribePage() {
     <main className="sub-page">
       <div className="sub-layout">
         <div className="sub-content">
+          <header className="sub-workbench">
+            <div>
+              <span className="sub-workbench-kicker">NETWORK SOLUTION CONFIGURATOR</span>
+              <h1>配置适合业务场景的网络方案</h1>
+              <p>按网络架构、服务地区与使用规格逐步确认方案。页面内容与价格当前仅作 prototype 展示。</p>
+            </div>
+            <div className="sub-workbench-status" aria-label="页面状态">
+              <span><i aria-hidden="true" />方案配置台</span>
+              <small>PROTOTYPE</small>
+            </div>
+          </header>
+
           <StepProgress currentStep={selection.currentStep} onStep={goToStep} />
 
-          <section className="sub-section" id="sub-section-type">
-            <h2><em>STEP 01</em>选择网络类型</h2>
-            <div className="sub-grid sub-grid-three" role="radiogroup" aria-label="网络类型">
-              {networkTypes.map((option) => (
-                <OptionCard key={option.id} selected={selection.typeId === option.id} onSelect={() => selection.selectType(option.id)} label={option.name} className="sub-type-option">
-                  <span className="sub-option-head"><strong>{option.name}</strong>{option.badge && <i className="sub-tag is-accent">{option.badge}</i>}</span>
-                  <span className="sub-price"><b>¥{option.startingPrice}</b><small>/月 起</small></span>
-                  <span className="sub-description">{option.description}</span>
-                  <span className="sub-features">{option.features.map((feature) => <span key={feature}>{feature}</span>)}</span>
-                  <span className="sub-option-cta">{selection.typeId === option.id ? "已选择此类型" : "选择此类型"}</span>
-                </OptionCard>
-              ))}
+          <section className="sub-section sub-solution-section" id="sub-section-type">
+            <div className="sub-section-heading">
+              <div><span>STEP 01 · NETWORK TYPE</span><h2>选择网络方案架构</h2><p>先确定接入网络的技术方向，再继续配置地区与运营商。</p></div>
+              <small>三类方案</small>
+            </div>
+            <div className="sub-grid sub-solution-grid" role="radiogroup" aria-label="网络类型">
+              {networkTypes.map((option) => {
+                const presentation = solutionPresentation[option.id];
+                const selected = selection.typeId === option.id;
+                return (
+                  <OptionCard key={option.id} selected={selected} onSelect={() => selection.selectType(option.id)} label={option.name} className="sub-type-option">
+                    <span className="sub-solution-top">
+                      <span className="sub-solution-icon"><SolutionIcon typeId={option.id} /></span>
+                      <span className="sub-solution-title"><small>{presentation.code}</small><strong>{option.name}</strong></span>
+                      {option.badge && <i className="sub-tag is-accent">{option.badge}</i>}
+                    </span>
+                    <span className="sub-description">{option.description}</span>
+                    <span className="sub-route-group">
+                      <small>{presentation.label}</small>
+                      <span>{presentation.highlights.map((item) => <i key={item}>{item}</i>)}</span>
+                    </span>
+                    <span className="sub-capability-label">能力概览</span>
+                    <span className="sub-features">{option.features.map((feature) => <span key={feature}>{feature}</span>)}</span>
+                    <span className="sub-solution-footer">
+                      <span><small>PROTOTYPE 起价</small><b>¥{option.startingPrice}<em>/月</em></b></span>
+                      <strong>{selected ? "当前方案" : "选择方案"}<i aria-hidden="true">→</i></strong>
+                    </span>
+                  </OptionCard>
+                );
+              })}
             </div>
           </section>
 
           <section className="sub-section" id="sub-section-region">
-            <h2><em>STEP 02</em>选择国家/地区</h2>
+            <div className="sub-section-heading">
+              <div><span>STEP 02 · LOCATION</span><h2>选择国家/地区</h2><p>确认网络服务的目标接入区域。</p></div>
+              <small>{regions.length} 个演示区域</small>
+            </div>
             <div className="sub-grid sub-grid-four" role="radiogroup" aria-label="国家或地区">
               {regions.map((option) => (
                 <OptionCard key={option.id} selected={selection.regionId === option.id} onSelect={() => selection.selectRegion(option.id)} label={option.name} className="sub-region-option">
@@ -56,7 +117,10 @@ export function SubscribePage() {
           </section>
 
           <section className="sub-section" id="sub-section-isp">
-            <h2><em>STEP 03</em>选择运营商{selection.regionId && <span>（{selection.summary.region}）</span>}</h2>
+            <div className="sub-section-heading">
+              <div><span>STEP 03 · NETWORK OPERATOR</span><h2>选择运营商{selection.regionId && <em>· {selection.summary.region}</em>}</h2><p>查看当前地区已经配置的 ISP 接入方案。</p></div>
+              <small>{selection.availableIsps.length ? `${selection.availableIsps.length} 个可用项` : "待配置"}</small>
+            </div>
             {selection.availableIsps.length ? (
               <div className="sub-grid sub-isp-grid" role="radiogroup" aria-label="运营商">
                 {selection.availableIsps.map((option) => (
@@ -69,7 +133,10 @@ export function SubscribePage() {
           </section>
 
           <section className="sub-section" id="sub-section-spec">
-            <h2><em>STEP 04</em>选择规格</h2>
+            <div className="sub-section-heading">
+              <div><span>STEP 04 · SERVICE PROFILE</span><h2>选择使用规格</h2><p>按共享方式、流量与使用场景确认接入规格。</p></div>
+              <small>{selection.availableSpecs.length ? `${selection.availableSpecs.length} 个规格` : "请先选择 ISP"}</small>
+            </div>
             {selection.availableSpecs.length ? (
               <div className="sub-grid sub-grid-three" role="radiogroup" aria-label="套餐规格">
                 {selection.availableSpecs.map((option) => (
@@ -84,7 +151,10 @@ export function SubscribePage() {
           </section>
 
           <section className="sub-section" id="sub-section-duration">
-            <h2><em>STEP 05</em>选择有效期</h2>
+            <div className="sub-section-heading">
+              <div><span>STEP 05 · SERVICE TERM</span><h2>选择有效期</h2><p>演示价格会根据当前规格与有效期同步更新。</p></div>
+              <small>{durations.length} 个期限</small>
+            </div>
             {selection.selectedSpec ? (
               <div className="sub-grid sub-grid-four" role="radiogroup" aria-label="购买有效期">
                 {durations.map((option) => {
@@ -103,7 +173,7 @@ export function SubscribePage() {
           </section>
         </div>
 
-        <aside className="sub-desktop-summary" aria-label="订单摘要"><OrderSummary summary={selection.summary} /></aside>
+        <aside className="sub-desktop-summary" aria-label="方案摘要"><OrderSummary summary={selection.summary} /></aside>
       </div>
 
       <aside
@@ -111,9 +181,9 @@ export function SubscribePage() {
         data-cc-drawer="order"
         role={orderOpen ? "dialog" : undefined}
         aria-modal={orderOpen ? true : undefined}
-        aria-label="订单摘要抽屉"
+        aria-label="方案摘要抽屉"
       >
-        <button type="button" className="sub-drawer-close" onClick={closeDrawer} aria-label="关闭订单摘要">×</button>
+        <button type="button" className="sub-drawer-close" onClick={closeDrawer} aria-label="关闭方案摘要">×</button>
         <OrderSummary summary={selection.summary} drawer />
       </aside>
       <MobileOrderBar summary={selection.summary} open={orderOpen} onOpen={(trigger) => openDrawer("order", trigger)} />
