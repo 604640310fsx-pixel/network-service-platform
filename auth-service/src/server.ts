@@ -17,6 +17,7 @@ async function start(): Promise<void> {
       ? null
       : new AlipaySdk({
           appId: alipay.appId,
+          gateway: alipay.gateway,
           privateKey: alipay.privateKey,
           alipayPublicKey: alipay.alipayPublicKey,
           keyType: alipay.privateKeyType,

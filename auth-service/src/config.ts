@@ -19,10 +19,18 @@ export interface AppConfig {
 }
 
 export type AlipayPrivateKeyType = "PKCS1" | "PKCS8";
+export type AlipayEnvironment = "sandbox" | "production";
+
+const ALIPAY_GATEWAYS: Readonly<Record<AlipayEnvironment, string>> =
+  Object.freeze({
+    sandbox: "https://openapi-sandbox.dl.alipaydev.com/gateway.do",
+    production: "https://openapi.alipay.com/gateway.do",
+  });
 
 export interface AlipayConfig {
   readonly appId: string;
   readonly sellerId: string;
+  readonly gateway: string;
   readonly notifyUrl: string;
   readonly returnUrl: string;
   readonly privateKey: string;
@@ -117,7 +125,8 @@ function requireAlipayValue(
     | "ALIPAY_RETURN_URL"
     | "ALIPAY_PRIVATE_KEY_FILE"
     | "ALIPAY_PUBLIC_KEY_FILE"
-    | "ALIPAY_PRIVATE_KEY_TYPE",
+    | "ALIPAY_PRIVATE_KEY_TYPE"
+    | "ALIPAY_ENVIRONMENT",
 ): string {
   const value = environment[name]?.trim();
   if (!value) {
@@ -153,9 +162,21 @@ export function loadAlipayConfig(
     throw new Error("Alipay configuration is invalid");
   }
 
+  const alipayEnvironment = requireAlipayValue(
+    environment,
+    "ALIPAY_ENVIRONMENT",
+  );
+  if (
+    alipayEnvironment !== "sandbox" &&
+    alipayEnvironment !== "production"
+  ) {
+    throw new Error("Alipay configuration is invalid");
+  }
+
   return Object.freeze({
     appId: requireAlipayValue(environment, "ALIPAY_APP_ID"),
     sellerId: requireAlipayValue(environment, "ALIPAY_SELLER_ID"),
+    gateway: ALIPAY_GATEWAYS[alipayEnvironment],
     notifyUrl: requireAlipayValue(environment, "ALIPAY_NOTIFY_URL"),
     returnUrl: requireAlipayValue(environment, "ALIPAY_RETURN_URL"),
     privateKey: readAlipayKey(

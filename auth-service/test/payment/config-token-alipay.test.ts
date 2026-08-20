@@ -50,6 +50,7 @@ test("enabled payment config requires every exact field and loads public-key mod
     await writeFile(publicKeyFile, "PUBLIC-KEY-CONTENT\n", "utf8");
     const environment: NodeJS.ProcessEnv = {
       PAYMENT_ENABLED: "true",
+      ALIPAY_ENVIRONMENT: "sandbox",
       ALIPAY_APP_ID: "app-123",
       ALIPAY_SELLER_ID: "seller-456",
       ALIPAY_NOTIFY_URL: "https://example.test/notify",
@@ -61,6 +62,7 @@ test("enabled payment config requires every exact field and loads public-key mod
     assert.deepEqual(loadAlipayConfig(environment), {
       appId: "app-123",
       sellerId: "seller-456",
+      gateway: "https://openapi-sandbox.dl.alipaydev.com/gateway.do",
       notifyUrl: "https://example.test/notify",
       returnUrl: "https://example.test/return",
       privateKey: "PRIVATE-KEY-CONTENT",
@@ -70,6 +72,7 @@ test("enabled payment config requires every exact field and loads public-key mod
     for (const name of [
       "ALIPAY_APP_ID",
       "ALIPAY_SELLER_ID",
+      "ALIPAY_ENVIRONMENT",
       "ALIPAY_NOTIFY_URL",
       "ALIPAY_RETURN_URL",
       "ALIPAY_PRIVATE_KEY_FILE",
@@ -89,6 +92,21 @@ test("enabled payment config requires every exact field and loads public-key mod
           ALIPAY_PRIVATE_KEY_TYPE: "RSA2",
         }),
       /Alipay configuration is invalid/,
+    );
+    assert.throws(
+      () =>
+        loadAlipayConfig({
+          ...environment,
+          ALIPAY_ENVIRONMENT: "staging",
+        }),
+      /Alipay configuration is invalid/,
+    );
+    assert.equal(
+      loadAlipayConfig({
+        ...environment,
+        ALIPAY_ENVIRONMENT: "production",
+      }).gateway,
+      "https://openapi.alipay.com/gateway.do",
     );
   } finally {
     await rm(directory, { recursive: true, force: true });
