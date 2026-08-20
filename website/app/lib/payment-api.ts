@@ -5,9 +5,12 @@ export const PAYMENT_MAX_SINGLE_FEN_FRONTEND = 200_000;
 const STORAGE_PREFIX = "nsp.payment.v1";
 const CHECKOUT_ATTEMPT_KEY = `${STORAGE_PREFIX}.checkout-attempt`;
 const RETRY_ATTEMPT_KEY = `${STORAGE_PREFIX}.retry-attempt`;
+const LAST_ORDER_REF_KEY = `${STORAGE_PREFIX}.last-order`;
+const ORDER_STORAGE_PREFIX = `${STORAGE_PREFIX}.order.`;
 const ATTEMPT_TTL_MS = 30 * 60 * 1_000;
 const ACCESS_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const IDEMPOTENCY_KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ORDER_REF_PATTERN = /^DL[A-Za-z0-9]{1,64}$/;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -566,17 +569,68 @@ export function shouldClearAttemptAfterError(error: unknown): boolean {
 export function bindOrderAccess(orderRef: string, credentials: OrderCredentials): void {
   const target = storage();
   target.setItem(
-    `${STORAGE_PREFIX}.order.${orderRef}`,
+    `${ORDER_STORAGE_PREFIX}${orderRef}`,
     JSON.stringify({ version: 1, accessToken: credentials.accessToken, savedAt: new Date().toISOString() }),
+  );
+  target.setItem(
+    LAST_ORDER_REF_KEY,
+    JSON.stringify({ version: 1, orderRef, savedAt: new Date().toISOString() }),
   );
   clearMatchingAttempt(target, CHECKOUT_ATTEMPT_KEY, credentials);
   clearMatchingAttempt(target, RETRY_ATTEMPT_KEY, credentials);
 }
 
+export function readLastOrderRef(): string | null {
+  let target: Storage;
+  try {
+    target = window.localStorage;
+  } catch {
+    return null;
+  }
+
+  const saved = target.getItem(LAST_ORDER_REF_KEY);
+  if (saved !== null) {
+    try {
+      const value: unknown = JSON.parse(saved);
+      if (isRecord(value) && value.version === 1 && typeof value.orderRef === "string" && ORDER_REF_PATTERN.test(value.orderRef)) {
+        return value.orderRef;
+      }
+    } catch {
+      // 继续扫描已有订单凭证，兼容 last-order 指针上线前创建的订单。
+    }
+    target.removeItem(LAST_ORDER_REF_KEY);
+  }
+
+  let latest: { readonly orderRef: string; readonly savedAt: number } | null = null;
+  for (let index = 0; index < target.length; index += 1) {
+    const key = target.key(index);
+    if (key === null || !key.startsWith(ORDER_STORAGE_PREFIX)) continue;
+    const orderRef = key.slice(ORDER_STORAGE_PREFIX.length);
+    if (!ORDER_REF_PATTERN.test(orderRef)) continue;
+    const raw = target.getItem(key);
+    if (raw === null) continue;
+    try {
+      const value: unknown = JSON.parse(raw);
+      if (!isRecord(value) || !isNonEmptyString(value.accessToken) || !ACCESS_TOKEN_PATTERN.test(value.accessToken)) continue;
+      const savedAt = typeof value.savedAt === "string" ? Date.parse(value.savedAt) : Number.NaN;
+      if (!Number.isFinite(savedAt)) continue;
+      if (latest === null || savedAt > latest.savedAt) latest = { orderRef, savedAt };
+    } catch {
+      // 单条损坏记录不应阻断其他订单恢复。
+    }
+  }
+  if (latest === null) return null;
+  target.setItem(
+    LAST_ORDER_REF_KEY,
+    JSON.stringify({ version: 1, orderRef: latest.orderRef, savedAt: new Date(latest.savedAt).toISOString() }),
+  );
+  return latest.orderRef;
+}
+
 export function readOrderAccessToken(orderRef: string): string | null {
   let raw: string | null;
   try {
-    raw = window.localStorage.getItem(`${STORAGE_PREFIX}.order.${orderRef}`);
+    raw = window.localStorage.getItem(`${ORDER_STORAGE_PREFIX}${orderRef}`);
   } catch {
     throw new PaymentApiError("storage_unavailable");
   }

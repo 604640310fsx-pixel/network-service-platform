@@ -2,7 +2,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { CustomerCenterShell } from "../customer/CustomerCenterShell";
 import { RequirementForm } from "./RequirementForm";
 import { OrderStatusPanel } from "./OrderStatusPanel";
-import { PAYMENT_MAX_SINGLE_FEN_FRONTEND } from "../../lib/payment-api";
+import { PAYMENT_MAX_SINGLE_FEN_FRONTEND, readLastOrderRef } from "../../lib/payment-api";
 import { parseSelectionParams, resolveSelection, selectionToQuery } from "../../lib/resolveSelection";
 import "./subscribe.css";
 
@@ -17,15 +17,19 @@ export function SubmitRequestPage() {
   const orderRef = explicitOrderRef || alipayOrderRef;
   const selection = parseSelectionParams(searchParams);
   const { summary } = resolveSelection(selection);
+  const restoredOrderRef = orderRef === "" && searchParams.size === 0 && !summary.complete
+    ? readLastOrderRef() ?? ""
+    : "";
+  const visibleOrderRef = orderRef || restoredOrderRef;
   const amountFen = summary.total === null ? null : Math.round(summary.total * 100);
   const overPaymentLimit = amountFen !== null && amountFen > PAYMENT_MAX_SINGLE_FEN_FRONTEND;
 
-  if (orderRef !== "") {
+  if (visibleOrderRef !== "") {
     return (
       <CustomerCenterShell title="服务状态" description="查看支付结果与服务开通进度">
         <main className="sub-page">
           <div className="sub-request-page">
-            <OrderStatusPanel orderRef={orderRef} />
+            <OrderStatusPanel orderRef={visibleOrderRef} />
           </div>
         </main>
       </CustomerCenterShell>
