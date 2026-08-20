@@ -1,4 +1,4 @@
-import { createHmac, hkdfSync } from "node:crypto";
+import { createHmac, hkdfSync, timingSafeEqual } from "node:crypto";
 
 export const CSRF_TOKEN_LENGTH = 43;
 
@@ -33,4 +33,27 @@ export function issueCsrfToken(
     throw new Error("CSRF token generation failed");
   }
   return token;
+}
+
+export function verifyCsrfToken(
+  csrfSigningKey: Buffer,
+  sessionTokenHash: string,
+  candidateToken: unknown,
+): boolean {
+  if (
+    typeof candidateToken !== "string" ||
+    !/^[A-Za-z0-9_-]{43}$/.test(candidateToken)
+  ) {
+    return false;
+  }
+
+  try {
+    const expectedToken = issueCsrfToken(csrfSigningKey, sessionTokenHash);
+    return timingSafeEqual(
+      Buffer.from(candidateToken, "ascii"),
+      Buffer.from(expectedToken, "ascii"),
+    );
+  } catch {
+    return false;
+  }
 }

@@ -112,7 +112,7 @@ test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", 
 
     assert.deepEqual(
       migrationRows.map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
     );
     for (const row of migrationRows) {
       assert.match(row.applied_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
@@ -140,10 +140,15 @@ test("creates every frozen table and named index", async () => {
       "invite_codes",
       "mail_outbox",
       "mail_outbox_audit",
+      "order_access_tokens",
+      "orders",
       "password_reset_tokens",
+      "payment_notifications",
+      "payments",
       "pending_registrations",
       "rate_limit_buckets",
       "schema_migrations",
+      "services",
       "session_families",
       "sessions",
       "sso_codes",
@@ -153,8 +158,13 @@ test("creates every frozen table and named index", async () => {
 
     assert.deepEqual(objectNames(database, "index"), [
       "idx_invite_codes_bootstrap_unique",
+      "idx_notifications_payment",
+      "idx_order_access_tokens_expiry",
+      "idx_orders_status",
+      "idx_orders_user",
       "idx_outbox_leased",
       "idx_outbox_pending",
+      "idx_payments_status",
       "idx_pending_email",
       "idx_pending_expiry",
       "idx_rate_limit_window",
@@ -162,6 +172,7 @@ test("creates every frozen table and named index", async () => {
       "idx_redemptions_user",
       "idx_reset_tokens_expiry",
       "idx_reset_tokens_user",
+      "idx_services_status",
       "idx_session_families_user",
       "idx_sessions_family",
       "idx_sessions_user",

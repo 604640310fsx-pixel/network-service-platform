@@ -10,6 +10,7 @@ const VALID_ENVIRONMENT: NodeJS.ProcessEnv = {
   PORT: "3101",
   DB_PATH: "/tmp/auth-service-test.sqlite",
   REGISTRATION_ENABLED: "false",
+  PAYMENT_ENABLED: "false",
 };
 
 test("loopback configuration is accepted", () => {
@@ -19,6 +20,7 @@ test("loopback configuration is accepted", () => {
     dbPath: "/tmp/auth-service-test.sqlite",
     nodeEnv: "test",
     registrationEnabled: false,
+    paymentEnabled: false,
   });
 });
 
@@ -53,6 +55,22 @@ test("registration feature flag is required and accepts only exact literals", ()
   assert.equal(
     loadConfig({ ...VALID_ENVIRONMENT, REGISTRATION_ENABLED: "true" })
       .registrationEnabled,
+    true,
+  );
+});
+
+test("payment feature flag is required and accepts only exact literals", () => {
+  assert.throws(
+    () => loadConfig({ ...VALID_ENVIRONMENT, PAYMENT_ENABLED: undefined }),
+    /PAYMENT_ENABLED must be exactly true or false/,
+  );
+  assert.throws(
+    () => loadConfig({ ...VALID_ENVIRONMENT, PAYMENT_ENABLED: " true " }),
+    /PAYMENT_ENABLED must be exactly true or false/,
+  );
+  assert.equal(
+    loadConfig({ ...VALID_ENVIRONMENT, PAYMENT_ENABLED: "true" })
+      .paymentEnabled,
     true,
   );
 });

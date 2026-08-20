@@ -1,8 +1,11 @@
 import { Link } from "react-router-dom";
+import { useAuth } from "../../lib/auth";
+import { AdminPendingServices } from "./AdminPendingServices";
+import { CurrentServicesPanel } from "./CurrentServicesPanel";
 import "./dashboard.css";
 
-/* 说明：本页所有业务数值均为“待接入”占位。
-   真实套餐、用量、到期、余额与监控数据尚未冻结，一律显示 —，不得在此编造。 */
+/* 说明：当前服务与管理员待开通列表接真实 API；其余业务数值仍是“待接入”占位，
+   用量、到期、余额与监控数据尚未冻结，一律显示 —，不得在此编造。 */
 
 const PENDING = "—";
 
@@ -11,13 +14,6 @@ const overviewStats = [
   { label: "本月用量", status: "暂无数据" },
   { label: "最近到期", status: "暂无数据" },
   { label: "工单与告警", status: "待接入" },
-] as const;
-
-const serviceFacts = [
-  { term: "地区", value: PENDING },
-  { term: "到期时间", value: PENDING },
-  { term: "使用量", value: PENDING },
-  { term: "状态", value: "待接入" },
 ] as const;
 
 const networkProbes = ["广州电信", "广州联通", "广州移动"] as const;
@@ -38,6 +34,8 @@ function ActionIcon() {
 }
 
 export function DashboardPage() {
+  const { principal, csrfToken } = useAuth();
+
   return (
     <main className="dash-page">
       <div className="dash-layout">
@@ -57,27 +55,7 @@ export function DashboardPage() {
         <div className="dash-split">
           <section className="dash-panel" aria-labelledby="dash-service-title">
             <h2 id="dash-service-title"><em>SERVICE</em>当前服务</h2>
-            <div className="dash-service">
-              <div className="dash-service-head">
-                <div>
-                  <strong>{PENDING}</strong>
-                  <small>套餐名称待接入</small>
-                </div>
-                <span className="dash-tag">待接入</span>
-              </div>
-              <dl className="dash-service-facts">
-                {serviceFacts.map((fact) => (
-                  <div key={fact.term}>
-                    <dt>{fact.term}</dt>
-                    <dd>{fact.value}</dd>
-                  </div>
-                ))}
-              </dl>
-              <div className="dash-service-foot">
-                <p>尚未接入真实套餐数据，可前往套餐订阅查看可选方案。</p>
-                <Link className="dash-primary-link" to="/subscribe">前往套餐订阅</Link>
-              </div>
-            </div>
+            <CurrentServicesPanel />
           </section>
 
           <section className="dash-panel" aria-labelledby="dash-network-title">
@@ -90,6 +68,8 @@ export function DashboardPage() {
             </div>
           </section>
         </div>
+
+        {principal?.role === "admin" && <AdminPendingServices csrfToken={csrfToken} />}
 
         <section className="dash-panel" aria-labelledby="dash-actions-title">
           <h2 id="dash-actions-title"><em>ACTIONS</em>快捷操作</h2>

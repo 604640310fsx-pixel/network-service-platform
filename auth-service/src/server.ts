@@ -1,11 +1,41 @@
+import { AlipaySdk } from "alipay-sdk";
+
 import { buildApp } from "./app.js";
-import { loadAuthCredentialConfig, loadConfig } from "./config.js";
+import {
+  loadAlipayConfig,
+  loadAuthCredentialConfig,
+  loadConfig,
+} from "./config.js";
 import { initializeDatabase } from "./db.js";
 
 async function start(): Promise<void> {
   const config = loadConfig();
   const credentials = loadAuthCredentialConfig();
+  const alipay = config.paymentEnabled ? loadAlipayConfig() : null;
+  const alipaySdk =
+    alipay === null
+      ? null
+      : new AlipaySdk({
+          appId: alipay.appId,
+          privateKey: alipay.privateKey,
+          alipayPublicKey: alipay.alipayPublicKey,
+          keyType: alipay.privateKeyType,
+        });
   const database = initializeDatabase(config.dbPath);
+  const payment =
+    alipay === null || alipaySdk === null
+      ? ({ enabled: false } as const)
+      : ({
+          enabled: true,
+          database,
+          tokenHmacKeyring: credentials.tokenHmacKeyring,
+          csrfSigningKey: credentials.csrfSigningKey,
+          appId: alipay.appId,
+          sellerId: alipay.sellerId,
+          notifyUrl: alipay.notifyUrl,
+          returnUrl: alipay.returnUrl,
+          sdk: alipaySdk,
+        } as const);
   const app = buildApp({
     auth: {
       database,
@@ -24,6 +54,7 @@ async function start(): Promise<void> {
           rateLimitKeyring: credentials.rateLimitKeyring,
         }
       : undefined,
+    payment,
   });
   let databaseClosed = false;
 

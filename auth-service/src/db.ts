@@ -50,6 +50,7 @@ export const MIGRATION_FILES = [
   "007_mail_outbox.sql",
   "008_rate_limit_buckets.sql",
   "009_audit_log.sql",
+  "010_orders_payments_services.sql",
 ] as const;
 
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
@@ -149,7 +150,7 @@ function verifyMigrationFiles(migrationsDirectory: string): void {
     files.length !== MIGRATION_FILES.length ||
     files.some((file, index) => file !== MIGRATION_FILES[index])
   ) {
-    throw new Error("migration files do not match the frozen R1.2.9 sequence");
+    throw new Error("migration files do not match the frozen sequence");
   }
 }
 

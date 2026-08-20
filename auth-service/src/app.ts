@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
 
+import { registerPaymentAdminHttpRoutes } from "./http/admin-routes.js";
 import {
   registerAuthHttpRoutes,
   type AuthHttpDependencies,
@@ -8,6 +9,10 @@ import {
   registerRegistrationHttpRoutes,
   type RegistrationHttpDependencies,
 } from "./http/registration-routes.js";
+import {
+  registerPaymentHttpRoutes,
+  type PaymentHttpDependencies,
+} from "./http/payment-routes.js";
 
 interface HealthResponse {
   readonly status: "ok";
@@ -25,6 +30,7 @@ const HEALTH_RESPONSE_SCHEMA = {
 export interface BuildAppOptions {
   readonly auth?: AuthHttpDependencies;
   readonly registration?: RegistrationHttpDependencies;
+  readonly payment?: PaymentHttpDependencies;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -52,6 +58,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   if (options.registration !== undefined) {
     registerRegistrationHttpRoutes(app, options.registration);
   }
+  const payment = options.payment ?? { enabled: false };
+  registerPaymentHttpRoutes(app, payment);
+  registerPaymentAdminHttpRoutes(app, payment);
 
   return app;
 }

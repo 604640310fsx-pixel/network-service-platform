@@ -15,6 +15,19 @@ export interface AppConfig {
   readonly dbPath: string;
   readonly nodeEnv: RuntimeEnvironment;
   readonly registrationEnabled: boolean;
+  readonly paymentEnabled: boolean;
+}
+
+export type AlipayPrivateKeyType = "PKCS1" | "PKCS8";
+
+export interface AlipayConfig {
+  readonly appId: string;
+  readonly sellerId: string;
+  readonly notifyUrl: string;
+  readonly returnUrl: string;
+  readonly privateKey: string;
+  readonly alipayPublicKey: string;
+  readonly privateKeyType: AlipayPrivateKeyType;
 }
 
 export interface AuthCredentialConfig {
@@ -80,6 +93,10 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
   ) {
     throw new Error("REGISTRATION_ENABLED must be exactly true or false");
   }
+  const paymentEnabledValue = environment.PAYMENT_ENABLED;
+  if (paymentEnabledValue !== "true" && paymentEnabledValue !== "false") {
+    throw new Error("PAYMENT_ENABLED must be exactly true or false");
+  }
 
   return Object.freeze({
     host: LOOPBACK_HOST,
@@ -87,6 +104,67 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     dbPath,
     nodeEnv,
     registrationEnabled: registrationEnabledValue === "true",
+    paymentEnabled: paymentEnabledValue === "true",
+  });
+}
+
+function requireAlipayValue(
+  environment: NodeJS.ProcessEnv,
+  name:
+    | "ALIPAY_APP_ID"
+    | "ALIPAY_SELLER_ID"
+    | "ALIPAY_NOTIFY_URL"
+    | "ALIPAY_RETURN_URL"
+    | "ALIPAY_PRIVATE_KEY_FILE"
+    | "ALIPAY_PUBLIC_KEY_FILE"
+    | "ALIPAY_PRIVATE_KEY_TYPE",
+): string {
+  const value = environment[name]?.trim();
+  if (!value) {
+    throw new Error("Alipay configuration is invalid");
+  }
+  return value;
+}
+
+function readAlipayKey(path: string): string {
+  try {
+    const value = readFileSync(resolve(path), "utf8").trim();
+    if (!value) {
+      throw new Error("empty key");
+    }
+    return value;
+  } catch {
+    throw new Error("Alipay configuration is invalid");
+  }
+}
+
+export function loadAlipayConfig(
+  environment: NodeJS.ProcessEnv = process.env,
+): AlipayConfig {
+  if (environment.PAYMENT_ENABLED !== "true") {
+    throw new Error("Alipay configuration is disabled");
+  }
+
+  const privateKeyType = requireAlipayValue(
+    environment,
+    "ALIPAY_PRIVATE_KEY_TYPE",
+  );
+  if (privateKeyType !== "PKCS1" && privateKeyType !== "PKCS8") {
+    throw new Error("Alipay configuration is invalid");
+  }
+
+  return Object.freeze({
+    appId: requireAlipayValue(environment, "ALIPAY_APP_ID"),
+    sellerId: requireAlipayValue(environment, "ALIPAY_SELLER_ID"),
+    notifyUrl: requireAlipayValue(environment, "ALIPAY_NOTIFY_URL"),
+    returnUrl: requireAlipayValue(environment, "ALIPAY_RETURN_URL"),
+    privateKey: readAlipayKey(
+      requireAlipayValue(environment, "ALIPAY_PRIVATE_KEY_FILE"),
+    ),
+    alipayPublicKey: readAlipayKey(
+      requireAlipayValue(environment, "ALIPAY_PUBLIC_KEY_FILE"),
+    ),
+    privateKeyType,
   });
 }
 
