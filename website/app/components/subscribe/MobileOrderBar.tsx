@@ -4,9 +4,10 @@ type MobileOrderBarProps = {
   summary: SelectionSummary;
   open: boolean;
   onOpen: (trigger: HTMLButtonElement) => void;
+  onRequest?: () => void;
 };
 
-export function MobileOrderBar({ summary, open, onOpen }: MobileOrderBarProps) {
+export function MobileOrderBar({ summary, open, onOpen, onRequest }: MobileOrderBarProps) {
   const details = [summary.type, summary.region, summary.spec, summary.duration].filter((item) => item !== "—" && item !== "不适用").join(" · ") || "尚未完成选择";
   return (
     <div className="sub-mobile-order-bar">
@@ -14,7 +15,7 @@ export function MobileOrderBar({ summary, open, onOpen }: MobileOrderBarProps) {
         <span className="sub-mobile-order-price">{summary.total === null ? "—" : `¥${summary.total}`}</span>
         <span className="sub-mobile-order-detail">{details}<i aria-hidden="true">⌃</i></span>
       </button>
-      <button type="button" className="sub-order-button" disabled>提交待开放</button>
+      <button type="button" className="sub-order-button" disabled={!summary.complete} onClick={onRequest}>立即下单</button>
     </div>
   );
 }

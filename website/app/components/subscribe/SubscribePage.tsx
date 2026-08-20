@@ -1,4 +1,7 @@
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { networkTypes } from "../../lib/subscribeCatalog";
+import { parseSelectionParams, selectionToQuery, type CatalogSelection } from "../../lib/resolveSelection";
 import { useCustomerDrawer } from "../customer/CustomerCenterShell";
 import { MobileOrderBar } from "./MobileOrderBar";
 import { OptionCard } from "./OptionCard";
@@ -13,7 +16,7 @@ const stepsWithSpec = [
   ["运营商", "选择运营商"],
   ["规格", "选择套餐规格"],
   ["有效期", "选择购买时长"],
-  ["确认方案", "核对方案摘要"],
+  ["确认并提交", "核对方案并填写需求"],
 ] as const;
 
 const stepsWithoutSpec = [
@@ -21,7 +24,7 @@ const stepsWithoutSpec = [
   ["国家/地区", "选择目标国家"],
   ["运营商", "选择运营商"],
   ["有效期", "选择购买时长"],
-  ["确认方案", "核对方案摘要"],
+  ["确认并提交", "核对方案并填写需求"],
 ] as const;
 
 const solutionPresentation: Record<string, { code: string; label: string; highlights: string[] }> = {
@@ -32,14 +35,42 @@ const solutionPresentation: Record<string, { code: string; label: string; highli
   },
   "local-isp": {
     code: "LOCAL PREMIUM",
-    label: "本地优化线路",
-    highlights: ["CN2 GIA", "AS9929", "CMI"],
+    label: "覆盖地区",
+    highlights: ["美国", "台湾", "日本", "马来西亚"],
   },
   residential: {
     code: "RESIDENTIAL ISP",
-    label: "住宅接入维度",
-    highlights: ["国家", "ISP", "共享", "独享"],
+    label: "直连高级路线",
+    highlights: ["CN2 GIA", "9929", "CMIN2"],
   },
+};
+
+/* 真住宅宽带的能力概览把线路名称（电信 CN2 GIA / 联通 9929 / 移动 CMIN2）与住宅环境属性
+   （UDP / IPv4·IPv6 / DNS 等）混在同一份列表里。线路名称改为在上方以"直连高级路线"标题
+   呈现，这里从 catalog 的 features 里把线路字符串过滤掉，只保留住宅环境事实，避免同一张
+   卡片里出现两次线路信息。不改写 catalog 数据本身。 */
+const RESIDENTIAL_ROUTE_FEATURES = ["电信 CN2 GIA", "联通 9929", "移动 CMIN2"];
+const RESIDENTIAL_FEATURE_LABELS: Record<string, string> = { UDP: "支持完整UDP" };
+
+function residentialEnvironmentFeatures(features: string[]) {
+  const environment = features
+    .filter((feature) => !RESIDENTIAL_ROUTE_FEATURES.includes(feature))
+    .map((feature) => RESIDENTIAL_FEATURE_LABELS[feature] ?? feature);
+  // "真实住宅 ISP" 并非 catalog features 里的字符串，但对应 ispsByTypeAndRegion.residential
+  // 里真实命名的住宅 ISP——是同一份 catalog 数据里已有的真实事实，只是换成客户能懂的话。
+  return ["真实住宅 ISP", ...environment];
+}
+
+/* 地区场景标签：本地展示层覆盖，不写入 subscribeCatalog 的 badge 字段（仅一个短语）。
+   只在真住宅宽带的地区选择卡片上显示，其余网络类型的地区不受影响。 */
+const RESIDENTIAL_REGION_TAGS: Record<string, string[]> = {
+  sg: ["AI 首选", "社媒", "低延迟", "高速", "稳定"],
+  jp: ["AI 推荐", "社媒", "低延迟", "高速", "稳定"],
+  vn: ["AI 推荐", "社媒", "低延迟", "性价比高"],
+  my: ["AI 推荐", "社媒", "低延迟", "稳定"],
+  kr: ["AI 推荐", "社媒", "低延迟", "稳定"],
+  tw: ["AI 推荐", "社媒", "低延迟", "稳定"],
+  us: ["AI 推荐", "社媒", "稳定"],
 };
 
 function SolutionIcon({ typeId }: { typeId: string }) {
@@ -53,15 +84,46 @@ function SolutionIcon({ typeId }: { typeId: string }) {
 }
 
 export function SubscribePage() {
-  const selection = useSubscriptionSelection();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // 仅在挂载时读取一次 query 作为初始选择；hook 只有在其解析为完整方案时才采纳，
+  // 不完整 / 非法参数不会污染 hook（回退默认选择）。
+  const [initialSelection] = useState(() => parseSelectionParams(searchParams));
+  const selection = useSubscriptionSelection(initialSelection);
   const { activeDrawer, openDrawer, closeDrawer } = useCustomerDrawer();
   const orderOpen = activeDrawer === "order";
   const steps = selection.requiresSpec ? stepsWithSpec : stepsWithoutSpec;
+  // 选择步骤对应的 DOM 区块；最后一步"确认并提交"不再对应区块（跳转独立页）。
   const sectionIds = selection.requiresSpec
-    ? ["sub-section-type", "sub-section-region", "sub-section-isp", "sub-section-spec", "sub-section-duration", "sub-section-duration"]
-    : ["sub-section-type", "sub-section-region", "sub-section-isp", "sub-section-duration", "sub-section-duration"];
+    ? ["sub-section-type", "sub-section-region", "sub-section-isp", "sub-section-spec", "sub-section-duration"]
+    : ["sub-section-type", "sub-section-region", "sub-section-isp", "sub-section-duration"];
+
+  const currentSelection: CatalogSelection = {
+    typeId: selection.typeId,
+    regionId: selection.regionId,
+    ispId: selection.ispId,
+    specId: selection.specId,
+    durationId: selection.durationId,
+  };
+
+  // 把当前选择镜像回 /subscribe 的 query（replace，避免堆积浏览历史）；
+  // 正常跳转前历史记录即带有同一组 ID，浏览器后退 / 刷新可据此恢复。
+  useEffect(() => {
+    setSearchParams(new URLSearchParams(selectionToQuery(currentSelection)), { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection.typeId, selection.regionId, selection.ispId, selection.specId, selection.durationId]);
+
+  // 携带当前选择跳转到独立提交页（只放公开 catalog ID）。
+  function goToRequest() {
+    navigate(`/subscribe/request?${selectionToQuery(currentSelection)}`);
+  }
 
   function goToStep(step: number) {
+    // 最后一步"确认并提交"不对应区块：方案完整则跳转独立页，不完整则不跳转。
+    if (step > sectionIds.length) {
+      if (selection.summary.complete) goToRequest();
+      return;
+    }
     selection.setCurrentStep(step);
     document.getElementById(sectionIds[step - 1])?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
@@ -105,8 +167,17 @@ export function SubscribePage() {
                       <small>{presentation.label}</small>
                       <span>{presentation.highlights.map((item) => <i key={item}>{item}</i>)}</span>
                     </span>
-                    <span className="sub-capability-label">能力概览</span>
-                    <span className="sub-features">{option.features.map((feature) => <span key={feature}>{feature}</span>)}</span>
+                    {option.id === "residential" ? (
+                      <>
+                        <span className="sub-capability-label">住宅环境</span>
+                        <span className="sub-features">{residentialEnvironmentFeatures(option.features).map((feature) => <span key={feature}>{feature}</span>)}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="sub-capability-label">能力概览</span>
+                        <span className="sub-features">{option.features.map((feature) => <span key={feature}>{feature}</span>)}</span>
+                      </>
+                    )}
                     <span className="sub-solution-footer">
                       <span><small>正式价格</small><b>{option.startingPrice === null ? "—" : `¥${option.startingPrice}`}<em>{option.startingPrice === null ? "待确认" : "/月"}</em></b></span>
                       <strong>{selected ? "当前方案" : "选择方案"}<i aria-hidden="true">→</i></strong>
@@ -122,14 +193,25 @@ export function SubscribePage() {
               <div><span>STEP 02 · LOCATION</span><h2>选择国家/地区</h2><p>确认网络服务的目标接入区域。</p></div>
               <small>{selection.availableRegions.length} 个可用区域</small>
             </div>
-            <div className="sub-grid sub-grid-four" role="radiogroup" aria-label="国家或地区">
+            <div
+              className={`sub-grid sub-grid-region${selection.typeId === "residential" ? " has-tags" : ""}`}
+              role="radiogroup"
+              aria-label="国家或地区"
+            >
               {selection.availableRegions.map((option) => (
                 <OptionCard key={option.id} selected={selection.regionId === option.id} onSelect={() => selection.selectRegion(option.id)} label={option.name} className="sub-region-option">
-                  <span className="sub-option-head"><i className={`sub-flag is-${option.flagClass}`} aria-hidden="true" /><strong>{option.name}</strong></span>
-                  <span className="sub-region-meta">
-                    {option.startingPrice !== undefined && option.startingPrice !== null ? <b>¥{option.startingPrice}<small> 起</small></b> : <small>价格待确认</small>}
-                    {option.badge && <i className={`sub-tag ${option.configured ? "is-accent" : ""}`}>{option.badge}</i>}
+                  <span className="sub-region-main">
+                    <span className="sub-option-head"><i className={`sub-flag is-${option.flagClass}`} aria-hidden="true" /><strong>{option.name}</strong></span>
+                    <span className="sub-region-meta">
+                      {option.startingPrice !== undefined && option.startingPrice !== null ? <b>¥{option.startingPrice}<small> 起</small></b> : <small>价格待确认</small>}
+                      {option.badge && <i className={`sub-tag ${option.configured ? "is-accent" : ""}`}>{option.badge}</i>}
+                    </span>
                   </span>
+                  {selection.typeId === "residential" && RESIDENTIAL_REGION_TAGS[option.id] && (
+                    <span className="sub-region-tags">
+                      {RESIDENTIAL_REGION_TAGS[option.id]!.map((tag) => <i key={tag} className="sub-tag">{tag}</i>)}
+                    </span>
+                  )}
                 </OptionCard>
               ))}
             </div>
@@ -144,7 +226,7 @@ export function SubscribePage() {
               <div className="sub-grid sub-isp-grid" role="radiogroup" aria-label="运营商">
                 {selection.availableIsps.map((option) => (
                   <OptionCard key={option.id} selected={selection.ispId === option.id} onSelect={() => selection.selectIsp(option.id)} label={option.name} className="sub-isp-option">
-                    <span className="sub-isp-logo">{option.name}</span><span><strong>{option.name}</strong><small>{option.routeInfo ?? option.description}</small></span>
+                    <span><strong>{option.name}</strong><small>{option.routeInfo ?? option.description}</small></span>
                   </OptionCard>
                 ))}
               </div>
@@ -191,7 +273,7 @@ export function SubscribePage() {
           </section>
         </div>
 
-        <aside className="sub-desktop-summary" aria-label="方案摘要"><OrderSummary summary={selection.summary} /></aside>
+        <aside className="sub-desktop-summary" aria-label="方案摘要"><OrderSummary summary={selection.summary} onRequest={goToRequest} /></aside>
       </div>
 
       <aside
@@ -202,9 +284,9 @@ export function SubscribePage() {
         aria-label="方案摘要抽屉"
       >
         <button type="button" className="sub-drawer-close" onClick={closeDrawer} aria-label="关闭方案摘要">×</button>
-        <OrderSummary summary={selection.summary} drawer />
+        <OrderSummary summary={selection.summary} drawer onRequest={goToRequest} />
       </aside>
-      <MobileOrderBar summary={selection.summary} open={orderOpen} onOpen={(trigger) => openDrawer("order", trigger)} />
+      <MobileOrderBar summary={selection.summary} open={orderOpen} onOpen={(trigger) => openDrawer("order", trigger)} onRequest={goToRequest} />
     </main>
   );
 }

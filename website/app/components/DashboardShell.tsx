@@ -219,7 +219,7 @@ export function DashboardShell() {
     return (
       <CustomerCenterShell
         title="套餐订阅"
-        description="选择网络类型、国家/地区、运营商、规格和有效期后直接下单"
+        description="选择方案并提交需求，完成付款后进入人工交付流程"
       >
         <SubscribePage />
       </CustomerCenterShell>

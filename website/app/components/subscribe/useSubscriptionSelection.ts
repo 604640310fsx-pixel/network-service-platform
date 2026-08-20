@@ -1,85 +1,58 @@
-import { useMemo, useState } from "react";
-import {
-  defaultCatalogSelection,
-  durationsByType,
-  ispsByTypeAndRegion,
-  networkTypes,
-  regionsByType,
-  specsByIsp,
-} from "../../lib/subscribeCatalog";
+import { useMemo, useRef, useState } from "react";
+import { defaultCatalogSelection } from "../../lib/subscribeCatalog";
+import { resolveSelection, type CatalogSelection } from "../../lib/resolveSelection";
 
-export type SelectionSummary = {
-  type: string;
-  region: string;
-  isp: string;
-  spec: string;
-  duration: string;
-  traffic: string;
-  bandwidth: string;
-  ipType: string;
-  udp: string;
-  dns: string;
-  total: number | null;
-  listPrice: number | null;
-  complete: boolean;
-};
+// SelectionSummary 的真源已迁到 resolveSelection；此处继续 re-export，
+// 让 OrderSummary / MobileOrderBar / RequirementForm 的现有引用保持不变。
+export type { SelectionSummary } from "../../lib/resolveSelection";
 
-export function useSubscriptionSelection() {
-  const [typeId, setTypeId] = useState<string | null>(defaultCatalogSelection.typeId);
-  const [regionId, setRegionId] = useState<string | null>(defaultCatalogSelection.regionId);
-  const [ispId, setIspId] = useState<string | null>(defaultCatalogSelection.ispId);
-  const [specId, setSpecId] = useState<string | null>(defaultCatalogSelection.specId);
-  const [durationId, setDurationId] = useState<string | null>(defaultCatalogSelection.durationId);
-  const [currentStep, setCurrentStep] = useState(5);
+// 根据可选的初始选择决定播种：仅当初始选择解析为完整方案时采纳（并把光标落在
+// 最后"确认并提交"步骤）；否则——包括无初始参数或不完整/非法参数——沿用现有
+// defaultCatalogSelection 与默认步骤，行为与改动前逐字节一致。
+function seedSelection(initial?: CatalogSelection): { selection: CatalogSelection; step: number } {
+  if (initial) {
+    const resolved = resolveSelection(initial);
+    if (resolved.summary.complete) {
+      return {
+        selection: {
+          typeId: initial.typeId,
+          regionId: initial.regionId,
+          ispId: initial.ispId,
+          specId: resolved.requiresSpec ? initial.specId : null,
+          durationId: initial.durationId,
+        },
+        step: resolved.requiresSpec ? 6 : 5,
+      };
+    }
+  }
+  return { selection: { ...defaultCatalogSelection }, step: 5 };
+}
 
-  const selectedType = networkTypes.find((option) => option.id === typeId) ?? null;
-  const requiresSpec = selectedType?.requiresSpec ?? false;
-  const availableRegions = typeId ? (regionsByType[typeId] ?? []) : [];
-  const availableIsps = typeId && regionId ? (ispsByTypeAndRegion[typeId]?.[regionId] ?? []) : [];
-  const availableSpecs = requiresSpec && ispId ? (specsByIsp[ispId] ?? []) : [];
-  const availableDurations = typeId ? (durationsByType[typeId] ?? []) : [];
+export function useSubscriptionSelection(initial?: CatalogSelection) {
+  const seed = useRef(seedSelection(initial)).current;
+  const [typeId, setTypeId] = useState<string | null>(seed.selection.typeId);
+  const [regionId, setRegionId] = useState<string | null>(seed.selection.regionId);
+  const [ispId, setIspId] = useState<string | null>(seed.selection.ispId);
+  const [specId, setSpecId] = useState<string | null>(seed.selection.specId);
+  const [durationId, setDurationId] = useState<string | null>(seed.selection.durationId);
+  const [currentStep, setCurrentStep] = useState(seed.step);
 
-  const selectedRegion = availableRegions.find((option) => option.id === regionId) ?? null;
-  const selectedIsp = availableIsps.find((option) => option.id === ispId) ?? null;
-  const selectedSpec = availableSpecs.find((option) => option.id === specId) ?? null;
-  const selectedDuration = availableDurations.find((option) => option.id === durationId) ?? null;
-  const canSelectDuration = Boolean(selectedIsp && (!requiresSpec || selectedSpec));
-  const durationPrices = useMemo<Record<string, number | null>>(
-    () => Object.fromEntries(
-      availableDurations.map((duration) => [
-        duration.id,
-        duration.price ?? selectedSpec?.pricesByDuration[duration.id] ?? null,
-      ]),
-    ),
-    [availableDurations, selectedSpec],
+  const resolved = useMemo(
+    () => resolveSelection({ typeId, regionId, ispId, specId, durationId }),
+    [typeId, regionId, ispId, specId, durationId],
   );
 
-  const summary = useMemo<SelectionSummary>(() => {
-    const complete = Boolean(
-      selectedType &&
-      selectedRegion?.configured &&
-      selectedIsp &&
-      (!requiresSpec || selectedSpec) &&
-      selectedDuration,
-    );
-    const total = complete && selectedDuration ? (durationPrices[selectedDuration.id] ?? null) : null;
-
-    return {
-      type: selectedType?.name ?? "—",
-      region: selectedRegion?.name ?? "—",
-      isp: selectedIsp?.name ?? "—",
-      spec: requiresSpec ? (selectedSpec?.name ?? "—") : "不适用",
-      duration: selectedDuration?.name ?? "—",
-      traffic: selectedSpec?.traffic ?? selectedType?.traffic ?? "—",
-      bandwidth: selectedType?.bandwidth ?? "—",
-      ipType: selectedType?.ipType ?? "—",
-      udp: selectedType?.udp ?? "—",
-      dns: selectedType?.dns ?? "—",
-      listPrice: null,
-      total,
-      complete,
-    };
-  }, [durationPrices, requiresSpec, selectedDuration, selectedIsp, selectedRegion, selectedSpec, selectedType]);
+  const {
+    requiresSpec,
+    availableRegions,
+    availableIsps,
+    availableSpecs,
+    availableDurations,
+    selectedSpec,
+    canSelectDuration,
+    durationPrices,
+    summary,
+  } = resolved;
 
   function selectType(nextId: string) {
     if (nextId === typeId) return;
