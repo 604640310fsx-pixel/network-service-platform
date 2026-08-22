@@ -342,10 +342,27 @@ test("admin list returns the full frozen snapshot and open requires admin plus v
       const opened = await app.inject({
         method: "POST",
         url: `/api/admin/services/${serviceId}/open`,
-        headers: { cookie: adminSession.cookie, "x-csrf-token": csrf },
+        headers: {
+          cookie: adminSession.cookie,
+          "content-type": "application/json",
+          "x-csrf-token": csrf,
+        },
+        payload: {
+          items: [
+            {
+              label: "订阅线路 1",
+              subscriptionUrl: "https://subscription.example.test/customer",
+            },
+          ],
+        },
       });
       assert.equal(opened.statusCode, 200);
-      assert.equal(opened.json().status, "open");
+      assert.deepEqual(opened.json(), {
+        id: serviceId,
+        status: "open",
+        openedAt: "2026-08-21T00:00:00.000Z",
+        items: [{ position: 1, label: "订阅线路 1" }],
+      });
       assert.equal(firstValue(database, "SELECT status FROM services"), "open");
       assert.deepEqual(
         allRows(database, "SELECT actor, action, target_ref FROM audit_log WHERE action = 'service.open'"),
@@ -360,7 +377,19 @@ test("admin list returns the full frozen snapshot and open requires admin plus v
       const repeated = await app.inject({
         method: "POST",
         url: `/api/admin/services/${serviceId}/open`,
-        headers: { cookie: adminSession.cookie, "x-csrf-token": csrf },
+        headers: {
+          cookie: adminSession.cookie,
+          "content-type": "application/json",
+          "x-csrf-token": csrf,
+        },
+        payload: {
+          items: [
+            {
+              label: "订阅线路 1",
+              subscriptionUrl: "https://subscription.example.test/customer",
+            },
+          ],
+        },
       });
       assert.equal(repeated.statusCode, 409);
     } finally {

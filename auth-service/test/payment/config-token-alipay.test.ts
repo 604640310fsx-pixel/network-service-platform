@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { loadAlipayConfig, loadConfig } from "../../src/config.js";
+import {
+  loadAlipayConfig,
+  loadConfig,
+  loadDeliveryCredentialConfig,
+} from "../../src/config.js";
 import { issueCsrfToken, verifyCsrfToken } from "../../src/http/csrf.js";
 import {
   createAlipayPagePayUrl,
@@ -18,6 +22,7 @@ import {
 import {
   ACCESS_TOKEN_A,
   CSRF_KEY,
+  DELIVERY_KEYRING,
   FakeAlipaySdk,
   TEST_NOW,
   TOKEN_KEYRING,
@@ -39,6 +44,35 @@ test("disabled payment config does not require or read Alipay keys", () => {
     () => loadAlipayConfig({ PAYMENT_ENABLED: "false" }),
     /Alipay configuration is disabled/,
   );
+});
+
+test("delivery credential loader reads only the frozen independent keyring", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "delivery-config-"));
+  try {
+    const path = join(directory, "delivery_payload_enc_keyring");
+    await writeFile(path, JSON.stringify(DELIVERY_KEYRING), "utf8");
+    assert.deepEqual(
+      loadDeliveryCredentialConfig({ CREDENTIALS_DIRECTORY: directory }),
+      { deliveryEncKeyring: DELIVERY_KEYRING },
+    );
+
+    await writeFile(
+      path,
+      JSON.stringify({ version: 2, keys: { "2": "not-base64" } }),
+      "utf8",
+    );
+    assert.throws(
+      () => loadDeliveryCredentialConfig({ CREDENTIALS_DIRECTORY: directory }),
+      /Delivery credential configuration is invalid/,
+    );
+    await rm(path);
+    assert.throws(
+      () => loadDeliveryCredentialConfig({ CREDENTIALS_DIRECTORY: directory }),
+      /Delivery credential configuration is invalid/,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("enabled payment config requires every exact field and loads public-key mode", async () => {

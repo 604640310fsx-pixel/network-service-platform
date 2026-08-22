@@ -112,7 +112,7 @@ test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", 
 
     assert.deepEqual(
       migrationRows.map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
     );
     for (const row of migrationRows) {
       assert.match(row.applied_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
@@ -148,6 +148,7 @@ test("creates every frozen table and named index", async () => {
       "pending_registrations",
       "rate_limit_buckets",
       "schema_migrations",
+      "service_delivery_items",
       "services",
       "session_families",
       "sessions",
@@ -172,6 +173,7 @@ test("creates every frozen table and named index", async () => {
       "idx_redemptions_user",
       "idx_reset_tokens_expiry",
       "idx_reset_tokens_user",
+      "idx_service_delivery_items_service",
       "idx_services_status",
       "idx_session_families_user",
       "idx_sessions_family",
@@ -264,6 +266,7 @@ test("keeps token, OTP, invite, reset, and outbox storage boundaries", async () 
     const states = columnNames(database, "sso_states");
     const codes = columnNames(database, "sso_codes");
     const outbox = columnNames(database, "mail_outbox");
+    const deliveryItems = columnNames(database, "service_delivery_items");
 
     assert.ok(users.includes("password_hash"));
     assert.ok(!users.includes("password"));
@@ -297,6 +300,10 @@ test("keeps token, OTP, invite, reset, and outbox storage boundaries", async () 
     for (const forbiddenField of ["recipient", "payload", "sent_at"]) {
       assert.ok(!outbox.includes(forbiddenField));
     }
+    for (const encryptedField of ["nonce", "ciphertext", "tag", "key_version"]) {
+      assert.ok(deliveryItems.includes(encryptedField));
+    }
+    assert.ok(!deliveryItems.includes("subscription_url"));
   });
 });
 

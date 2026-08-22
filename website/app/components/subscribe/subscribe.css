@@ -283,6 +283,33 @@
 .sub-request-submit p { margin: 0; color: var(--cc-text-4); font-size: 12px; }
 .sub-request-submit .sub-field-error { color: #e0575b; }
 
+.sub-delivery { display: flex; flex-direction: column; gap: 13px; padding-top: 18px; border-top: 1px solid var(--cc-hairline); }
+.sub-delivery-title { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.sub-delivery-title small { color: var(--cc-text-4); font-size: 9px; font-weight: 700; letter-spacing: 0.14em; }
+.sub-delivery-title h2 { margin: 2px 0 0; color: var(--cc-text); font-size: 17px; font-weight: 650; }
+.sub-delivery-title p { margin: 0; color: var(--cc-text-4); font-size: 12px; }
+.sub-delivery-list { display: grid; gap: 12px; }
+.sub-delivery-item { min-width: 0; padding: 15px 16px; border: 1px solid var(--cc-line); border-radius: 12px; background: var(--cc-card); }
+.sub-delivery-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.sub-delivery-head small,
+.sub-delivery-head strong { display: block; }
+.sub-delivery-head small { color: var(--cc-text-4); font-size: 10px; }
+.sub-delivery-head strong { margin-top: 2px; color: var(--cc-text-2); font-size: 14px; }
+.sub-delivery-head > span { padding: 3px 7px; border: 1px solid var(--cc-accent-line); border-radius: 5px; background: var(--cc-accent-tint); color: var(--cc-accent); font-size: 10px; }
+.sub-delivery-url { display: flex; flex-direction: column; gap: 6px; margin-top: 13px; }
+.sub-delivery-url > span { color: var(--cc-text-4); font-size: 11px; }
+.sub-delivery-url input { width: 100%; height: 42px; padding: 0 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-inset); color: var(--cc-text-2); font: inherit; font-size: 12.5px; }
+.sub-delivery-url input:focus { border-color: var(--cc-accent-line); outline: none; box-shadow: inset 0 0 0 1px var(--cc-accent-inset); }
+.sub-delivery-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 11px; }
+.sub-delivery-actions button,
+.sub-delivery-actions a { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; padding: 0 13px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-inset); color: var(--cc-text-2); font: inherit; font-size: 12px; text-decoration: none; cursor: pointer; }
+.sub-delivery-actions button:hover,
+.sub-delivery-actions a:hover { border-color: var(--cc-accent-line); color: var(--cc-accent); }
+.sub-delivery-message,
+.sub-delivery-qr-error { margin: 9px 0 0; color: var(--cc-text-3); font-size: 11.5px; }
+.sub-delivery-qr { width: fit-content; max-width: 100%; margin-top: 12px; padding: 10px; overflow: hidden; border: 1px solid var(--cc-line); border-radius: 10px; background: #fff; }
+.sub-delivery-qr svg { display: block; max-width: 100%; height: auto; }
+
 /* 独立提交页（/subscribe/request）容器 */
 .sub-request-page { width: 100%; max-width: 900px; margin: 0 auto; padding: 22px var(--cc-gutter) 48px; display: flex; flex-direction: column; gap: 14px; }
 .sub-request-page-bar { display: flex; }
@@ -299,6 +326,11 @@
   .sub-request-invalid { padding: 40px 18px; }
 }
 
+/* .sub-desktop-summary（320px 固定宽）在 1180px 才隐藏，但 .sub-steps 六个步骤的完整文案
+   实测需要约 791px 才不换行；1180~1460px 之间侧栏(258px)+摘要面板(320px)+间距挤压下，
+   .sub-content 拿不到这么宽，.sub-steps 又没有换行/收缩机制，步骤条文字会直接溢出、
+   压在摘要面板上面。这里单独把步骤条换成已有的移动端紧凑进度条，不牵动这段宽度区间
+   内其他任何间距/字号规则。 */
 @media (max-width: 1480px) {
   .sub-steps { display: none; }
   .sub-mobile-progress { display: block; }
@@ -356,6 +388,9 @@
   /* 需求确认条在窄屏堆叠：价格块换行到下方，去掉竖分隔线并左对齐。 */
   .sub-request-recap-price { flex-basis: 100%; align-items: flex-start; padding-left: 0; padding-top: 12px; border-left: 0; border-top: 1px solid var(--cc-hairline); text-align: left; }
   .sub-request-submit button { width: 100%; }
+  .sub-delivery-title { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .sub-delivery-item { padding: 13px 14px; }
+  .sub-delivery-actions > * { flex: 1 1 120px; }
 }
 
 /* 三张方案卡在中等宽度也保持三列并排（此前是两列 + 第三张独占一行）。 */

@@ -40,6 +40,19 @@
 /* 管理员人工开通：复用现有服务卡，仅补列表间距与错误提示。 */
 .dash-admin-list { display: flex; flex-direction: column; gap: 10px; }
 .dash-inline-error { margin: 0 0 12px; color: #e0575b; font-size: 12.5px; }
+.dash-delivery-form { min-width: 0; margin: 16px 0 0; padding: 14px; border: 1px solid var(--cc-hairline); border-radius: 10px; background: var(--cc-inset); }
+.dash-delivery-form legend { padding: 0 6px; color: var(--cc-text-2); font-size: 12.5px; font-weight: 600; }
+.dash-delivery-row { display: grid; grid-template-columns: minmax(140px, 0.7fr) minmax(240px, 1.8fr) auto; align-items: end; gap: 10px; margin-top: 10px; }
+.dash-delivery-row:first-of-type { margin-top: 2px; }
+.dash-delivery-field { min-width: 0; display: flex; flex-direction: column; gap: 6px; color: var(--cc-text-3); font-size: 11.5px; }
+.dash-delivery-field input { width: 100%; height: 40px; padding: 0 11px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 13px; }
+.dash-delivery-field input:focus { border-color: var(--cc-accent-line); outline: none; box-shadow: inset 0 0 0 1px var(--cc-accent-inset); }
+.dash-delivery-remove,
+.dash-delivery-actions button { min-height: 40px; padding: 0 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text-2); font: inherit; font-size: 12.5px; cursor: pointer; }
+.dash-delivery-remove:disabled,
+.dash-delivery-actions button:disabled { cursor: not-allowed; opacity: 0.5; }
+.dash-delivery-actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.dash-delivery-actions small { color: var(--cc-text-4); font-size: 11px; }
 
 /* 3. 网络状态 */
 .dash-network > div { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; padding: 9px 0; border-bottom: 1px solid var(--cc-hairline); color: var(--cc-text-2); font-size: 13.5px; }
@@ -83,5 +96,7 @@ button.dash-action strong { color: var(--cc-text-3); font-weight: 500; }
   .dash-service { padding: 13px 14px 14px; }
   .dash-service-head strong { font-size: 17px; }
   .dash-primary-link { width: 100%; justify-content: center; }
+  .dash-delivery-row { grid-template-columns: minmax(0, 1fr); }
+  .dash-delivery-remove { width: 100%; }
   .dash-action-grid { grid-template-columns: minmax(0, 1fr); }
 }

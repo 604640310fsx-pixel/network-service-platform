@@ -101,6 +101,14 @@ export function CurrentServicesPanel() {
       </dl>
       <div className="dash-service-foot">
         <p>{current.serviceStatus === "open" ? "服务已完成人工开通。" : "服务正在等待人工开通，请留意状态更新。"}</p>
+        {current.serviceStatus === "open" && (
+          <Link
+            className="dash-primary-link"
+            to={`/subscribe/request?orderRef=${encodeURIComponent(current.orderRef)}`}
+          >
+            查看订阅信息
+          </Link>
+        )}
         <Link className="dash-primary-link" to="/subscribe">继续选择方案</Link>
       </div>
     </div>

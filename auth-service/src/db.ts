@@ -51,6 +51,7 @@ export const MIGRATION_FILES = [
   "008_rate_limit_buckets.sql",
   "009_audit_log.sql",
   "010_orders_payments_services.sql",
+  "011_service_delivery_items.sql",
 ] as const;
 
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;

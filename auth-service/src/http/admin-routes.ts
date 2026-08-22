@@ -4,6 +4,12 @@ import { verifyCsrfToken } from "./csrf.js";
 import type { PaymentHttpDependencies } from "./payment-routes.js";
 import { readPaymentSession } from "../payment/http-auth.js";
 import {
+  DELIVERY_MAX_ITEMS,
+  encryptServiceDeliveryItem,
+  normalizeServiceDeliveryInput,
+  type ServiceDeliveryInput,
+} from "../payment/delivery-crypto.js";
+import {
   listPendingServicesForAdmin,
   openService,
   PaymentDomainError,
@@ -19,6 +25,32 @@ function setNoStore(reply: FastifyReply): void {
 
 function stringHeader(value: string | string[] | undefined): string | null {
   return typeof value === "string" && value !== "" ? value : null;
+}
+
+type ParsedOpenItems =
+  | { readonly ok: true; readonly items: readonly ServiceDeliveryInput[] }
+  | { readonly ok: false; readonly code: "items_required" | "invalid_item" };
+
+function parseOpenItems(body: unknown): ParsedOpenItems {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return { ok: false, code: "items_required" };
+  }
+  const rawItems = (body as Record<string, unknown>).items;
+  if (!Array.isArray(rawItems) || rawItems.length === 0) {
+    return { ok: false, code: "items_required" };
+  }
+  if (rawItems.length > DELIVERY_MAX_ITEMS) {
+    return { ok: false, code: "invalid_item" };
+  }
+  const items: ServiceDeliveryInput[] = [];
+  for (const rawItem of rawItems) {
+    const item = normalizeServiceDeliveryInput(rawItem);
+    if (item === null) {
+      return { ok: false, code: "invalid_item" };
+    }
+    items.push(item);
+  }
+  return { ok: true, items };
 }
 
 export function registerPaymentAdminHttpRoutes(
@@ -57,7 +89,7 @@ export function registerPaymentAdminHttpRoutes(
     },
   );
 
-  app.post<{ Params: { id: string } }>(
+  app.post<{ Params: { id: string }; Body: unknown }>(
     "/api/admin/services/:id/open",
     async (request, reply) => {
       setNoStore(reply);
@@ -94,12 +126,24 @@ export function registerPaymentAdminHttpRoutes(
       if (!Number.isSafeInteger(serviceId)) {
         return reply.code(404).send(errorResponse("not_found"));
       }
+      const parsedItems = parseOpenItems(request.body);
+      if (!parsedItems.ok) {
+        return reply.code(400).send(errorResponse(parsedItems.code));
+      }
       try {
+        const encryptedItems = parsedItems.items.map((item, index) =>
+          encryptServiceDeliveryItem(
+            { serviceId, position: index + 1, item },
+            dependencies.deliveryEncKeyring,
+          ),
+        );
         return reply.code(200).send(
           openService(dependencies.database, {
             serviceId,
             adminUserId: session.principal.userId,
             adminEmail: session.principal.email,
+            items: encryptedItems,
+            now: dependencies.now,
           }),
         );
       } catch (error) {

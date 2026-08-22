@@ -13,6 +13,11 @@ export const TOKEN_KEYRING = {
   keys: { "1": TOKEN_KEY },
 } as const;
 export const CSRF_KEY = Buffer.alloc(32, 0x42);
+export const DELIVERY_KEY = Buffer.alloc(32, 0x43).toString("base64");
+export const DELIVERY_KEYRING = {
+  version: 2,
+  keys: { "1": Buffer.alloc(32, 0x44).toString("base64"), "2": DELIVERY_KEY },
+} as const;
 export const ACCESS_TOKEN_A = Buffer.alloc(32, 0x11).toString("base64url");
 export const ACCESS_TOKEN_B = Buffer.alloc(32, 0x22).toString("base64url");
 export const ACCESS_TOKEN_C = Buffer.alloc(32, 0x33).toString("base64url");
@@ -76,6 +81,7 @@ export function paymentDependencies(
     enabled: true,
     database,
     tokenHmacKeyring: TOKEN_KEYRING,
+    deliveryEncKeyring: DELIVERY_KEYRING,
     csrfSigningKey: CSRF_KEY,
     appId: "app-123",
     sellerId: "seller-456",

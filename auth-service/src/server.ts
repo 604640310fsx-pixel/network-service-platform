@@ -5,6 +5,7 @@ import {
   loadAlipayConfig,
   loadAuthCredentialConfig,
   loadConfig,
+  loadDeliveryCredentialConfig,
 } from "./config.js";
 import { initializeDatabase } from "./db.js";
 
@@ -12,6 +13,9 @@ async function start(): Promise<void> {
   const config = loadConfig();
   const credentials = loadAuthCredentialConfig();
   const alipay = config.paymentEnabled ? loadAlipayConfig() : null;
+  const delivery = config.paymentEnabled
+    ? loadDeliveryCredentialConfig()
+    : null;
   const alipaySdk =
     alipay === null
       ? null
@@ -24,12 +28,13 @@ async function start(): Promise<void> {
         });
   const database = initializeDatabase(config.dbPath);
   const payment =
-    alipay === null || alipaySdk === null
+    alipay === null || alipaySdk === null || delivery === null
       ? ({ enabled: false } as const)
       : ({
           enabled: true,
           database,
           tokenHmacKeyring: credentials.tokenHmacKeyring,
+          deliveryEncKeyring: delivery.deliveryEncKeyring,
           csrfSigningKey: credentials.csrfSigningKey,
           appId: alipay.appId,
           sellerId: alipay.sellerId,

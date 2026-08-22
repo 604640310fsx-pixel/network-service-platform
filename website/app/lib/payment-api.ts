@@ -11,11 +11,25 @@ const ATTEMPT_TTL_MS = 30 * 60 * 1_000;
 const ACCESS_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const IDEMPOTENCY_KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ORDER_REF_PATTERN = /^DL[A-Za-z0-9]{1,64}$/;
+const DELIVERY_MAX_ITEMS = 20;
+const DELIVERY_MAX_LABEL_LENGTH = 200;
+const DELIVERY_MAX_URL_BYTES = 2048;
 
 type JsonRecord = Record<string, unknown>;
 
 export type PaymentOrderStatus = "pending" | "paid" | "closed";
 export type ServiceStatus = "pending_open" | "open";
+
+export type ServiceDeliveryItem = {
+  readonly position: number;
+  readonly label: string;
+  readonly subscriptionUrl: string;
+};
+
+export type DeliveryItemInput = {
+  readonly label: string;
+  readonly subscriptionUrl: string;
+};
 
 export type RequirementDraft = {
   readonly selection: CatalogSelection;
@@ -41,7 +55,10 @@ export type PaymentOrderSnapshot = {
   readonly status: PaymentOrderStatus;
   readonly amountFen: number;
   readonly currency: "CNY";
-  readonly service: { readonly status: ServiceStatus } | null;
+  readonly service: {
+    readonly status: ServiceStatus;
+    readonly items?: readonly ServiceDeliveryItem[];
+  } | null;
 };
 
 export type MyServiceItem = {
@@ -72,6 +89,7 @@ export type OpenServiceResult = {
   readonly id: number;
   readonly status: "open";
   readonly openedAt: string;
+  readonly items: ReadonlyArray<{ readonly position: number; readonly label: string }>;
 };
 
 export class PaymentApiError extends Error {
@@ -131,6 +149,41 @@ function isSecureUrl(value: unknown): value is string {
   }
 }
 
+export function normalizeDeliveryItemInput(value: unknown): DeliveryItemInput | null {
+  if (!isRecord(value)) return null;
+  const { label, subscriptionUrl } = value;
+  if (typeof label !== "string" || typeof subscriptionUrl !== "string") return null;
+  const normalizedLabel = label.trim();
+  if (normalizedLabel.length === 0 || normalizedLabel.length > DELIVERY_MAX_LABEL_LENGTH) return null;
+  if (
+    subscriptionUrl.length === 0 ||
+    subscriptionUrl !== subscriptionUrl.trim() ||
+    new TextEncoder().encode(subscriptionUrl).byteLength > DELIVERY_MAX_URL_BYTES
+  ) {
+    return null;
+  }
+  try {
+    if (new URL(subscriptionUrl).protocol !== "https:") return null;
+  } catch {
+    return null;
+  }
+  return { label: normalizedLabel, subscriptionUrl };
+}
+
+function parseDeliveryItems(value: unknown): readonly ServiceDeliveryItem[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > DELIVERY_MAX_ITEMS) {
+    throw new PaymentApiError("invalid_response");
+  }
+  return value.map((rawItem, index) => {
+    const item = requireRecord(rawItem);
+    const normalized = normalizeDeliveryItemInput(item);
+    if (item.position !== index + 1 || normalized === null) {
+      throw new PaymentApiError("invalid_response");
+    }
+    return { position: item.position, ...normalized };
+  });
+}
+
 function requireRecord(value: unknown): JsonRecord {
   if (!isRecord(value)) throw new PaymentApiError("invalid_response");
   return value;
@@ -167,7 +220,12 @@ function parseOrderSnapshot(value: unknown): PaymentOrderSnapshot {
   if (body.service !== null) {
     const serviceBody = requireRecord(body.service);
     if (!isServiceStatus(serviceBody.status)) throw new PaymentApiError("invalid_response");
-    service = { status: serviceBody.status };
+    if (serviceBody.status === "pending_open" && serviceBody.items !== undefined) {
+      throw new PaymentApiError("invalid_response");
+    }
+    service = serviceBody.items === undefined
+      ? { status: serviceBody.status }
+      : { status: serviceBody.status, items: parseDeliveryItems(serviceBody.items) };
   }
 
   if (
@@ -256,10 +314,30 @@ function parseAdminPendingServices(value: unknown): AdminPendingServiceItem[] {
 
 function parseOpenService(value: unknown): OpenServiceResult {
   const body = requireRecord(value);
-  if (!isPositiveInteger(body.id) || body.status !== "open" || !isNonEmptyString(body.openedAt)) {
+  if (
+    !isPositiveInteger(body.id) ||
+    body.status !== "open" ||
+    !isNonEmptyString(body.openedAt) ||
+    !Array.isArray(body.items) ||
+    body.items.length < 1 ||
+    body.items.length > DELIVERY_MAX_ITEMS
+  ) {
     throw new PaymentApiError("invalid_response");
   }
-  return { id: body.id, status: body.status, openedAt: body.openedAt };
+  const items = body.items.map((rawItem, index) => {
+    const item = requireRecord(rawItem);
+    if (
+      item.position !== index + 1 ||
+      typeof item.label !== "string" ||
+      item.label.length === 0 ||
+      item.label !== item.label.trim() ||
+      item.label.length > DELIVERY_MAX_LABEL_LENGTH
+    ) {
+      throw new PaymentApiError("invalid_response");
+    }
+    return { position: item.position, label: item.label };
+  });
+  return { id: body.id, status: body.status, openedAt: body.openedAt, items };
 }
 
 async function readJson(response: Response): Promise<unknown> {
@@ -386,11 +464,22 @@ export async function getAdminPendingServices(signal?: AbortSignal): Promise<Adm
   return parseAdminPendingServices(response);
 }
 
-export async function openAdminService(serviceId: number, csrfToken: string): Promise<OpenServiceResult> {
+export async function openAdminService(
+  serviceId: number,
+  csrfToken: string,
+  items: readonly DeliveryItemInput[],
+): Promise<OpenServiceResult> {
+  if (
+    items.length < 1 ||
+    items.length > DELIVERY_MAX_ITEMS ||
+    items.some((item) => normalizeDeliveryItemInput(item) === null)
+  ) {
+    throw new PaymentApiError("invalid_item", 400);
+  }
   const response = await requestJson(`/api/admin/services/${serviceId}/open`, {
     method: "POST",
     headers: mutationHeaders({ "X-CSRF-Token": csrfToken }),
-    body: "{}",
+    body: JSON.stringify({ items: items.map((item) => normalizeDeliveryItemInput(item)) }),
   });
   return parseOpenService(response);
 }

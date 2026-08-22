@@ -10,15 +10,19 @@ import {
 } from "../payment/alipay.js";
 import { readPaymentSession } from "../payment/http-auth.js";
 import {
+  auditDeliveryDecryptFailure,
   claimAlipayQuery,
   createPaymentOrder,
   getAuthorizedOrderStatus,
   listMyServices,
   PaymentDomainError,
+  readServiceDeliveryItems,
   retryPaymentOrder,
   type OrderCreationResult,
   type OrderSelection,
   type OrderServiceDependencies,
+  type ServiceDeliveryItem,
+  type ServiceStatus,
 } from "../payment/orders.js";
 import {
   acceptPendingPaymentEvent,
@@ -473,12 +477,44 @@ export function registerPaymentHttpRoutes(
           await refreshOrderFromAlipay(dependencies, before);
         }
         const after = getAuthorizedOrderStatus(dependencies, authorization);
+        let service: {
+          readonly status: ServiceStatus;
+          readonly items?: readonly ServiceDeliveryItem[];
+        } | null = after.service;
+        if (after.service?.status === "open") {
+          try {
+            if (after.serviceId === null) {
+              throw new Error("Service database invariant failed");
+            }
+            const items = readServiceDeliveryItems(
+              dependencies.database,
+              after.serviceId,
+              dependencies.deliveryEncKeyring,
+            );
+            if (items.length > 0) {
+              service = { status: "open", items };
+            }
+          } catch {
+            try {
+              auditDeliveryDecryptFailure(
+                dependencies.database,
+                after.orderRef,
+                dependencies.now ?? (() => new Date()),
+              );
+            } catch {
+              // The response remains fail-closed even when audit persistence fails.
+            }
+            return reply
+              .code(503)
+              .send(errorResponse("payment_unavailable"));
+          }
+        }
         return reply.code(200).send({
           orderRef: after.orderRef,
           status: after.status,
           amountFen: after.amountFen,
           currency: after.currency,
-          service: after.service,
+          service,
         });
       } catch (error) {
         return sendDomainError(reply, error);

@@ -4,6 +4,7 @@ import {
   getAdminPendingServices,
   openAdminService,
   type AdminPendingServiceItem,
+  type DeliveryItemInput,
 } from "../../lib/payment-api";
 import { resolveSelection } from "../../lib/resolveSelection";
 
@@ -38,6 +39,8 @@ function adminErrorMessage(error: unknown) {
     case "forbidden": return "当前账户没有人工开通权限。";
     case "csrf_invalid": return "安全校验已失效，请刷新页面后重试。";
     case "invalid_transition": return "该服务状态已变化，请刷新后确认。";
+    case "items_required": return "请至少填写一条订阅链接。";
+    case "invalid_item": return "请检查线路名称与 HTTPS 订阅链接。";
     case "invalid_response": return "待开通服务数据返回异常。";
     default: return "暂时无法处理待开通服务，请稍后重试。";
   }
@@ -48,6 +51,7 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [openingId, setOpeningId] = useState<number | null>(null);
+  const [drafts, setDrafts] = useState<Record<number, DeliveryItemInput[]>>({});
 
   useEffect(() => {
     const controller = new AbortController();
@@ -79,13 +83,57 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
     setOpeningId(serviceId);
     setError(null);
     try {
-      await openAdminService(serviceId, csrfToken);
+      await openAdminService(serviceId, csrfToken, drafts[serviceId] ?? defaultDeliveryItems());
       setItems((current) => current.filter((item) => item.serviceId !== serviceId));
+      setDrafts((current) => {
+        const next = { ...current };
+        delete next[serviceId];
+        return next;
+      });
     } catch (openError) {
       setError(adminErrorMessage(openError));
     } finally {
       setOpeningId(null);
     }
+  }
+
+  function defaultDeliveryItems(): DeliveryItemInput[] {
+    return [{ label: "订阅线路 1", subscriptionUrl: "" }];
+  }
+
+  function deliveryItems(serviceId: number): DeliveryItemInput[] {
+    return drafts[serviceId] ?? defaultDeliveryItems();
+  }
+
+  function updateDeliveryItem(
+    serviceId: number,
+    index: number,
+    field: keyof DeliveryItemInput,
+    value: string,
+  ) {
+    setDrafts((current) => {
+      const nextItems = [...(current[serviceId] ?? defaultDeliveryItems())];
+      nextItems[index] = { ...nextItems[index], [field]: value };
+      return { ...current, [serviceId]: nextItems };
+    });
+  }
+
+  function addDeliveryItem(serviceId: number) {
+    setDrafts((current) => {
+      const nextItems = [...(current[serviceId] ?? defaultDeliveryItems())];
+      if (nextItems.length >= 20) return current;
+      nextItems.push({ label: `订阅线路 ${nextItems.length + 1}`, subscriptionUrl: "" });
+      return { ...current, [serviceId]: nextItems };
+    });
+  }
+
+  function removeDeliveryItem(serviceId: number, index: number) {
+    setDrafts((current) => {
+      const nextItems = [...(current[serviceId] ?? defaultDeliveryItems())];
+      if (nextItems.length <= 1) return current;
+      nextItems.splice(index, 1);
+      return { ...current, [serviceId]: nextItems };
+    });
   }
 
   return (
@@ -107,6 +155,7 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
           const scenarios = item.scenarios.length === 0
             ? "—"
             : item.scenarios.map((scenario) => SCENARIO_LABELS[scenario] ?? scenario).join("、");
+          const serviceDeliveryItems = deliveryItems(item.serviceId);
           return (
             <article className="dash-service" key={item.serviceId}>
               <div className="dash-service-head">
@@ -124,8 +173,57 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
                 <div><dt>使用场景</dt><dd>{scenarios}</dd></div>
                 <div><dt>补充说明</dt><dd>{item.notes?.trim() || "—"}</dd></div>
               </dl>
+              <fieldset className="dash-delivery-form">
+                <legend>交付订阅链接</legend>
+                {serviceDeliveryItems.map((deliveryItem, index) => (
+                  <div className="dash-delivery-row" key={index}>
+                    <label className="dash-delivery-field">
+                      <span>线路名称</span>
+                      <input
+                        type="text"
+                        maxLength={200}
+                        value={deliveryItem.label}
+                        onChange={(event) => updateDeliveryItem(item.serviceId, index, "label", event.target.value)}
+                        autoComplete="off"
+                      />
+                    </label>
+                    <label className="dash-delivery-field dash-delivery-url-field">
+                      <span>HTTPS 订阅链接</span>
+                      <input
+                        type="url"
+                        inputMode="url"
+                        value={deliveryItem.subscriptionUrl}
+                        onChange={(event) => updateDeliveryItem(item.serviceId, index, "subscriptionUrl", event.target.value)}
+                        placeholder="https://"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="dash-delivery-remove"
+                      disabled={serviceDeliveryItems.length === 1 || openingId !== null}
+                      onClick={() => removeDeliveryItem(item.serviceId, index)}
+                      aria-label={`删除第 ${index + 1} 条订阅链接`}
+                    >
+                      删除
+                    </button>
+                  </div>
+                ))}
+                <div className="dash-delivery-actions">
+                  <button
+                    type="button"
+                    disabled={serviceDeliveryItems.length >= 20 || openingId !== null}
+                    onClick={() => addDeliveryItem(item.serviceId)}
+                  >
+                    添加订阅链接
+                  </button>
+                  <small>{serviceDeliveryItems.length}/20</small>
+                </div>
+              </fieldset>
               <div className="dash-service-foot">
-                <p>确认真实服务已处理完成后，再标记为已开通。</p>
+                <p>填写并核对订阅链接后，再保存并开通服务。</p>
                 <button
                   type="button"
                   className="dash-primary-link"
@@ -133,7 +231,7 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
                   aria-busy={openingId === item.serviceId}
                   onClick={() => void markOpen(item.serviceId)}
                 >
-                  {openingId === item.serviceId ? "正在更新…" : "标记已开通"}
+                  {openingId === item.serviceId ? "正在保存…" : "保存并开通"}
                 </button>
               </div>
             </article>

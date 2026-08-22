@@ -46,6 +46,10 @@ export interface AuthCredentialConfig {
   readonly csrfSigningKey: Buffer;
 }
 
+export interface DeliveryCredentialConfig {
+  readonly deliveryEncKeyring: TokenHmacKeyring;
+}
+
 const BASE64_32_BYTE_KEY_PATTERN = /^[A-Za-z0-9+/]{43}=$/;
 const KEY_VERSION_PATTERN = /^(0|[1-9][0-9]*)$/;
 
@@ -301,4 +305,22 @@ export function loadAuthCredentialConfig(
     rateLimitKeyring,
     csrfSigningKey,
   });
+}
+
+export function loadDeliveryCredentialConfig(
+  environment: NodeJS.ProcessEnv = process.env,
+): DeliveryCredentialConfig {
+  const directory = environment.CREDENTIALS_DIRECTORY?.trim();
+  if (!directory) {
+    throw new Error("Delivery credential configuration is invalid");
+  }
+  try {
+    return Object.freeze({
+      deliveryEncKeyring: parseKeyring(
+        readCredential(directory, "delivery_payload_enc_keyring"),
+      ),
+    });
+  } catch {
+    throw new Error("Delivery credential configuration is invalid");
+  }
 }

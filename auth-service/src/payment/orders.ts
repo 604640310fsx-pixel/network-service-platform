@@ -9,6 +9,11 @@ import {
 import type { TokenHmacKeyring } from "../session/session-token.js";
 import { createAlipayPagePayUrl, type AlipaySdkLike } from "./alipay.js";
 import {
+  decryptServiceDeliveryItem,
+  DELIVERY_MAX_ITEMS,
+  type EncryptedServiceDeliveryItem,
+} from "./delivery-crypto.js";
+import {
   CATALOG_VERSION,
   PAYMENT_MAX_SINGLE_FEN,
   resolvePriceFen,
@@ -65,6 +70,7 @@ export interface RetryOrderInput {
 export interface OrderServiceDependencies {
   readonly database: DatabaseConnection;
   readonly tokenHmacKeyring: TokenHmacKeyring;
+  readonly deliveryEncKeyring: TokenHmacKeyring;
   readonly appId: string;
   readonly notifyUrl: string;
   readonly returnUrl: string;
@@ -90,6 +96,7 @@ export interface OrderStatusResult {
 }
 
 export interface AuthorizedOrderStatus extends OrderStatusResult {
+  readonly serviceId: number | null;
   readonly paymentId: number;
   readonly outTradeNo: string;
   readonly tradeNo: string | null;
@@ -121,6 +128,7 @@ interface StoredOrder {
   readonly tokenExpiresAt: string;
   readonly tokenRevokedAt: string | null;
   readonly serviceStatus: ServiceStatus | null;
+  readonly serviceId: number | null;
 }
 
 function nowDate(dependencies: Pick<OrderServiceDependencies, "now">): Date {
@@ -184,13 +192,15 @@ function parseStoredOrder(row: unknown): StoredOrder {
   const value = row as Record<string, unknown>;
   const status = rowString(value, "status");
   const serviceStatus = rowNullableString(value, "service_status");
+  const serviceIdValue = value.service_id;
   const userIdValue = value.user_id;
   if (
     (status !== "pending" && status !== "paid" && status !== "closed") ||
     (serviceStatus !== null &&
       serviceStatus !== "pending_open" &&
       serviceStatus !== "open") ||
-    (userIdValue !== null && typeof userIdValue !== "number")
+    (userIdValue !== null && typeof userIdValue !== "number") ||
+    (serviceIdValue !== null && typeof serviceIdValue !== "number")
   ) {
     throw new Error("Order database invariant failed");
   }
@@ -219,6 +229,7 @@ function parseStoredOrder(row: unknown): StoredOrder {
     tokenExpiresAt: rowString(value, "expires_at"),
     tokenRevokedAt: rowNullableString(value, "revoked_at"),
     serviceStatus,
+    serviceId: serviceIdValue,
   };
 }
 
@@ -235,7 +246,7 @@ const ORDER_SELECT = `
     order_access_tokens.token_key_version,
     order_access_tokens.expires_at,
     order_access_tokens.revoked_at,
-    services.status AS service_status
+    services.id AS service_id, services.status AS service_status
   FROM orders
   JOIN payments ON payments.order_id = orders.id
   JOIN order_access_tokens ON order_access_tokens.order_id = orders.id
@@ -675,6 +686,7 @@ function orderStatusResult(order: StoredOrder): AuthorizedOrderStatus {
     currency: "CNY",
     service:
       order.serviceStatus === null ? null : { status: order.serviceStatus },
+    serviceId: order.serviceId,
     paymentId: order.paymentId,
     outTradeNo: order.outTradeNo,
     tradeNo: order.tradeNo,
@@ -709,6 +721,80 @@ export function getAuthorizedOrderStatus(
     throw new PaymentDomainError(404, "not_found");
   }
   return orderStatusResult(order);
+}
+
+export interface ServiceDeliveryItem {
+  readonly position: number;
+  readonly label: string;
+  readonly subscriptionUrl: string;
+}
+
+function rowBuffer(row: Record<string, unknown>, name: string): Buffer {
+  const value = row[name];
+  if (!Buffer.isBuffer(value)) {
+    throw new Error("Service delivery database invariant failed");
+  }
+  return value;
+}
+
+export function readServiceDeliveryItems(
+  database: DatabaseConnection,
+  serviceId: number,
+  keyring: TokenHmacKeyring,
+): ServiceDeliveryItem[] {
+  if (!Number.isSafeInteger(serviceId) || serviceId < 1) {
+    throw new Error("Service delivery database invariant failed");
+  }
+  return database
+    .prepare(
+      `SELECT position, label, key_version, nonce, ciphertext, tag
+       FROM service_delivery_items
+       WHERE service_id = ?
+       ORDER BY position ASC`,
+    )
+    .all(serviceId)
+    .map((row) => {
+      if (typeof row !== "object" || row === null || Array.isArray(row)) {
+        throw new Error("Service delivery database invariant failed");
+      }
+      const value = row as Record<string, unknown>;
+      const position = rowNumber(value, "position");
+      const label = rowString(value, "label");
+      const keyVersion = rowNumber(value, "key_version");
+      return {
+        position,
+        label,
+        subscriptionUrl: decryptServiceDeliveryItem(
+          {
+            serviceId,
+            position,
+            label,
+            keyVersion,
+            nonce: rowBuffer(value, "nonce"),
+            ciphertext: rowBuffer(value, "ciphertext"),
+            tag: rowBuffer(value, "tag"),
+          },
+          keyring,
+        ),
+      };
+    });
+}
+
+export function auditDeliveryDecryptFailure(
+  database: DatabaseConnection,
+  orderRef: string,
+  now: () => Date = () => new Date(),
+): void {
+  const occurredAt = now();
+  if (!Number.isFinite(occurredAt.getTime())) {
+    throw new Error("Service delivery audit time source is invalid");
+  }
+  database
+    .prepare(
+      `INSERT INTO audit_log (actor, action, target_ref, created_at)
+       VALUES ('system', 'service.delivery_decrypt_failed', ?, ?)`,
+    )
+    .run(orderRef, occurredAt.toISOString());
 }
 
 export function claimAlipayQuery(
@@ -838,9 +924,26 @@ export function openService(
     readonly serviceId: number;
     readonly adminUserId: number;
     readonly adminEmail: string;
+    readonly items: readonly EncryptedServiceDeliveryItem[];
     readonly now?: () => Date;
   },
-): { readonly id: number; readonly status: "open"; readonly openedAt: string } {
+): {
+  readonly id: number;
+  readonly status: "open";
+  readonly openedAt: string;
+  readonly items: ReadonlyArray<{ readonly position: number; readonly label: string }>;
+} {
+  if (
+    input.items.length < 1 ||
+    input.items.length > DELIVERY_MAX_ITEMS ||
+    input.items.some(
+      (item, index) =>
+        item.position !== index + 1 ||
+        item.label.trim().length === 0,
+    )
+  ) {
+    throw new PaymentDomainError(400, "invalid_item");
+  }
   const operation = database.transaction(() => {
     const rows = database
       .prepare(
@@ -863,20 +966,47 @@ export function openService(
       throw new Error("Service time source is invalid");
     }
     const openedAt = now.toISOString();
-    database
+    const updated = database
       .prepare(
         `UPDATE services
          SET status = 'open', opened_by_admin_id = ?, opened_at = ?, updated_at = ?
          WHERE id = ? AND status = 'pending_open'`,
       )
       .run(input.adminUserId, openedAt, openedAt, input.serviceId);
+    if (updated.changes !== 1) {
+      throw new PaymentDomainError(409, "invalid_transition");
+    }
+    const insertDeliveryItem = database.prepare(
+      `INSERT INTO service_delivery_items (
+         service_id, position, label, key_version, nonce, ciphertext, tag,
+         created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const item of input.items) {
+      insertDeliveryItem.run(
+        input.serviceId,
+        item.position,
+        item.label,
+        item.keyVersion,
+        item.nonce,
+        item.ciphertext,
+        item.tag,
+        openedAt,
+        openedAt,
+      );
+    }
     database
       .prepare(
         `INSERT INTO audit_log (actor, action, target_ref, created_at)
          VALUES (?, 'service.open', ?, ?)`,
       )
       .run(input.adminEmail, rowString(row, "order_ref"), openedAt);
-    return { id: input.serviceId, status: "open" as const, openedAt };
+    return {
+      id: input.serviceId,
+      status: "open" as const,
+      openedAt,
+      items: input.items.map(({ position, label }) => ({ position, label })),
+    };
   });
   return operation.immediate();
 }
