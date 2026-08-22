@@ -299,6 +299,11 @@
   .sub-request-invalid { padding: 40px 18px; }
 }
 
+@media (max-width: 1480px) {
+  .sub-steps { display: none; }
+  .sub-mobile-progress { display: block; }
+}
+
 @media (max-width: 1180px) {
   .sub-layout { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
   .sub-desktop-summary { display: none; }
