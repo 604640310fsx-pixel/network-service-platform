@@ -173,11 +173,12 @@ export function RequirementForm({
       credentials = await getOrCreateCheckoutAttempt(draft);
       const result = await createPaymentOrder(draft, credentials);
       bindOrderAccess(result.orderRef, credentials);
-      if (result.status === "pending" && result.payUrl !== null) {
-        window.location.assign(result.payUrl);
-        return;
-      }
-      navigate(`/subscribe/request?orderRef=${encodeURIComponent(result.orderRef)}`, { replace: true });
+      // 不再跳转支付宝网页收银台；站内跳转到订单页，navigation state 携带首个支付结果
+      // （含二维码内容），供支付页直接渲染，避免额外一次取码请求。
+      navigate(`/subscribe/request?orderRef=${encodeURIComponent(result.orderRef)}`, {
+        replace: true,
+        state: { paymentResult: result },
+      });
     } catch (error) {
       if (credentials !== null && shouldClearAttemptAfterError(error)) {
         try {

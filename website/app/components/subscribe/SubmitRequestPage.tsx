@@ -1,8 +1,23 @@
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { CustomerCenterShell } from "../customer/CustomerCenterShell";
 import { RequirementForm } from "./RequirementForm";
 import { OrderStatusPanel } from "./OrderStatusPanel";
-import { PAYMENT_MAX_SINGLE_FEN_FRONTEND, readLastOrderRef } from "../../lib/payment-api";
+import {
+  PAYMENT_MAX_SINGLE_FEN_FRONTEND,
+  readLastOrderRef,
+  type PaymentOrderResult,
+} from "../../lib/payment-api";
+
+/* 从 navigation state 读取"首个支付结果"（RequirementForm / 重新支付跳转时携带）。
+   仅当它对应当前 orderRef 才采纳，供支付页首屏直接渲染二维码，避免额外一次取码。
+   二维码内容只经内存中的 navigation state 传递，不进 URL / localStorage / 日志。 */
+function readInitialResult(state: unknown, orderRef: string): PaymentOrderResult | undefined {
+  if (typeof state !== "object" || state === null) return undefined;
+  const candidate = (state as { paymentResult?: unknown }).paymentResult;
+  if (typeof candidate !== "object" || candidate === null) return undefined;
+  const result = candidate as PaymentOrderResult;
+  return result.orderRef === orderRef ? result : undefined;
+}
 import { parseSelectionParams, resolveSelection, selectionToQuery } from "../../lib/resolveSelection";
 import { usePlanAvailability } from "../../lib/planAvailability";
 import "./subscribe.css";
@@ -14,6 +29,7 @@ import "./subscribe.css";
    同样能拿到服务器权威的可售状态与实时价格。 */
 export function SubmitRequestPage() {
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const availability = usePlanAvailability();
   const explicitOrderRef = searchParams.get("orderRef")?.trim() ?? "";
   const alipayOrderRef = searchParams.get("out_trade_no")?.trim() ?? "";
@@ -30,11 +46,12 @@ export function SubmitRequestPage() {
   const unavailable = summary.availability === "sold_out" || summary.availability === "unavailable";
 
   if (visibleOrderRef !== "") {
+    const initialResult = readInitialResult(location.state, visibleOrderRef);
     return (
       <CustomerCenterShell title="服务状态" description="查看支付结果与服务开通进度">
         <main className="sub-page">
           <div className="sub-request-page">
-            <OrderStatusPanel orderRef={visibleOrderRef} />
+            <OrderStatusPanel orderRef={visibleOrderRef} initialResult={initialResult} />
           </div>
         </main>
       </CustomerCenterShell>

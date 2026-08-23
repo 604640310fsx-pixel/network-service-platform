@@ -66,10 +66,15 @@ export type OrderCredentials = {
   readonly accessToken: string;
 };
 
+/* 创建 / 重试 / 取码（POST :orderRef/qr）三处同一冻结结构。qrCode 仅在 pending 时有值，
+   只作为二维码内容渲染，绝不写入 URL / localStorage / 日志。 */
 export type PaymentOrderResult = {
   readonly orderRef: string;
   readonly status: PaymentOrderStatus;
-  readonly payUrl: string | null;
+  readonly amountFen: number;
+  readonly currency: "CNY";
+  readonly reservedUntil: string | null;
+  readonly qrCode: string | null;
 };
 
 export type PaymentOrderSnapshot = {
@@ -77,6 +82,8 @@ export type PaymentOrderSnapshot = {
   readonly status: PaymentOrderStatus;
   readonly amountFen: number;
   readonly currency: "CNY";
+  // GET 快照新增 reservedUntil（不返回二维码）；旧后端缺省时按 null 兜底。
+  readonly reservedUntil: string | null;
   readonly service: {
     readonly status: ServiceStatus;
     readonly items?: readonly ServiceDeliveryItem[];
@@ -162,13 +169,8 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
-function isSecureUrl(value: unknown): value is string {
-  if (!isNonEmptyString(value)) return false;
-  try {
-    return new URL(value).protocol === "https:";
-  } catch {
-    return false;
-  }
+function isIsoInstant(value: unknown): value is string {
+  return isNonEmptyString(value) && Number.isFinite(Date.parse(value));
 }
 
 export function normalizeDeliveryItemInput(value: unknown): DeliveryItemInput | null {
@@ -215,24 +217,35 @@ function parseOrderResult(value: unknown): PaymentOrderResult {
   const body = requireRecord(value);
   if (
     !isNonEmptyString(body.orderRef) ||
-    !isPaymentOrderStatus(body.status)
+    !isPaymentOrderStatus(body.status) ||
+    !isPositiveInteger(body.amountFen) ||
+    body.currency !== "CNY"
   ) {
     throw new PaymentApiError("invalid_response");
   }
 
+  // pending 必须带绝对失效时刻与二维码内容；paid/closed 两者可空。
   if (body.status === "pending") {
-    if (!isSecureUrl(body.payUrl)) throw new PaymentApiError("invalid_response");
+    if (!isIsoInstant(body.reservedUntil) || !isNonEmptyString(body.qrCode)) {
+      throw new PaymentApiError("invalid_response");
+    }
     return {
       orderRef: body.orderRef,
       status: body.status,
-      payUrl: body.payUrl,
+      amountFen: body.amountFen,
+      currency: "CNY",
+      reservedUntil: body.reservedUntil,
+      qrCode: body.qrCode,
     };
   }
 
   return {
     orderRef: body.orderRef,
     status: body.status,
-    payUrl: null,
+    amountFen: body.amountFen,
+    currency: "CNY",
+    reservedUntil: null,
+    qrCode: null,
   };
 }
 
@@ -264,6 +277,7 @@ function parseOrderSnapshot(value: unknown): PaymentOrderSnapshot {
     status: body.status,
     amountFen: body.amountFen,
     currency: body.currency,
+    reservedUntil: isIsoInstant(body.reservedUntil) ? body.reservedUntil : null,
     service,
   };
 }
@@ -486,6 +500,23 @@ export async function retryPaymentOrder(
   };
   if (currentAccessToken !== null) headers["X-Order-Access-Token"] = currentAccessToken;
   const response = await requestJson(`/api/pay/orders/${encodeURIComponent(orderRef)}/retry`, {
+    method: "POST",
+    headers: mutationHeaders(headers),
+    body: "{}",
+  });
+  return parseOrderResult(response);
+}
+
+/* 站内取码：pending 订单在有效期内重新获取同一 out_trade_no 的二维码（后端幂等，
+   不新建支付记录、不重复收款）。用于页面刷新后无二维码时的一次性恢复，以及用户
+   手动"刷新二维码"。返回与创建/重试完全一致的冻结结构。 */
+export async function refreshOrderQr(
+  orderRef: string,
+  accessToken: string | null,
+): Promise<PaymentOrderResult> {
+  const headers: Record<string, string> = {};
+  if (accessToken !== null) headers["X-Order-Access-Token"] = accessToken;
+  const response = await requestJson(`/api/pay/orders/${encodeURIComponent(orderRef)}/qr`, {
     method: "POST",
     headers: mutationHeaders(headers),
     body: "{}",
