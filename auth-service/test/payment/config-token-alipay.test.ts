@@ -11,7 +11,7 @@ import {
 } from "../../src/config.js";
 import { issueCsrfToken, verifyCsrfToken } from "../../src/http/csrf.js";
 import {
-  createAlipayPagePayUrl,
+  createAlipayPrecreateQrCode,
   formatFenAsYuan,
   parseYuanAsFen,
 } from "../../src/payment/alipay.js";
@@ -171,7 +171,7 @@ test("CSRF verification is strict and constant-length", () => {
   assert.equal(verifyCsrfToken(CSRF_KEY, sessionHash, [token]), false);
 });
 
-test("pageExecute uses the frozen GET contract and exact integer amount formatting", () => {
+test("precreate returns only the signed QR payload with exact integer amount formatting", async () => {
   assert.equal(formatFenAsYuan(0), "0.00");
   assert.equal(formatFenAsYuan(89), "0.89");
   assert.equal(formatFenAsYuan(527_000), "5270.00");
@@ -180,11 +180,10 @@ test("pageExecute uses the frozen GET contract and exact integer amount formatti
   assert.equal(parseYuanAsFen("1.001"), null);
 
   const sdk = new FakeAlipaySdk();
-  const payUrl = createAlipayPagePayUrl(
+  const qrCode = await createAlipayPrecreateQrCode(
     sdk,
     {
       notifyUrl: "https://example.test/notify",
-      returnUrl: "https://example.test/return",
     },
     {
       outTradeNo: "DL123",
@@ -192,15 +191,13 @@ test("pageExecute uses the frozen GET contract and exact integer amount formatti
       reservedUntil: new Date("2026-08-21T00:30:00.000Z"),
     },
   );
-  assert.equal(payUrl, "https://alipay.example.test/pay/DL123");
-  assert.deepEqual(sdk.pageCalls, [
+  assert.equal(qrCode, "https://qr.alipay.example.test/DL123");
+  assert.deepEqual(sdk.precreateCalls, [
     {
-      method: "alipay.trade.page.pay",
-      httpMethod: "GET",
+      method: "alipay.trade.precreate",
       parameters: {
         bizContent: {
           outTradeNo: "DL123",
-          productCode: "FAST_INSTANT_TRADE_PAY",
           totalAmount: "89.00",
           subject: "网络环境诊断与人工技术服务",
           timeoutExpress: "30m",
@@ -208,8 +205,38 @@ test("pageExecute uses the frozen GET contract and exact integer amount formatti
           timeExpire: "2026-08-21 08:30:00",
         },
         notifyUrl: "https://example.test/notify",
-        returnUrl: "https://example.test/return",
       },
+      options: { validateSign: true },
     },
   ]);
+});
+
+test("precreate rejects malformed or mismatched gateway results without exposing details", async () => {
+  for (const response of [
+    new Error("sdk error containing sensitive QR response"),
+    { code: "10000", outTradeNo: "DL123", qrCode: "   " },
+    { code: "10000", outTradeNo: "DL-other", qrCode: "qr-value" },
+    { code: "40004", outTradeNo: "DL123", subMsg: "sensitive detail" },
+  ]) {
+    const sdk = new FakeAlipaySdk();
+    sdk.precreateResults.push(response);
+    await assert.rejects(
+      createAlipayPrecreateQrCode(
+        sdk,
+        { notifyUrl: "https://example.test/notify" },
+        {
+          outTradeNo: "DL123",
+          amountFen: 8_900,
+          reservedUntil: new Date("2026-08-21T00:30:00.000Z"),
+        },
+      ),
+      (error: unknown) => {
+        assert.equal(error instanceof Error, true);
+        assert.equal((error as Error).message, "Alipay precreate failed");
+        assert.equal((error as Error).message.includes("sensitive detail"), false);
+        assert.equal((error as Error).message.includes("sensitive QR response"), false);
+        return true;
+      },
+    );
+  }
 });

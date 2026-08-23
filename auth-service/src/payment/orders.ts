@@ -7,7 +7,7 @@ import {
   OrderAccessTokenError,
 } from "../session/order-access-token.js";
 import type { TokenHmacKeyring } from "../session/session-token.js";
-import { createAlipayPagePayUrl, type AlipaySdkLike } from "./alipay.js";
+import type { AlipaySdkLike } from "./alipay.js";
 import {
   findRedeemedCouponCode,
   normalizeCouponCode,
@@ -73,7 +73,7 @@ export interface OrderCreationResult {
   readonly status: OrderStatus;
   readonly amountFen: number;
   readonly currency: "CNY";
-  readonly payUrl?: string;
+  readonly reservedUntil: string | null;
 }
 
 export interface OrderStatusResult {
@@ -81,6 +81,7 @@ export interface OrderStatusResult {
   readonly status: OrderStatus;
   readonly amountFen: number;
   readonly currency: "CNY";
+  readonly reservedUntil: string | null;
   readonly service: { readonly status: ServiceStatus } | null;
 }
 
@@ -321,36 +322,30 @@ function assertTokenMatches(
   }
 }
 
-function paymentResponse(
-  dependencies: OrderServiceDependencies,
-  order: StoredOrder,
-): OrderCreationResult {
-  const base: OrderCreationResult = {
-    orderRef: order.orderRef,
-    status: order.status,
-    amountFen: order.amountFen,
-    currency: "CNY",
-  };
+function publicReservedUntil(order: StoredOrder): string | null {
   if (order.status !== "pending") {
-    return base;
+    return null;
   }
   if (order.reservedUntil === null) {
     throw new Error("Order database invariant failed");
   }
+  const parsed = new Date(order.reservedUntil);
+  if (
+    !Number.isFinite(parsed.getTime()) ||
+    parsed.toISOString() !== order.reservedUntil
+  ) {
+    throw new Error("Order database invariant failed");
+  }
+  return order.reservedUntil;
+}
+
+function paymentResponse(order: StoredOrder): OrderCreationResult {
   return {
-    ...base,
-    payUrl: createAlipayPagePayUrl(
-      dependencies.sdk,
-      {
-        notifyUrl: dependencies.notifyUrl,
-        returnUrl: dependencies.returnUrl,
-      },
-      {
-        outTradeNo: order.outTradeNo,
-        amountFen: order.amountFen,
-        reservedUntil: new Date(order.reservedUntil),
-      },
-    ),
+    orderRef: order.orderRef,
+    status: order.status,
+    amountFen: order.amountFen,
+    currency: "CNY",
+    reservedUntil: publicReservedUntil(order),
   };
 }
 
@@ -555,7 +550,7 @@ export function createPaymentOrder(
   });
   const replay = replayOperation.immediate();
   if (replay !== null) {
-    return paymentResponse(dependencies, replay);
+    return paymentResponse(replay);
   }
 
   // 服务器重新核价：价格、可售状态、库存与优惠券全部以此为准，不信任客户端。
@@ -585,7 +580,7 @@ export function createPaymentOrder(
       discountFen: quote.discountFen,
     }),
   );
-  return paymentResponse(dependencies, operation.immediate());
+  return paymentResponse(operation.immediate());
 }
 
 function tokenAuthorized(
@@ -705,7 +700,7 @@ export function retryPaymentOrder(
       discountFen: quote.discountFen,
     });
   });
-  return paymentResponse(dependencies, operation.immediate());
+  return paymentResponse(operation.immediate());
 }
 
 function orderStatusResult(order: StoredOrder): AuthorizedOrderStatus {
@@ -714,6 +709,7 @@ function orderStatusResult(order: StoredOrder): AuthorizedOrderStatus {
     status: order.status,
     amountFen: order.amountFen,
     currency: "CNY",
+    reservedUntil: publicReservedUntil(order),
     service:
       order.serviceStatus === null ? null : { status: order.serviceStatus },
     serviceId: order.serviceId,

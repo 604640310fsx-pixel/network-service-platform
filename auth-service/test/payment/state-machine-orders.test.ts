@@ -198,7 +198,7 @@ test("order creation is idempotent only for the same fingerprint and access toke
     const first = createOrder(dependencies);
     const replay = createOrder(dependencies);
     assert.equal(replay.orderRef, first.orderRef);
-    assert.equal(replay.payUrl, first.payUrl);
+    assert.equal(replay.reservedUntil, first.reservedUntil);
     assert.equal(firstValue(database, "SELECT COUNT(*) FROM orders"), 1);
     assert.equal(firstValue(database, "SELECT COUNT(*) FROM payments"), 1);
     assert.equal(firstValue(database, "SELECT COUNT(*) FROM order_access_tokens"), 1);
@@ -240,7 +240,7 @@ test("order creation is idempotent only for the same fingerprint and access toke
     );
     const terminalReplay = createOrder(dependencies);
     assert.equal(terminalReplay.status, "closed");
-    assert.equal(terminalReplay.payUrl, undefined);
+    assert.equal(terminalReplay.reservedUntil, null);
   });
 });
 

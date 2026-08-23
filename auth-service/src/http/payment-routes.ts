@@ -3,7 +3,11 @@ import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 import type { DatabaseConnection } from "../db.js";
-import { parseYuanAsFen, type AlipaySdkLike } from "../payment/alipay.js";
+import {
+  createAlipayPrecreateQrCode,
+  parseYuanAsFen,
+  type AlipaySdkLike,
+} from "../payment/alipay.js";
 import {
   listSellablePlans,
   normalizeCouponCode,
@@ -162,18 +166,60 @@ function parseQuoteBody(body: unknown): QuoteBody | null {
   };
 }
 
-function publicCreationResult(result: OrderCreationResult): {
+interface PublicPaymentResult {
   readonly orderRef: string;
   readonly status: string;
-  readonly payUrl?: string;
-} {
-  return result.payUrl === undefined
-    ? { orderRef: result.orderRef, status: result.status }
-    : {
-        orderRef: result.orderRef,
-        status: result.status,
-        payUrl: result.payUrl,
-      };
+  readonly amountFen: number;
+  readonly currency: "CNY";
+  readonly reservedUntil: string | null;
+  readonly qrCode: string | null;
+}
+
+function paymentNow(dependencies: Pick<OrderServiceDependencies, "now">): Date {
+  const now = (dependencies.now ?? (() => new Date()))();
+  if (!Number.isFinite(now.getTime())) {
+    throw new Error("Payment time source is invalid");
+  }
+  return now;
+}
+
+async function publicPaymentResult(
+  dependencies: PaymentEnabledDependencies,
+  result: OrderCreationResult,
+): Promise<PublicPaymentResult> {
+  const base = {
+    orderRef: result.orderRef,
+    status: result.status,
+    amountFen: result.amountFen,
+    currency: result.currency,
+  } as const;
+  if (result.status !== "pending") {
+    return { ...base, reservedUntil: null, qrCode: null };
+  }
+  if (result.reservedUntil === null) {
+    throw new Error("Order database invariant failed");
+  }
+  const reservedUntil = new Date(result.reservedUntil);
+  if (
+    !Number.isFinite(reservedUntil.getTime()) ||
+    reservedUntil.getTime() <= paymentNow(dependencies).getTime()
+  ) {
+    throw new PaymentDomainError(409, "qr_unavailable");
+  }
+  const qrCode = await createAlipayPrecreateQrCode(
+    dependencies.sdk,
+    { notifyUrl: dependencies.notifyUrl },
+    {
+      outTradeNo: result.orderRef,
+      amountFen: result.amountFen,
+      reservedUntil,
+    },
+  );
+  return {
+    ...base,
+    reservedUntil: result.reservedUntil,
+    qrCode,
+  };
 }
 
 async function sendDomainError(
@@ -466,7 +512,7 @@ export function registerPaymentHttpRoutes(
         userId: session?.principal.userId ?? null,
         couponCode: body.couponCode,
       });
-      return reply.code(200).send(publicCreationResult(result));
+      return reply.code(200).send(await publicPaymentResult(dependencies, result));
     } catch (error) {
       return sendDomainError(reply, error);
     }
@@ -499,7 +545,38 @@ export function registerPaymentHttpRoutes(
           newRawAccessToken: newToken,
           currentUserId: session?.principal.userId ?? null,
         });
-        return reply.code(200).send(publicCreationResult(result));
+        return reply.code(200).send(await publicPaymentResult(dependencies, result));
+      } catch (error) {
+        return sendDomainError(reply, error);
+      }
+    },
+  );
+
+  app.post<{ Params: { orderRef: string } }>(
+    "/api/pay/orders/:orderRef/qr",
+    async (request, reply) => {
+      setNoStore(reply);
+      if (!dependencies.enabled) {
+        return reply.code(503).send(errorResponse("payment_unavailable"));
+      }
+      const rawAccessToken = stringHeader(
+        request.headers["x-order-access-token"],
+      );
+      try {
+        const session = readPaymentSession(request, dependencies);
+        const authorization = {
+          orderRef: request.params.orderRef,
+          userId: session?.principal.userId ?? null,
+          rawAccessToken,
+        };
+        const before = getAuthorizedOrderStatus(dependencies, authorization);
+        if (before.status !== "paid") {
+          // 取码前沿用现有权威查询/状态机：若支付宝已终态，先收敛本地状态，
+          // 再返回 paid/closed 的 null 二维码，绝不把 precreate 当作付款结果。
+          await refreshPaymentFromAlipay(dependencies, before);
+        }
+        const after = getAuthorizedOrderStatus(dependencies, authorization);
+        return reply.code(200).send(await publicPaymentResult(dependencies, after));
       } catch (error) {
         return sendDomainError(reply, error);
       }
@@ -565,6 +642,7 @@ export function registerPaymentHttpRoutes(
           status: after.status,
           amountFen: after.amountFen,
           currency: after.currency,
+          reservedUntil: after.reservedUntil,
           service,
         });
       } catch (error) {

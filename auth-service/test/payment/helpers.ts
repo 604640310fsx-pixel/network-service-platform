@@ -23,11 +23,12 @@ export const ACCESS_TOKEN_B = Buffer.alloc(32, 0x22).toString("base64url");
 export const ACCESS_TOKEN_C = Buffer.alloc(32, 0x33).toString("base64url");
 
 export class FakeAlipaySdk implements AlipaySdkLike {
-  readonly pageCalls: Array<{
+  readonly precreateCalls: Array<{
     readonly method: string;
-    readonly httpMethod: string;
     readonly parameters: unknown;
+    readonly options: unknown;
   }> = [];
+  readonly precreateResults: unknown[] = [];
   readonly notifyBodies: Array<Readonly<Record<string, unknown>>> = [];
   readonly queryCalls: string[] = [];
   readonly queryOptions: unknown[] = [];
@@ -42,37 +43,46 @@ export class FakeAlipaySdk implements AlipaySdkLike {
   };
   closeResponse: unknown = { code: "10000" };
 
-  pageExecute(
-    method: "alipay.trade.page.pay",
-    httpMethod: "GET",
-    parameters: {
-      readonly bizContent: Readonly<Record<string, string>>;
-      readonly notifyUrl: string;
-      readonly returnUrl: string;
-    },
-  ): string {
-    this.pageCalls.push({ method, httpMethod, parameters });
-    return `https://alipay.example.test/pay/${parameters.bizContent.outTradeNo}`;
-  }
-
   checkNotifySignV2(parameters: Readonly<Record<string, unknown>>): boolean {
     this.notifyBodies.push(parameters);
     return this.verifyNotify;
   }
 
   async exec(
-    method: "alipay.trade.query" | "alipay.trade.close",
-    parameters: { readonly bizContent: { readonly outTradeNo: string } },
+    method:
+      | "alipay.trade.precreate"
+      | "alipay.trade.query"
+      | "alipay.trade.close",
+    parameters: {
+      readonly bizContent: Readonly<Record<string, string>>;
+      readonly notifyUrl?: string;
+    },
     options: { readonly validateSign: true },
   ): Promise<unknown> {
+    const outTradeNo = parameters.bizContent.outTradeNo;
+    if (typeof outTradeNo !== "string") {
+      throw new Error("unexpected outTradeNo");
+    }
+    if (method === "alipay.trade.precreate") {
+      this.precreateCalls.push({ method, parameters, options });
+      const result = this.precreateResults.shift();
+      if (result instanceof Error) {
+        throw result;
+      }
+      return result ?? {
+        code: "10000",
+        outTradeNo,
+        qrCode: `https://qr.alipay.example.test/${outTradeNo}`,
+      };
+    }
     if (method === "alipay.trade.close") {
-      this.closeCalls.push(parameters.bizContent.outTradeNo);
+      this.closeCalls.push(outTradeNo);
       return this.closeResponse;
     }
     if (method !== "alipay.trade.query") {
       throw new Error("unexpected method");
     }
-    this.queryCalls.push(parameters.bizContent.outTradeNo);
+    this.queryCalls.push(outTradeNo);
     this.queryOptions.push(options);
     return this.queryResponse;
   }

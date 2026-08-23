@@ -1,24 +1,20 @@
 export interface AlipaySdkLike {
-  pageExecute(
-    method: "alipay.trade.page.pay",
-    httpMethod: "GET",
-    parameters: {
-      readonly bizContent: Readonly<Record<string, string>>;
-      readonly notifyUrl: string;
-      readonly returnUrl: string;
-    },
-  ): string;
   checkNotifySignV2(parameters: Readonly<Record<string, unknown>>): boolean;
   exec(
-    method: "alipay.trade.query" | "alipay.trade.close",
-    parameters: { readonly bizContent: { readonly outTradeNo: string } },
+    method:
+      | "alipay.trade.precreate"
+      | "alipay.trade.query"
+      | "alipay.trade.close",
+    parameters: {
+      readonly bizContent: Readonly<Record<string, string>>;
+      readonly notifyUrl?: string;
+    },
     options: { readonly validateSign: true },
   ): Promise<unknown>;
 }
 
-export interface AlipayPagePayConfig {
+export interface AlipayPrecreateConfig {
   readonly notifyUrl: string;
-  readonly returnUrl: string;
 }
 
 export type AlipayTradeStatus =
@@ -45,7 +41,7 @@ export interface AlipayTradeCloseResult {
   readonly subCode: string | null;
 }
 
-const ALIPAY_PAGE_PAY_SUBJECT = "网络环境诊断与人工技术服务";
+const ALIPAY_PAY_SUBJECT = "网络环境诊断与人工技术服务";
 const ALIPAY_DATETIME_TIMEZONE = "Asia/Shanghai";
 
 /* 支付宝 time_expire 要求 yyyy-MM-dd HH:mm:ss，按 Asia/Shanghai 本地时间。
@@ -100,42 +96,60 @@ export function parseYuanAsFen(value: unknown): number | null {
   return Number.isSafeInteger(result) ? result : null;
 }
 
-export function createAlipayPagePayUrl(
-  sdk: AlipaySdkLike,
-  config: AlipayPagePayConfig,
-  input: {
-    readonly outTradeNo: string;
-    readonly amountFen: number;
-    readonly reservedUntil: Date;
-  },
-): string {
-  const payUrl = sdk.pageExecute("alipay.trade.page.pay", "GET", {
-    bizContent: {
-      outTradeNo: input.outTradeNo,
-      productCode: "FAST_INSTANT_TRADE_PAY",
-      totalAmount: formatFenAsYuan(input.amountFen),
-      subject: ALIPAY_PAGE_PAY_SUBJECT,
-      timeoutExpress: "30m",
-      // 与 timeoutExpress 表达同一个 30 分钟窗口，但用绝对时刻，
-      // 与本地 payments.reserved_until 精确对齐。
-      timeExpire: formatAlipayDateTime(input.reservedUntil),
-    },
-    notifyUrl: config.notifyUrl,
-    returnUrl: config.returnUrl,
-  });
-  if (typeof payUrl !== "string" || payUrl.length === 0) {
-    throw new Error("Alipay page pay URL generation failed");
-  }
-  return payUrl;
-}
-
 function readString(
   value: Record<string, unknown>,
   camelName: string,
   snakeName: string,
 ): string | null {
   const candidate = value[camelName] ?? value[snakeName];
-  return typeof candidate === "string" && candidate !== "" ? candidate : null;
+  return typeof candidate === "string" && candidate.trim() !== ""
+    ? candidate
+    : null;
+}
+
+export async function createAlipayPrecreateQrCode(
+  sdk: AlipaySdkLike,
+  config: AlipayPrecreateConfig,
+  input: {
+    readonly outTradeNo: string;
+    readonly amountFen: number;
+    readonly reservedUntil: Date;
+  },
+): Promise<string> {
+  let response: unknown;
+  try {
+    response = await sdk.exec("alipay.trade.precreate", {
+      bizContent: {
+        outTradeNo: input.outTradeNo,
+        totalAmount: formatFenAsYuan(input.amountFen),
+        subject: ALIPAY_PAY_SUBJECT,
+        timeoutExpress: "30m",
+        // 与 timeoutExpress 表达同一个 30 分钟窗口，但用绝对时刻，
+        // 与本地 payments.reserved_until 精确对齐。
+        timeExpire: formatAlipayDateTime(input.reservedUntil),
+      },
+      notifyUrl: config.notifyUrl,
+    }, { validateSign: true });
+  } catch {
+    // SDK 异常可能携带原始响应；不允许二维码或网关细节进入上层错误对象。
+    throw new Error("Alipay precreate failed");
+  }
+  if (typeof response !== "object" || response === null || Array.isArray(response)) {
+    throw new Error("Alipay precreate failed");
+  }
+  const record = response as Record<string, unknown>;
+  const code = readString(record, "code", "code");
+  const returnedOutTradeNo = readString(record, "outTradeNo", "out_trade_no");
+  const qrCode = readString(record, "qrCode", "qr_code");
+  if (
+    code !== "10000" ||
+    returnedOutTradeNo !== input.outTradeNo ||
+    qrCode === null
+  ) {
+    // 不将网关 sub_msg、异常或二维码内容带入错误消息。
+    throw new Error("Alipay precreate failed");
+  }
+  return qrCode;
 }
 
 export async function queryAlipayTrade(
