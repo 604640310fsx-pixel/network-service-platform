@@ -37,7 +37,29 @@ export type RequirementDraft = {
   readonly scenarios: string[];
   readonly notes: string;
   readonly acknowledgedAmountFen: number;
+  readonly couponCode: string | null;
 };
+
+export type QuoteResult = {
+  readonly listPriceFen: number;
+  readonly discountFen: number;
+  readonly amountFen: number;
+  readonly currency: "CNY";
+  readonly couponCode: string | null;
+};
+
+const COUPON_CODE_PATTERN = /^[A-Z0-9_-]{3,32}$/;
+
+/* 与 auth-service 完全一致的规范化：trim + 大写。四处必须统一——订单请求体、
+   RequirementDraft、checkout 幂等指纹、服务端 request fingerprint——本函数是前三处的唯一入口。 */
+export function normalizeCouponCode(raw: string): string | null {
+  const normalized = raw.trim().toUpperCase();
+  return normalized === "" ? null : normalized;
+}
+
+export function isValidCouponCode(code: string): boolean {
+  return COUPON_CODE_PATTERN.test(code);
+}
 
 export type OrderCredentials = {
   readonly idempotencyKey: string;
@@ -395,7 +417,47 @@ function orderBody(draft: RequirementDraft): JsonRecord {
     scenarios: draft.scenarios,
     notes: draft.notes.trim() === "" ? null : draft.notes,
     acknowledgedAmountFen: draft.acknowledgedAmountFen,
+    couponCode: draft.couponCode,
   };
+}
+
+function parseQuoteResult(value: unknown): QuoteResult {
+  const body = requireRecord(value);
+  if (
+    !isNonNegativeInteger(body.listPriceFen) ||
+    !isNonNegativeInteger(body.discountFen) ||
+    !isPositiveInteger(body.amountFen) ||
+    body.currency !== "CNY" ||
+    !(body.couponCode === null || isNonEmptyString(body.couponCode))
+  ) {
+    throw new PaymentApiError("invalid_response");
+  }
+  return {
+    listPriceFen: body.listPriceFen,
+    discountFen: body.discountFen,
+    amountFen: body.amountFen,
+    currency: body.currency,
+    couponCode: body.couponCode === null ? null : body.couponCode,
+  };
+}
+
+export async function getQuote(
+  selection: CatalogSelection,
+  couponCode: string | null,
+): Promise<QuoteResult> {
+  const response = await requestJson("/api/pay/quote", {
+    method: "POST",
+    headers: mutationHeaders(),
+    body: JSON.stringify({
+      typeId: selection.typeId,
+      regionId: selection.regionId,
+      ispId: selection.ispId,
+      specId: selection.specId,
+      durationId: selection.durationId,
+      couponCode,
+    }),
+  });
+  return parseQuoteResult(response);
 }
 
 export async function createPaymentOrder(
@@ -582,6 +644,7 @@ async function checkoutFingerprint(draft: RequirementDraft): Promise<string> {
     scenarios: [...draft.scenarios].sort(),
     notes: draft.notes.trim(),
     acknowledgedAmountFen: draft.acknowledgedAmountFen,
+    couponCode: draft.couponCode,
   });
   const digest = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
   return base64Url(new Uint8Array(digest));

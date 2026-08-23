@@ -186,7 +186,11 @@ test("pageExecute uses the frozen GET contract and exact integer amount formatti
       notifyUrl: "https://example.test/notify",
       returnUrl: "https://example.test/return",
     },
-    { outTradeNo: "DL123", amountFen: 8_900 },
+    {
+      outTradeNo: "DL123",
+      amountFen: 8_900,
+      reservedUntil: new Date("2026-08-21T00:30:00.000Z"),
+    },
   );
   assert.equal(payUrl, "https://alipay.example.test/pay/DL123");
   assert.deepEqual(sdk.pageCalls, [
@@ -200,6 +204,8 @@ test("pageExecute uses the frozen GET contract and exact integer amount formatti
           totalAmount: "89.00",
           subject: "网络环境诊断与人工技术服务",
           timeoutExpress: "30m",
+          // reservedUntil (UTC) formatted as Asia/Shanghai local time (UTC+8).
+          timeExpire: "2026-08-21 08:30:00",
         },
         notifyUrl: "https://example.test/notify",
         returnUrl: "https://example.test/return",

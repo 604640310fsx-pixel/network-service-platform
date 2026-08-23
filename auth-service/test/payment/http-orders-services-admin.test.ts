@@ -114,9 +114,15 @@ test("server pricing rejects changed and over-limit amounts before any SDK page 
           acknowledgedAmountFen: 632_600,
         },
       });
+      // Migration 012 seeds every combination priced above the single-payment
+      // cap as is_active=0 (residential/us/comcast/dedicated/month-12 is one
+      // of the frozen 29), so plan_unavailable now fires before the amount
+      // check ever runs — this is the correct, spec-mandated outcome, not a
+      // regression of the amount guard itself (see the commerce.test.ts
+      // "actively priced above the cap" case for that guard in isolation).
       assert.equal(overLimit.statusCode, 409);
       assert.deepEqual(overLimit.json(), {
-        error: { code: "amount_limit_exceeded", maxSingleFen: 200_000 },
+        error: { code: "plan_unavailable" },
       });
       assert.equal(sdk.pageCalls.length, 0);
       assert.equal(firstValue(database, "SELECT COUNT(*) FROM orders"), 0);
@@ -392,6 +398,403 @@ test("admin list returns the full frozen snapshot and open requires admin plus v
         },
       });
       assert.equal(repeated.statusCode, 409);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+test("public catalog and quote stay anonymous, validate input, and map domain errors", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const dependencies = paymentDependencies(database);
+    const app = buildApp({ payment: dependencies });
+    try {
+      const catalog = await app.inject({ method: "GET", url: "/api/catalog/plans" });
+      assert.equal(catalog.statusCode, 200);
+      assert.equal(catalog.headers["cache-control"], "no-store");
+      const catalogItems = catalog.json().items as Array<Record<string, unknown>>;
+      assert.equal(catalogItems.length, 255);
+      assert.deepEqual(
+        catalogItems.find(
+          (item) =>
+            item.typeId === "local-isp" &&
+            item.regionId === "us" &&
+            item.ispId === "us-verizon" &&
+            item.specId === null &&
+            item.durationId === "month-1",
+        ),
+        {
+          typeId: "local-isp",
+          regionId: "us",
+          ispId: "us-verizon",
+          specId: null,
+          durationId: "month-1",
+          priceFen: 7_900,
+          isActive: true,
+          soldOut: false,
+        },
+      );
+
+      const invalid = await app.inject({
+        method: "POST",
+        url: "/api/pay/quote",
+        headers: { "content-type": "application/json" },
+        payload: { typeId: "local-isp" },
+      });
+      assert.equal(invalid.statusCode, 400);
+      assert.deepEqual(invalid.json(), { error: { code: "invalid_selection" } });
+
+      const quoted = await app.inject({
+        method: "POST",
+        url: "/api/pay/quote",
+        headers: { "content-type": "application/json" },
+        payload: { ...localIspSelection(), couponCode: null },
+      });
+      assert.equal(quoted.statusCode, 200);
+      assert.equal(quoted.headers["cache-control"], "no-store");
+      assert.deepEqual(quoted.json(), {
+        listPriceFen: 7_900,
+        discountFen: 0,
+        amountFen: 7_900,
+        currency: "CNY",
+        couponCode: null,
+      });
+
+      const unknownCoupon = await app.inject({
+        method: "POST",
+        url: "/api/pay/quote",
+        headers: { "content-type": "application/json" },
+        payload: { ...localIspSelection(), couponCode: "DOES_NOT_EXIST" },
+      });
+      assert.equal(unknownCoupon.statusCode, 409);
+      assert.deepEqual(unknownCoupon.json(), { error: { code: "coupon_invalid" } });
+
+      const offSale = await app.inject({
+        method: "POST",
+        url: "/api/pay/quote",
+        headers: { "content-type": "application/json" },
+        payload: {
+          typeId: "residential",
+          regionId: "us",
+          ispId: "comcast",
+          specId: "dedicated",
+          durationId: "month-12",
+          couponCode: null,
+        },
+      });
+      assert.equal(offSale.statusCode, 409);
+      assert.deepEqual(offSale.json(), { error: { code: "plan_unavailable" } });
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+test("admin plans require an admin session and CSRF, validate patches, and map plan errors", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const userId = insertAuthenticationUser(database, {
+      email: "plan-user@example.com",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const adminId = insertAuthenticationUser(database, {
+      email: "plan-admin@example.com",
+      passwordHash: "hash",
+      status: "active",
+      role: "admin",
+    });
+    const userSession = insertWebSession(database, userId);
+    const adminSession = insertWebSession(database, adminId);
+    const dependencies = paymentDependencies(database);
+    const app = buildApp({ payment: dependencies });
+    try {
+      const anonymous = await app.inject({ method: "GET", url: "/api/admin/plans" });
+      assert.equal(anonymous.statusCode, 401);
+      assert.deepEqual(anonymous.json(), { error: { code: "unauthorized" } });
+
+      const forbidden = await app.inject({
+        method: "GET",
+        url: "/api/admin/plans",
+        headers: { cookie: userSession.cookie },
+      });
+      assert.equal(forbidden.statusCode, 403);
+      assert.deepEqual(forbidden.json(), { error: { code: "forbidden" } });
+
+      const listed = await app.inject({
+        method: "GET",
+        url: "/api/admin/plans",
+        headers: { cookie: adminSession.cookie },
+      });
+      assert.equal(listed.statusCode, 200);
+      const plans = listed.json().items as Array<Record<string, unknown>>;
+      assert.equal(plans.length, 255);
+      const plan = plans.find(
+        (item) =>
+          item.typeId === "local-isp" &&
+          item.regionId === "us" &&
+          item.ispId === "us-verizon" &&
+          item.specId === null &&
+          item.durationId === "month-1",
+      );
+      assert.ok(plan);
+      assert.equal(typeof plan.id, "number");
+      const planId = plan.id as number;
+
+      const missingCsrf = await app.inject({
+        method: "PATCH",
+        url: `/api/admin/plans/${planId}`,
+        headers: {
+          cookie: adminSession.cookie,
+          "content-type": "application/json",
+        },
+        payload: { priceFen: 8_500 },
+      });
+      assert.equal(missingCsrf.statusCode, 403);
+      assert.deepEqual(missingCsrf.json(), { error: { code: "csrf_invalid" } });
+
+      const adminSessionHash = computeSessionTokenHash(
+        adminSession.rawToken,
+        TOKEN_KEYRING,
+      ).tokenHash;
+      const csrf = issueCsrfToken(dependencies.csrfSigningKey, adminSessionHash);
+
+      const invalid = await app.inject({
+        method: "PATCH",
+        url: `/api/admin/plans/${planId}`,
+        headers: {
+          cookie: adminSession.cookie,
+          "content-type": "application/json",
+          "x-csrf-token": csrf,
+        },
+        payload: { priceFen: 0 },
+      });
+      assert.equal(invalid.statusCode, 400);
+      assert.deepEqual(invalid.json(), { error: { code: "invalid_plan_patch" } });
+
+      const missing = await app.inject({
+        method: "PATCH",
+        url: "/api/admin/plans/999999",
+        headers: {
+          cookie: adminSession.cookie,
+          "content-type": "application/json",
+          "x-csrf-token": csrf,
+        },
+        payload: { priceFen: 8_500 },
+      });
+      assert.equal(missing.statusCode, 404);
+      assert.deepEqual(missing.json(), { error: { code: "not_found" } });
+
+      const updated = await app.inject({
+        method: "PATCH",
+        url: `/api/admin/plans/${planId}`,
+        headers: {
+          cookie: adminSession.cookie,
+          "content-type": "application/json",
+          "x-csrf-token": csrf,
+        },
+        payload: { priceFen: 8_500, totalSlots: 1, isActive: true },
+      });
+      assert.equal(updated.statusCode, 200);
+      assert.equal(updated.json().id, planId);
+      assert.equal(updated.json().priceFen, 8_500);
+      assert.equal(updated.json().totalSlots, 1);
+      assert.equal(updated.json().occupiedSlots, 0);
+      assert.equal(updated.json().isActive, true);
+
+      createPaymentOrder(dependencies, {
+        idempotencyKey: "admin-plan-stock-key",
+        rawAccessToken: ACCESS_TOKEN_A,
+        selection: localIspSelection(),
+        contact: "stock-customer",
+        scenarios: [],
+        notes: null,
+        acknowledgedAmountFen: 8_500,
+        userId: null,
+      });
+
+      const belowOccupied = await app.inject({
+        method: "PATCH",
+        url: `/api/admin/plans/${planId}`,
+        headers: {
+          cookie: adminSession.cookie,
+          "content-type": "application/json",
+          "x-csrf-token": csrf,
+        },
+        payload: { totalSlots: 0 },
+      });
+      assert.equal(belowOccupied.statusCode, 409);
+      assert.deepEqual(belowOccupied.json(), { error: { code: "invalid_slots" } });
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+test("admin coupons require admin and CSRF, support their main flow, and reject immutable patches", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const userId = insertAuthenticationUser(database, {
+      email: "coupon-user@example.com",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const adminId = insertAuthenticationUser(database, {
+      email: "coupon-admin@example.com",
+      passwordHash: "hash",
+      status: "active",
+      role: "admin",
+    });
+    const userSession = insertWebSession(database, userId);
+    const adminSession = insertWebSession(database, adminId);
+    const dependencies = paymentDependencies(database);
+    const app = buildApp({ payment: dependencies });
+    try {
+      const anonymous = await app.inject({ method: "GET", url: "/api/admin/coupons" });
+      assert.equal(anonymous.statusCode, 401);
+      assert.deepEqual(anonymous.json(), { error: { code: "unauthorized" } });
+
+      const forbidden = await app.inject({
+        method: "GET",
+        url: "/api/admin/coupons",
+        headers: { cookie: userSession.cookie },
+      });
+      assert.equal(forbidden.statusCode, 403);
+      assert.deepEqual(forbidden.json(), { error: { code: "forbidden" } });
+
+      const adminSessionHash = computeSessionTokenHash(
+        adminSession.rawToken,
+        TOKEN_KEYRING,
+      ).tokenHash;
+      const csrf = issueCsrfToken(dependencies.csrfSigningKey, adminSessionHash);
+
+      const planRows = allRows(
+        database,
+        `SELECT id FROM sellable_plans
+         WHERE type_id = 'local-isp' AND region_id = 'us' AND isp_id = 'us-verizon'
+           AND spec_id IS NULL AND duration_id = 'month-1'`,
+      );
+      assert.equal(planRows.length, 1);
+      assert.equal(typeof planRows[0]?.id, "number");
+      const planId = planRows[0]?.id as number;
+      const payload = {
+        code: "web10",
+        kind: "percent",
+        amountOffFen: null,
+        percentOff: 10,
+        minAmountFen: null,
+        scope: "plans",
+        planIds: [planId],
+        startsAt: "2026-01-01T00:00:00.000Z",
+        endsAt: "2027-01-01T00:00:00.000Z",
+        maxRedemptions: 1,
+      };
+
+      const missingCsrf = await app.inject({
+        method: "POST",
+        url: "/api/admin/coupons",
+        headers: {
+          cookie: adminSession.cookie,
+          "content-type": "application/json",
+        },
+        payload,
+      });
+      assert.equal(missingCsrf.statusCode, 403);
+      assert.deepEqual(missingCsrf.json(), { error: { code: "csrf_invalid" } });
+
+      const invalid = await app.inject({
+        method: "POST",
+        url: "/api/admin/coupons",
+        headers: {
+          cookie: adminSession.cookie,
+          "content-type": "application/json",
+          "x-csrf-token": csrf,
+        },
+        payload: {},
+      });
+      assert.equal(invalid.statusCode, 400);
+      assert.deepEqual(invalid.json(), { error: { code: "invalid_coupon" } });
+
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/admin/coupons",
+        headers: {
+          cookie: adminSession.cookie,
+          "content-type": "application/json",
+          "x-csrf-token": csrf,
+        },
+        payload,
+      });
+      assert.equal(created.statusCode, 200);
+      assert.equal(created.json().code, "WEB10");
+      assert.equal(created.json().kind, "percent");
+      assert.equal(created.json().percentOff, 10);
+      assert.deepEqual(created.json().planIds, [planId]);
+      assert.equal(created.json().redeemedCount, 0);
+      assert.equal(created.json().isActive, true);
+      const couponId = created.json().id as number;
+
+      const listed = await app.inject({
+        method: "GET",
+        url: "/api/admin/coupons",
+        headers: { cookie: adminSession.cookie },
+      });
+      assert.equal(listed.statusCode, 200);
+      assert.equal(listed.json().items.length, 1);
+      assert.equal(listed.json().items[0].id, couponId);
+
+      const redemptions = await app.inject({
+        method: "GET",
+        url: `/api/admin/coupons/${couponId}/redemptions`,
+        headers: { cookie: adminSession.cookie },
+      });
+      assert.equal(redemptions.statusCode, 200);
+      assert.deepEqual(redemptions.json(), { items: [] });
+
+      const quote = await app.inject({
+        method: "POST",
+        url: "/api/pay/quote",
+        headers: { "content-type": "application/json" },
+        payload: { ...localIspSelection(), couponCode: " web10 " },
+      });
+      assert.equal(quote.statusCode, 200);
+      assert.deepEqual(quote.json(), {
+        listPriceFen: 7_900,
+        discountFen: 790,
+        amountFen: 7_110,
+        currency: "CNY",
+        couponCode: "WEB10",
+      });
+
+      const updated = await app.inject({
+        method: "PATCH",
+        url: `/api/admin/coupons/${couponId}`,
+        headers: {
+          cookie: adminSession.cookie,
+          "content-type": "application/json",
+          "x-csrf-token": csrf,
+        },
+        payload: {
+          isActive: false,
+          endsAt: "2026-12-31T00:00:00.000Z",
+          maxRedemptions: null,
+        },
+      });
+      assert.equal(updated.statusCode, 200);
+      assert.equal(updated.json().isActive, false);
+      assert.equal(updated.json().endsAt, "2026-12-31T00:00:00.000Z");
+      assert.equal(updated.json().maxRedemptions, null);
+
+      const immutable = await app.inject({
+        method: "PATCH",
+        url: `/api/admin/coupons/${couponId}`,
+        headers: {
+          cookie: adminSession.cookie,
+          "content-type": "application/json",
+          "x-csrf-token": csrf,
+        },
+        payload: { code: "CHANGED" },
+      });
+      assert.equal(immutable.statusCode, 400);
+      assert.deepEqual(immutable.json(), { error: { code: "immutable_field" } });
     } finally {
       await app.close();
     }

@@ -271,6 +271,17 @@
 .sub-field input[aria-invalid="true"] { border-color: #e0575b; box-shadow: inset 0 0 0 1px rgba(224, 87, 91, 0.28); }
 .sub-field-error { margin: 0; color: #e0575b; font-size: 12px; }
 
+.sub-coupon-row { display: flex; gap: 10px; }
+.sub-coupon-row input { flex: 1 1 auto; min-width: 0; }
+.sub-coupon-apply { flex: 0 0 auto; height: 46px; padding: 0 18px; border: 1px solid var(--cc-line); border-radius: 10px; background: var(--cc-inset); color: var(--cc-text-2); font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; transition: border-color 0.16s, background 0.16s, color 0.16s; }
+.sub-coupon-apply:hover:not(:disabled) { border-color: var(--cc-accent-line); color: var(--cc-accent); }
+.sub-coupon-apply:disabled { cursor: not-allowed; opacity: 0.5; }
+.sub-price-breakdown { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--cc-hairline); border-radius: 10px; background: var(--cc-inset); }
+.sub-price-breakdown > div { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; }
+.sub-price-breakdown > div span { color: var(--cc-text-4); }
+.sub-price-breakdown > div b { font-variant-numeric: tabular-nums; }
+.sub-price-breakdown > div:last-child b { color: var(--cc-accent); font-size: 14px; }
+
 .sub-scenario-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .sub-scenario-chip { padding: 7px 13px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-inset); color: var(--cc-text-2); font-size: 13px; cursor: pointer; transition: border-color 0.16s, background 0.16s, color 0.16s; }
 .sub-scenario-chip:hover { border-color: var(--cc-text-4); }

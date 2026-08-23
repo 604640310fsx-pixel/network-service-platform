@@ -2,12 +2,13 @@ import type { SelectionSummary } from "./useSubscriptionSelection";
 
 type MobileOrderBarProps = {
   summary: SelectionSummary;
+  canRequest: boolean;
   open: boolean;
   onOpen: (trigger: HTMLButtonElement) => void;
   onRequest?: () => void;
 };
 
-export function MobileOrderBar({ summary, open, onOpen, onRequest }: MobileOrderBarProps) {
+export function MobileOrderBar({ summary, canRequest, open, onOpen, onRequest }: MobileOrderBarProps) {
   const details = [summary.type, summary.region, summary.spec, summary.duration].filter((item) => item !== "—" && item !== "不适用").join(" · ") || "尚未完成选择";
   return (
     <div className="sub-mobile-order-bar">
@@ -15,7 +16,7 @@ export function MobileOrderBar({ summary, open, onOpen, onRequest }: MobileOrder
         <span className="sub-mobile-order-price">{summary.total === null ? "—" : `¥${summary.total}`}</span>
         <span className="sub-mobile-order-detail">{details}<i aria-hidden="true">⌃</i></span>
       </button>
-      <button type="button" className="sub-order-button" disabled={!summary.complete} onClick={onRequest}>立即下单</button>
+      <button type="button" className="sub-order-button" disabled={!canRequest} onClick={onRequest}>立即下单</button>
     </div>
   );
 }

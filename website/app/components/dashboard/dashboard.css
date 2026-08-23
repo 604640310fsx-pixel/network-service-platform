@@ -54,6 +54,41 @@
 .dash-delivery-actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
 .dash-delivery-actions small { color: var(--cc-text-4); font-size: 11px; }
 
+/* 商业管理:套餐与优惠券,延续既有 dash-panel / dash-service / dash-tag / dash-primary-link 视觉语言。 */
+.dash-plans-toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+.dash-plans-toolbar input[type="text"] { flex: 1 1 260px; min-width: 0; height: 40px; padding: 0 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 13px; }
+.dash-plans-toolbar select { flex: 0 0 auto; height: 40px; padding: 0 10px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 13px; }
+.dash-plans-toolbar input:focus,
+.dash-plans-toolbar select:focus { border-color: var(--cc-accent-line); outline: none; box-shadow: inset 0 0 0 1px var(--cc-accent-inset); }
+
+.dash-plans-table-wrap { max-height: 640px; overflow: auto; border: 1px solid var(--cc-hairline); border-radius: 10px; }
+.dash-plans-table { width: 100%; min-width: 860px; border-collapse: collapse; font-size: 12.5px; }
+.dash-plans-table th,
+.dash-plans-table td { padding: 9px 10px; border-bottom: 1px solid var(--cc-hairline); text-align: left; white-space: nowrap; }
+.dash-plans-table thead th { position: sticky; top: 0; background: var(--cc-inset); color: var(--cc-text-3); font-weight: 600; z-index: 1; }
+.dash-plans-table tbody tr:last-of-type td { border-bottom: 0; }
+.dash-plans-input { width: 88px; height: 32px; padding: 0 9px; border: 1px solid var(--cc-line); border-radius: 7px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 12.5px; }
+.dash-plans-input-slots { width: 76px; }
+.dash-plan-status { border: 1px solid var(--cc-line); background: var(--cc-inset); color: var(--cc-text-3); cursor: pointer; }
+.dash-plan-status.is-active { border-color: var(--cc-accent-line); background: var(--cc-accent-tint); color: var(--cc-accent); }
+.dash-plans-row-error { margin: 6px 0 0; white-space: normal; max-width: 220px; }
+
+.dash-coupon-create { padding: 14px 15px; margin-bottom: 14px; border: 1px solid var(--cc-hairline); border-radius: 10px; background: var(--cc-inset); }
+.dash-coupon-create-grid { display: grid; gap: 12px 14px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.dash-coupon-create-grid label { display: flex; flex-direction: column; gap: 6px; color: var(--cc-text-3); font-size: 11.5px; }
+.dash-coupon-create-grid input,
+.dash-coupon-create-grid select { height: 38px; padding: 0 10px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 13px; }
+.dash-coupon-create-foot { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+.dash-coupon-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--cc-hairline); }
+.dash-coupon-inline-edit { display: flex; align-items: center; gap: 8px; }
+.dash-coupon-inline-edit input { height: 36px; padding: 0 9px; border: 1px solid var(--cc-line); border-radius: 7px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 12.5px; }
+.dash-coupon-inline-edit input[type="number"] { width: 88px; }
+.dash-coupon-controls > button:not(.dash-primary-link),
+.dash-coupon-inline-edit button { min-height: 36px; padding: 0 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text-2); font: inherit; font-size: 12.5px; cursor: pointer; }
+.dash-coupon-controls button:disabled { cursor: not-allowed; opacity: 0.5; }
+.dash-coupon-redemptions { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--cc-hairline); overflow-x: auto; }
+.dash-coupon-redemptions p { margin: 0; color: var(--cc-text-4); font-size: 12px; }
+
 /* 3. 网络状态 */
 .dash-network > div { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; padding: 9px 0; border-bottom: 1px solid var(--cc-hairline); color: var(--cc-text-2); font-size: 13.5px; }
 .dash-network > div:last-of-type { border-bottom: 0; }

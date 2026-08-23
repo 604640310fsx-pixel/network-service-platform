@@ -2,6 +2,7 @@ import type { SelectionSummary } from "./useSubscriptionSelection";
 
 type OrderSummaryProps = {
   summary: SelectionSummary;
+  canRequest: boolean;
   drawer?: boolean;
   onRequest?: () => void;
 };
@@ -10,7 +11,7 @@ function value(value: string) {
   return value || "—";
 }
 
-export function OrderSummary({ summary, drawer = false, onRequest }: OrderSummaryProps) {
+export function OrderSummary({ summary, canRequest, drawer = false, onRequest }: OrderSummaryProps) {
   const showListPrice = summary.total !== null && summary.listPrice !== null && summary.total < summary.listPrice;
   return (
     <div className={`sub-summary-card ${drawer ? "is-drawer" : ""}`}>
@@ -39,7 +40,7 @@ export function OrderSummary({ summary, drawer = false, onRequest }: OrderSummar
         </div>
       </div>
       <div className="sub-summary-pay">
-        <button type="button" disabled={!summary.complete} onClick={onRequest}>立即下单</button>
+        <button type="button" disabled={!canRequest} onClick={onRequest}>立即下单</button>
         <p>提交需求后立即付款，付款成功后进入人工交付。</p>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { defaultCatalogSelection } from "../../lib/subscribeCatalog";
 import { resolveSelection, type CatalogSelection } from "../../lib/resolveSelection";
+import type { PlanAvailabilityIndex } from "../../lib/planAvailability";
 
 // SelectionSummary 的真源已迁到 resolveSelection；此处继续 re-export，
 // 让 OrderSummary / MobileOrderBar / RequirementForm 的现有引用保持不变。
@@ -28,7 +29,10 @@ function seedSelection(initial?: CatalogSelection): { selection: CatalogSelectio
   return { selection: { ...defaultCatalogSelection }, step: 5 };
 }
 
-export function useSubscriptionSelection(initial?: CatalogSelection) {
+export function useSubscriptionSelection(
+  initial?: CatalogSelection,
+  availability?: PlanAvailabilityIndex,
+) {
   const seed = useRef(seedSelection(initial)).current;
   const [typeId, setTypeId] = useState<string | null>(seed.selection.typeId);
   const [regionId, setRegionId] = useState<string | null>(seed.selection.regionId);
@@ -38,8 +42,8 @@ export function useSubscriptionSelection(initial?: CatalogSelection) {
   const [currentStep, setCurrentStep] = useState(seed.step);
 
   const resolved = useMemo(
-    () => resolveSelection({ typeId, regionId, ispId, specId, durationId }),
-    [typeId, regionId, ispId, specId, durationId],
+    () => resolveSelection({ typeId, regionId, ispId, specId, durationId }, availability),
+    [typeId, regionId, ispId, specId, durationId, availability],
   );
 
   const {
@@ -51,6 +55,7 @@ export function useSubscriptionSelection(initial?: CatalogSelection) {
     selectedSpec,
     canSelectDuration,
     durationPrices,
+    durationAvailability,
     summary,
   } = resolved;
 
@@ -104,6 +109,7 @@ export function useSubscriptionSelection(initial?: CatalogSelection) {
     availableSpecs,
     availableDurations,
     durationPrices,
+    durationAvailability,
     selectedSpec,
     canSelectDuration,
     summary,

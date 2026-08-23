@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { networkTypes } from "../../lib/subscribeCatalog";
 import { parseSelectionParams, selectionToQuery, type CatalogSelection } from "../../lib/resolveSelection";
+import { usePlanAvailability } from "../../lib/planAvailability";
 import { useCustomerDrawer } from "../customer/CustomerCenterShell";
 import { MobileOrderBar } from "./MobileOrderBar";
 import { OptionCard } from "./OptionCard";
@@ -89,7 +90,14 @@ export function SubscribePage() {
   // 仅在挂载时读取一次 query 作为初始选择；hook 只有在其解析为完整方案时才采纳，
   // 不完整 / 非法参数不会污染 hook（回退默认选择）。
   const [initialSelection] = useState(() => parseSelectionParams(searchParams));
-  const selection = useSubscriptionSelection(initialSelection);
+  const availability = usePlanAvailability();
+  const selection = useSubscriptionSelection(initialSelection, availability.index ?? undefined);
+  const canRequest =
+    !availability.loading &&
+    !availability.error &&
+    selection.summary.complete &&
+    selection.summary.total !== null &&
+    selection.summary.availability === "available";
   const { activeDrawer, openDrawer, closeDrawer } = useCustomerDrawer();
   const orderOpen = activeDrawer === "order";
   const steps = selection.requiresSpec ? stepsWithSpec : stepsWithoutSpec;
@@ -115,13 +123,14 @@ export function SubscribePage() {
 
   // 携带当前选择跳转到独立提交页（只放公开 catalog ID）。
   function goToRequest() {
+    if (!canRequest) return;
     navigate(`/subscribe/request?${selectionToQuery(currentSelection)}`);
   }
 
   function goToStep(step: number) {
     // 最后一步"确认并提交"不对应区块：方案完整则跳转独立页，不完整则不跳转。
     if (step > sectionIds.length) {
-      if (selection.summary.complete) goToRequest();
+      if (canRequest) goToRequest();
       return;
     }
     selection.setCurrentStep(step);
@@ -253,18 +262,29 @@ export function SubscribePage() {
 
           <section className="sub-section" id="sub-section-duration">
             <div className="sub-section-heading">
-              <div><span>{selection.requiresSpec ? "STEP 05" : "STEP 04"} · SERVICE TERM</span><h2>选择有效期</h2><p>价格按当前目录展示；未提供价格的周期保持待确认。</p></div>
-              <small>{selection.availableDurations.length} 个期限</small>
+              <div><span>{selection.requiresSpec ? "STEP 05" : "STEP 04"} · SERVICE TERM</span><h2>选择有效期</h2><p>价格由服务器实时核定；未提供价格或已停售/售罄的周期保持待确认。</p></div>
+              <small>
+                {availability.loading
+                  ? "价格加载中…"
+                  : availability.error
+                    ? "价格暂不可用，请稍后重试"
+                    : `${selection.availableDurations.length} 个期限`}
+              </small>
             </div>
             {selection.canSelectDuration ? (
               <div className="sub-grid sub-grid-four" role="radiogroup" aria-label="购买有效期">
                 {selection.availableDurations.map((option) => {
                   const total = selection.durationPrices[option.id] ?? null;
+                  const status = selection.durationAvailability[option.id] ?? "unknown";
+                  const statusLabel = status === "sold_out" ? "售罄" : status === "unavailable" ? "暂不可选" : null;
                   return (
                     <OptionCard key={option.id} selected={selection.durationId === option.id} onSelect={() => selection.selectDuration(option.id)} label={option.name} className="sub-duration-option">
-                      <span className="sub-option-head"><strong>{option.name}</strong>{option.badge && <i className="sub-tag is-accent">{option.badge}</i>}</span>
+                      <span className="sub-option-head">
+                        <strong>{option.name}</strong>
+                        {statusLabel ? <i className="sub-tag">{statusLabel}</i> : option.badge && <i className="sub-tag is-accent">{option.badge}</i>}
+                      </span>
                       <span className="sub-duration-total">{total === null ? "—" : `¥${total}`}</span>
-                      <span className="sub-duration-meta"><span>{total === null ? "价格待确认" : `约 ¥${Math.floor(total / option.months)} / 月`}</span><b /></span>
+                      <span className="sub-duration-meta"><span>{total === null ? (statusLabel ?? "价格待确认") : `约 ¥${Math.floor(total / option.months)} / 月`}</span><b /></span>
                     </OptionCard>
                   );
                 })}
@@ -273,7 +293,7 @@ export function SubscribePage() {
           </section>
         </div>
 
-        <aside className="sub-desktop-summary" aria-label="方案摘要"><OrderSummary summary={selection.summary} onRequest={goToRequest} /></aside>
+        <aside className="sub-desktop-summary" aria-label="方案摘要"><OrderSummary summary={selection.summary} canRequest={canRequest} onRequest={goToRequest} /></aside>
       </div>
 
       <aside
@@ -284,9 +304,9 @@ export function SubscribePage() {
         aria-label="方案摘要抽屉"
       >
         <button type="button" className="sub-drawer-close" onClick={closeDrawer} aria-label="关闭方案摘要">×</button>
-        <OrderSummary summary={selection.summary} drawer onRequest={goToRequest} />
+        <OrderSummary summary={selection.summary} canRequest={canRequest} drawer onRequest={goToRequest} />
       </aside>
-      <MobileOrderBar summary={selection.summary} open={orderOpen} onOpen={(trigger) => openDrawer("order", trigger)} onRequest={goToRequest} />
+      <MobileOrderBar summary={selection.summary} canRequest={canRequest} open={orderOpen} onOpen={(trigger) => openDrawer("order", trigger)} onRequest={goToRequest} />
     </main>
   );
 }

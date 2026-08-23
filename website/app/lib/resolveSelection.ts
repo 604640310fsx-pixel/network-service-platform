@@ -10,6 +10,12 @@ import {
   type RegionOption,
   type SpecOption,
 } from "./subscribeCatalog";
+import { planAvailabilityKey, type PlanAvailabilityIndex } from "./planAvailability";
+
+/* 单个五元组相对服务端权威可售状态的判定结果。"unknown" 表示未提供 availability
+   （调用方尚未拉取，或调用方本就不关心）——此时价格与既有目录逻辑完全一致，
+   不视为不可售。*/
+export type DurationAvailabilityStatus = "unknown" | "available" | "sold_out" | "unavailable";
 
 /* 一组待校验的 catalog 选择 ID（可能为空 / 非法 / 不完整）。 */
 export type CatalogSelection = {
@@ -35,6 +41,7 @@ export type SelectionSummary = {
   total: number | null;
   listPrice: number | null;
   complete: boolean;
+  availability: DurationAvailabilityStatus;
 };
 
 export type ResolvedSelection = {
@@ -50,13 +57,19 @@ export type ResolvedSelection = {
   selectedDuration: DurationOption | null;
   canSelectDuration: boolean;
   durationPrices: Record<string, number | null>;
+  durationAvailability: Record<string, DurationAvailabilityStatus>;
   summary: SelectionSummary;
 };
 
 /* 按 catalog 依赖链解析并校验一组 ID：type → region(configured) → isp → spec → duration。
    任一环无法在 catalog 中命中即视为该环未选中；summary.complete 只有全链有效才为 true。
-   价格一律由 catalog 重新推导，绝不信任外部传入的价格。 */
-export function resolveSelection(selection: CatalogSelection): ResolvedSelection {
+   availability 缺省（undefined）时价格与可售状态完全来自静态 catalog，行为与改动前逐字节一致；
+   传入服务端 availability index 后，每个 duration 的价格与可售状态改由服务端权威数据覆盖——
+   未命中或已停售/售罄一律不使用 catalog 价格，视为价格待确认，绝不用旧价格支持下单。 */
+export function resolveSelection(
+  selection: CatalogSelection,
+  availability?: PlanAvailabilityIndex,
+): ResolvedSelection {
   const { typeId, regionId, ispId, specId, durationId } = selection;
 
   const selectedType = networkTypes.find((option) => option.id === typeId) ?? null;
@@ -72,12 +85,31 @@ export function resolveSelection(selection: CatalogSelection): ResolvedSelection
   const selectedDuration = availableDurations.find((option) => option.id === durationId) ?? null;
   const canSelectDuration = Boolean(selectedIsp && (!requiresSpec || selectedSpec));
 
-  const durationPrices: Record<string, number | null> = Object.fromEntries(
-    availableDurations.map((duration) => [
-      duration.id,
-      duration.price ?? selectedSpec?.pricesByDuration[duration.id] ?? null,
-    ]),
-  );
+  const specIdForLookup = requiresSpec ? (selectedSpec?.id ?? null) : null;
+  const canLookupAvailability = Boolean(availability && canSelectDuration && typeId && regionId && ispId);
+
+  const durationPrices: Record<string, number | null> = {};
+  const durationAvailability: Record<string, DurationAvailabilityStatus> = {};
+  for (const duration of availableDurations) {
+    const catalogPrice = duration.price ?? selectedSpec?.pricesByDuration[duration.id] ?? null;
+    if (!canLookupAvailability) {
+      durationPrices[duration.id] = catalogPrice;
+      durationAvailability[duration.id] = "unknown";
+      continue;
+    }
+    const plan =
+      availability![planAvailabilityKey(typeId!, regionId!, ispId!, specIdForLookup, duration.id)];
+    if (plan === undefined || !plan.isActive) {
+      durationPrices[duration.id] = null;
+      durationAvailability[duration.id] = "unavailable";
+    } else if (plan.soldOut) {
+      durationPrices[duration.id] = null;
+      durationAvailability[duration.id] = "sold_out";
+    } else {
+      durationPrices[duration.id] = plan.priceFen / 100;
+      durationAvailability[duration.id] = "available";
+    }
+  }
 
   const complete = Boolean(
     selectedType &&
@@ -87,6 +119,8 @@ export function resolveSelection(selection: CatalogSelection): ResolvedSelection
     selectedDuration,
   );
   const total = complete && selectedDuration ? (durationPrices[selectedDuration.id] ?? null) : null;
+  const selectionAvailability: DurationAvailabilityStatus =
+    complete && selectedDuration ? (durationAvailability[selectedDuration.id] ?? "unknown") : "unknown";
 
   const summary: SelectionSummary = {
     type: selectedType?.name ?? "—",
@@ -102,6 +136,7 @@ export function resolveSelection(selection: CatalogSelection): ResolvedSelection
     listPrice: null,
     total,
     complete,
+    availability: selectionAvailability,
   };
 
   return {
@@ -117,6 +152,7 @@ export function resolveSelection(selection: CatalogSelection): ResolvedSelection
     selectedDuration,
     canSelectDuration,
     durationPrices,
+    durationAvailability,
     summary,
   };
 }

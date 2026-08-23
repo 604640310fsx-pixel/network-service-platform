@@ -8,6 +8,7 @@ import {
   loadDeliveryCredentialConfig,
 } from "./config.js";
 import { initializeDatabase } from "./db.js";
+import { startOrderExpirySweep } from "./payment/order-expiry.js";
 
 async function start(): Promise<void> {
   const config = loadConfig();
@@ -71,7 +72,10 @@ async function start(): Promise<void> {
     }
   };
 
+  const expirySweep = payment.enabled ? startOrderExpirySweep(payment) : null;
+
   app.addHook("onClose", async () => {
+    expirySweep?.stop();
     closeDatabase();
   });
 

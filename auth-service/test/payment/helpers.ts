@@ -31,6 +31,7 @@ export class FakeAlipaySdk implements AlipaySdkLike {
   readonly notifyBodies: Array<Readonly<Record<string, unknown>>> = [];
   readonly queryCalls: string[] = [];
   readonly queryOptions: unknown[] = [];
+  readonly closeCalls: string[] = [];
   verifyNotify = true;
   queryResponse: unknown = {
     code: "10000",
@@ -39,6 +40,7 @@ export class FakeAlipaySdk implements AlipaySdkLike {
     tradeNo: "trade-unset",
     totalAmount: "79.00",
   };
+  closeResponse: unknown = { code: "10000" };
 
   pageExecute(
     method: "alipay.trade.page.pay",
@@ -59,10 +61,14 @@ export class FakeAlipaySdk implements AlipaySdkLike {
   }
 
   async exec(
-    method: "alipay.trade.query",
+    method: "alipay.trade.query" | "alipay.trade.close",
     parameters: { readonly bizContent: { readonly outTradeNo: string } },
     options: { readonly validateSign: true },
   ): Promise<unknown> {
+    if (method === "alipay.trade.close") {
+      this.closeCalls.push(parameters.bizContent.outTradeNo);
+      return this.closeResponse;
+    }
     if (method !== "alipay.trade.query") {
       throw new Error("unexpected method");
     }
@@ -165,10 +171,15 @@ export function queryResult(
   },
 ): unknown {
   return {
-    code: "10000",
+    code: input.code ?? "10000",
+    subCode: input.subCode ?? undefined,
     tradeStatus: input.tradeStatus,
     outTradeNo: input.outTradeNo,
     tradeNo: input.tradeNo ?? "trade-123",
     totalAmount: input.totalAmount ?? "79.00",
   };
+}
+
+export function tradeNotExistResult(): unknown {
+  return { code: "40004", subCode: "ACQ.TRADE_NOT_EXIST" };
 }

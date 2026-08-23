@@ -1,4 +1,5 @@
 import type { DatabaseConnection } from "../db.js";
+import { releasePlanAndCouponForOrder } from "./commerce.js";
 
 export type PaymentTransitionResult =
   | "finalized"
@@ -363,6 +364,14 @@ export function finalizeClosed(
     dependencies.database
       .prepare("UPDATE orders SET status = 'closed', updated_at = ? WHERE id = ?")
       .run(now, payment.order_id);
+    // 未付款订单关闭时的唯一库存/优惠券释放点；已付款（上面 paid 分支）永不释放。
+    // releasePlanAndCouponForOrder 自身的 WHERE 守卫保证重复调用幂等，
+    // 这里始终只在"首次转 closed"这一支调用一次。
+    releasePlanAndCouponForOrder(
+      dependencies.database,
+      payment.order_id,
+      dependencies.now ?? (() => new Date()),
+    );
     insertNotification(dependencies.database, payment.id, input, now);
     return "finalized" as const;
   });

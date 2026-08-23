@@ -112,7 +112,7 @@ test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", 
 
     assert.deepEqual(
       migrationRows.map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
     );
     for (const row of migrationRows) {
       assert.match(row.applied_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
@@ -136,6 +136,9 @@ test("creates every frozen table and named index", async () => {
   await withTemporaryDatabase((database) => {
     assert.deepEqual(objectNames(database, "table"), [
       "audit_log",
+      "coupon_plans",
+      "coupon_redemptions",
+      "coupons",
       "invite_code_redemptions",
       "invite_codes",
       "mail_outbox",
@@ -148,6 +151,8 @@ test("creates every frozen table and named index", async () => {
       "pending_registrations",
       "rate_limit_buckets",
       "schema_migrations",
+      "sellable_plan_price_history",
+      "sellable_plans",
       "service_delivery_items",
       "services",
       "session_families",
@@ -158,6 +163,9 @@ test("creates every frozen table and named index", async () => {
     ]);
 
     assert.deepEqual(objectNames(database, "index"), [
+      "idx_coupon_plans_plan",
+      "idx_coupon_redemptions_coupon",
+      "idx_coupons_active",
       "idx_invite_codes_bootstrap_unique",
       "idx_notifications_payment",
       "idx_order_access_tokens_expiry",
@@ -168,11 +176,14 @@ test("creates every frozen table and named index", async () => {
       "idx_payments_status",
       "idx_pending_email",
       "idx_pending_expiry",
+      "idx_plan_price_history_plan",
       "idx_rate_limit_window",
       "idx_redemptions_code",
       "idx_redemptions_user",
       "idx_reset_tokens_expiry",
       "idx_reset_tokens_user",
+      "idx_sellable_plans_active",
+      "idx_sellable_plans_unique_combo",
       "idx_service_delivery_items_service",
       "idx_services_status",
       "idx_session_families_user",
@@ -180,6 +191,90 @@ test("creates every frozen table and named index", async () => {
       "idx_sessions_user",
       "idx_sso_codes_state",
     ]);
+  });
+});
+
+test("payments gains a nullable reserved_until column", async () => {
+  await withTemporaryDatabase((database) => {
+    assert.ok(columnNames(database, "payments").includes("reserved_until"));
+  });
+});
+
+test("Migration 012 seeds exactly 255 sellable plans with 29 initialized off-sale above the single-transaction cap", async () => {
+  await withTemporaryDatabase((database) => {
+    assert.equal(
+      firstNumber(database, "SELECT COUNT(*) FROM sellable_plans"),
+      255,
+    );
+    assert.equal(
+      firstNumber(database, "SELECT COUNT(*) FROM sellable_plans WHERE is_active = 0"),
+      29,
+    );
+    assert.equal(
+      firstNumber(database, "SELECT COUNT(*) FROM sellable_plans WHERE is_active = 1"),
+      226,
+    );
+    assert.equal(
+      firstNumber(
+        database,
+        "SELECT COUNT(*) FROM sellable_plans WHERE is_active = 0 AND price_fen <= 200000",
+      ),
+      0,
+    );
+    assert.equal(
+      firstNumber(
+        database,
+        "SELECT COUNT(*) FROM sellable_plans WHERE is_active = 1 AND price_fen > 200000",
+      ),
+      0,
+    );
+    assert.equal(
+      firstNumber(database, "SELECT COUNT(*) FROM sellable_plans WHERE total_slots IS NOT NULL"),
+      0,
+    );
+  });
+});
+
+test("seeded plan prices exactly match pricing.ts's current resolvePriceFen for every tuple", async () => {
+  const { enumeratePriceTuples } = await import("../src/payment/pricing.js");
+  await withTemporaryDatabase((database) => {
+    for (const tuple of enumeratePriceTuples()) {
+      const rows = database
+        .prepare(
+          `SELECT price_fen FROM sellable_plans
+           WHERE type_id = ? AND region_id = ? AND isp_id = ?
+             AND spec_id IS ? AND duration_id = ?`,
+        )
+        .all(
+          tuple.typeId,
+          tuple.regionId,
+          tuple.ispId,
+          tuple.specId,
+          tuple.durationId,
+        ) as ReadonlyArray<{ readonly price_fen: number }>;
+      assert.equal(rows.length, 1, `missing seed row for ${JSON.stringify(tuple)}`);
+      const [row] = rows;
+      if (row === undefined) {
+        throw new Error("unreachable: length check above guarantees one row");
+      }
+      assert.equal(row.price_fen, tuple.priceFen, JSON.stringify(tuple));
+    }
+  });
+});
+
+test("the NULL-safe unique index rejects a duplicate fixed-price plan (spec_id IS NULL)", async () => {
+  await withTemporaryDatabase((database) => {
+    const now = "2026-08-21T00:00:00.000Z";
+    assert.throws(() => {
+      database
+        .prepare(
+          `INSERT INTO sellable_plans (
+             type_id, region_id, isp_id, spec_id, duration_id,
+             price_fen, is_active, total_slots, occupied_slots, created_at, updated_at
+           ) VALUES ('us-local-carrier','us','ntt',NULL,'month-1',5900,1,NULL,0,?,?)`,
+        )
+        .run(now, now);
+    }, /UNIQUE constraint failed/);
   });
 });
 

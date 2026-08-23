@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   PAYMENT_MAX_SINGLE_FEN_FRONTEND,
@@ -7,8 +7,12 @@ import {
   clearCheckoutAttempt,
   createPaymentOrder,
   getOrCreateCheckoutAttempt,
+  getQuote,
+  isValidCouponCode,
+  normalizeCouponCode,
   shouldClearAttemptAfterError,
   type OrderCredentials,
+  type QuoteResult,
   type RequirementDraft,
 } from "../../lib/payment-api";
 import type { CatalogSelection } from "../../lib/resolveSelection";
@@ -41,6 +45,12 @@ function paymentErrorMessage(error: unknown): string {
         : `方案价格已更新为 ${formatFen(error.currentAmountFen)}，请返回重新确认后再支付。`;
     case "amount_limit_exceeded":
       return "该方案超过当前在线支付限额，暂不支持在线购买。";
+    case "plan_unavailable":
+      return "该方案当前已停售，请返回方案页重新选择。";
+    case "sold_out":
+      return "该方案名额已售罄，请返回方案页重新选择。";
+    case "coupon_invalid":
+      return "优惠码无效、已过期或不适用于当前方案，将按原价支付。";
     case "invalid_selection":
       return "方案信息已失效，请返回方案页重新选择。";
     case "contact_required":
@@ -78,17 +88,68 @@ export function RequirementForm({
   const [contactTouched, setContactTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [couponInput, setCouponInput] = useState("");
+  const [appliedQuote, setAppliedQuote] = useState<{ code: string | null; quote: QuoteResult } | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
   const contactId = useId();
   const notesId = useId();
+  const couponId = useId();
+
+  // 选择变化（返回方案页改选后再次进入）后，任何已应用的报价一律作废，避免用旧选择的报价支付新方案。
+  useEffect(() => {
+    setAppliedQuote(null);
+    setQuoteError(null);
+  }, [selection.typeId, selection.regionId, selection.ispId, selection.specId, selection.durationId]);
 
   const contactMissing = contactTouched && contact.trim() === "";
-  const priceKnown = summary.total !== null;
-  const amountFen = summary.total === null ? null : Math.round(summary.total * 100);
+  const normalizedCouponInput = normalizeCouponCode(couponInput);
+  // 优惠码输入一旦不再等于已应用报价对应的规范化码，旧报价立即失效——必须重新点击"应用"。
+  const activeQuote =
+    appliedQuote !== null && appliedQuote.code === normalizedCouponInput ? appliedQuote.quote : null;
+
+  // 优惠码是可选增强：只有成功报价才改变金额；未应用或无效时始终回退实时原价。
+  const priceKnown = activeQuote !== null || summary.total !== null;
+  const amountFen = activeQuote
+    ? activeQuote.amountFen
+    : summary.total !== null
+      ? Math.round(summary.total * 100)
+      : null;
+  const listPriceFen = activeQuote?.listPriceFen ?? (summary.total === null ? null : Math.round(summary.total * 100));
+  const discountFen = activeQuote?.discountFen ?? 0;
   const overPaymentLimit = amountFen !== null && amountFen > PAYMENT_MAX_SINGLE_FEN_FRONTEND;
-  const canSubmit = priceKnown && !overPaymentLimit && contact.trim() !== "" && !submitting;
+  const canSubmit =
+    priceKnown && amountFen !== null && !overPaymentLimit && contact.trim() !== "" && !submitting && !quoteLoading;
 
   function toggleScenario(id: string) {
     setScenarios((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
+  }
+
+  async function handleApplyCoupon() {
+    setQuoteError(null);
+    if (normalizedCouponInput === null) {
+      setAppliedQuote(null);
+      return;
+    }
+    if (!isValidCouponCode(normalizedCouponInput)) {
+      setAppliedQuote(null);
+      setQuoteError("优惠码无效、已过期或不适用于当前方案，将按原价支付。");
+      return;
+    }
+    setQuoteLoading(true);
+    try {
+      const quote = await getQuote(selection, normalizedCouponInput);
+      setAppliedQuote({ code: normalizedCouponInput, quote });
+    } catch (error) {
+      setAppliedQuote(null);
+      if (error instanceof PaymentApiError && error.code === "coupon_invalid") {
+        setQuoteError("优惠码无效、已过期或不适用于当前方案，将按原价支付。");
+      } else {
+        setQuoteError(paymentErrorMessage(error));
+      }
+    } finally {
+      setQuoteLoading(false);
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -102,6 +163,7 @@ export function RequirementForm({
       contact: contact.trim(),
       scenarios,
       notes: notes.trim(),
+      couponCode: activeQuote ? normalizedCouponInput : null,
       acknowledgedAmountFen: amountFen,
     };
     setSubmitting(true);
@@ -124,7 +186,13 @@ export function RequirementForm({
           // 保留原始请求错误；本地存储不可用时无法额外清理。
         }
       }
-      setSubmitError(paymentErrorMessage(error));
+      if (error instanceof PaymentApiError && error.code === "coupon_invalid") {
+        setAppliedQuote(null);
+        setQuoteError("优惠码无效、已过期或不适用于当前方案，已恢复原价。");
+        setSubmitError("请确认原价后重新点击支付。");
+      } else {
+        setSubmitError(paymentErrorMessage(error));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -142,9 +210,45 @@ export function RequirementForm({
         </div>
         <div className="sub-request-recap-price">
           <span>应付金额</span>
-          <b>{priceKnown ? `¥${summary.total}` : "—"}</b>
+          <b>{priceKnown && amountFen !== null ? formatFen(amountFen) : "—"}</b>
           {!priceKnown && <small>价格待确认</small>}
         </div>
+      </div>
+
+      <div className="sub-field sub-coupon-field">
+        <label htmlFor={couponId}>优惠码 <em>可选</em></label>
+        <div className="sub-coupon-row">
+          <input
+            id={couponId}
+            type="text"
+            value={couponInput}
+            onChange={(event) => {
+              setCouponInput(event.target.value);
+              setAppliedQuote(null);
+              setQuoteError(null);
+            }}
+            placeholder="输入优惠码"
+            autoComplete="off"
+            disabled={submitting}
+          />
+          <button
+            type="button"
+            className="sub-coupon-apply"
+            onClick={handleApplyCoupon}
+            disabled={submitting || quoteLoading || normalizedCouponInput === null}
+            aria-busy={quoteLoading}
+          >
+            {quoteLoading ? "应用中…" : "应用"}
+          </button>
+        </div>
+        {quoteError && <p className="sub-field-error" role="alert">{quoteError}</p>}
+        {activeQuote && listPriceFen !== null && (
+          <div className="sub-price-breakdown">
+            <div><span>原价</span><b>{formatFen(listPriceFen)}</b></div>
+            <div><span>优惠金额</span><b>-{formatFen(discountFen)}</b></div>
+            <div><span>最终应付金额</span><b>{formatFen(activeQuote.amountFen)}</b></div>
+          </div>
+        )}
       </div>
 
       <form className="sub-request-form" onSubmit={handleSubmit}>
@@ -208,8 +312,8 @@ export function RequirementForm({
               ? "正在发起付款…"
               : overPaymentLimit
                 ? "暂不支持在线购买"
-                : priceKnown
-                  ? `提交需求并立即支付 ¥${summary.total}`
+                : priceKnown && amountFen !== null
+                  ? `提交需求并立即支付 ${formatFen(amountFen)}`
                   : "价格待确认"}
           </button>
           <p>付款成功后可在本页查看服务状态；已登录用户也可在用户中心查看。</p>

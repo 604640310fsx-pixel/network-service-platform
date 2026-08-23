@@ -9,44 +9,31 @@ import {
 import type { TokenHmacKeyring } from "../session/session-token.js";
 import { createAlipayPagePayUrl, type AlipaySdkLike } from "./alipay.js";
 import {
+  findRedeemedCouponCode,
+  normalizeCouponCode,
+  occupyPlanAndCoupon,
+  PaymentDomainError,
+  resolveQuote,
+  type PlanSelection,
+} from "./commerce.js";
+import {
   decryptServiceDeliveryItem,
   DELIVERY_MAX_ITEMS,
   type EncryptedServiceDeliveryItem,
 } from "./delivery-crypto.js";
-import {
-  CATALOG_VERSION,
-  PAYMENT_MAX_SINGLE_FEN,
-  resolvePriceFen,
-  type PriceSelection,
-} from "./pricing.js";
+import { CATALOG_VERSION } from "./pricing.js";
 
 export type OrderStatus = "pending" | "paid" | "closed";
 export type ServiceStatus = "pending_open" | "open";
 
-export class PaymentDomainError extends Error {
-  readonly statusCode: number;
-  readonly code: string;
-  readonly details: Readonly<Record<string, number>>;
+// PaymentDomainError 的唯一定义现在在 commerce.ts；这里保留原有的导入路径
+// re-export，避免 payment-routes.ts / admin-routes.ts 已有的
+// `from "../payment/orders.js"` 引用需要跟着改。
+export { PaymentDomainError };
 
-  constructor(
-    statusCode: number,
-    code: string,
-    details: Readonly<Record<string, number>> = {},
-  ) {
-    super(code);
-    this.name = "PaymentDomainError";
-    this.statusCode = statusCode;
-    this.code = code;
-    this.details = details;
-  }
-}
+export type OrderSelection = PlanSelection;
 
-export interface OrderSelection extends PriceSelection {
-  readonly typeId: string;
-  readonly regionId: string;
-  readonly ispId: string;
-  readonly durationId: string;
-}
+const ORDER_RESERVATION_MS = 30 * 60 * 1_000;
 
 export interface CreateOrderInput {
   readonly idempotencyKey: string;
@@ -57,6 +44,8 @@ export interface CreateOrderInput {
   readonly notes: string | null;
   readonly acknowledgedAmountFen: number;
   readonly userId: number | null;
+  // 可选，缺省视为无优惠券——保持旧调用方（不涉及优惠券的既有测试）零改动可编译。
+  readonly couponCode?: string | null;
 }
 
 export interface RetryOrderInput {
@@ -123,6 +112,7 @@ interface StoredOrder {
   readonly outTradeNo: string;
   readonly tradeNo: string | null;
   readonly lastQueriedAt: string | null;
+  readonly reservedUntil: string | null;
   readonly tokenHash: string;
   readonly tokenKeyVersion: number;
   readonly tokenExpiresAt: string;
@@ -224,6 +214,7 @@ function parseStoredOrder(row: unknown): StoredOrder {
     outTradeNo: rowString(value, "out_trade_no"),
     tradeNo: rowNullableString(value, "trade_no"),
     lastQueriedAt: rowNullableString(value, "last_queried_at"),
+    reservedUntil: rowNullableString(value, "reserved_until"),
     tokenHash: rowString(value, "token_hash"),
     tokenKeyVersion: rowNumber(value, "token_key_version"),
     tokenExpiresAt: rowString(value, "expires_at"),
@@ -241,7 +232,7 @@ const ORDER_SELECT = `
     orders.amount_fen, orders.contact, orders.scenarios, orders.notes,
     orders.status,
     payments.id AS payment_id, payments.out_trade_no,
-    payments.trade_no, payments.last_queried_at,
+    payments.trade_no, payments.last_queried_at, payments.reserved_until,
     order_access_tokens.token_hash,
     order_access_tokens.token_key_version,
     order_access_tokens.expires_at,
@@ -283,8 +274,12 @@ function requestFingerprint(input: {
   readonly contact: string;
   readonly scenarios: readonly string[];
   readonly notes: string | null;
-  readonly amountFen: number;
+  // 创建订单时是客户端提交的 acknowledgedAmountFen（不依赖服务器可变状态，
+  // 与旧行为一致）；重试没有客户端承诺金额，传 null——这样重试的幂等重放判定
+  // 不需要先调用会因库存/优惠券状态变化而抛错的 resolveQuote。
+  readonly amountFen: number | null;
   readonly userId: number | null;
+  readonly couponCode: string | null;
   readonly retryOf?: string;
 }): string {
   return fingerprint({
@@ -298,6 +293,7 @@ function requestFingerprint(input: {
     notes: input.notes,
     amountFen: input.amountFen,
     userId: input.userId,
+    couponCode: input.couponCode,
     retryOf: input.retryOf ?? null,
   });
 }
@@ -335,19 +331,27 @@ function paymentResponse(
     amountFen: order.amountFen,
     currency: "CNY",
   };
-  return order.status === "pending"
-    ? {
-        ...base,
-        payUrl: createAlipayPagePayUrl(
-          dependencies.sdk,
-          {
-            notifyUrl: dependencies.notifyUrl,
-            returnUrl: dependencies.returnUrl,
-          },
-          { outTradeNo: order.outTradeNo, amountFen: order.amountFen },
-        ),
-      }
-    : base;
+  if (order.status !== "pending") {
+    return base;
+  }
+  if (order.reservedUntil === null) {
+    throw new Error("Order database invariant failed");
+  }
+  return {
+    ...base,
+    payUrl: createAlipayPagePayUrl(
+      dependencies.sdk,
+      {
+        notifyUrl: dependencies.notifyUrl,
+        returnUrl: dependencies.returnUrl,
+      },
+      {
+        outTradeNo: order.outTradeNo,
+        amountFen: order.amountFen,
+        reservedUntil: new Date(order.reservedUntil),
+      },
+    ),
+  };
 }
 
 function createReference(dependencies: OrderServiceDependencies): string {
@@ -371,6 +375,9 @@ function createStoredOrder(
     readonly amountFen: number;
     readonly userId: number | null;
     readonly fingerprint: string;
+    readonly planId: number;
+    readonly couponId: number | null;
+    readonly discountFen: number;
   },
 ): StoredOrder {
   const existing = findOrder(
@@ -455,16 +462,25 @@ function createStoredOrder(
     throw new Error("Order insertion failed");
   }
   const orderId = idRows[0].id;
+  const reservedUntil = new Date(created.getTime() + ORDER_RESERVATION_MS).toISOString();
   dependencies.database
     .prepare(
       `INSERT INTO payments (
          order_id, out_trade_no, channel, app_id, amount_fen, currency,
          status, trade_no, alipay_trade_status, last_queried_at,
-         close_reason, paid_at, closed_at, created_at, updated_at
+         close_reason, paid_at, closed_at, reserved_until, created_at, updated_at
        ) VALUES (?, ?, 'alipay_page', ?, ?, 'CNY', 'pending', NULL, NULL,
-                 NULL, NULL, NULL, NULL, ?, ?)`,
+                 NULL, NULL, NULL, NULL, ?, ?, ?)`,
     )
-    .run(orderId, orderRef, dependencies.appId, input.amountFen, now, now);
+    .run(orderId, orderRef, dependencies.appId, input.amountFen, reservedUntil, now, now);
+  occupyPlanAndCoupon(dependencies.database, {
+    planId: input.planId,
+    couponId: input.couponId,
+    orderId,
+    userId: input.userId,
+    discountFen: input.discountFen,
+    now: () => created,
+  });
   dependencies.database
     .prepare(
       `INSERT INTO order_access_tokens (
@@ -490,18 +506,6 @@ function createStoredOrder(
   return inserted;
 }
 
-function ensureAmount(amountFen: number | null): number {
-  if (amountFen === null) {
-    throw new PaymentDomainError(400, "invalid_selection");
-  }
-  if (amountFen > PAYMENT_MAX_SINGLE_FEN) {
-    throw new PaymentDomainError(409, "amount_limit_exceeded", {
-      maxSingleFen: PAYMENT_MAX_SINGLE_FEN,
-    });
-  }
-  return amountFen;
-}
-
 export function createPaymentOrder(
   dependencies: OrderServiceDependencies,
   input: CreateOrderInput,
@@ -515,6 +519,10 @@ export function createPaymentOrder(
   }
   const scenarios = normalizeScenarios(input.scenarios);
   const notes = input.notes?.trim() || null;
+  const couponCode =
+    input.couponCode === null || input.couponCode === undefined
+      ? null
+      : normalizeCouponCode(input.couponCode);
   const requestHash = requestFingerprint({
     selection: input.selection,
     contact,
@@ -522,6 +530,7 @@ export function createPaymentOrder(
     notes,
     amountFen: input.acknowledgedAmountFen,
     userId: input.userId,
+    couponCode,
   });
   const replayOperation = dependencies.database.transaction(() => {
     const existing = findOrder(
@@ -549,10 +558,15 @@ export function createPaymentOrder(
     return paymentResponse(dependencies, replay);
   }
 
-  const amountFen = ensureAmount(resolvePriceFen(input.selection));
-  if (input.acknowledgedAmountFen !== amountFen) {
+  // 服务器重新核价：价格、可售状态、库存与优惠券全部以此为准，不信任客户端。
+  const quote = resolveQuote(dependencies.database, {
+    selection: input.selection,
+    couponCode,
+    now: dependencies.now ?? (() => new Date()),
+  });
+  if (input.acknowledgedAmountFen !== quote.amountFen) {
     throw new PaymentDomainError(409, "price_changed", {
-      currentAmountFen: amountFen,
+      currentAmountFen: quote.amountFen,
     });
   }
   const operation = dependencies.database.transaction(() =>
@@ -563,9 +577,12 @@ export function createPaymentOrder(
       contact,
       scenarios,
       notes,
-      amountFen,
+      amountFen: quote.amountFen,
       userId: input.userId,
       fingerprint: requestHash,
+      planId: quote.planId,
+      couponId: quote.couponId,
+      discountFen: quote.discountFen,
     }),
   );
   return paymentResponse(dependencies, operation.immediate());
@@ -631,15 +648,18 @@ export function retryPaymentOrder(
       specId: oldOrder.specId,
       durationId: oldOrder.durationId,
     };
-    const amountFen = ensureAmount(resolvePriceFen(selection));
+    // retry 默认复用原订单已核销的优惠券（若有），从持久化的 coupon_redemptions
+    // 关联读取；不接受客户端临时更换优惠券（RetryOrderInput 本就没有该字段）。
+    const couponCode = findRedeemedCouponCode(dependencies.database, oldOrder.id);
     const ownerUserId = input.currentUserId;
     const requestHash = requestFingerprint({
       selection,
       contact: oldOrder.contact,
       scenarios: oldOrder.scenarios,
       notes: oldOrder.notes,
-      amountFen,
+      amountFen: null,
       userId: ownerUserId,
+      couponCode,
       retryOf: oldOrder.orderRef,
     });
     const existingRetry = findOrder(
@@ -663,6 +683,13 @@ export function retryPaymentOrder(
     if (oldOrder.status !== "closed") {
       throw new PaymentDomainError(409, "invalid_transition");
     }
+    // 重新核价：价格、有效期、适用套餐范围与剩余次数全部重新校验，验证通过后
+    // 由 createStoredOrder 在同一事务内原子占用。
+    const quote = resolveQuote(dependencies.database, {
+      selection,
+      couponCode,
+      now: dependencies.now ?? (() => new Date()),
+    });
     return createStoredOrder(dependencies, {
       idempotencyKey: input.idempotencyKey,
       rawAccessToken: input.newRawAccessToken,
@@ -670,9 +697,12 @@ export function retryPaymentOrder(
       contact: oldOrder.contact,
       scenarios: oldOrder.scenarios,
       notes: oldOrder.notes,
-      amountFen,
+      amountFen: quote.amountFen,
       userId: ownerUserId,
       fingerprint: requestHash,
+      planId: quote.planId,
+      couponId: quote.couponId,
+      discountFen: quote.discountFen,
     });
   });
   return paymentResponse(dependencies, operation.immediate());

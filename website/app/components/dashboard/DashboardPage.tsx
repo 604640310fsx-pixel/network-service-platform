@@ -1,6 +1,8 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
+import { AdminCouponsPanel } from "./AdminCouponsPanel";
 import { AdminPendingServices } from "./AdminPendingServices";
+import { AdminPlansPanel } from "./AdminPlansPanel";
 import { CurrentServicesPanel } from "./CurrentServicesPanel";
 import "./dashboard.css";
 
@@ -70,6 +72,8 @@ export function DashboardPage() {
         </div>
 
         {principal?.role === "admin" && <AdminPendingServices csrfToken={csrfToken} />}
+        {principal?.role === "admin" && <AdminPlansPanel csrfToken={csrfToken} />}
+        {principal?.role === "admin" && <AdminCouponsPanel csrfToken={csrfToken} />}
 
         <section className="dash-panel" aria-labelledby="dash-actions-title">
           <h2 id="dash-actions-title"><em>ACTIONS</em>快捷操作</h2>

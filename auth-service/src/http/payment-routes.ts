@@ -3,15 +3,16 @@ import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 import type { DatabaseConnection } from "../db.js";
+import { parseYuanAsFen, type AlipaySdkLike } from "../payment/alipay.js";
 import {
-  parseYuanAsFen,
-  queryAlipayTrade,
-  type AlipaySdkLike,
-} from "../payment/alipay.js";
+  listSellablePlans,
+  normalizeCouponCode,
+  resolveQuote,
+  type PlanSelection,
+} from "../payment/commerce.js";
 import { readPaymentSession } from "../payment/http-auth.js";
 import {
   auditDeliveryDecryptFailure,
-  claimAlipayQuery,
   createPaymentOrder,
   getAuthorizedOrderStatus,
   listMyServices,
@@ -24,6 +25,7 @@ import {
   type ServiceDeliveryItem,
   type ServiceStatus,
 } from "../payment/orders.js";
+import { refreshPaymentFromAlipay } from "../payment/payment-refresh.js";
 import {
   acceptPendingPaymentEvent,
   auditPaymentFailure,
@@ -74,6 +76,7 @@ interface CreateOrderBody {
   readonly scenarios: readonly string[];
   readonly notes: string | null;
   readonly acknowledgedAmountFen: number;
+  readonly couponCode: string | null;
 }
 
 type ParsedFormValue = string | string[];
@@ -110,11 +113,53 @@ function parseCreateBody(body: unknown): CreateOrderBody | null {
     value.scenarios.some((item) => typeof item !== "string") ||
     (value.notes !== null && typeof value.notes !== "string") ||
     !Number.isSafeInteger(value.acknowledgedAmountFen) ||
-    typeof value.acknowledgedAmountFen !== "number"
+    typeof value.acknowledgedAmountFen !== "number" ||
+    (value.couponCode !== undefined &&
+      value.couponCode !== null &&
+      typeof value.couponCode !== "string")
   ) {
     return null;
   }
-  return value as unknown as CreateOrderBody;
+  return {
+    ...(value as unknown as CreateOrderBody),
+    couponCode: typeof value.couponCode === "string" ? value.couponCode : null,
+  };
+}
+
+interface QuoteBody {
+  readonly typeId: string;
+  readonly regionId: string;
+  readonly ispId: string;
+  readonly specId: string | null;
+  readonly durationId: string;
+  readonly couponCode: string | null;
+}
+
+function parseQuoteBody(body: unknown): QuoteBody | null {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return null;
+  }
+  const value = body as Record<string, unknown>;
+  if (
+    typeof value.typeId !== "string" ||
+    typeof value.regionId !== "string" ||
+    typeof value.ispId !== "string" ||
+    (value.specId !== null && typeof value.specId !== "string") ||
+    typeof value.durationId !== "string" ||
+    (value.couponCode !== undefined &&
+      value.couponCode !== null &&
+      typeof value.couponCode !== "string")
+  ) {
+    return null;
+  }
+  return {
+    typeId: value.typeId,
+    regionId: value.regionId,
+    ispId: value.ispId,
+    specId: value.specId,
+    durationId: value.durationId,
+    couponCode: typeof value.couponCode === "string" ? value.couponCode : null,
+  };
 }
 
 function publicCreationResult(result: OrderCreationResult): {
@@ -209,60 +254,6 @@ function targetFromForm(body: ParsedFormBody): string {
   }
   const notifyId = body.notify_id;
   return typeof notifyId === "string" && notifyId !== "" ? notifyId : "unknown";
-}
-
-async function refreshOrderFromAlipay(
-  dependencies: PaymentEnabledDependencies,
-  order: ReturnType<typeof getAuthorizedOrderStatus>,
-): Promise<void> {
-  if (!claimAlipayQuery(dependencies, order.paymentId)) {
-    return;
-  }
-
-  try {
-    const queried = await queryAlipayTrade(dependencies.sdk, order.outTradeNo);
-    if (
-      !queried.recognized ||
-      queried.outTradeNo !== order.outTradeNo ||
-      queried.tradeNo === null ||
-      queried.totalAmount === null ||
-      queried.totalAmountFen === null ||
-      queried.totalAmountFen !== order.amountFen ||
-      queried.tradeStatus === null
-    ) {
-      auditPaymentFailure(
-        dependencies,
-        "payment.query_rejected",
-        order.outTradeNo,
-      );
-      return;
-    }
-    const event: PaymentEventInput = {
-      outTradeNo: order.outTradeNo,
-      tradeNo: queried.tradeNo,
-      tradeStatus: queried.tradeStatus,
-      totalAmount: queried.totalAmount,
-      totalAmountFen: queried.totalAmountFen,
-      appId: dependencies.appId,
-      sellerId: dependencies.sellerId,
-    };
-    if (
-      queried.tradeStatus === "TRADE_SUCCESS" ||
-      queried.tradeStatus === "TRADE_FINISHED"
-    ) {
-      finalizePaid(dependencies, event);
-    } else if (queried.tradeStatus === "TRADE_CLOSED") {
-      finalizeClosed(dependencies, event);
-    } else if (queried.tradeStatus === "WAIT_BUYER_PAY") {
-      acceptPendingPaymentEvent(dependencies, event);
-    }
-  } catch {
-    auditPaymentFailure(
-      dependencies,
-      "payment.query_failed",
-      order.outTradeNo,
-    );
-  }
 }
 
 function registerNotifyRoute(
@@ -364,7 +355,10 @@ export function registerPaymentHttpRoutes(
       const isPaymentBusinessPath =
         path.startsWith("/api/pay/") ||
         path === "/api/me/services" ||
-        path.startsWith("/api/admin/services");
+        path.startsWith("/api/admin/services") ||
+        path.startsWith("/api/admin/plans") ||
+        path.startsWith("/api/admin/coupons") ||
+        path === "/api/catalog/plans";
       if (!isPaymentBusinessPath) {
         return;
       }
@@ -376,6 +370,62 @@ export function registerPaymentHttpRoutes(
     });
   }
   registerNotifyRoute(app, dependencies);
+
+  app.get("/api/catalog/plans", async (_request, reply) => {
+    setNoStore(reply);
+    if (!dependencies.enabled) {
+      return reply.code(503).send(errorResponse("payment_unavailable"));
+    }
+    try {
+      const items = listSellablePlans(dependencies.database).map((plan) => ({
+        typeId: plan.typeId,
+        regionId: plan.regionId,
+        ispId: plan.ispId,
+        specId: plan.specId,
+        durationId: plan.durationId,
+        priceFen: plan.priceFen,
+        isActive: plan.isActive,
+        soldOut: plan.totalSlots !== null && plan.occupiedSlots >= plan.totalSlots,
+      }));
+      return reply.code(200).send({ items });
+    } catch {
+      return reply.code(503).send(errorResponse("payment_unavailable"));
+    }
+  });
+
+  app.post<{ Body: unknown }>("/api/pay/quote", async (request, reply) => {
+    setNoStore(reply);
+    if (!dependencies.enabled) {
+      return reply.code(503).send(errorResponse("payment_unavailable"));
+    }
+    const body = parseQuoteBody(request.body);
+    if (body === null) {
+      return reply.code(400).send(errorResponse("invalid_selection"));
+    }
+    try {
+      const selection: PlanSelection = {
+        typeId: body.typeId,
+        regionId: body.regionId,
+        ispId: body.ispId,
+        specId: body.specId,
+        durationId: body.durationId,
+      };
+      const quote = resolveQuote(dependencies.database, {
+        selection,
+        couponCode: body.couponCode === null ? null : normalizeCouponCode(body.couponCode),
+        now: dependencies.now ?? (() => new Date()),
+      });
+      return reply.code(200).send({
+        listPriceFen: quote.listPriceFen,
+        discountFen: quote.discountFen,
+        amountFen: quote.amountFen,
+        currency: "CNY",
+        couponCode: quote.couponCode,
+      });
+    } catch (error) {
+      return sendDomainError(reply, error);
+    }
+  });
 
   app.post<{ Body: unknown }>("/api/pay/orders", async (request, reply) => {
     setNoStore(reply);
@@ -414,6 +464,7 @@ export function registerPaymentHttpRoutes(
         notes: body.notes,
         acknowledgedAmountFen: body.acknowledgedAmountFen,
         userId: session?.principal.userId ?? null,
+        couponCode: body.couponCode,
       });
       return reply.code(200).send(publicCreationResult(result));
     } catch (error) {
@@ -474,7 +525,7 @@ export function registerPaymentHttpRoutes(
         };
         const before = getAuthorizedOrderStatus(dependencies, authorization);
         if (before.status !== "paid") {
-          await refreshOrderFromAlipay(dependencies, before);
+          await refreshPaymentFromAlipay(dependencies, before);
         }
         const after = getAuthorizedOrderStatus(dependencies, authorization);
         let service: {
