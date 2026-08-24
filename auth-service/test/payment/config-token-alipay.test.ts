@@ -11,7 +11,7 @@ import {
 } from "../../src/config.js";
 import { issueCsrfToken, verifyCsrfToken } from "../../src/http/csrf.js";
 import {
-  createAlipayPrecreateQrCode,
+  createAlipayPagePayUrl,
   formatFenAsYuan,
   parseYuanAsFen,
 } from "../../src/payment/alipay.js";
@@ -171,7 +171,7 @@ test("CSRF verification is strict and constant-length", () => {
   assert.equal(verifyCsrfToken(CSRF_KEY, sessionHash, [token]), false);
 });
 
-test("precreate returns only the signed QR payload with exact integer amount formatting", async () => {
+test("pageExecute uses the frozen website-pay GET contract and exact integer amount formatting", () => {
   assert.equal(formatFenAsYuan(0), "0.00");
   assert.equal(formatFenAsYuan(89), "0.89");
   assert.equal(formatFenAsYuan(527_000), "5270.00");
@@ -180,10 +180,11 @@ test("precreate returns only the signed QR payload with exact integer amount for
   assert.equal(parseYuanAsFen("1.001"), null);
 
   const sdk = new FakeAlipaySdk();
-  const qrCode = await createAlipayPrecreateQrCode(
+  const payUrl = createAlipayPagePayUrl(
     sdk,
     {
       notifyUrl: "https://example.test/notify",
+      returnUrl: "https://example.test/return",
     },
     {
       outTradeNo: "DL123",
@@ -191,39 +192,47 @@ test("precreate returns only the signed QR payload with exact integer amount for
       reservedUntil: new Date("2026-08-21T00:30:00.000Z"),
     },
   );
-  assert.equal(qrCode, "https://qr.alipay.example.test/DL123");
-  assert.deepEqual(sdk.precreateCalls, [
+  assert.equal(payUrl, "https://alipay.example.test/pay/DL123");
+  assert.deepEqual(sdk.pageCalls, [
     {
-      method: "alipay.trade.precreate",
+      method: "alipay.trade.page.pay",
+      httpMethod: "GET",
       parameters: {
         bizContent: {
           outTradeNo: "DL123",
+          productCode: "FAST_INSTANT_TRADE_PAY",
           totalAmount: "89.00",
           subject: "网络环境诊断与人工技术服务",
           timeoutExpress: "30m",
           // reservedUntil (UTC) formatted as Asia/Shanghai local time (UTC+8).
           timeExpire: "2026-08-21 08:30:00",
+          qrPayMode: "4",
+          qrcodeWidth: "220",
         },
         notifyUrl: "https://example.test/notify",
+        returnUrl: "https://example.test/return",
       },
-      options: { validateSign: true },
     },
   ]);
 });
 
-test("precreate rejects malformed or mismatched gateway results without exposing details", async () => {
+test("pageExecute rejects malformed or insecure URLs without exposing SDK details", () => {
   for (const response of [
-    new Error("sdk error containing sensitive QR response"),
-    { code: "10000", outTradeNo: "DL123", qrCode: "   " },
-    { code: "10000", outTradeNo: "DL-other", qrCode: "qr-value" },
-    { code: "40004", outTradeNo: "DL123", subMsg: "sensitive detail" },
+    new Error("sdk error containing sensitive signed URL"),
+    "",
+    "   ",
+    "not-a-url",
+    "http://alipay.example.test/pay/DL123",
   ]) {
     const sdk = new FakeAlipaySdk();
-    sdk.precreateResults.push(response);
-    await assert.rejects(
-      createAlipayPrecreateQrCode(
+    sdk.pageResults.push(response);
+    assert.throws(
+      () => createAlipayPagePayUrl(
         sdk,
-        { notifyUrl: "https://example.test/notify" },
+        {
+          notifyUrl: "https://example.test/notify",
+          returnUrl: "https://example.test/return",
+        },
         {
           outTradeNo: "DL123",
           amountFen: 8_900,
@@ -232,9 +241,11 @@ test("precreate rejects malformed or mismatched gateway results without exposing
       ),
       (error: unknown) => {
         assert.equal(error instanceof Error, true);
-        assert.equal((error as Error).message, "Alipay precreate failed");
-        assert.equal((error as Error).message.includes("sensitive detail"), false);
-        assert.equal((error as Error).message.includes("sensitive QR response"), false);
+        assert.equal(
+          (error as Error).message,
+          "Alipay page pay URL generation failed",
+        );
+        assert.equal((error as Error).message.includes("sensitive signed URL"), false);
         return true;
       },
     );

@@ -4,7 +4,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 import type { DatabaseConnection } from "../db.js";
 import {
-  createAlipayPrecreateQrCode,
+  createAlipayPagePayUrl,
   parseYuanAsFen,
   type AlipaySdkLike,
 } from "../payment/alipay.js";
@@ -172,7 +172,7 @@ interface PublicPaymentResult {
   readonly amountFen: number;
   readonly currency: "CNY";
   readonly reservedUntil: string | null;
-  readonly qrCode: string | null;
+  readonly payUrl: string | null;
 }
 
 function paymentNow(dependencies: Pick<OrderServiceDependencies, "now">): Date {
@@ -194,7 +194,7 @@ async function publicPaymentResult(
     currency: result.currency,
   } as const;
   if (result.status !== "pending") {
-    return { ...base, reservedUntil: null, qrCode: null };
+    return { ...base, reservedUntil: null, payUrl: null };
   }
   if (result.reservedUntil === null) {
     throw new Error("Order database invariant failed");
@@ -206,9 +206,12 @@ async function publicPaymentResult(
   ) {
     throw new PaymentDomainError(409, "qr_unavailable");
   }
-  const qrCode = await createAlipayPrecreateQrCode(
+  const payUrl = createAlipayPagePayUrl(
     dependencies.sdk,
-    { notifyUrl: dependencies.notifyUrl },
+    {
+      notifyUrl: dependencies.notifyUrl,
+      returnUrl: dependencies.returnUrl,
+    },
     {
       outTradeNo: result.orderRef,
       amountFen: result.amountFen,
@@ -218,7 +221,7 @@ async function publicPaymentResult(
   return {
     ...base,
     reservedUntil: result.reservedUntil,
-    qrCode,
+    payUrl,
   };
 }
 
@@ -553,7 +556,7 @@ export function registerPaymentHttpRoutes(
   );
 
   app.post<{ Params: { orderRef: string } }>(
-    "/api/pay/orders/:orderRef/qr",
+    "/api/pay/orders/:orderRef/pay-page",
     async (request, reply) => {
       setNoStore(reply);
       if (!dependencies.enabled) {
@@ -571,8 +574,8 @@ export function registerPaymentHttpRoutes(
         };
         const before = getAuthorizedOrderStatus(dependencies, authorization);
         if (before.status !== "paid") {
-          // 取码前沿用现有权威查询/状态机：若支付宝已终态，先收敛本地状态，
-          // 再返回 paid/closed 的 null 二维码，绝不把 precreate 当作付款结果。
+          // 重新生成收银台地址前沿用现有权威查询/状态机：若支付宝已终态，
+          // 先收敛本地状态，再返回 paid/closed 的 null 地址。
           await refreshPaymentFromAlipay(dependencies, before);
         }
         const after = getAuthorizedOrderStatus(dependencies, authorization);

@@ -173,8 +173,8 @@ export function RequirementForm({
       credentials = await getOrCreateCheckoutAttempt(draft);
       const result = await createPaymentOrder(draft, credentials);
       bindOrderAccess(result.orderRef, credentials);
-      // 不再跳转支付宝网页收银台；站内跳转到订单页，navigation state 携带首个支付结果
-      // （含二维码内容），供支付页直接渲染，避免额外一次取码请求。
+      // 站内跳转到订单页；首个支付结果（含 payUrl）只通过内存 navigation state 携带，
+      // 供 iframe 打开支付宝电脑网站收银台，不写入本站 URL / localStorage。
       navigate(`/subscribe/request?orderRef=${encodeURIComponent(result.orderRef)}`, {
         replace: true,
         state: { paymentResult: result },

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { CustomerCenterShell } from "../customer/CustomerCenterShell";
 import { RequirementForm } from "./RequirementForm";
@@ -8,9 +9,11 @@ import {
   type PaymentOrderResult,
 } from "../../lib/payment-api";
 
+const ALIPAY_RETURN_MESSAGE = "nsp.alipay.return";
+
 /* 从 navigation state 读取"首个支付结果"（RequirementForm / 重新支付跳转时携带）。
-   仅当它对应当前 orderRef 才采纳，供支付页首屏直接渲染二维码，避免额外一次取码。
-   二维码内容只经内存中的 navigation state 传递，不进 URL / localStorage / 日志。 */
+   仅当它对应当前 orderRef 才采纳，供支付页首屏直接加载支付宝电脑网站收银台。
+   payUrl 只经内存中的 navigation state 传递，不进 URL / localStorage / 日志。 */
 function readInitialResult(state: unknown, orderRef: string): PaymentOrderResult | undefined {
   if (typeof state !== "object" || state === null) return undefined;
   const candidate = (state as { paymentResult?: unknown }).paymentResult;
@@ -33,6 +36,7 @@ export function SubmitRequestPage() {
   const availability = usePlanAvailability();
   const explicitOrderRef = searchParams.get("orderRef")?.trim() ?? "";
   const alipayOrderRef = searchParams.get("out_trade_no")?.trim() ?? "";
+  const fromAlipay = searchParams.get("from") === "alipay";
   // orderRef 是本站显式定位参数；支付宝同步回跳只用 out_trade_no 定位查询，不据此判断支付结果。
   const orderRef = explicitOrderRef || alipayOrderRef;
   const selection = parseSelectionParams(searchParams);
@@ -44,6 +48,15 @@ export function SubmitRequestPage() {
   const amountFen = summary.total === null ? null : Math.round(summary.total * 100);
   const overPaymentLimit = amountFen !== null && amountFen > PAYMENT_MAX_SINGLE_FEN_FRONTEND;
   const unavailable = summary.availability === "sold_out" || summary.availability === "unavailable";
+
+  useEffect(() => {
+    if (!fromAlipay || orderRef === "" || window.parent === window) return;
+    // iframe 内的同源回跳只通知父页面立即发起权威查单；消息本身绝不代表已支付。
+    window.parent.postMessage(
+      { type: ALIPAY_RETURN_MESSAGE, orderRef },
+      window.location.origin,
+    );
+  }, [fromAlipay, orderRef]);
 
   if (visibleOrderRef !== "") {
     const initialResult = readInitialResult(location.state, visibleOrderRef);

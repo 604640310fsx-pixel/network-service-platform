@@ -66,15 +66,15 @@ export type OrderCredentials = {
   readonly accessToken: string;
 };
 
-/* 创建 / 重试 / 取码（POST :orderRef/qr）三处同一冻结结构。qrCode 仅在 pending 时有值，
-   只作为二维码内容渲染，绝不写入 URL / localStorage / 日志。 */
+/* 创建 / 重试 / 获取电脑网站支付页（POST :orderRef/pay-page）三处同一冻结结构。
+   payUrl 仅在 pending 时有值，只留在内存并用于导航，绝不写入本站 URL / localStorage / 日志。 */
 export type PaymentOrderResult = {
   readonly orderRef: string;
   readonly status: PaymentOrderStatus;
   readonly amountFen: number;
   readonly currency: "CNY";
   readonly reservedUntil: string | null;
-  readonly qrCode: string | null;
+  readonly payUrl: string | null;
 };
 
 export type PaymentOrderSnapshot = {
@@ -173,6 +173,16 @@ function isIsoInstant(value: unknown): value is string {
   return isNonEmptyString(value) && Number.isFinite(Date.parse(value));
 }
 
+function isAbsoluteHttpsUrl(value: unknown): value is string {
+  if (!isNonEmptyString(value)) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.username === "" && url.password === "";
+  } catch {
+    return false;
+  }
+}
+
 export function normalizeDeliveryItemInput(value: unknown): DeliveryItemInput | null {
   if (!isRecord(value)) return null;
   const { label, subscriptionUrl } = value;
@@ -224,9 +234,9 @@ function parseOrderResult(value: unknown): PaymentOrderResult {
     throw new PaymentApiError("invalid_response");
   }
 
-  // pending 必须带绝对失效时刻与二维码内容；paid/closed 两者可空。
+  // pending 必须带绝对失效时刻与 HTTPS 支付页；paid/closed 两者一律为 null。
   if (body.status === "pending") {
-    if (!isIsoInstant(body.reservedUntil) || !isNonEmptyString(body.qrCode)) {
+    if (!isIsoInstant(body.reservedUntil) || !isAbsoluteHttpsUrl(body.payUrl)) {
       throw new PaymentApiError("invalid_response");
     }
     return {
@@ -235,9 +245,11 @@ function parseOrderResult(value: unknown): PaymentOrderResult {
       amountFen: body.amountFen,
       currency: "CNY",
       reservedUntil: body.reservedUntil,
-      qrCode: body.qrCode,
+      payUrl: body.payUrl,
     };
   }
+
+  if (body.payUrl !== null) throw new PaymentApiError("invalid_response");
 
   return {
     orderRef: body.orderRef,
@@ -245,7 +257,7 @@ function parseOrderResult(value: unknown): PaymentOrderResult {
     amountFen: body.amountFen,
     currency: "CNY",
     reservedUntil: null,
-    qrCode: null,
+    payUrl: null,
   };
 }
 
@@ -507,16 +519,15 @@ export async function retryPaymentOrder(
   return parseOrderResult(response);
 }
 
-/* 站内取码：pending 订单在有效期内重新获取同一 out_trade_no 的二维码（后端幂等，
-   不新建支付记录、不重复收款）。用于页面刷新后无二维码时的一次性恢复，以及用户
-   手动"刷新二维码"。返回与创建/重试完全一致的冻结结构。 */
-export async function refreshOrderQr(
+/* pending 订单在有效期内重新获取同一 out_trade_no 的电脑网站支付页。
+   后端幂等，不新建支付记录、不重复收款。返回与创建/重试完全一致的冻结结构。 */
+export async function refreshOrderPayPage(
   orderRef: string,
   accessToken: string | null,
 ): Promise<PaymentOrderResult> {
   const headers: Record<string, string> = {};
   if (accessToken !== null) headers["X-Order-Access-Token"] = accessToken;
-  const response = await requestJson(`/api/pay/orders/${encodeURIComponent(orderRef)}/qr`, {
+  const response = await requestJson(`/api/pay/orders/${encodeURIComponent(orderRef)}/pay-page`, {
     method: "POST",
     headers: mutationHeaders(headers),
     body: "{}",

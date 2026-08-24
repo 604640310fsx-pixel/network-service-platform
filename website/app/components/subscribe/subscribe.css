@@ -321,7 +321,7 @@
 .sub-delivery-qr { width: fit-content; max-width: 100%; margin-top: 12px; padding: 10px; overflow: hidden; border: 1px solid var(--cc-line); border-radius: 10px; background: #fff; }
 .sub-delivery-qr svg { display: block; max-width: 100%; height: auto; }
 
-/* ===== 站内支付宝扫码支付卡片（已验收原型迁移；沿用 --cc-* 令牌，不新增视觉语言） ===== */
+/* ===== 站内支付宝电脑网站支付卡片（沿用已验收外壳与 --cc-* 令牌） ===== */
 .pay-stack { width: 100%; max-width: 468px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
 
 .cc-shell[data-theme="dark"] .pay-card { --pay-ok: #34b368; --pay-ok-tint: rgba(52, 179, 104, 0.12); --pay-ok-line: rgba(52, 179, 104, 0.5); --pay-warn: #e0757a; --pay-warn-tint: rgba(224, 117, 122, 0.12); --pay-warn-line: rgba(224, 117, 122, 0.5); }
@@ -350,15 +350,13 @@
 .pay-card[data-state="paid"] .pay-amount > b { color: var(--pay-ok); }
 
 .pay-scan { display: flex; flex-direction: column; align-items: center; }
-.pay-qr-frame { position: relative; width: min(100%, 244px); margin: 14px auto 0; padding: 14px; border: 1px solid var(--cc-line); border-radius: 14px; background: #fff; }
-.pay-qr-frame svg { display: block; width: 100%; height: auto; }
-.pay-qr-loading { display: grid; place-items: center; aspect-ratio: 1 / 1; color: #6b7280; font-size: 12.5px; }
-.pay-qr-fallback { margin: 0; padding: 24px 8px; color: #c4494f; font-size: 12.5px; text-align: center; }
-.pay-corner { position: absolute; width: 20px; height: 20px; border: 2px solid var(--cc-accent); opacity: 0.85; }
-.pay-corner.tl { top: 6px; left: 6px; border-right: 0; border-bottom: 0; border-radius: 5px 0 0 0; }
-.pay-corner.tr { top: 6px; right: 6px; border-left: 0; border-bottom: 0; border-radius: 0 5px 0 0; }
-.pay-corner.bl { bottom: 6px; left: 6px; border-right: 0; border-top: 0; border-radius: 0 0 0 5px; }
-.pay-corner.br { bottom: 6px; right: 6px; border-left: 0; border-top: 0; border-radius: 0 0 5px 0; }
+.pay-cashier-frame { position: relative; width: 100%; min-height: 360px; margin: 14px auto 0; overflow: hidden; border: 1px solid var(--cc-line); border-radius: 14px; background: #fff; }
+.pay-cashier-iframe { display: block; width: 100%; height: 360px; border: 0; background: #fff; }
+.pay-cashier-loading { position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; background: #fff; color: #6b7280; font-size: 12.5px; }
+.pay-cashier-fallback { min-height: 360px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center; }
+.pay-cashier-fallback p { margin: 0; color: #c4494f; font-size: 12.5px; }
+.pay-cashier-fallback a { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; padding: 0 18px; border: 1px solid var(--cc-accent-line); border-radius: 10px; background: var(--cc-accent-tint); color: var(--cc-accent); font-size: 13px; font-weight: 600; text-decoration: none; }
+.pay-cashier-fallback a:hover { border-color: var(--cc-accent); }
 
 .pay-hint { display: flex; align-items: center; gap: 8px; margin: 16px 0 0; color: var(--cc-text-2); font-size: 13.5px; font-weight: 500; text-align: left; }
 .pay-hint svg { width: 17px; height: 17px; flex: 0 0 17px; color: var(--cc-accent); stroke-width: 1.7; }
@@ -405,7 +403,9 @@
 @media (max-width: 820px) {
   .pay-card { padding: 18px 15px 20px; border-radius: 14px; }
   .pay-amount > b { font-size: 30px; }
-  .pay-qr-frame { width: min(72vw, 232px); }
+  .pay-cashier-frame,
+  .pay-cashier-fallback { min-height: 340px; }
+  .pay-cashier-iframe { height: 340px; }
 }
 
 /* 独立提交页（/subscribe/request）容器 */

@@ -23,7 +23,7 @@ import {
   paymentDependencies,
 } from "./helpers.js";
 
-test("create-order API stores only the client credential hash and returns the frozen QR result", async () => {
+test("create-order API stores only the client credential hash and returns the frozen website-pay result", async () => {
   await withAuthenticationDatabase(async (database) => {
     const sdk = new FakeAlipaySdk();
     const dependencies = paymentDependencies(database, sdk);
@@ -51,7 +51,7 @@ test("create-order API stores only the client credential hash and returns the fr
         "amountFen",
         "currency",
         "orderRef",
-        "qrCode",
+        "payUrl",
         "reservedUntil",
         "status",
       ]);
@@ -59,7 +59,7 @@ test("create-order API stores only the client credential hash and returns the fr
       assert.equal(body.amountFen, 7_900);
       assert.equal(body.currency, "CNY");
       assert.equal(body.reservedUntil, "2026-08-21T00:30:00.000Z");
-      assert.equal(body.qrCode, `https://qr.alipay.example.test/${body.orderRef}`);
+      assert.equal(body.payUrl, `https://alipay.example.test/pay/${body.orderRef}`);
       assert.equal(response.body.includes(ACCESS_TOKEN_A), false);
       assert.equal(
         firstValue(
@@ -70,14 +70,14 @@ test("create-order API stores only the client credential hash and returns the fr
         0,
       );
       assert.equal(firstValue(database, "SELECT token_key_version FROM order_access_tokens"), 1);
-      assert.equal(sdk.precreateCalls.length, 1);
+      assert.equal(sdk.pageCalls.length, 1);
     } finally {
       await app.close();
     }
   });
 });
 
-test("server pricing rejects changed and over-limit amounts before any SDK precreate call", async () => {
+test("server pricing rejects changed and over-limit amounts before any SDK pageExecute call", async () => {
   await withAuthenticationDatabase(async (database) => {
     const sdk = new FakeAlipaySdk();
     const dependencies = paymentDependencies(database, sdk);
@@ -134,7 +134,7 @@ test("server pricing rejects changed and over-limit amounts before any SDK precr
       assert.deepEqual(overLimit.json(), {
         error: { code: "plan_unavailable" },
       });
-      assert.equal(sdk.precreateCalls.length, 0);
+      assert.equal(sdk.pageCalls.length, 0);
       assert.equal(firstValue(database, "SELECT COUNT(*) FROM orders"), 0);
     } finally {
       await app.close();
@@ -197,7 +197,7 @@ test("retry API authenticates the old order, copies its snapshot, and stores the
         "amountFen",
         "currency",
         "orderRef",
-        "qrCode",
+        "payUrl",
         "reservedUntil",
         "status",
       ]);
@@ -208,13 +208,13 @@ test("retry API authenticates the old order, copies its snapshot, and stores the
       assert.equal(retriedBody.currency, "CNY");
       assert.equal(retriedBody.reservedUntil, "2026-08-21T00:30:00.000Z");
       assert.equal(
-        retriedBody.qrCode,
-        `https://qr.alipay.example.test/${retriedBody.orderRef}`,
+        retriedBody.payUrl,
+        `https://alipay.example.test/pay/${retriedBody.orderRef}`,
       );
       assert.equal(retried.body.includes(ACCESS_TOKEN_B), false);
       assert.equal(firstValue(database, "SELECT COUNT(*) FROM orders"), 2);
       assert.equal(firstValue(database, "SELECT COUNT(*) FROM order_access_tokens"), 2);
-      assert.equal(sdk.precreateCalls.length, 1);
+      assert.equal(sdk.pageCalls.length, 1);
     } finally {
       await app.close();
     }

@@ -9,7 +9,7 @@ import {
   getOrCreateRetryAttempt,
   getPaymentOrder,
   readOrderAccessToken,
-  refreshOrderQr,
+  refreshOrderPayPage,
   retryPaymentOrder,
   shouldClearAttemptAfterError,
   type OrderCredentials,
@@ -121,11 +121,12 @@ function orderErrorMessage(error: unknown): string {
   }
 }
 
-function qrErrorMessage(error: unknown): string {
-  if (!(error instanceof PaymentApiError)) return "暂时无法刷新二维码，请稍后重试。";
+function payPageErrorMessage(error: unknown): string {
+  if (!(error instanceof PaymentApiError)) return "暂时无法刷新支付页面，请稍后重试。";
   switch (error.code) {
+    case "pay_page_unavailable":
     case "qr_unavailable":
-      return "订单已失效，请点击“重新支付”获取新的二维码。";
+      return "订单已失效，请点击“重新支付”获取新的支付页面。";
     case "not_found":
       return "未找到该订单，或当前浏览器没有有效的查询凭证。";
     case "unauthorized":
@@ -135,7 +136,7 @@ function qrErrorMessage(error: unknown): string {
     case "network_error":
       return "网络连接失败，请稍后重试。";
     default:
-      return "暂时无法刷新二维码，请稍后重试。";
+      return "暂时无法刷新支付页面，请稍后重试。";
   }
 }
 
@@ -145,9 +146,11 @@ function canManuallyRetryQuery(error: unknown): boolean {
   return error.code === "network_error" || error.code === "invalid_response" || error.status >= 500;
 }
 
-function initialQrCode(initialResult?: PaymentOrderResult): string | null {
-  return initialResult !== undefined && initialResult.status === "pending" ? initialResult.qrCode : null;
+function initialPayUrl(initialResult?: PaymentOrderResult): string | null {
+  return initialResult !== undefined && initialResult.status === "pending" ? initialResult.payUrl : null;
 }
+
+const ALIPAY_RETURN_MESSAGE = "nsp.alipay.return";
 
 export function OrderStatusPanel({
   orderRef,
@@ -164,14 +167,15 @@ export function OrderStatusPanel({
   const [queryRetryable, setQueryRetryable] = useState(false);
   const [queryGeneration, setQueryGeneration] = useState(0);
   const [retrying, setRetrying] = useState(false);
-  // 二维码内容只留在内存 state（来自 navigation state 的首个结果，或一次性取码恢复）；
+  // 支付页地址只留在内存 state（来自 navigation state 的首个结果，或一次性恢复）；
   // 绝不写入 URL / localStorage / 日志。
-  const [qrCode, setQrCode] = useState<string | null>(() => initialQrCode(initialResult));
+  const [payUrl, setPayUrl] = useState<string | null>(() => initialPayUrl(initialResult));
   const [reservedUntil, setReservedUntil] = useState<string | null>(
     () => initialResult?.reservedUntil ?? null,
   );
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
-  const [refreshingQr, setRefreshingQr] = useState(false);
+  const [refreshingPayPage, setRefreshingPayPage] = useState(false);
+  const [returningFromAlipay, setReturningFromAlipay] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const accessTokenRef = useRef<string | null>(null);
   const recoverAttempted = useRef(false);
@@ -211,10 +215,12 @@ export function OrderStatusPanel({
         const next = await getPaymentOrder(orderRef, accessTokenRef.current, controller.signal);
         if (stopped) return;
         setSnapshot(next);
-        // 有效期以服务端为准；本地已有（来自首个结果或取码）则保留，避免抖动。
+        // 有效期以服务端为准；本地已有（来自首个结果或支付页恢复）则保留，避免抖动。
         if (next.reservedUntil !== null) {
           setReservedUntil((prev) => prev ?? next.reservedUntil);
         }
+        if (next.status !== "pending") setPayUrl(null);
+        setReturningFromAlipay(false);
         setLoading(false);
         setError(null);
         setQueryRetryable(false);
@@ -225,6 +231,7 @@ export function OrderStatusPanel({
         setLoading(false);
         setError(orderErrorMessage(pollError));
         setQueryRetryable(canManuallyRetryQuery(pollError));
+        setReturningFromAlipay(false);
       }
     }
 
@@ -236,14 +243,29 @@ export function OrderStatusPanel({
     };
   }, [authStatus, orderRef, queryGeneration]);
 
-  async function doRefreshQr(silent: boolean) {
-    if (refreshingQr) return;
-    setRefreshingQr(true);
+  useEffect(() => {
+    function handleAlipayReturn(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
+      if (typeof event.data !== "object" || event.data === null) return;
+      const message = event.data as { type?: unknown; orderRef?: unknown };
+      if (message.type !== ALIPAY_RETURN_MESSAGE || message.orderRef !== orderRef) return;
+      // 同源回跳只触发服务端权威查单；绝不据此直接写入 paid。
+      setReturningFromAlipay(true);
+      setPayUrl(null);
+      setQueryGeneration((generation) => generation + 1);
+    }
+    window.addEventListener("message", handleAlipayReturn);
+    return () => window.removeEventListener("message", handleAlipayReturn);
+  }, [orderRef]);
+
+  async function doRefreshPayPage(silent: boolean) {
+    if (refreshingPayPage) return;
+    setRefreshingPayPage(true);
     if (!silent) setActionError(null);
     try {
-      const result = await refreshOrderQr(orderRef, accessTokenRef.current);
+      const result = await refreshOrderPayPage(orderRef, accessTokenRef.current);
       if (result.status === "pending") {
-        setQrCode(result.qrCode);
+        setPayUrl(result.payUrl);
         setReservedUntil(result.reservedUntil);
         setNowMs(Date.now());
         setActionError(null);
@@ -252,21 +274,21 @@ export function OrderStatusPanel({
         setQueryGeneration((generation) => generation + 1);
       }
     } catch (refreshError) {
-      setActionError(qrErrorMessage(refreshError));
+      setActionError(payPageErrorMessage(refreshError));
     } finally {
-      setRefreshingQr(false);
+      setRefreshingPayPage(false);
     }
   }
 
-  // 页面刷新且无二维码（navigation state 丢失）时，对 pending 订单只调用一次取码接口恢复。
+  // 页面刷新且无 payUrl（navigation state 丢失）时，对 pending 订单只调用一次接口恢复。
   useEffect(() => {
     if (snapshot?.status !== "pending") return;
-    if (qrCode !== null || recoverAttempted.current) return;
+    if (payUrl !== null || recoverAttempted.current) return;
     recoverAttempted.current = true;
-    void doRefreshQr(true);
-    // doRefreshQr 读取的是 ref/最新 setter，无需进依赖数组。
+    void doRefreshPayPage(true);
+    // doRefreshPayPage 读取的是 ref/最新 setter，无需进依赖数组。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [snapshot, qrCode]);
+  }, [snapshot, payUrl]);
 
   function queryAgain() {
     if (loading) return;
@@ -287,7 +309,7 @@ export function OrderStatusPanel({
       credentials = getOrCreateRetryAttempt(orderRef);
       const result = await retryPaymentOrder(orderRef, accessTokenRef.current, credentials);
       bindOrderAccess(result.orderRef, credentials);
-      // 不再跳转支付宝网页收银台；站内跳转到新订单页并携带其首个支付结果（含二维码）。
+      // 站内跳转到新订单页并以内存 navigation state 携带首个支付结果（含 payUrl）。
       navigate(`/subscribe/request?orderRef=${encodeURIComponent(result.orderRef)}`, {
         replace: true,
         state: { paymentResult: result },
@@ -341,6 +363,8 @@ export function OrderStatusPanel({
     phase = "paid";
   } else if (snapshot.status === "closed") {
     phase = "closed";
+  } else if (returningFromAlipay) {
+    phase = "confirming";
   } else if (secondsLeft !== null && secondsLeft <= 0) {
     // 倒计时归零但仍 pending：正在确认支付结果，继续轮询，不允许重新支付。
     phase = "confirming";
@@ -357,10 +381,10 @@ export function OrderStatusPanel({
         phase={phase}
         orderRef={snapshot.orderRef}
         amountFen={snapshot.amountFen}
-        qrCode={phase === "waiting" ? qrCode : null}
+        payUrl={phase === "waiting" ? payUrl : null}
         secondsLeft={phase === "waiting" ? secondsLeft : null}
-        onRefreshQr={() => void doRefreshQr(false)}
-        refreshing={refreshingQr}
+        onRefreshPayPage={() => void doRefreshPayPage(false)}
+        refreshing={refreshingPayPage}
         onRetry={() => void retryPayment()}
         retrying={retrying}
         actionError={actionError}
