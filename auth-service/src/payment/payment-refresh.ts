@@ -33,42 +33,131 @@ export interface RefreshTarget {
   readonly amountFen: number;
 }
 
+type ValidatedAlipayTradeQueryResult = AlipayTradeQueryResult & {
+  readonly tradeNo: string;
+  readonly tradeStatus: string;
+  readonly totalAmount: string;
+  readonly totalAmountFen: number;
+};
+
+type QueryDiagnosticSource =
+  | "provider_response"
+  | "provider_exception"
+  | "local_validation";
+
+type QueryRejectionReason =
+  | "unrecognized_response"
+  | "out_trade_mismatch"
+  | "missing_trade_no"
+  | "amount_mismatch"
+  | "missing_status";
+
+const SAFE_PROVIDER_CODE_PATTERN = /^[A-Z0-9_.-]{1,64}$/u;
+
+function sanitizeProviderCode(value: string | null): string | null {
+  return value !== null && SAFE_PROVIDER_CODE_PATTERN.test(value) ? value : null;
+}
+
+function logAlipayQueryDiagnostic(input: {
+  readonly event: "query_rejected" | "query_failed";
+  readonly source: QueryDiagnosticSource;
+  readonly providerCode: string | null;
+  readonly providerSubCode: string | null;
+  readonly localRejectionReason: QueryRejectionReason | null;
+}): void {
+  console.warn(
+    JSON.stringify({
+      event: input.event,
+      source: input.source,
+      provider_code: sanitizeProviderCode(input.providerCode),
+      provider_sub_code: sanitizeProviderCode(input.providerSubCode),
+      local_rejection_reason: input.localRejectionReason,
+    }),
+  );
+}
+
+function getLocalRejectionReason(
+  queried: AlipayTradeQueryResult,
+  target: RefreshTarget,
+): Exclude<QueryRejectionReason, "unrecognized_response"> | null {
+  if (queried.outTradeNo !== target.outTradeNo) {
+    return "out_trade_mismatch";
+  }
+  if (queried.tradeNo === null) {
+    return "missing_trade_no";
+  }
+  if (
+    queried.totalAmount === null ||
+    queried.totalAmountFen === null ||
+    queried.totalAmountFen !== target.amountFen
+  ) {
+    return "amount_mismatch";
+  }
+  if (queried.tradeStatus === null) {
+    return "missing_status";
+  }
+  return null;
+}
+
 async function queryAndDispatch(
   dependencies: PaymentRefreshDependencies,
   target: RefreshTarget,
 ): Promise<AlipayTradeQueryResult | null> {
   try {
     const queried = await queryAlipayTrade(dependencies.sdk, target.outTradeNo);
-    if (
-      !queried.recognized ||
-      queried.outTradeNo !== target.outTradeNo ||
-      queried.tradeNo === null ||
-      queried.totalAmount === null ||
-      queried.totalAmountFen === null ||
-      queried.totalAmountFen !== target.amountFen ||
-      queried.tradeStatus === null
-    ) {
+    if (!queried.recognized) {
+      logAlipayQueryDiagnostic({
+        event: "query_rejected",
+        source: "provider_response",
+        providerCode: queried.code,
+        providerSubCode: queried.subCode,
+        localRejectionReason: "unrecognized_response",
+      });
       auditPaymentFailure(dependencies, "payment.query_rejected", target.outTradeNo);
       return queried;
     }
+
+    const localRejectionReason = getLocalRejectionReason(queried, target);
+    if (localRejectionReason !== null) {
+      logAlipayQueryDiagnostic({
+        event: "query_rejected",
+        source: "local_validation",
+        providerCode: null,
+        providerSubCode: null,
+        localRejectionReason,
+      });
+      auditPaymentFailure(dependencies, "payment.query_rejected", target.outTradeNo);
+      return queried;
+    }
+    const validatedQuery = queried as ValidatedAlipayTradeQueryResult;
     const event: PaymentEventInput = {
       outTradeNo: target.outTradeNo,
-      tradeNo: queried.tradeNo,
-      tradeStatus: queried.tradeStatus,
-      totalAmount: queried.totalAmount,
-      totalAmountFen: queried.totalAmountFen,
+      tradeNo: validatedQuery.tradeNo,
+      tradeStatus: validatedQuery.tradeStatus,
+      totalAmount: validatedQuery.totalAmount,
+      totalAmountFen: validatedQuery.totalAmountFen,
       appId: dependencies.appId,
       sellerId: dependencies.sellerId,
     };
-    if (queried.tradeStatus === "TRADE_SUCCESS" || queried.tradeStatus === "TRADE_FINISHED") {
+    if (
+      validatedQuery.tradeStatus === "TRADE_SUCCESS" ||
+      validatedQuery.tradeStatus === "TRADE_FINISHED"
+    ) {
       finalizePaid(dependencies, event);
-    } else if (queried.tradeStatus === "TRADE_CLOSED") {
+    } else if (validatedQuery.tradeStatus === "TRADE_CLOSED") {
       finalizeClosed(dependencies, event);
-    } else if (queried.tradeStatus === "WAIT_BUYER_PAY") {
+    } else if (validatedQuery.tradeStatus === "WAIT_BUYER_PAY") {
       acceptPendingPaymentEvent(dependencies, event);
     }
     return queried;
   } catch {
+    logAlipayQueryDiagnostic({
+      event: "query_failed",
+      source: "provider_exception",
+      providerCode: null,
+      providerSubCode: null,
+      localRejectionReason: null,
+    });
     auditPaymentFailure(dependencies, "payment.query_failed", target.outTradeNo);
     return null;
   }

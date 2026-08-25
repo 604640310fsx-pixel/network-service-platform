@@ -278,17 +278,54 @@ test("authorized status query invokes fake SDK outside the state transaction and
 });
 
 test("query mismatch, unknown response, and network failure keep local pending", async () => {
-  for (const responseOrError of [
-    { code: "10000", tradeStatus: "UNKNOWN", outTradeNo: "ignored" },
+  const cases = [
     {
-      code: "10000",
-      tradeStatus: "TRADE_SUCCESS",
-      outTradeNo: "wrong-order",
-      tradeNo: "trade-123",
-      totalAmount: "79.00",
+      responseOrError: {
+        code: "40004",
+        subCode: "ACQ.TRADE_NOT_EXIST",
+        tradeStatus: null,
+        outTradeNo: null,
+      },
+      expectedDiagnostic: {
+        event: "query_rejected",
+        source: "provider_response",
+        provider_code: "40004",
+        provider_sub_code: "ACQ.TRADE_NOT_EXIST",
+        local_rejection_reason: "unrecognized_response",
+      },
+      forbiddenValues: [],
     },
-    new Error("network unavailable"),
-  ]) {
+    {
+      responseOrError: {
+        code: "10000",
+        tradeStatus: "TRADE_SUCCESS",
+        outTradeNo: "wrong-order",
+        tradeNo: "trade-123",
+        totalAmount: "79.00",
+      },
+      expectedDiagnostic: {
+        event: "query_rejected",
+        source: "local_validation",
+        provider_code: null,
+        provider_sub_code: null,
+        local_rejection_reason: "out_trade_mismatch",
+      },
+      forbiddenValues: ["wrong-order", "trade-123"],
+    },
+    {
+      responseOrError: new Error("network unavailable"),
+      expectedDiagnostic: {
+        event: "query_failed",
+        source: "provider_exception",
+        provider_code: null,
+        provider_sub_code: null,
+        local_rejection_reason: null,
+      },
+      forbiddenValues: ["network unavailable"],
+    },
+  ];
+
+  for (const { responseOrError, expectedDiagnostic, forbiddenValues } of cases) {
     await withAuthenticationDatabase(async (database) => {
       const sdk = new FakeAlipaySdk();
       const dependencies = paymentDependencies(database, sdk);
@@ -300,6 +337,9 @@ test("query mismatch, unknown response, and network failure keep local pending",
       } else {
         sdk.queryResponse = responseOrError;
       }
+      const warnings: unknown[][] = [];
+      const originalWarn = console.warn;
+      console.warn = (...args: unknown[]) => warnings.push(args);
       const app = buildApp({ payment: dependencies });
       try {
         const response = await app.inject({
@@ -311,7 +351,16 @@ test("query mismatch, unknown response, and network failure keep local pending",
         assert.equal(response.json().status, "pending");
         assert.equal(firstValue(database, "SELECT COUNT(*) FROM services"), 0);
         assert.equal(firstValue(database, "SELECT COUNT(*) FROM audit_log"), 1);
+        assert.equal(warnings.length, 1);
+        assert.equal(warnings[0]?.length, 1);
+        assert.equal(typeof warnings[0]?.[0], "string");
+        const serialized = warnings[0]?.[0] as string;
+        assert.deepEqual(JSON.parse(serialized), expectedDiagnostic);
+        for (const forbiddenValue of [...forbiddenValues, order.orderRef]) {
+          assert.equal(serialized.includes(forbiddenValue), false);
+        }
       } finally {
+        console.warn = originalWarn;
         await app.close();
       }
     });
