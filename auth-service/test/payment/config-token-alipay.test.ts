@@ -204,8 +204,6 @@ test("pageExecute uses the frozen website-pay GET contract and exact integer amo
           totalAmount: "89.00",
           subject: "网络环境诊断与人工技术服务",
           timeoutExpress: "30m",
-          // reservedUntil (UTC) formatted as Asia/Shanghai local time (UTC+8).
-          timeExpire: "2026-08-21 08:30:00",
           qrPayMode: "4",
           qrcodeWidth: "220",
         },

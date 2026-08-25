@@ -49,31 +49,6 @@ export interface AlipayTradeCloseResult {
 }
 
 const ALIPAY_PAGE_PAY_SUBJECT = "网络环境诊断与人工技术服务";
-const ALIPAY_DATETIME_TIMEZONE = "Asia/Shanghai";
-
-/* 支付宝 time_expire 要求 yyyy-MM-dd HH:mm:ss，按 Asia/Shanghai 本地时间。
-   用 Intl.DateTimeFormat 取各字段后手动拼接，不依赖 locale 自身的分隔符/顺序。 */
-export function formatAlipayDateTime(date: Date): string {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: ALIPAY_DATETIME_TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  });
-  const parts = formatter.formatToParts(date);
-  const part = (type: string): string => {
-    const found = parts.find((entry) => entry.type === type);
-    if (found === undefined) {
-      throw new Error("Alipay datetime formatting failed");
-    }
-    return found.value;
-  };
-  return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}:${part("second")}`;
-}
 
 export function formatFenAsYuan(amountFen: number): string {
   if (!Number.isSafeInteger(amountFen) || amountFen < 0) {
@@ -132,9 +107,6 @@ export function createAlipayPagePayUrl(
         totalAmount: formatFenAsYuan(input.amountFen),
         subject: ALIPAY_PAGE_PAY_SUBJECT,
         timeoutExpress: "30m",
-        // 与 timeoutExpress 表达同一个 30 分钟窗口，但用绝对时刻，
-        // 与本地 payments.reserved_until 精确对齐。
-        timeExpire: formatAlipayDateTime(input.reservedUntil),
         qrPayMode: "4",
         qrcodeWidth: "220",
       },
