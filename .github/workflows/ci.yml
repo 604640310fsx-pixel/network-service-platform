@@ -56,9 +56,16 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "22.13.0"
+          node-version: "22.x"
           cache: npm
           cache-dependency-path: auth-service/package-lock.json
+
+      - name: Report auth CI runtime
+        run: |
+          node --version
+          npm --version
+          uname -a
+          ldd --version
 
       - name: Install auth service dependencies
         working-directory: auth-service
@@ -68,23 +75,13 @@ jobs:
         working-directory: auth-service
         run: npm run build
 
+      - name: Run SQLite smoke test
+        working-directory: auth-service
+        run: node dist/test/db.test.js
+
       - name: Run full auth service test suite
         working-directory: auth-service
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          test_files=(
-            dist/test/*.test.js
-            dist/test/auth/*.test.js
-            dist/test/payment/*.test.js
-          )
-          if (( ${#test_files[@]} == 0 )); then
-            echo "No compiled auth service tests found" >&2
-            exit 1
-          fi
-          for test_file in "${test_files[@]}"; do
-            node "$test_file"
-          done
+        run: npm test
 
       - name: Verify auth service lockfile is unchanged
         run: git diff --exit-code -- auth-service/package-lock.json
