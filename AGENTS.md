@@ -879,3 +879,19 @@ BLOCKER 只阻断受影响步骤。
 不得自动开始下一任务。
 
 不得自动合并或部署。
+
+---
+
+## 十九、启动预检
+
+Codex 已自动加载当前适用的 `AGENTS.md` 后，在任何仓库任务开始前运行：
+
+```bash
+bash scripts/team/preflight-readonly.sh \
+  --base-branch <Task Packet BASE_BRANCH> \
+  --expected-base-sha <Task Packet BASE_SHA>
+```
+
+随后读取 `docs/team/TEAM-COLLAB-V1.md`。开始写入前必须返回或内部确认 repository、branch、HEAD、Git status、remote BASE_SHA、`BASE_SHA_MATCH`、`CURRENT_WRITER` 以及 allowed / forbidden scope。
+
+PREFLIGHT 结果为 `DRIFT` 或 `BLOCKED` 时，不修改、不 stage、不 commit、不 push，并返回证据。不得声称脚本运行结果等于任务已完成。
