@@ -31,10 +31,22 @@
 /* 注册页字段更多，卡片略宽，仍保持单一视觉焦点。 */
 .auth-card.is-wide { flex-basis: 484px; padding: 32px 38px 34px; }
 
-.auth-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
-.auth-brand-mark { width: 34px; height: 34px; flex: 0 0 34px; display: grid; place-items: center; border-radius: 9px; background: #f59e0b; color: var(--cc-accent-ink); }
-.auth-brand-mark svg { width: 16px; height: 16px; }
-.auth-brand strong { font-size: 16px; font-weight: 600; letter-spacing: 0.14em; }
+.auth-brand { display: flex; align-items: center; margin-bottom: 24px; }
+/* 与首页 Header/Footer、客户中心侧栏同一份品牌图形（.home-brand-mark/.cc-brand-mark），
+   单色 CSS mask，跟随 --cc-accent 主题色。 */
+.auth-brand-mark {
+  height: 36px; width: auto; aspect-ratio: 512 / 484; flex: 0 0 auto;
+  background-color: var(--cc-accent);
+  opacity: 0.86;
+  -webkit-mask-image: url("/brand-mark.png");
+  mask-image: url("/brand-mark.png");
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
 
 .auth-card h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: 0.01em; }
 .auth-subtitle { margin: 7px 0 0; color: var(--cc-text-3); font-size: 13.5px; }

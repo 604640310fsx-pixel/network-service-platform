@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes, useParams } from "react-router-dom";
+import { HomePage } from "../app/components/home/HomePage";
 import { LoginPage } from "../app/components/auth/LoginPage";
 import { RegisterPage } from "../app/components/auth/RegisterPage";
 import { DashboardShell } from "../app/components/DashboardShell";
@@ -27,7 +28,7 @@ export default function App() {
   return (
     <AuthProvider>
       <Routes>
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/" element={<HomePage />} />
         {/* 静态 Auth 路由必须先于动态 /:section 命中。 */}
         <Route path="/login" element={<LoginRoute />} />
         <Route path="/register" element={<RegisterPage />} />

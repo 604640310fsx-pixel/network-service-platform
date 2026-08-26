@@ -100,14 +100,28 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
   flex: 0 0 var(--cc-sidebar-width);
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
   background: var(--cc-panel);
   border-right: 1px solid var(--cc-hairline);
 }
 
 .cc-brand { display: flex; align-items: center; gap: 11px; padding: 21px 20px 18px; }
-.cc-brand-mark { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; background: #f59e0b; color: var(--cc-accent-ink); }
-.cc-brand-mark svg { width: 15px; height: 15px; }
-.cc-brand strong { font-size: 16px; letter-spacing: 0.14em; }
+/* 与首页 Header/Footer 同一份品牌图形（.home-brand-mark，home.css），单色 CSS mask，
+   跟随 --cc-accent 主题色，不为控制台单独引入第二套 Logo。 */
+.cc-brand-mark {
+  height: 30px; width: auto; aspect-ratio: 512 / 484; flex: 0 0 auto;
+  background-color: var(--cc-accent);
+  opacity: 0.86;
+  -webkit-mask-image: url("/brand-mark.png");
+  mask-image: url("/brand-mark.png");
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
 .cc-sidebar-close { width: 28px; height: 28px; margin-left: auto; display: grid; place-items: center; border: 0; background: transparent; color: var(--cc-text-3); cursor: pointer; }
 .cc-sidebar-close svg { width: 16px; height: 16px; stroke-width: 1.8; }
 
@@ -159,15 +173,17 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
 .cc-shell :focus-visible { outline: 2px solid #f59e0b; outline-offset: 3px; }
 
 @media (min-width: 1800px) {
-  .cc-shell { --cc-gutter: 34px; --cc-sidebar-width: 274px; zoom: 1.06; }
-}
-
-@media (min-width: 2400px) {
-  .cc-shell { zoom: 1.14; }
+  /* 去掉 zoom：zoom 缩放的是渲染结果，但子元素的 vh/vw 单位始终按真实视口计算，
+     两者叠加会让 .cc-sidebar 这类 height:100vh 元素在屏幕上比实际视口还高
+     （zoom:1.06 时高出 6%），position:sticky 顶到顶部后底部内容永远显示不出来、
+     也无法滚动到（网络状态监控卡片消失的根因）。间距令牌保留，只去掉 zoom 本身。 */
+  .cc-shell { --cc-gutter: 34px; --cc-sidebar-width: 274px; }
 }
 
 @media (max-width: 1024px) {
-  .cc-sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: 278px; height: 100%; transform: translateX(-101%); visibility: hidden; transition: transform 0.26s cubic-bezier(0.3, 0.8, 0.3, 1), visibility 0s 0.26s; overflow-y: auto; padding-bottom: env(safe-area-inset-bottom); }
+  /* overscroll-behavy-y: contain 防止触屏滑到抽屉内容顶/底部后，滚动手势"漏"到背后页面，
+     造成"划一下导航栏和主内容一起动"的观感（抽屉本身用 fixed 定位并未真的跟着移动）。 */
+  .cc-sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: 278px; height: 100%; transform: translateX(-101%); visibility: hidden; transition: transform 0.26s cubic-bezier(0.3, 0.8, 0.3, 1), visibility 0s 0.26s; overflow-y: auto; overscroll-behavior-y: contain; padding-bottom: env(safe-area-inset-bottom); }
   .cc-sidebar.is-open { transform: none; visibility: visible; transition: transform 0.26s cubic-bezier(0.3, 0.8, 0.3, 1); }
   .cc-navigation { flex: none; overflow: visible; }
   .cc-brand { position: sticky; top: 0; z-index: 1; background: var(--cc-panel); }

@@ -116,9 +116,8 @@ export function CustomerCenterShell({
           aria-modal={activeDrawer === "navigation" ? true : undefined}
           aria-label="客户中心导航"
         >
-          <div className="cc-brand">
-            <span className="cc-brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3z" /></svg></span>
-            <strong>LOGO</strong>
+          <div className="cc-brand" aria-label="Drink Life">
+            <span className="cc-brand-mark" aria-hidden="true" />
             <button type="button" className="cc-sidebar-close" onClick={closeDrawer} aria-label="关闭导航"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 6h18M3 12h18M3 18h18" /></svg></button>
           </div>
           <nav className="cc-navigation" aria-label="客户中心">
