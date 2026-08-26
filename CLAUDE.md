@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+@docs/team/TEAM-COLLAB-V1.md
+
 你在我的 AI 团队中固定担任：
 
 「技术决策者 + 复杂工程与关键 UI 实施负责人」。
@@ -1077,3 +1079,19 @@ SPIKE 额外报告：
 不得自动开启下一 Task Packet。
 
 不得自动合并或部署。
+
+---
+
+## 二十、启动预检
+
+在任何仓库任务开始前运行：
+
+```bash
+bash scripts/team/preflight-readonly.sh \
+  --base-branch <Task Packet BASE_BRANCH> \
+  --expected-base-sha <Task Packet BASE_SHA>
+```
+
+开始写入前必须返回或内部确认 repository、branch、HEAD、Git status、remote BASE_SHA、`BASE_SHA_MATCH`、`CURRENT_WRITER` 以及 allowed / forbidden scope。
+
+PREFLIGHT 结果为 `DRIFT` 或 `BLOCKED` 时，不修改、不 stage、不 commit、不 push，并返回证据。不得声称脚本运行结果等于任务已完成。
