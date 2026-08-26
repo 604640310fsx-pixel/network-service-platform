@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 
+import { buildApp } from "../../src/app.js";
 import {
   ORDER_EXPIRY_GRACE_MS,
   startOrderExpirySweep,
@@ -205,6 +206,53 @@ test("ACQ.TRADE_NOT_EXIST past the deadline and grace allows a local close via t
     );
     // 合成关闭事件不产生真实通知记录。
     assert.equal(firstValue(database, "SELECT COUNT(*) FROM payment_notifications"), 0);
+  });
+});
+
+test("a later signed authoritative SUCCESS replaces the synthetic local-expiry trade number and restores the customer-visible order to paid", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    let currentTime = new Date(TEST_NOW);
+    const sdk = new FakeAlipaySdk();
+    const dependencies = {
+      ...paymentDependencies(database, sdk),
+      now: () => new Date(currentTime),
+    };
+    const order = createExpiredOrder(dependencies, 40);
+    sdk.queryResponse = tradeNotExistResult();
+    await sweepExpiredPendingPayments(dependencies);
+    assert.equal(firstValue(database, "SELECT status FROM payments"), "closed");
+    assert.equal(
+      firstValue(database, "SELECT trade_no FROM payments"),
+      `LOCAL-EXPIRED-${order.orderRef}`,
+    );
+
+    currentTime = new Date(TEST_NOW.getTime() + 16_000);
+    sdk.queryResponse = queryResult({
+      tradeStatus: "TRADE_SUCCESS",
+      outTradeNo: order.orderRef,
+      tradeNo: "real-alipay-trade-after-local-expiry",
+    });
+    const app = buildApp({ payment: dependencies });
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/pay/orders/${order.orderRef}`,
+        headers: { "x-order-access-token": ACCESS_TOKEN_A },
+      });
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.json().status, "paid");
+      assert.equal(response.json().service.status, "pending_open");
+      assert.equal(firstValue(database, "SELECT status FROM payments"), "paid");
+      assert.equal(
+        firstValue(database, "SELECT trade_no FROM payments"),
+        "real-alipay-trade-after-local-expiry",
+      );
+      assert.equal(firstValue(database, "SELECT close_reason FROM payments"), null);
+      assert.equal(firstValue(database, "SELECT closed_at FROM payments"), null);
+      assert.equal(firstValue(database, "SELECT COUNT(*) FROM services"), 1);
+    } finally {
+      await app.close();
+    }
   });
 });
 
