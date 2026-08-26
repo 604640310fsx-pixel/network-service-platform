@@ -83,7 +83,7 @@ jobs:
             exit 1
           fi
           for test_file in "${test_files[@]}"; do
-            node --test --test-isolation=none "$test_file"
+            node "$test_file"
           done
 
       - name: Verify auth service lockfile is unchanged
