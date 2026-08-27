@@ -5,8 +5,8 @@ import type { ThemePreference } from "../../lib/theme";
 
 /* 官网公开 Header。不使用客户中心左侧 sidebar。
    导航只对仓库中真实存在且可呈现的路由开放跳转：
-   /（首页）与 /subscribe（网络方案）。"诊断服务"与"服务状态"当前没有
-   对应页面，一律呈现为不可点击的待接入项，不做成点击后假装可用。 */
+   /（首页）、/subscribe（网络方案）与 /monitor（服务状态）。"诊断服务"当前没有
+   对应页面，呈现为不可点击的待接入项，不做成点击后假装可用。 */
 
 type NavEntry =
   | { kind: "link"; label: string; to: string }
@@ -16,7 +16,7 @@ const navEntries: NavEntry[] = [
   { kind: "link", label: "首页", to: "/" },
   { kind: "link", label: "网络方案", to: "/subscribe" },
   { kind: "pending", label: "诊断服务", title: "诊断服务页面待接入" },
-  { kind: "pending", label: "服务状态", title: "服务状态页面待接入" },
+  { kind: "link", label: "服务状态", to: "/monitor" },
 ];
 
 export function SiteHeader({

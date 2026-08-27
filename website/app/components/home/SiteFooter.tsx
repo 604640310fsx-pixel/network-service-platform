@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 
 /* 官网 Footer。只展示仓库中真实存在的信息与路由。
    不生成公司地址、电话、邮箱、ICP、社交账号、客户数量或服务年限。
-   没有独立页面的能力项指向首页真实 Section 锚点，不伪装成已上线的独立服务。 */
+   没有独立页面的能力项指向首页真实 Section 锚点；实时监控使用已上线公开路由。 */
 
 export function SiteFooter() {
   return (
@@ -21,7 +21,7 @@ export function SiteFooter() {
               <b>服务</b>
               <Link to="/subscribe">网络方案</Link>
               <a href="#diagnosis">诊断能力</a>
-              <a href="#observability">监控能力</a>
+              <Link to="/monitor">实时监控</Link>
             </div>
             <div className="home-footer-col">
               <b>账户</b>
