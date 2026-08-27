@@ -189,6 +189,14 @@ function isIsoInstant(value: unknown): value is string {
   return isNonEmptyString(value) && Number.isFinite(Date.parse(value));
 }
 
+// canonical ISO instant：不仅可解析，且必须与 toISOString() 逐字符相等（round-trip）。
+// 仅供 GET /api/me/orders 解析使用，不改动全局 isIsoInstant，避免影响其他支付流程。
+function isCanonicalIsoInstant(value: unknown): value is string {
+  if (!isNonEmptyString(value)) return false;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString() === value;
+}
+
 function isAbsoluteHttpsUrl(value: unknown): value is string {
   if (!isNonEmptyString(value)) return false;
   try {
@@ -356,9 +364,20 @@ function parseMyOrders(value: unknown): MyOrderItem[] {
       !isPaymentOrderStatus(item.status) ||
       !isPositiveInteger(item.amountFen) ||
       item.currency !== "CNY" ||
-      !isIsoInstant(item.createdAt) ||
-      !(item.reservedUntil === null || isIsoInstant(item.reservedUntil)) ||
+      !isCanonicalIsoInstant(item.createdAt) ||
+      !(item.reservedUntil === null || isCanonicalIsoInstant(item.reservedUntil)) ||
       !(item.serviceStatus === null || isServiceStatus(item.serviceStatus))
+    ) {
+      throw new PaymentApiError("invalid_response");
+    }
+    // 冻结状态组合校验；任何不符合的组合都是数据异常，绝不静默修正或降级显示。
+    // pending: reservedUntil 必为 canonical ISO 且 serviceStatus 必为 null。
+    // paid:    reservedUntil 必为 null 且 serviceStatus 必为 pending_open|open。
+    // closed:  reservedUntil 必为 null 且 serviceStatus 必为 null。
+    if (
+      (item.status === "pending" && (item.reservedUntil === null || item.serviceStatus !== null)) ||
+      (item.status === "paid" && (item.reservedUntil !== null || item.serviceStatus === null)) ||
+      (item.status === "closed" && (item.reservedUntil !== null || item.serviceStatus !== null))
     ) {
       throw new PaymentApiError("invalid_response");
     }
