@@ -548,3 +548,43 @@ test("me/orders returns 503 when payment is disabled or a row is inconsistent (f
     }
   });
 });
+
+test("me/orders fails closed with 503 when created_at is not a canonical ISO instant", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const userId = insertAuthenticationUser(database, {
+      email: "createdat@example.com",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const session = insertWebSession(database, userId);
+
+    // 本身合法的状态组合（closed + serviceStatus null），createdAt 初始为 canonical ISO。
+    seedOrder(database, {
+      userId,
+      orderRef: "DLBADISO",
+      status: "closed",
+      serviceStatus: null,
+      createdAt: "2026-08-21T00:00:00.000Z",
+      reservedUntil: null,
+    });
+    // orders.created_at 是无校验的 TEXT 列：精确改成非 ISO 文本。
+    database
+      .prepare("UPDATE orders SET created_at = 'not-an-iso' WHERE order_ref = ?")
+      .run("DLBADISO");
+
+    const app = buildApp({ payment: paymentDependencies(database) });
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/me/orders",
+        headers: { cookie: session.cookie },
+      });
+      // 非 canonical ISO createdAt 必须 fail closed，而不是 200 返回脏数据。
+      assert.equal(response.statusCode, 503);
+      assert.deepEqual(response.json(), { error: { code: "payment_unavailable" } });
+      assert.equal(response.headers["cache-control"], "no-store");
+    } finally {
+      await app.close();
+    }
+  });
+});

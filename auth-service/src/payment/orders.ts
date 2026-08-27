@@ -906,17 +906,24 @@ export interface MyOrderItem {
   readonly serviceStatus: ServiceStatus | null;
 }
 
+// canonical ISO instant 严格 round-trip 校验：必须是有效日期且 toISOString() 与原值
+// 逐字符相等。orders.created_at / payments.reserved_until 都是无校验的 TEXT 列，
+// 非 canonical 值一律视为数据库不变量破坏 → fail closed。
+function requireIsoInstant(value: string): string {
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString() !== value) {
+    throw new Error("Order database invariant failed");
+  }
+  return value;
+}
+
 // pending 订单公开的 reservedUntil：与 publicReservedUntil 同一套 round-trip 校验，
 // 但作用于列表行（无 StoredOrder）。非法即数据异常 → fail closed。
 function requirePublicReservedUntil(value: string | null): string {
   if (value === null) {
     throw new Error("Order database invariant failed");
   }
-  const parsed = new Date(value);
-  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString() !== value) {
-    throw new Error("Order database invariant failed");
-  }
-  return value;
+  return requireIsoInstant(value);
 }
 
 /* 登录用户订单列表。所有权在 SQL 层用 orders.user_id = ? 限定，绝不取全表再过滤；
@@ -999,7 +1006,7 @@ export function listMyOrders(
       status,
       amountFen,
       currency: "CNY" as const,
-      createdAt: rowString(value, "created_at"),
+      createdAt: requireIsoInstant(rowString(value, "created_at")),
       reservedUntil,
       serviceStatus,
     };
