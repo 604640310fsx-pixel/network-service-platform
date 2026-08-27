@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, Navigate, NavLink, useParams } from "react-router-dom";
 import { CustomerCenterShell } from "./customer/CustomerCenterShell";
+import { CustomerOrdersPage } from "./customer/CustomerOrdersPage";
 import { CustomerServicesPage } from "./customer/CustomerServicesPage";
 import { DashboardPage } from "./dashboard/DashboardPage";
 import { SubscribePage } from "./subscribe/SubscribePage";
@@ -233,6 +234,13 @@ export function DashboardShell() {
     return (
       <CustomerCenterShell title="当前套餐" description="查看已支付服务与人工开通进度">
         <CustomerServicesPage />
+      </CustomerCenterShell>
+    );
+  }
+  if (section === "orders") {
+    return (
+      <CustomerCenterShell title="订单" description="查看你的订单、支付状态与开通进度">
+        <CustomerOrdersPage />
       </CustomerCenterShell>
     );
   }

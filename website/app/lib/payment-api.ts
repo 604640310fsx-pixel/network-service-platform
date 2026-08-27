@@ -99,6 +99,22 @@ export type MyServiceItem = {
   readonly createdAt: string;
 };
 
+// GET /api/me/orders 单项。字段严格对应冻结后端契约；serviceStatus 可为 null（无服务）。
+export type MyOrderItem = {
+  readonly orderRef: string;
+  readonly typeId: string;
+  readonly regionId: string;
+  readonly ispId: string;
+  readonly specId: string | null;
+  readonly durationId: string;
+  readonly status: PaymentOrderStatus;
+  readonly amountFen: number;
+  readonly currency: "CNY";
+  readonly createdAt: string;
+  readonly reservedUntil: string | null;
+  readonly serviceStatus: ServiceStatus | null;
+};
+
 export type AdminPendingServiceItem = {
   readonly serviceId: number;
   readonly orderRef: string;
@@ -317,6 +333,48 @@ function parseMyServices(value: unknown): MyServiceItem[] {
       orderStatus: item.orderStatus,
       serviceStatus: item.serviceStatus,
       createdAt: item.createdAt,
+    };
+  });
+}
+
+/* 严格解析 GET /api/me/orders：每个字段的类型与枚举都必须精确匹配冻结契约。
+   任何未知 status / serviceStatus 值、缺字段、非 ISO 时间一律判为 invalid_response，
+   绝不静默接受并展示。不在前端重排：保持后端 createdAt DESC / id DESC 顺序。 */
+function parseMyOrders(value: unknown): MyOrderItem[] {
+  const body = requireRecord(value);
+  if (!Array.isArray(body.items)) throw new PaymentApiError("invalid_response");
+
+  return body.items.map((rawItem) => {
+    const item = requireRecord(rawItem);
+    if (
+      !isNonEmptyString(item.orderRef) ||
+      !isNonEmptyString(item.typeId) ||
+      !isNonEmptyString(item.regionId) ||
+      !isNonEmptyString(item.ispId) ||
+      !(item.specId === null || isNonEmptyString(item.specId)) ||
+      !isNonEmptyString(item.durationId) ||
+      !isPaymentOrderStatus(item.status) ||
+      !isPositiveInteger(item.amountFen) ||
+      item.currency !== "CNY" ||
+      !isIsoInstant(item.createdAt) ||
+      !(item.reservedUntil === null || isIsoInstant(item.reservedUntil)) ||
+      !(item.serviceStatus === null || isServiceStatus(item.serviceStatus))
+    ) {
+      throw new PaymentApiError("invalid_response");
+    }
+    return {
+      orderRef: item.orderRef,
+      typeId: item.typeId,
+      regionId: item.regionId,
+      ispId: item.ispId,
+      specId: item.specId,
+      durationId: item.durationId,
+      status: item.status,
+      amountFen: item.amountFen,
+      currency: item.currency,
+      createdAt: item.createdAt,
+      reservedUntil: item.reservedUntil,
+      serviceStatus: item.serviceStatus,
     };
   });
 }
@@ -557,6 +615,15 @@ export async function getMyServices(signal?: AbortSignal): Promise<MyServiceItem
     signal,
   });
   return parseMyServices(response);
+}
+
+export async function getMyOrders(signal?: AbortSignal): Promise<MyOrderItem[]> {
+  const response = await requestJson("/api/me/orders", {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  return parseMyOrders(response);
 }
 
 export async function getAdminPendingServices(signal?: AbortSignal): Promise<AdminPendingServiceItem[]> {
