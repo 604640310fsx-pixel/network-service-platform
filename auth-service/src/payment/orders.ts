@@ -891,6 +891,128 @@ export function listMyServices(
   });
 }
 
+export interface MyOrderItem {
+  readonly orderRef: string;
+  readonly typeId: string;
+  readonly regionId: string;
+  readonly ispId: string;
+  readonly specId: string | null;
+  readonly durationId: string;
+  readonly status: OrderStatus;
+  readonly amountFen: number;
+  readonly currency: "CNY";
+  readonly createdAt: string;
+  readonly reservedUntil: string | null;
+  readonly serviceStatus: ServiceStatus | null;
+}
+
+// canonical ISO instant 严格 round-trip 校验：必须是有效日期且 toISOString() 与原值
+// 逐字符相等。orders.created_at / payments.reserved_until 都是无校验的 TEXT 列，
+// 非 canonical 值一律视为数据库不变量破坏 → fail closed。
+function requireIsoInstant(value: string): string {
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString() !== value) {
+    throw new Error("Order database invariant failed");
+  }
+  return value;
+}
+
+// pending 订单公开的 reservedUntil：与 publicReservedUntil 同一套 round-trip 校验，
+// 但作用于列表行（无 StoredOrder）。非法即数据异常 → fail closed。
+function requirePublicReservedUntil(value: string | null): string {
+  if (value === null) {
+    throw new Error("Order database invariant failed");
+  }
+  return requireIsoInstant(value);
+}
+
+/* 登录用户订单列表。所有权在 SQL 层用 orders.user_id = ? 限定，绝不取全表再过滤；
+   不读取 order_access_tokens，不触碰支付宝。字段严格限定为冻结公开契约，
+   contact / scenarios / notes / trade_no / out_trade_no / payment_id / service_id /
+   user_id / 内部 ID / 交付内容一律不出现在结果中。
+   状态语义与 GET /api/pay/orders/:orderRef 一致：
+   pending → reservedUntil 有效 ISO 且 serviceStatus 必为 null；
+   paid    → reservedUntil 归 null 且 serviceStatus 必为 pending_open|open；
+   closed  → reservedUntil 归 null 且 serviceStatus 必为 null。
+   任一行不满足即数据异常，向上抛出由路由 fail closed 成 503。 */
+export function listMyOrders(
+  database: DatabaseConnection,
+  userId: number,
+): MyOrderItem[] {
+  const rows = database
+    .prepare(
+      `SELECT orders.order_ref, orders.type_id, orders.region_id, orders.isp_id,
+              orders.spec_id, orders.duration_id, orders.status AS order_status,
+              orders.amount_fen, orders.currency, orders.created_at,
+              payments.reserved_until,
+              services.status AS service_status
+       FROM orders
+       JOIN payments ON payments.order_id = orders.id
+       LEFT JOIN services ON services.payment_id = payments.id
+       WHERE orders.user_id = ?
+       ORDER BY orders.created_at DESC, orders.id DESC`,
+    )
+    .all(userId);
+  return rows.map((row) => {
+    if (typeof row !== "object" || row === null || Array.isArray(row)) {
+      throw new Error("Order database invariant failed");
+    }
+    const value = row as Record<string, unknown>;
+    const status = rowString(value, "order_status");
+    const rawServiceStatus = rowNullableString(value, "service_status");
+    const rawReservedUntil = rowNullableString(value, "reserved_until");
+    const amountFen = rowNumber(value, "amount_fen");
+    if (
+      (status !== "pending" && status !== "paid" && status !== "closed") ||
+      (rawServiceStatus !== null &&
+        rawServiceStatus !== "pending_open" &&
+        rawServiceStatus !== "open") ||
+      !Number.isSafeInteger(amountFen) ||
+      amountFen <= 0 ||
+      rowString(value, "currency") !== "CNY"
+    ) {
+      throw new Error("Order database invariant failed");
+    }
+
+    let reservedUntil: string | null;
+    let serviceStatus: ServiceStatus | null;
+    if (status === "pending") {
+      if (rawServiceStatus !== null) {
+        throw new Error("Order database invariant failed");
+      }
+      reservedUntil = requirePublicReservedUntil(rawReservedUntil);
+      serviceStatus = null;
+    } else if (status === "paid") {
+      if (rawServiceStatus === null) {
+        throw new Error("Order database invariant failed");
+      }
+      reservedUntil = null;
+      serviceStatus = rawServiceStatus;
+    } else {
+      if (rawServiceStatus !== null) {
+        throw new Error("Order database invariant failed");
+      }
+      reservedUntil = null;
+      serviceStatus = null;
+    }
+
+    return {
+      orderRef: rowString(value, "order_ref"),
+      typeId: rowString(value, "type_id"),
+      regionId: rowString(value, "region_id"),
+      ispId: rowString(value, "isp_id"),
+      specId: rowNullableString(value, "spec_id"),
+      durationId: rowString(value, "duration_id"),
+      status,
+      amountFen,
+      currency: "CNY" as const,
+      createdAt: requireIsoInstant(rowString(value, "created_at")),
+      reservedUntil,
+      serviceStatus,
+    };
+  });
+}
+
 export interface AdminPendingServiceItem {
   readonly serviceId: number;
   readonly orderRef: string;

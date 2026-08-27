@@ -19,6 +19,7 @@ import {
   auditDeliveryDecryptFailure,
   createPaymentOrder,
   getAuthorizedOrderStatus,
+  listMyOrders,
   listMyServices,
   PaymentDomainError,
   readServiceDeliveryItems,
@@ -404,6 +405,7 @@ export function registerPaymentHttpRoutes(
       const isPaymentBusinessPath =
         path.startsWith("/api/pay/") ||
         path === "/api/me/services" ||
+        path === "/api/me/orders" ||
         path.startsWith("/api/admin/services") ||
         path.startsWith("/api/admin/plans") ||
         path.startsWith("/api/admin/coupons") ||
@@ -667,6 +669,25 @@ export function registerPaymentHttpRoutes(
       return reply
         .code(200)
         .send({ items: listMyServices(dependencies.database, session.principal.userId) });
+    } catch {
+      return reply.code(503).send(errorResponse("payment_unavailable"));
+    }
+  });
+
+  app.get("/api/me/orders", async (request, reply) => {
+    setNoStore(reply);
+    if (!dependencies.enabled) {
+      return reply.code(503).send(errorResponse("payment_unavailable"));
+    }
+    try {
+      const session = readPaymentSession(request, dependencies);
+      if (session === null) {
+        return reply.code(401).send(errorResponse("unauthorized"));
+      }
+      // 只读列表：不刷新支付宝、不逐单 query，异常一律 fail closed 成 503。
+      return reply
+        .code(200)
+        .send({ items: listMyOrders(dependencies.database, session.principal.userId) });
     } catch {
       return reply.code(503).send(errorResponse("payment_unavailable"));
     }
