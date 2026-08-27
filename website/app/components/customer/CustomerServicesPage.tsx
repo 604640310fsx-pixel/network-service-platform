@@ -125,7 +125,11 @@ export function CustomerServicesPage() {
             <p className="cc-svc-notice-title">登录状态已失效，请重新登录。</p>
             <p className="cc-svc-notice-hint">重新登录后即可查看你的服务与开通进度。</p>
             <div className="cc-svc-notice-actions">
-              <Link className="cc-svc-primary" to="/login">重新登录</Link>
+              {/* 会话失效恢复：必须整页导航而非 SPA Link。AuthProvider 仅在首次挂载时
+                  检查 /api/auth/me，之后 /api/me/services 的 401 不会把 status 从
+                  authenticated 降级；用 <Link> 时 LoginRoute 会读到旧的 authenticated
+                  并立即重定向回 /dashboard。原生 <a> 触发整页加载，强制重新检查会话。 */}
+              <a className="cc-svc-primary" href="/login">重新登录</a>
             </div>
           </div>
         </section>
