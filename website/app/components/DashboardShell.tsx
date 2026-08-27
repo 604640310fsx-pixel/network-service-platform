@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, Navigate, NavLink, useParams } from "react-router-dom";
 import { CustomerCenterShell } from "./customer/CustomerCenterShell";
+import { CustomerServicesPage } from "./customer/CustomerServicesPage";
 import { DashboardPage } from "./dashboard/DashboardPage";
 import { SubscribePage } from "./subscribe/SubscribePage";
 import type { SectionKey } from "../lib/sections";
@@ -178,10 +179,6 @@ function ServiceTable({ rows = serviceRows }: { rows?: string[][] }) {
   );
 }
 
-function ServicesPage() {
-  return <><section className="section-toolbar"><div className="filter-tabs"><button className="active">全部 12</button><button>运行中 10</button><button>维护中 2</button></div><button className="primary-button">＋ 添加服务</button></section><section className="panel"><ServiceTable /></section></>;
-}
-
 const pageContent: Record<Exclude<LegacySectionKey, "dashboard" | "services">, { stats: string[][]; rows: string[][]; headers: string[]; action: string }> = {
   reports: { stats: [["本月报告", "18", "已完成 16 份"], ["平均评分", "92", "链路质量良好"], ["待处理", "2", "需要人工复核"]], headers: ["报告名称", "类型", "生成时间", "评分", "状态"], rows: [["亚太区域链路周报", "综合诊断", "今天 08:30", "96", "已完成"], ["跨境路由质量分析", "路由分析", "昨天 21:10", "91", "已完成"], ["核心节点异常复盘", "故障分析", "8 月 7 日", "—", "分析中"]], action: "生成诊断报告" },
   monitor: { stats: [["在线探针", "36", "覆盖 8 个区域"], ["监控目标", "128", "全部正在采集"], ["今日事件", "7", "2 个仍需关注"]], headers: ["监控目标", "区域", "响应时间", "可用率", "状态"], rows: [["客户门户", "华东", "24 ms", "99.99%", "正常"], ["边缘 API", "新加坡", "48 ms", "99.97%", "正常"], ["路由分析器", "洛杉矶", "138 ms", "99.89%", "波动"]], action: "添加监控" },
@@ -232,6 +229,13 @@ export function DashboardShell() {
       </CustomerCenterShell>
     );
   }
+  if (section === "services") {
+    return (
+      <CustomerCenterShell title="当前套餐" description="查看已支付服务与人工开通进度">
+        <CustomerServicesPage />
+      </CustomerCenterShell>
+    );
+  }
 
   const meta = sectionMeta[section];
   const showLiveMonitor = section === "monitor";
@@ -263,7 +267,7 @@ export function DashboardShell() {
           <div className="page-heading">
             <div><span>{meta.eyebrow}</span><h1>{meta.title}</h1><p>{meta.description}</p></div>
           </div>
-          {section === "services" ? <ServicesPage /> : <StandardPage section={section as Exclude<LegacySectionKey, "dashboard" | "services">} />}
+          <StandardPage section={section as Exclude<LegacySectionKey, "dashboard" | "services">} />
           <footer><span>© 2026 Network Service Platform</span><span>服务条款 · 隐私政策 · v1.0.0</span></footer>
         </main>}
       </div>
