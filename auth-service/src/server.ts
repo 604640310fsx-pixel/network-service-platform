@@ -61,6 +61,13 @@ async function start(): Promise<void> {
           rateLimitKeyring: credentials.rateLimitKeyring,
         }
       : undefined,
+    diagnosis: {
+      database,
+      nodeEnv: config.nodeEnv,
+      tokenHmacKeyring: credentials.tokenHmacKeyring,
+      rateLimitKeyring: credentials.rateLimitKeyring,
+      csrfSigningKey: credentials.csrfSigningKey,
+    },
     payment,
   });
   let databaseClosed = false;

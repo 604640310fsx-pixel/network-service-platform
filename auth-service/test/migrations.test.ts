@@ -112,7 +112,7 @@ test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", 
 
     assert.deepEqual(
       migrationRows.map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
     );
     for (const row of migrationRows) {
       assert.match(row.applied_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
@@ -139,6 +139,7 @@ test("creates every frozen table and named index", async () => {
       "coupon_plans",
       "coupon_redemptions",
       "coupons",
+      "diagnosis_requests",
       "invite_code_redemptions",
       "invite_codes",
       "mail_outbox",
@@ -166,6 +167,7 @@ test("creates every frozen table and named index", async () => {
       "idx_coupon_plans_plan",
       "idx_coupon_redemptions_coupon",
       "idx_coupons_active",
+      "idx_diagnosis_requests_status_created",
       "idx_invite_codes_bootstrap_unique",
       "idx_notifications_payment",
       "idx_order_access_tokens_expiry",
