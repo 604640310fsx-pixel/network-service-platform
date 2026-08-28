@@ -160,6 +160,38 @@ function inspectDatabase(path, label) {
   }
 }
 
+function normalizeBackupToSingleFile(path) {
+  let database;
+  try {
+    database = new Database(path, { fileMustExist: true });
+    const journalMode = database.pragma("journal_mode = DELETE", {
+      simple: true,
+    });
+    if (
+      typeof journalMode !== "string" ||
+      journalMode.toLowerCase() !== "delete"
+    ) {
+      throw new ToolError(
+        "VERIFICATION_FAILED",
+        "backup could not be normalized to single-file journal mode",
+      );
+    }
+  } catch (error) {
+    if (error instanceof ToolError) {
+      throw error;
+    }
+    throw new ToolError(
+      "VERIFICATION_FAILED",
+      "backup could not be normalized to single-file journal mode",
+    );
+  } finally {
+    database?.close();
+  }
+
+  rmSync(`${path}-wal`, { force: true });
+  rmSync(`${path}-shm`, { force: true });
+}
+
 function assertMatchingMigrations(source, backup) {
   if (
     source.length !== backup.length ||
@@ -213,6 +245,7 @@ async function createBackup(options) {
       throw new ToolError("BACKUP_FAILED", "SQLite online backup failed");
     }
 
+    normalizeBackupToSingleFile(partial);
     const backupInspection = inspectDatabase(partial, "backup");
     assertMatchingMigrations(
       sourceInspection.migrations,
@@ -242,6 +275,8 @@ async function createBackup(options) {
   } finally {
     sourceDatabase?.close();
     rmSync(partial, { force: true });
+    rmSync(`${partial}-wal`, { force: true });
+    rmSync(`${partial}-shm`, { force: true });
   }
 }
 

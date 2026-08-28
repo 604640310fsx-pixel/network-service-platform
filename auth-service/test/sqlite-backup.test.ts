@@ -149,6 +149,10 @@ test("creates and independently verifies a single-file backup from a live WAL da
       fileMustExist: true,
     });
     try {
+      assert.equal(
+        backupDatabase.pragma("journal_mode", { simple: true }),
+        "delete",
+      );
       assert.deepEqual(backupDatabase.pragma("quick_check"), [
         { quick_check: "ok" },
       ]);
