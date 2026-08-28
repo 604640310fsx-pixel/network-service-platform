@@ -1,8 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  chmodSync,
+  closeSync,
   createReadStream,
   existsSync,
   linkSync,
+  openSync,
   realpathSync,
   rmSync,
   statSync,
@@ -13,6 +16,8 @@ import { pathToFileURL } from "node:url";
 
 const require = createRequire(import.meta.url);
 const Database = require("better-sqlite3");
+const OWNER_READ_WRITE_MODE = 0o600;
+const BACKUP_ARTIFACT_SUFFIXES = ["", "-wal", "-shm", "-journal"];
 
 class ToolError extends Error {
   constructor(code, message) {
@@ -87,6 +92,71 @@ function newDestinationPath(input) {
     throw new ToolError("DESTINATION_INVALID", "destination directory must exist");
   }
   return join(parent, basename(requestedPath));
+}
+
+function assertOwnerOnly(path, label) {
+  let mode;
+  try {
+    mode = statSync(path).mode & 0o777;
+  } catch {
+    throw new ToolError("PERMISSION_FAILED", `${label} permissions could not be read`);
+  }
+  if (mode !== OWNER_READ_WRITE_MODE) {
+    throw new ToolError("PERMISSION_FAILED", `${label} permissions must be 0600`);
+  }
+}
+
+function restrictToOwner(path, label) {
+  try {
+    chmodSync(path, OWNER_READ_WRITE_MODE);
+  } catch {
+    throw new ToolError(
+      "PERMISSION_FAILED",
+      `${label} permissions could not be restricted to 0600`,
+    );
+  }
+  assertOwnerOnly(path, label);
+}
+
+function createPrivatePartial(path) {
+  let descriptor;
+  try {
+    descriptor = openSync(path, "wx", OWNER_READ_WRITE_MODE);
+  } catch {
+    throw new ToolError("BACKUP_FAILED", "private backup workspace could not be created");
+  }
+
+  try {
+    closeSync(descriptor);
+  } catch {
+    throw new ToolError("BACKUP_FAILED", "private backup workspace could not be closed");
+  }
+  restrictToOwner(path, "partial backup");
+}
+
+function removeBackupArtifacts(path, includeDatabase = true) {
+  let cleanupFailed = false;
+  for (const suffix of BACKUP_ARTIFACT_SUFFIXES) {
+    if (!includeDatabase && suffix === "") {
+      continue;
+    }
+    const artifact = `${path}${suffix}`;
+    if (existsSync(artifact)) {
+      try {
+        chmodSync(artifact, OWNER_READ_WRITE_MODE);
+      } catch {
+        cleanupFailed = true;
+      }
+    }
+    try {
+      rmSync(artifact, { force: true });
+    } catch {
+      cleanupFailed = true;
+    }
+  }
+  if (cleanupFailed) {
+    throw new ToolError("CLEANUP_FAILED", "private backup artifacts could not be removed");
+  }
 }
 
 function migrationSequence(database, label) {
@@ -188,8 +258,7 @@ function normalizeBackupToSingleFile(path) {
     database?.close();
   }
 
-  rmSync(`${path}-wal`, { force: true });
-  rmSync(`${path}-shm`, { force: true });
+  removeBackupArtifacts(path, false);
 }
 
 function assertMatchingMigrations(source, backup) {
@@ -200,6 +269,33 @@ function assertMatchingMigrations(source, backup) {
     throw new ToolError(
       "MIGRATION_MISMATCH",
       "backup schema_migrations does not match source",
+    );
+  }
+}
+
+function expectedLastMigration(options) {
+  const value = requireValue(options, "--expected-last-migration");
+  if (!/^[1-9]\d*$/.test(value)) {
+    throw new ToolError(
+      "ARGUMENT_ERROR",
+      "--expected-last-migration must be a positive integer",
+    );
+  }
+  const version = Number(value);
+  if (!Number.isSafeInteger(version)) {
+    throw new ToolError(
+      "ARGUMENT_ERROR",
+      "--expected-last-migration must be a safe integer",
+    );
+  }
+  return version;
+}
+
+function assertExpectedMigrationBoundary(migrations, expectedLast) {
+  if (migrations.length !== expectedLast) {
+    throw new ToolError(
+      "MIGRATION_MISMATCH",
+      `backup schema_migrations does not match expected range 1..${expectedLast}`,
     );
   }
 }
@@ -236,8 +332,11 @@ async function createBackup(options) {
     `.${basename(destination)}.partial-${process.pid}-${randomUUID()}`,
   );
   let sourceDatabase;
+  let destinationLinked = false;
+  let published = false;
 
   try {
+    createPrivatePartial(partial);
     sourceDatabase = new Database(source, { readonly: true, fileMustExist: true });
     try {
       await sourceDatabase.backup(partial);
@@ -245,7 +344,9 @@ async function createBackup(options) {
       throw new ToolError("BACKUP_FAILED", "SQLite online backup failed");
     }
 
+    restrictToOwner(partial, "partial backup");
     normalizeBackupToSingleFile(partial);
+    restrictToOwner(partial, "partial backup");
     const backupInspection = inspectDatabase(partial, "backup");
     assertMatchingMigrations(
       sourceInspection.migrations,
@@ -253,15 +354,24 @@ async function createBackup(options) {
     );
     const digest = await sha256(partial);
     const bytes = statSync(partial).size;
+    try {
+      sourceDatabase.close();
+      sourceDatabase = undefined;
+    } catch {
+      throw new ToolError("BACKUP_FAILED", "SQLite source could not be closed cleanly");
+    }
 
     try {
       linkSync(partial, destination);
+      destinationLinked = true;
     } catch (error) {
       if (error !== null && typeof error === "object" && error.code === "EEXIST") {
         throw new ToolError("DESTINATION_EXISTS", "destination already exists");
       }
       throw new ToolError("DESTINATION_INVALID", "destination could not be created");
     }
+    restrictToOwner(destination, "backup");
+    published = true;
 
     return {
       status: "ok",
@@ -271,23 +381,45 @@ async function createBackup(options) {
       migrations: backupInspection.migrations,
       sha256: digest,
       bytes,
+      fileMode: "0600",
     };
   } finally {
-    sourceDatabase?.close();
-    rmSync(partial, { force: true });
-    rmSync(`${partial}-wal`, { force: true });
-    rmSync(`${partial}-shm`, { force: true });
+    let closeFailed = false;
+    let cleanupFailed = false;
+    try {
+      sourceDatabase?.close();
+    } catch {
+      closeFailed = true;
+    }
+    if (destinationLinked && !published) {
+      try {
+        removeBackupArtifacts(destination);
+      } catch {
+        cleanupFailed = true;
+      }
+    }
+    try {
+      removeBackupArtifacts(partial);
+    } catch {
+      cleanupFailed = true;
+    }
+    if (cleanupFailed) {
+      throw new ToolError("CLEANUP_FAILED", "private backup artifacts could not be removed");
+    }
+    if (closeFailed) {
+      throw new ToolError("BACKUP_FAILED", "SQLite source could not be closed cleanly");
+    }
   }
 }
 
 async function verifyBackup(options) {
   requireOnlyOptions(
     options,
-    new Set(["--source", "--backup", "--expected-sha256"]),
+    new Set(["--backup", "--expected-sha256", "--expected-last-migration"]),
   );
-  const source = existingFilePath(requireValue(options, "--source"), "source");
   const backup = existingFilePath(requireValue(options, "--backup"), "backup");
   const expectedHash = requireValue(options, "--expected-sha256").toLowerCase();
+  const expectedLast = expectedLastMigration(options);
 
   if (!/^[a-f0-9]{64}$/.test(expectedHash)) {
     throw new ToolError(
@@ -295,16 +427,9 @@ async function verifyBackup(options) {
       "--expected-sha256 must be 64 hexadecimal characters",
     );
   }
-  if (source === backup) {
-    throw new ToolError("SAME_PATH", "source and backup must differ");
-  }
-
-  const sourceInspection = inspectDatabase(source, "source");
+  assertOwnerOnly(backup, "backup");
   const backupInspection = inspectDatabase(backup, "backup");
-  assertMatchingMigrations(
-    sourceInspection.migrations,
-    backupInspection.migrations,
-  );
+  assertExpectedMigrationBoundary(backupInspection.migrations, expectedLast);
   const digest = await sha256(backup);
   if (digest !== expectedHash) {
     throw new ToolError("HASH_MISMATCH", "backup SHA-256 does not match expected value");
@@ -318,6 +443,7 @@ async function verifyBackup(options) {
     migrations: backupInspection.migrations,
     sha256: digest,
     bytes: statSync(backup).size,
+    fileMode: "0600",
   };
 }
 

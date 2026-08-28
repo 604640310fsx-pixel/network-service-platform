@@ -11,13 +11,23 @@ approved release window and an identified operator.
 Planning inputs frozen for `DIAGNOSIS-INTAKE-RELEASE-SAFETY-01`:
 
 - previously observed release: `9f58dc5e1d905fd06a1871c0e9c2e2d1f9eff71e`;
-- approved candidate: `47de74dee54382b15b08785b3bd6004090d31a77`;
+- implementation base and accepted Diagnosis Intake feature baseline:
+  `47de74dee54382b15b08785b3bd6004090d31a77`;
 - the existing database was observed in WAL mode with migrations 1 through 12;
 - candidate startup automatically applies Migration 13;
 - the older release understands only migrations 1 through 12;
 - internal `GET /health` is the application health endpoint; public
   `/api/health` returning 404 is not changed by this release;
 - the canonical public origin remains `https://www.siqiapparel.com`.
+
+`47de74dee54382b15b08785b3bd6004090d31a77` is
+`IMPLEMENTATION_BASE_SHA`, not a production release candidate. It does not
+contain the release-safety files added by this task and must not be deployed as
+the result of this runbook. `RELEASE_CANDIDATE_SHA` does not yet exist in this
+task. Only after this Draft PR is accepted and a merge is separately authorized
+may the exact new GitHub SHA of `integration/consolidate-project` be queried and
+frozen as `RELEASE_CANDIDATE_SHA` in a separate release decision. This runbook
+does not prefill that future SHA and this task does not merge or deploy.
 
 These are inputs for planning only. At execution time, revalidate every item
 read-only under the separate production authorization. Any mismatch is `DRIFT`:
@@ -29,11 +39,15 @@ Create an external release record without copying secrets, customer data,
 database contents, or production paths into Git or logs. Record:
 
 - approved operator, authorization reference, window, and rollback owner;
-- expected and observed release SHA;
+- `IMPLEMENTATION_BASE_SHA` as lineage evidence;
+- the separately frozen `RELEASE_CANDIDATE_SHA` and its GitHub verification
+  evidence, recorded only after the separately authorized merge has completed,
+  the new integration SHA exists, and that exact SHA is approved;
+- expected and observed old release SHA;
 - traffic gate closed time and the evidence that business writes stopped;
 - source migration sequence before startup;
-- backup tool result: SHA-256, byte count, quick check, foreign-key result, and
-  migration sequence;
+- backup tool result: SHA-256, byte count, `0600` file mode, quick check,
+  foreign-key result, and migration sequence;
 - candidate startup time and observed migration sequence after startup;
 - internal health result and the explicitly approved functional checks;
 - either the traffic reopened time or the stopped/rollback state;
@@ -46,15 +60,25 @@ or filesystem locations.
 
 Before changing traffic or services:
 
-1. Confirm the approved source and candidate SHAs from the release record.
-2. Confirm the actual deployed SHA, database journal mode, quick check,
+1. Confirm `IMPLEMENTATION_BASE_SHA` only as lineage evidence. Do not use it as
+   the release candidate.
+2. Confirm the separately authorized merge has completed, then confirm a
+   separate release decision has frozen the resulting existing exact
+   `RELEASE_CANDIDATE_SHA` from GitHub. If that field is missing, inferred,
+   points to `IMPLEMENTATION_BASE_SHA`, predates the merge, or does not exist on
+   the approved integration branch, stop.
+3. Confirm the actual deployed SHA, database journal mode, quick check,
    foreign-key check, and `schema_migrations` sequence using read-only methods.
-3. Confirm the current application Origin remains only
+4. Confirm the current application Origin remains only
    `https://www.siqiapparel.com`; do not add the bare domain.
-4. Confirm the existing traffic-withdrawal procedure can stop all business
+5. Confirm the existing traffic-withdrawal procedure can stop all business
    writes, not only the diagnosis page.
-5. Confirm the operator has an unused backup destination and enough storage.
-6. Confirm the rollback owner understands that the old release cannot open a
+6. Confirm the separately approved release procedure identifies how to stop
+   the exact old service, prove its process has exited, prove no application
+   database writer remains, and then switch/start the exact frozen candidate.
+   If this procedure is not frozen, stop.
+7. Confirm the operator has an unused backup destination and enough storage.
+8. Confirm the rollback owner understands that the old release cannot open a
    database after Migration 13 has been applied.
 
 Stop on an unexpected SHA, failed integrity check, migration sequence other
@@ -78,17 +102,26 @@ storage, or any request to infer a production path or secret.
    The tool does not read environment variables. It validates the source,
    creates an online SQLite backup suitable for a WAL source, validates the
    backup with `quick_check` and `foreign_key_check`, compares the
-   `schema_migrations` sequences, and emits SHA-256 and byte count without
-   emitting database content.
+   source/snapshot `schema_migrations` sequences, and emits SHA-256, byte count,
+   and file mode without emitting database content. The partial and final
+   backup are explicitly restricted to owner read/write mode `0600`; the tool
+   fails closed if it cannot enforce that mode.
 
 5. Independently re-run verification with the recorded hash:
 
    ```text
-   node auth-service/scripts/sqlite-backup.mjs verify --source <SOURCE_DB_PATH> --backup <NEW_BACKUP_PATH> --expected-sha256 <RECORDED_SHA256>
+   node auth-service/scripts/sqlite-backup.mjs verify --backup <NEW_BACKUP_PATH> --expected-sha256 <RECORDED_SHA256> --expected-last-migration 12
    ```
 
+   Independent verification intentionally does not read the live source. It
+   proves the backup still has mode `0600`, the recorded hash, successful
+   `quick_check` and `foreign_key_check`, and a continuous migration sequence
+   exactly from 1 through the explicit boundary. This remains valid after the
+   live database advances to Migration 13.
+
 6. Record only the safe result fields. A non-zero exit, partial result, missing
-   hash, failed check, or migration mismatch is a failed backup. Do not deploy.
+   hash, permission failure, failed check, or migration mismatch is a failed
+   backup. Do not deploy.
 7. From this point until traffic reopens, continuously preserve evidence that
    no production business write occurred after the backup snapshot. Without
    that proof, database restore is forbidden.
@@ -96,15 +129,21 @@ storage, or any request to infer a production path or secret.
 ## Phase 3: start the candidate while traffic stays closed
 
 1. Keep all business traffic closed.
-2. Start the exact approved candidate using the separately authorized release
-   procedure. Startup automatically applies Migration 13; do not run an extra
-   manual migration.
-3. Confirm the process stays up and internal `GET /health` returns 200 with the
+2. Using the separately approved release procedure, stop the exact old service.
+3. Prove the old process has exited and no old or other application process can
+   write the database. Do not start the candidate while the old process remains
+   connected or can write. If the stop/switch procedure or proof is missing,
+   stop with traffic closed.
+4. Switch to and start only the exact separately frozen
+   `RELEASE_CANDIDATE_SHA`. The old service and candidate must never run as
+   concurrent writers against the same database. Candidate startup
+   automatically applies Migration 13; do not run an extra manual migration.
+5. Confirm the process stays up and internal `GET /health` returns 200 with the
    expected response. Do not treat public `/api/health` as a health check.
-4. Re-check database integrity and confirm `schema_migrations` is exactly 1
+6. Re-check database integrity and confirm `schema_migrations` is exactly 1
    through 13. Confirm the diagnosis table exists without reading or printing
    customer rows.
-5. Run only the approved closed-traffic smoke checks. Payment or real-order
+7. Run only the approved closed-traffic smoke checks. Payment or real-order
    activity requires its own explicit authorization and is not part of this
    runbook.
 
@@ -123,9 +162,12 @@ Database restore is eligible only when all of the following are true:
 
 If every condition is met, the authorized rollback must treat the old release
 and the migrations-1-through-12 database backup as one matched rollback unit.
-Keep traffic closed while stopping the candidate, restoring the verified
-backup, starting the exact old release, and repeating the internal health and
-integrity checks. Reopen traffic only after the rollback acceptance is recorded.
+First rerun the source-independent `verify` command above with the recorded hash
+and `--expected-last-migration 12`. Keep traffic closed while stopping the
+candidate, proving no application database writer remains, restoring the
+verified backup, starting the exact old release, and repeating the internal
+health and integrity checks. Reopen traffic only after the rollback acceptance
+is recorded.
 
 If any condition cannot be proven, do not restore the database. Keep traffic
 closed and use a forward fix or obtain a new decision.
@@ -171,10 +213,15 @@ Stop the affected step and keep or return traffic to the safest already-proven
 state when any of these occurs:
 
 - release SHA, migration sequence, Origin, or health behavior drifts;
+- `RELEASE_CANDIDATE_SHA` is missing, inferred, still equals
+  `IMPLEMENTATION_BASE_SHA`, or has not been separately frozen from GitHub;
 - backup validation or hash verification fails;
 - the backup destination already exists or source and destination resolve to
   the same path;
 - traffic closure or absence of post-backup writes cannot be proven;
+- the approved old-service stop/switch procedure is missing, the old process
+  remains connected, or absence of concurrent application writers cannot be
+  proven;
 - a step needs a real secret, customer data, unapproved path, dependency,
   contract change, manual migration, payment/order action, or production access;
 - `nginx -t`, startup, integrity, or the approved smoke checks fail;

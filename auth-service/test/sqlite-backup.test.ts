@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdtemp,
+  readFile,
+  readdir,
+  readlink,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -30,6 +41,7 @@ interface ToolResult {
   readonly migrations: readonly number[];
   readonly sha256: string;
   readonly bytes: number;
+  readonly fileMode: "0600";
 }
 
 interface ToolFailure {
@@ -122,13 +134,19 @@ test("creates and independently verifies a single-file backup from a live WAL da
     `);
     await access(`${source}-wal`);
 
-    const created = await executeTool([
-      "create",
-      "--source",
-      source,
-      "--destination",
-      backup,
-    ]);
+    const previousUmask = process.umask(0);
+    let created: Awaited<ReturnType<typeof executeTool>>;
+    try {
+      created = await executeTool([
+        "create",
+        "--source",
+        source,
+        "--destination",
+        backup,
+      ]);
+    } finally {
+      process.umask(previousUmask);
+    }
     assert.equal(created.exitCode, 0, created.stderr);
     assert.equal(created.stderr, "");
     const result = parseSuccess(created.stdout);
@@ -140,9 +158,11 @@ test("creates and independently verifies a single-file backup from a live WAL da
       migrations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
       sha256: result.sha256,
       bytes: result.bytes,
+      fileMode: "0600",
     });
     assert.match(result.sha256, /^[a-f0-9]{64}$/);
     assert.ok(result.bytes > 0);
+    assert.equal((await stat(backup)).mode & 0o777, 0o600);
 
     const backupDatabase = new Database(backup, {
       readonly: true,
@@ -177,12 +197,12 @@ test("creates and independently verifies a single-file backup from a live WAL da
 
     const verified = await executeTool([
       "verify",
-      "--source",
-      source,
       "--backup",
       backup,
       "--expected-sha256",
       result.sha256,
+      "--expected-last-migration",
+      "13",
     ]);
     assert.equal(verified.exitCode, 0, verified.stderr);
     assert.deepEqual(parseSuccess(verified.stdout), {
@@ -262,16 +282,161 @@ test("rejects a corrupted backup during independent verification", async () => {
 
     const verified = await executeTool([
       "verify",
+      "--backup",
+      backup,
+      "--expected-sha256",
+      corruptHash,
+      "--expected-last-migration",
+      "1",
+    ]);
+    assert.equal(verified.exitCode, 1);
+    assert.equal(verified.stdout, "");
+    assert.equal(parseFailure(verified.stderr).code, "VERIFICATION_FAILED");
+  } finally {
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("verifies a pre-migration snapshot after the live source advances", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "sqlite-backup-rollback-"));
+  const source = join(directory, "source.sqlite");
+  const backup = join(directory, "backup.sqlite");
+  const database = openFixture(
+    source,
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  );
+
+  try {
+    const created = await executeTool([
+      "create",
+      "--source",
+      source,
+      "--destination",
+      backup,
+    ]);
+    assert.equal(created.exitCode, 0, created.stderr);
+    const snapshot = parseSuccess(created.stdout);
+    database
+      .prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+      .run(13, "2026-08-28T01:00:00.000Z");
+
+    const verified = await executeTool([
+      "verify",
+      "--backup",
+      backup,
+      "--expected-sha256",
+      snapshot.sha256,
+      "--expected-last-migration",
+      "12",
+    ]);
+    assert.equal(verified.exitCode, 0, verified.stderr);
+    assert.deepEqual(parseSuccess(verified.stdout), {
+      ...snapshot,
+      operation: "verify",
+    });
+
+    const wrongHash = await executeTool([
+      "verify",
+      "--backup",
+      backup,
+      "--expected-sha256",
+      "0".repeat(64),
+      "--expected-last-migration",
+      "12",
+    ]);
+    assert.equal(wrongHash.exitCode, 1);
+    assert.equal(parseFailure(wrongHash.stderr).code, "HASH_MISMATCH");
+
+    const wrongBoundary = await executeTool([
+      "verify",
+      "--backup",
+      backup,
+      "--expected-sha256",
+      snapshot.sha256,
+      "--expected-last-migration",
+      "13",
+    ]);
+    assert.equal(wrongBoundary.exitCode, 1);
+    assert.equal(parseFailure(wrongBoundary.stderr).code, "MIGRATION_MISMATCH");
+
+    const ambiguousLiveSource = await executeTool([
+      "verify",
       "--source",
       source,
       "--backup",
       backup,
       "--expected-sha256",
-      corruptHash,
+      snapshot.sha256,
+      "--expected-last-migration",
+      "12",
+    ]);
+    assert.equal(ambiguousLiveSource.exitCode, 1);
+    assert.equal(parseFailure(ambiguousLiveSource.stderr).code, "ARGUMENT_ERROR");
+  } finally {
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("independent verification rejects backup permissions broader than 0600", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "sqlite-backup-permission-"));
+  const source = join(directory, "source.sqlite");
+  const backup = join(directory, "backup.sqlite");
+  const database = openFixture(source);
+
+  try {
+    const created = await executeTool([
+      "create",
+      "--source",
+      source,
+      "--destination",
+      backup,
+    ]);
+    assert.equal(created.exitCode, 0, created.stderr);
+    const snapshot = parseSuccess(created.stdout);
+    await chmod(backup, 0o644);
+
+    const verified = await executeTool([
+      "verify",
+      "--backup",
+      backup,
+      "--expected-sha256",
+      snapshot.sha256,
+      "--expected-last-migration",
+      "1",
     ]);
     assert.equal(verified.exitCode, 1);
-    assert.equal(verified.stdout, "");
-    assert.equal(parseFailure(verified.stderr).code, "VERIFICATION_FAILED");
+    assert.equal(parseFailure(verified.stderr).code, "PERMISSION_FAILED");
+  } finally {
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("publication failure removes partial database, WAL, SHM, and journal artifacts", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "sqlite-backup-cleanup-"));
+  const source = join(directory, "source.sqlite");
+  const destination = join(directory, "backup.sqlite");
+  const database = openFixture(source);
+
+  try {
+    await symlink("missing-target", destination);
+    const result = await executeTool([
+      "create",
+      "--source",
+      source,
+      "--destination",
+      destination,
+    ]);
+    assert.equal(result.exitCode, 1);
+    assert.equal(parseFailure(result.stderr).code, "DESTINATION_EXISTS");
+    assert.equal(await readlink(destination), "missing-target");
+    const entries = await readdir(directory);
+    assert.equal(
+      entries.some((entry) => entry.startsWith(".backup.sqlite.partial-")),
+      false,
+    );
   } finally {
     database.close();
     await rm(directory, { recursive: true, force: true });
