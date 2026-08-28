@@ -198,15 +198,18 @@ export function DiagnosisPage() {
               <p className="home-eyebrow"><i aria-hidden="true" />DIAGNOSIS INTAKE</p>
               <h1>先把网络问题说清楚</h1>
               <p>
-                提交当前网络、目标地区和异常表现。我们先根据这些信息判断问题方向，
-                再决定需要补充检测、局部优化，还是进入网络方案。
+                本入口用于申请人工初步判断。提交不等于已经完成诊断；
+                正式诊断的范围和费用需要另行确认。
               </p>
             </div>
             <aside className="diagnosis-safety" aria-labelledby="diagnosis-safety-title">
               <span aria-hidden="true">安全提示</span>
               <div>
                 <h2 id="diagnosis-safety-title">不要填写任何敏感凭据</h2>
-                <p>请勿提交密码、验证码、密钥、Cookie、支付信息或远程控制凭据。</p>
+                <p>
+                  请勿提交密码、验证码、密钥、会话、支付资料、未经脱敏的客户或生产信息；
+                  也不要填写 Cookie 或远程控制凭据。
+                </p>
               </div>
             </aside>
           </div>
@@ -217,8 +220,8 @@ export function DiagnosisPage() {
             {submitted ? (
               <div className="diagnosis-result" role="status">
                 <span>SUBMITTED</span>
-                <h2>诊断信息已提交</h2>
-                <p>我们已收到这份信息。后续判断以人工核对和实际检测为准。</p>
+                <h2>提交成功</h2>
+                <p>诊断需求已提交。我们会先进行人工初步判断，并通过你提供的联系方式回复下一步建议。</p>
                 <div>
                   <Link to="/" className="diagnosis-secondary-button">返回首页</Link>
                   <button
@@ -356,13 +359,16 @@ export function DiagnosisPage() {
                 <div className="diagnosis-submit-area">
                   <label className="diagnosis-safety-check">
                     <input type="checkbox" checked={form.safetyAcknowledged} onChange={(event) => update("safetyAcknowledged", event.target.checked)} required />
-                    <span>我确认以上内容不包含密码、验证码、密钥、Cookie、支付信息或远程控制凭据。</span>
+                    <span>
+                      我确认以上内容不包含密码、验证码、密钥、会话、支付资料、
+                      未经脱敏的客户或生产信息、Cookie 或远程控制凭据。
+                    </span>
                   </label>
                   {error && <p className="diagnosis-error" role="alert">{error}</p>}
                   <button type="submit" className="diagnosis-primary-button" disabled={submitting} aria-busy={submitting}>
                     {submitting ? "正在提交…" : "提交诊断信息"}
                   </button>
-                  <small>提交只用于后续人工判断；实际结论以进一步核对和检测为准。</small>
+                  <small>本入口只受理人工初步判断申请；提交不代表诊断已经完成，正式诊断范围与费用须另行确认。</small>
                 </div>
               </form>
             )}

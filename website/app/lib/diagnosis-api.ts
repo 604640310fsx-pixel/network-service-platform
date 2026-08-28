@@ -314,6 +314,7 @@ export async function classifyAdminDiagnosisRequest(
   classification: DiagnosisClassification,
   adminNote: string | null,
 ): Promise<void> {
+  const requestBody = adminNote === null ? { classification } : { classification, adminNote };
   const body = await requestJson(`/api/admin/diagnosis/requests/${requestId}`, {
     method: "PATCH",
     headers: {
@@ -322,7 +323,7 @@ export async function classifyAdminDiagnosisRequest(
       "X-Requested-With": "XMLHttpRequest",
       "X-CSRF-Token": csrfToken,
     },
-    body: JSON.stringify({ classification, adminNote }),
+    body: JSON.stringify(requestBody),
   });
   if (!isRecord(body) || body.status !== "ok" || Object.keys(body).length !== 1) {
     throw new DiagnosisApiError("invalid_response");
