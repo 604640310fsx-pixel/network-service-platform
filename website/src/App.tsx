@@ -3,6 +3,7 @@ import { HomePage } from "../app/components/home/HomePage";
 import { LoginPage } from "../app/components/auth/LoginPage";
 import { RegisterPage } from "../app/components/auth/RegisterPage";
 import { DashboardShell } from "../app/components/DashboardShell";
+import { DiagnosisPage } from "../app/components/diagnosis/DiagnosisPage";
 import { SubmitRequestPage } from "../app/components/subscribe/SubmitRequestPage";
 import { AuthProvider, useAuth } from "../app/lib/auth";
 
@@ -32,6 +33,7 @@ export default function App() {
         {/* 静态 Auth 路由必须先于动态 /:section 命中。 */}
         <Route path="/login" element={<LoginRoute />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/diagnosis" element={<DiagnosisPage />} />
         {/* 公开的独立提交页，必须先于动态 /:section，避免两段路径落到兜底重定向。 */}
         <Route path="/subscribe/request" element={<SubmitRequestPage />} />
         <Route path="/:section" element={<SectionRoute />} />
