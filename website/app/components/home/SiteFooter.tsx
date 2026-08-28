@@ -20,7 +20,7 @@ export function SiteFooter() {
             <div className="home-footer-col">
               <b>服务</b>
               <Link to="/subscribe">网络方案</Link>
-              <a href="#diagnosis">诊断能力</a>
+              <Link to="/diagnosis">诊断服务</Link>
               <Link to="/monitor">实时监控</Link>
             </div>
             <div className="home-footer-col">

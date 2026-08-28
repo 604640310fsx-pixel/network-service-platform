@@ -506,15 +506,13 @@ export function HomePage() {
                 再决定是否需要优化或更换方案。
               </p>
               <div className="home-cta-row">
-                <button type="button" className="home-btn home-btn-pending" disabled aria-disabled="true" title="在线诊断入口待接入">
-                  开始诊断<small>待接入</small>
-                </button>
+                <Link to="/diagnosis" className="home-btn home-btn-secondary">开始诊断</Link>
                 <Link to="/subscribe" className="home-btn home-btn-primary">
                   查看网络方案
                   {ARROW}
                 </Link>
               </div>
-              <p className="home-hero-note">在线诊断入口尚未接入，当前可先查看网络方案。</p>
+              <p className="home-hero-note">填写当前网络环境与问题概况，用于后续人工判断。</p>
             </div>
 
             {/* Signature visual 01：诊断管线（示意，只有一个"检查中"游标，无 VERIFIED） */}

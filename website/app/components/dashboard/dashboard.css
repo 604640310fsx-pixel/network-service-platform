@@ -54,6 +54,36 @@
 .dash-delivery-actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
 .dash-delivery-actions small { color: var(--cc-text-4); font-size: 11px; }
 
+/* 管理员诊断请求：沿用 dash-panel / dash-service，不引入新的后台页面层级。 */
+.dash-diagnosis-toolbar { display: flex; align-items: center; gap: 8px; margin: -2px 0 14px; }
+.dash-diagnosis-toolbar button { min-height: 36px; padding: 0 13px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text-3); font: inherit; font-size: 12.5px; cursor: pointer; }
+.dash-diagnosis-toolbar button.is-active { border-color: var(--cc-accent-line); background: var(--cc-accent-tint); color: var(--cc-accent); font-weight: 600; }
+.dash-diagnosis-toolbar .dash-diagnosis-refresh { margin-left: auto; }
+.dash-diagnosis-toolbar button:disabled { cursor: not-allowed; opacity: 0.5; }
+.dash-tag.is-handled { border-color: var(--cc-accent-line); background: var(--cc-accent-tint); color: var(--cc-accent); }
+.dash-diagnosis-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.dash-diagnosis-copy { display: grid; gap: 10px; margin-top: 15px; }
+.dash-diagnosis-copy section { padding: 12px 13px; border: 1px solid var(--cc-hairline); border-radius: 9px; background: var(--cc-inset); }
+.dash-diagnosis-copy h3 { margin: 0; color: var(--cc-text-3); font-size: 11.5px; font-weight: 500; }
+.dash-diagnosis-copy p { margin: 5px 0 0; color: var(--cc-text-2); font-size: 13.5px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dash-diagnosis-form { min-width: 0; margin: 16px 0 0; padding: 14px; border: 1px solid var(--cc-hairline); border-radius: 10px; background: var(--cc-inset); }
+.dash-diagnosis-form legend { padding: 0 6px; color: var(--cc-text-2); font-size: 12.5px; font-weight: 600; }
+.dash-diagnosis-form > div { display: grid; grid-template-columns: minmax(180px, 0.55fr) minmax(280px, 1.45fr); align-items: start; gap: 12px; }
+.dash-diagnosis-form label { min-width: 0; display: flex; flex-direction: column; gap: 6px; color: var(--cc-text-3); font-size: 11.5px; }
+.dash-diagnosis-form label > span { display: flex; }
+.dash-diagnosis-form label small { margin-left: auto; color: var(--cc-text-4); font-size: 10.5px; }
+.dash-diagnosis-form select,
+.dash-diagnosis-form textarea { width: 100%; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 13px; }
+.dash-diagnosis-form select { height: 40px; padding: 0 10px; }
+.dash-diagnosis-form textarea { min-height: 76px; padding: 9px 10px; resize: vertical; line-height: 1.55; }
+.dash-diagnosis-form select:focus,
+.dash-diagnosis-form textarea:focus { border-color: var(--cc-accent-line); outline: none; box-shadow: inset 0 0 0 1px var(--cc-accent-inset); }
+.dash-diagnosis-form .dash-inline-error { margin: 10px 0 0; }
+.dash-diagnosis-form > .dash-primary-link { margin-top: 12px; }
+.dash-diagnosis-resolution { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0 0; padding: 13px; border: 1px solid var(--cc-hairline); border-radius: 9px; background: var(--cc-inset); }
+.dash-diagnosis-resolution dt { color: var(--cc-text-3); font-size: 11.5px; }
+.dash-diagnosis-resolution dd { margin: 4px 0 0; color: var(--cc-text-2); font-size: 13.5px; overflow-wrap: anywhere; }
+
 /* 商业管理:套餐与优惠券,延续既有 dash-panel / dash-service / dash-tag / dash-primary-link 视觉语言。 */
 .dash-plans-toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
 .dash-plans-toolbar input[type="text"] { flex: 1 1 260px; min-width: 0; height: 40px; padding: 0 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 13px; }
@@ -133,5 +163,8 @@ button.dash-action strong { color: var(--cc-text-3); font-weight: 500; }
   .dash-primary-link { width: 100%; justify-content: center; }
   .dash-delivery-row { grid-template-columns: minmax(0, 1fr); }
   .dash-delivery-remove { width: 100%; }
+  .dash-diagnosis-facts,
+  .dash-diagnosis-resolution { grid-template-columns: minmax(0, 1fr); }
+  .dash-diagnosis-form > div { grid-template-columns: minmax(0, 1fr); }
   .dash-action-grid { grid-template-columns: minmax(0, 1fr); }
 }

@@ -1,23 +1,17 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
 import type { ThemePreference } from "../../lib/theme";
 
 /* 官网公开 Header。不使用客户中心左侧 sidebar。
-   导航只对仓库中真实存在且可呈现的路由开放跳转：
-   /（首页）、/subscribe（网络方案）与 /monitor（服务状态）。"诊断服务"当前没有
-   对应页面，呈现为不可点击的待接入项，不做成点击后假装可用。 */
+   只开放仓库中真实存在且可呈现的公开页面。 */
 
-type NavEntry =
-  | { kind: "link"; label: string; to: string }
-  | { kind: "pending"; label: string; title: string };
-
-const navEntries: NavEntry[] = [
-  { kind: "link", label: "首页", to: "/" },
-  { kind: "link", label: "网络方案", to: "/subscribe" },
-  { kind: "pending", label: "诊断服务", title: "诊断服务页面待接入" },
-  { kind: "link", label: "服务状态", to: "/monitor" },
-];
+const navEntries = [
+  { label: "首页", to: "/" },
+  { label: "网络方案", to: "/subscribe" },
+  { label: "诊断服务", to: "/diagnosis" },
+  { label: "服务状态", to: "/monitor" },
+] as const;
 
 export function SiteHeader({
   theme,
@@ -51,22 +45,16 @@ export function SiteHeader({
           </Link>
 
           <nav className="home-nav" aria-label="主导航">
-            {navEntries.map((entry) =>
-              entry.kind === "link" ? (
-                <Link
-                  key={entry.label}
-                  to={entry.to}
-                  className={entry.to === "/" ? "is-active" : undefined}
-                  aria-current={entry.to === "/" ? "page" : undefined}
-                >
-                  {entry.label}
-                </Link>
-              ) : (
-                <button key={entry.label} type="button" className="is-pending" disabled aria-disabled="true" title={entry.title}>
-                  {entry.label}
-                </button>
-              ),
-            )}
+            {navEntries.map((entry) => (
+              <NavLink
+                key={entry.label}
+                to={entry.to}
+                end={entry.to === "/"}
+                className={({ isActive }) => isActive ? "is-active" : undefined}
+              >
+                {entry.label}
+              </NavLink>
+            ))}
           </nav>
 
           <div className="home-header-actions">
@@ -104,17 +92,11 @@ export function SiteHeader({
 
         <div className={`home-mobile-nav${menuOpen ? " is-open" : ""}`}>
           <div>
-            {navEntries.map((entry) =>
-              entry.kind === "link" ? (
-                <Link key={entry.label} to={entry.to} onClick={() => setMenuOpen(false)}>
-                  {entry.label}
-                </Link>
-              ) : (
-                <button key={entry.label} type="button" className="is-pending" disabled aria-disabled="true">
-                  {entry.label}
-                </button>
-              ),
-            )}
+            {navEntries.map((entry) => (
+              <NavLink key={entry.label} to={entry.to} end={entry.to === "/"} onClick={() => setMenuOpen(false)}>
+                {entry.label}
+              </NavLink>
+            ))}
             <Link to={accountHref} className="home-mobile-login" onClick={() => setMenuOpen(false)}>
               {accountLabel}
             </Link>
