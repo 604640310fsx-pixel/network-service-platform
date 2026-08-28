@@ -1,14 +1,8 @@
 export const sectionKeys = [
   "dashboard",
   "services",
-  "reports",
   "monitor",
   "orders",
-  "tickets",
-  "docs",
-  "status",
-  "profile",
-  "security",
   "subscribe",
 ] as const;
 
