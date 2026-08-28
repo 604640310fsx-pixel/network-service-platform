@@ -4,6 +4,7 @@ import { CustomerCenterShell } from "./customer/CustomerCenterShell";
 import { CustomerOrdersPage } from "./customer/CustomerOrdersPage";
 import { CustomerServicesPage } from "./customer/CustomerServicesPage";
 import { DashboardPage } from "./dashboard/DashboardPage";
+import { PublicMonitorPage } from "./monitor/PublicMonitorPage";
 import { SubscribePage } from "./subscribe/SubscribePage";
 import type { SectionKey } from "../lib/sections";
 import { sectionKeys } from "../lib/sections";
@@ -244,40 +245,25 @@ export function DashboardShell() {
       </CustomerCenterShell>
     );
   }
+  // /monitor 是公开官网页面：走官网壳层，不进入 legacy app-shell（Sidebar/Topbar）。
+  if (section === "monitor") {
+    return <PublicMonitorPage />;
+  }
 
   const meta = sectionMeta[section];
-  const showLiveMonitor = section === "monitor";
-  const monitorUrl = import.meta.env.VITE_MONITOR_URL?.trim();
 
   return (
     <div className="app-shell">
       <Sidebar active={section} open={menuOpen} onClose={() => setMenuOpen(false)} />
-      <div className={`main-column ${showLiveMonitor ? "live-monitor-column" : ""}`}>
+      <div className="main-column">
         <Topbar onMenu={() => setMenuOpen(true)} />
-        {showLiveMonitor ? (
-          <main className="live-monitor-main">
-            {monitorUrl ? (
-              <iframe
-                className="live-monitor-frame"
-                src={monitorUrl}
-                title="广州三网实时监控"
-                allow="fullscreen"
-              />
-            ) : (
-              <section className="panel" role="status" aria-live="polite">
-                <div className="panel-title">
-                  <div><span>网络监控</span><strong>监控地址未配置</strong></div>
-                </div>
-              </section>
-            )}
-          </main>
-        ) : <main>
+        <main>
           <div className="page-heading">
             <div><span>{meta.eyebrow}</span><h1>{meta.title}</h1><p>{meta.description}</p></div>
           </div>
           <StandardPage section={section as Exclude<LegacySectionKey, "dashboard" | "services">} />
           <footer><span>© 2026 Network Service Platform</span><span>服务条款 · 隐私政策 · v1.0.0</span></footer>
-        </main>}
+        </main>
       </div>
     </div>
   );
