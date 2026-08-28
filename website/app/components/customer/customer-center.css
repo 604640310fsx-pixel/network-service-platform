@@ -142,13 +142,12 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
 .cc-nav-group button.cc-nav-pending { cursor: not-allowed; color: var(--cc-text-3); opacity: 0.72; }
 
 .cc-monitor-card { margin: 13px; padding: 14px 15px; border: 1px solid var(--cc-line); border-radius: 12px; background: var(--cc-card); }
-.cc-monitor-card header { display: flex; justify-content: space-between; margin-bottom: 11px; }
+.cc-monitor-card header { margin-bottom: 6px; }
 .cc-monitor-card header b { color: var(--cc-text-2); font-size: 12.5px; }
-.cc-monitor-card header .cc-monitor-pending { color: var(--cc-text-4); font-size: 12px; }
-.cc-monitor-card > div { display: flex; justify-content: space-between; padding: 5px 0; color: var(--cc-text-2); font-variant-numeric: tabular-nums; }
-.cc-monitor-card > div b { color: var(--cc-text-3); }
-.cc-monitor-card footer { display: flex; align-items: center; gap: 8px; margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--cc-hairline); color: var(--cc-text-4); font-size: 11.5px; }
-.cc-monitor-card footer i { width: 6px; height: 6px; border-radius: 50%; background: var(--cc-text-4); }
+.cc-monitor-card .cc-monitor-status { display: block; color: var(--cc-accent); font-size: 13.5px; }
+.cc-monitor-card p { margin: 4px 0 11px; color: var(--cc-text-3); font-size: 11.5px; line-height: 1.55; }
+.cc-monitor-card .cc-monitor-link { display: flex; min-height: 34px; align-items: center; justify-content: center; border: 1px solid var(--cc-accent-line); border-radius: 8px; background: var(--cc-accent-tint); color: var(--cc-accent); text-decoration: none; font-size: 12.5px; font-weight: 600; }
+.cc-monitor-card .cc-monitor-link:hover { background: var(--cc-accent-inset); }
 
 .cc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .cc-topbar { position: sticky; top: 0; z-index: 30; min-height: var(--cc-top-height); display: flex; align-items: center; gap: 14px; padding: 15px var(--cc-gutter); border-bottom: 1px solid var(--cc-hairline); background: var(--cc-top); backdrop-filter: saturate(160%) blur(12px); }
