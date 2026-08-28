@@ -1,0 +1,36 @@
+# CLOSED-STATE CANDIDATE ONLY.
+#
+# Include these locations inside the existing www server only when a separately
+# authorized operator must close Diagnosis Intake. Keeping this file excluded is
+# the open state. The narrow matches intentionally leave /health, Auth, payment,
+# order, and all other website routes unchanged.
+
+location = /diagnosis {
+    add_header Cache-Control "no-store" always;
+    add_header Retry-After "300" always;
+    return 503;
+}
+
+location ^~ /diagnosis/ {
+    add_header Cache-Control "no-store" always;
+    add_header Retry-After "300" always;
+    return 503;
+}
+
+location ^~ /api/diagnosis/ {
+    add_header Cache-Control "no-store" always;
+    add_header Retry-After "300" always;
+    return 503;
+}
+
+location = /api/admin/diagnosis/requests {
+    add_header Cache-Control "no-store" always;
+    add_header Retry-After "300" always;
+    return 503;
+}
+
+location ^~ /api/admin/diagnosis/requests/ {
+    add_header Cache-Control "no-store" always;
+    add_header Retry-After "300" always;
+    return 503;
+}

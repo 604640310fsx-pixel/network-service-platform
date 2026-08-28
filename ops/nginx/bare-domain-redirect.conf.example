@@ -1,0 +1,22 @@
+# CANDIDATE ONLY. Applying or testing an assembled production configuration
+# requires separate production authorization.
+
+# Plain HTTP bare-domain entry point.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name siqiapparel.com;
+
+    return 308 https://www.siqiapparel.com$request_uri;
+}
+
+# TLS bare-domain entry point. The authorized operator must assemble this block
+# with the environment's existing TLS directives. Certificate paths and other
+# production-specific values are intentionally absent from this repository.
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name siqiapparel.com;
+
+    return 308 https://www.siqiapparel.com$request_uri;
+}
