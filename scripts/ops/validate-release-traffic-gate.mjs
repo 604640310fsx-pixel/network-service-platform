@@ -112,6 +112,10 @@ assert.deepEqual(
 );
 
 const runbookSource = readFileSync(runbookPath, "utf8");
+assert.ok(
+  !runbookSource.includes("`IMPLEMENTATION_BASE_SHA`"),
+  "runbook must use the two defined implementation-base record names",
+);
 for (const requiredFragment of [
   "ops/nginx/release-traffic-closed.conf.example",
   "FULL_PUBLIC_GATE: CLOSED",

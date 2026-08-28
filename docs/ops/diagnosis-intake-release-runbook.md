@@ -126,13 +126,14 @@ the assembled file hash; do not record the assembled configuration or paths.
 
 Before changing traffic or services:
 
-1. Confirm `IMPLEMENTATION_BASE_SHA` only as lineage evidence. Do not use it as
-   the release candidate.
+1. Confirm `FEATURE_IMPLEMENTATION_BASE_SHA` and
+   `TRAFFIC_GATE_IMPLEMENTATION_BASE_SHA` only as lineage evidence. Do not use
+   either as the release candidate.
 2. Confirm the separately authorized merge has completed, then confirm a
    separate release decision has frozen the resulting existing exact
    `RELEASE_CANDIDATE_SHA` from GitHub. If that field is missing, inferred,
-   points to `IMPLEMENTATION_BASE_SHA`, predates the merge, or does not exist on
-   the approved integration branch, stop.
+   points to either implementation base, predates the merge, or does not exist
+   on the approved integration branch, stop.
 3. Confirm the actual deployed SHA, database journal mode, quick check,
    foreign-key check, and `schema_migrations` sequence using read-only methods.
 4. Confirm the current application Origin remains only
@@ -322,8 +323,8 @@ Stop the affected step and keep or return traffic to the safest already-proven
 state when any of these occurs:
 
 - release SHA, migration sequence, Origin, or health behavior drifts;
-- `RELEASE_CANDIDATE_SHA` is missing, inferred, still equals
-  `IMPLEMENTATION_BASE_SHA`, or has not been separately frozen from GitHub;
+- `RELEASE_CANDIDATE_SHA` is missing, inferred, still equals either
+  implementation base, or has not been separately frozen from GitHub;
 - backup validation or hash verification fails;
 - the backup destination already exists or source and destination resolve to
   the same path;
