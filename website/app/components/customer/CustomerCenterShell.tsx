@@ -137,11 +137,10 @@ export function CustomerCenterShell({
             ))}
           </nav>
           <section className="cc-monitor-card" aria-label="网络状态监控">
-            <header><b>网络状态监控</b><span className="cc-monitor-pending" aria-disabled="true">待接入</span></header>
-            <div><span>广州电信</span><b>—</b></div>
-            <div><span>广州联通</span><b>—</b></div>
-            <div><span>广州移动</span><b>—</b></div>
-            <footer><i aria-hidden="true" />监控数据待接入</footer>
+            <header><b>网络状态监控</b></header>
+            <strong className="cc-monitor-status">实时监控已上线</strong>
+            <p>查看三网线路与实时网络运行状态</p>
+            <NavLink to="/monitor" className="cc-monitor-link" onClick={closeDrawer}>查看实时监控</NavLink>
           </section>
         </aside>
 
