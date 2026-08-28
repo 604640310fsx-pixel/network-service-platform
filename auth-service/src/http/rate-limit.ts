@@ -37,6 +37,10 @@ export interface RegistrationRateLimitDependencies {
   readonly now?: () => Date;
 }
 
+export interface DiagnosisRateLimitDependencies {
+  readonly now?: () => Date;
+}
+
 export const LOGIN_IP_LIMIT = 20;
 export const LOGIN_ACCOUNT_LIMIT = 10;
 export const REGISTRATION_START_IP_LIMIT = 10;
@@ -46,6 +50,7 @@ export const REGISTRATION_RESEND_IP_LIMIT = 20;
 export const REGISTRATION_RESEND_EMAIL_LIMIT = 5;
 export const REGISTRATION_VERIFY_IP_LIMIT = 30;
 export const REGISTRATION_COMPLETE_IP_LIMIT = 20;
+export const DIAGNOSIS_SUBMIT_IP_LIMIT = 5;
 export const RATE_LIMIT_BUCKET_SECONDS = 300;
 export const RATE_LIMIT_WINDOW_SECONDS = 3_600;
 
@@ -221,20 +226,28 @@ function consumeDimensions(
   times: ReturnType<typeof rateLimitTimes>,
 ): void {
   const consume = database.transaction(() => {
-    for (const dimension of dimensions) {
-      if (
-        countForKeys(database, dimension.readKeys, times.windowFloor) >=
-        dimension.limit
-      ) {
-        throw new RateLimitExceededError();
-      }
-    }
-    for (const dimension of dimensions) {
-      increment(database, dimension.writeKey, times.windowStart, times.now);
-    }
+    consumeDimensionRows(database, dimensions, times);
   });
 
   consume.immediate();
+}
+
+function consumeDimensionRows(
+  database: DatabaseConnection,
+  dimensions: readonly RateLimitDimension[],
+  times: ReturnType<typeof rateLimitTimes>,
+): void {
+  for (const dimension of dimensions) {
+    if (
+      countForKeys(database, dimension.readKeys, times.windowFloor) >=
+      dimension.limit
+    ) {
+      throw new RateLimitExceededError();
+    }
+  }
+  for (const dimension of dimensions) {
+    increment(database, dimension.writeKey, times.windowStart, times.now);
+  }
 }
 
 function dimension(
@@ -350,6 +363,50 @@ export function consumeRegistrationIpRateLimit(
     [dimension(keyring, purpose, [canonicalizeIp(ip)], limits[purpose])],
     times,
   );
+}
+
+export function consumeDiagnosisSubmitRateLimit(
+  database: DatabaseConnection,
+  keyring: RateLimitKeyring,
+  ip: string,
+  dependencies: DiagnosisRateLimitDependencies = {},
+): void {
+  const times = rateLimitTimes(dependencies.now ?? (() => new Date()));
+  consumeDimensions(
+    database,
+    [
+      dimension(
+        keyring,
+        "diagnosis:submit:ip",
+        [canonicalizeIp(ip)],
+        DIAGNOSIS_SUBMIT_IP_LIMIT,
+      ),
+    ],
+    times,
+  );
+}
+
+export function withDiagnosisSubmitRateLimit<Result>(
+  database: DatabaseConnection,
+  keyring: RateLimitKeyring,
+  ip: string,
+  operation: () => Result,
+  dependencies: DiagnosisRateLimitDependencies = {},
+): Result {
+  const times = rateLimitTimes(dependencies.now ?? (() => new Date()));
+  const dimensions = [
+    dimension(
+      keyring,
+      "diagnosis:submit:ip",
+      [canonicalizeIp(ip)],
+      DIAGNOSIS_SUBMIT_IP_LIMIT,
+    ),
+  ];
+  const transaction = database.transaction(() => {
+    consumeDimensionRows(database, dimensions, times);
+    return operation();
+  });
+  return transaction.immediate();
 }
 
 export function consumeRegistrationResendRateLimit(

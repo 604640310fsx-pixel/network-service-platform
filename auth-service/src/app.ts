@@ -10,6 +10,10 @@ import {
   type RegistrationHttpDependencies,
 } from "./http/registration-routes.js";
 import {
+  registerDiagnosisHttpRoutes,
+  type DiagnosisHttpDependencies,
+} from "./http/diagnosis-routes.js";
+import {
   registerPaymentHttpRoutes,
   type PaymentHttpDependencies,
 } from "./http/payment-routes.js";
@@ -30,6 +34,7 @@ const HEALTH_RESPONSE_SCHEMA = {
 export interface BuildAppOptions {
   readonly auth?: AuthHttpDependencies;
   readonly registration?: RegistrationHttpDependencies;
+  readonly diagnosis?: DiagnosisHttpDependencies;
   readonly payment?: PaymentHttpDependencies;
 }
 
@@ -57,6 +62,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   }
   if (options.registration !== undefined) {
     registerRegistrationHttpRoutes(app, options.registration);
+  }
+  if (options.diagnosis !== undefined) {
+    registerDiagnosisHttpRoutes(app, options.diagnosis);
   }
   const payment = options.payment ?? { enabled: false };
   registerPaymentHttpRoutes(app, payment);

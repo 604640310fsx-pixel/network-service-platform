@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   MIGRATION_FILES,
@@ -14,6 +15,10 @@ import {
 import { insertAuthenticationUser, withAuthenticationDatabase } from "../auth/helpers.js";
 
 const NOW = "2026-08-28T08:00:00.000Z";
+const MIGRATIONS_DIRECTORY = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../../src/migrations",
+);
 
 function firstNumber(database: DatabaseConnection, query: string): number {
   const row = database.prepare(query).all()[0] as Record<string, unknown> | undefined;
@@ -108,7 +113,7 @@ test("applies Migration 013 to an existing 001-012 database without changing bus
       );
     `);
     for (const file of MIGRATION_FILES.slice(0, -1)) {
-      const sql = await readFile(join(process.cwd(), "src/migrations", file), "utf8");
+      const sql = await readFile(join(MIGRATIONS_DIRECTORY, file), "utf8");
       const version = Number.parseInt(file.slice(0, 3), 10);
       const operation = database.transaction(() => {
         database.exec(sql);
