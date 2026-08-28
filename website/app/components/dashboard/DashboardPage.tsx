@@ -6,8 +6,8 @@ import { AdminPlansPanel } from "./AdminPlansPanel";
 import { CurrentServicesPanel } from "./CurrentServicesPanel";
 import "./dashboard.css";
 
-/* 说明：当前服务与管理员待开通列表接真实 API；其余业务数值仍是“待接入”占位，
-   用量、到期、余额与监控数据尚未冻结，一律显示 —，不得在此编造。 */
+/* 说明：当前服务与管理员待开通列表接真实 API；其余业务数值仍是“待接入”占位。
+   Dashboard 不接入监控指标，只提供已经上线的公开 /monitor 页面入口。 */
 
 const PENDING = "—";
 
@@ -18,11 +18,14 @@ const overviewStats = [
   { label: "工单与告警", status: "待接入" },
 ] as const;
 
-const networkProbes = ["广州电信", "广州联通", "广州移动"] as const;
+const quickActions = [
+  { href: "/subscribe", label: "套餐订阅", hint: "选择并配置新套餐" },
+  { href: "/services", label: "当前套餐", hint: "查看已支付服务与开通进度" },
+  { href: "/orders", label: "订单", hint: "查看订单与支付状态" },
+  { href: "/monitor", label: "实时监控", hint: "查看三网实时网络状态" },
+] as const;
 
 const pendingActions = [
-  { label: "当前套餐", hint: "待接入" },
-  { label: "订单", hint: "待接入" },
   { label: "工单", hint: "待接入" },
 ] as const;
 
@@ -62,11 +65,16 @@ export function DashboardPage() {
 
           <section className="dash-panel" aria-labelledby="dash-network-title">
             <h2 id="dash-network-title"><em>NETWORK</em>网络状态</h2>
-            <div className="dash-network">
-              {networkProbes.map((probe) => (
-                <div key={probe}><span>{probe}</span><b>{PENDING}</b></div>
-              ))}
-              <footer><i aria-hidden="true" />监控数据待接入</footer>
+            <div className="dash-service">
+              <div className="dash-service-head">
+                <div>
+                  <strong>实时网络监控已上线</strong>
+                  <small>本页不展示实时指标，前往实时监控查看三网线路与运行状态。</small>
+                </div>
+              </div>
+              <div className="dash-service-foot">
+                <Link className="dash-primary-link" to="/monitor">查看实时监控</Link>
+              </div>
             </div>
           </section>
         </div>
@@ -78,10 +86,12 @@ export function DashboardPage() {
         <section className="dash-panel" aria-labelledby="dash-actions-title">
           <h2 id="dash-actions-title"><em>ACTIONS</em>快捷操作</h2>
           <div className="dash-action-grid">
-            <Link className="dash-action" to="/subscribe">
-              <ActionIcon />
-              <span><strong>套餐订阅</strong><small>选择并配置新套餐</small></span>
-            </Link>
+            {quickActions.map((action) => (
+              <Link className="dash-action" to={action.href} key={action.href}>
+                <ActionIcon />
+                <span><strong>{action.label}</strong><small>{action.hint}</small></span>
+              </Link>
+            ))}
             {pendingActions.map((action) => (
               <button
                 type="button"
