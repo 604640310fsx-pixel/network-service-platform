@@ -11,6 +11,7 @@ import {
 } from "../../src/registration/invite-code.js";
 import {
   buildRegistrationOtpIdempotencyKey,
+  computeMailRecipientAuditHmac,
   decryptRegistrationOtpPayload,
   encryptRegistrationOtpPayload,
   MAIL_OUTBOX_AUTH_TAG_BYTES,
@@ -198,4 +199,27 @@ test("encrypts OTP outbox payloads with a 16-byte GCM tag and stable idempotency
   assert.equal(encrypted.toEmail, "user@example.com");
   assert.equal(decryptRegistrationOtpPayload(encrypted, TOKEN_KEYRING), "042917");
   assert.equal(encrypted.ciphertext.includes(Buffer.from("042917")), false);
+});
+
+test("derives a canonical versioned recipient audit HMAC", () => {
+  const first = computeMailRecipientAuditHmac(
+    " USER@EXAMPLE.COM ",
+    TOKEN_KEYRING,
+    2,
+  );
+  const canonical = computeMailRecipientAuditHmac(
+    "user@example.com",
+    TOKEN_KEYRING,
+    2,
+  );
+  const previousVersion = computeMailRecipientAuditHmac(
+    "user@example.com",
+    TOKEN_KEYRING,
+    1,
+  );
+
+  assert.equal(first, canonical);
+  assert.match(first, /^v2\.[A-Za-z0-9_-]{43}$/);
+  assert.notEqual(first, previousVersion);
+  assert.equal(first.includes("user@example.com"), false);
 });

@@ -1,6 +1,8 @@
 import {
   createCipheriv,
   createDecipheriv,
+  createHmac,
+  hkdfSync,
   randomBytes,
 } from "node:crypto";
 
@@ -12,6 +14,10 @@ export const MAIL_OUTBOX_AUTH_TAG_BYTES = 16;
 export const MAIL_OUTBOX_NONCE_BYTES = 12;
 
 const BASE64_32_BYTE_KEY_PATTERN = /^[A-Za-z0-9+/]{43}=$/;
+const MAIL_RECIPIENT_AUDIT_KEY_INFO = Buffer.from(
+  "network-service-platform/mail-recipient-audit/v1",
+  "ascii",
+);
 
 export interface EncryptedRegistrationOtpPayload {
   readonly idempotencyKey: string;
@@ -58,6 +64,29 @@ export function buildRegistrationOtpIdempotencyKey(
   assertPositiveInteger(pendingRegistrationId);
   assertPositiveInteger(otpGeneration);
   return `register-otp-v1:${pendingRegistrationId}:${otpGeneration}`;
+}
+
+export function computeMailRecipientAuditHmac(
+  toEmail: string,
+  keyring: TokenHmacKeyring,
+  keyVersion: number,
+): string {
+  const canonicalEmail = canonicalizeEmail(toEmail);
+  const encryptionKey = decodeEncryptionKey(keyring, keyVersion);
+  const auditKey = Buffer.from(
+    hkdfSync(
+      "sha256",
+      encryptionKey,
+      Buffer.alloc(0),
+      MAIL_RECIPIENT_AUDIT_KEY_INFO,
+      32,
+    ),
+  );
+  const digest = createHmac("sha256", auditKey)
+    .update(canonicalEmail, "utf8")
+    .digest("base64url");
+
+  return `v${keyVersion}.${digest}`;
 }
 
 function serializeAad(
