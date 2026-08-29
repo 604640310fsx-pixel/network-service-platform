@@ -15,6 +15,7 @@ import {
   decryptRegistrationOtpPayload,
   encryptRegistrationOtpPayload,
   MAIL_OUTBOX_AUTH_TAG_BYTES,
+  parseRegistrationOtpIdempotencyKey,
 } from "../../src/registration/mail-outbox.js";
 import {
   computeRegistrationOtpHash,
@@ -199,6 +200,27 @@ test("encrypts OTP outbox payloads with a 16-byte GCM tag and stable idempotency
   assert.equal(encrypted.toEmail, "user@example.com");
   assert.equal(decryptRegistrationOtpPayload(encrypted, TOKEN_KEYRING), "042917");
   assert.equal(encrypted.ciphertext.includes(Buffer.from("042917")), false);
+});
+
+test("parses only canonical safe registration OTP idempotency keys", () => {
+  assert.deepEqual(
+    parseRegistrationOtpIdempotencyKey("register-otp-v1:123:2"),
+    { pendingRegistrationId: 123, otpGeneration: 2 },
+  );
+  for (const value of [
+    "register-otp-v1:0:1",
+    "register-otp-v1:01:1",
+    "register-otp-v1:1:0",
+    "register-otp-v1:1:01",
+    "register-otp-v1:1:-1",
+    "register-otp-v1:1:1.0",
+    "register-otp-v1:1:1:extra",
+    "register-otp-v2:1:1",
+    "register-otp-v1:9007199254740992:1",
+    " register-otp-v1:1:1",
+  ]) {
+    assert.equal(parseRegistrationOtpIdempotencyKey(value), null, value);
+  }
 });
 
 test("derives a canonical versioned recipient audit HMAC", () => {

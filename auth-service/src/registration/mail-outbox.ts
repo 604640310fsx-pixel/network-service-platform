@@ -29,6 +29,11 @@ export interface EncryptedRegistrationOtpPayload {
   readonly tag: Buffer;
 }
 
+export interface RegistrationOtpIdempotencyIdentity {
+  readonly pendingRegistrationId: number;
+  readonly otpGeneration: number;
+}
+
 export type MailOutboxRandomBytesSource = (size: number) => Buffer;
 
 function assertPositiveInteger(value: number): void {
@@ -64,6 +69,24 @@ export function buildRegistrationOtpIdempotencyKey(
   assertPositiveInteger(pendingRegistrationId);
   assertPositiveInteger(otpGeneration);
   return `register-otp-v1:${pendingRegistrationId}:${otpGeneration}`;
+}
+
+export function parseRegistrationOtpIdempotencyKey(
+  value: string,
+): RegistrationOtpIdempotencyIdentity | null {
+  const match = /^register-otp-v1:([1-9][0-9]*):([1-9][0-9]*)$/.exec(value);
+  if (match === null) {
+    return null;
+  }
+  const pendingRegistrationId = Number(match[1]);
+  const otpGeneration = Number(match[2]);
+  if (
+    !Number.isSafeInteger(pendingRegistrationId) ||
+    !Number.isSafeInteger(otpGeneration)
+  ) {
+    return null;
+  }
+  return Object.freeze({ pendingRegistrationId, otpGeneration });
 }
 
 export function computeMailRecipientAuditHmac(
