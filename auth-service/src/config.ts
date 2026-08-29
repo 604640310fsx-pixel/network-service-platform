@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { canonicalizeEmail } from "./auth/email.js";
 import type { RateLimitKeyring } from "./http/rate-limit.js";
 import type { InviteHmacKeyring } from "./registration/invite-code.js";
 import type { TokenHmacKeyring } from "./session/session-token.js";
@@ -50,8 +51,37 @@ export interface DeliveryCredentialConfig {
   readonly deliveryEncKeyring: TokenHmacKeyring;
 }
 
+export interface MailDispatcherRuntimeConfig {
+  readonly intervalMs: number;
+  readonly leaseMs: number;
+  readonly maxAttempts: number;
+  readonly retryDelaysMs: readonly number[];
+}
+
+export type MailRuntimeConfig =
+  | { readonly enabled: false }
+  | {
+      readonly enabled: true;
+      readonly dispatcher: MailDispatcherRuntimeConfig;
+      readonly resend: {
+        readonly fromEmail: string;
+        readonly requestTimeoutMs: number;
+      };
+    };
+
+export interface ResendCredentialConfig {
+  readonly apiKey: string;
+}
+
 const BASE64_32_BYTE_KEY_PATTERN = /^[A-Za-z0-9+/]{43}=$/;
 const KEY_VERSION_PATTERN = /^(0|[1-9][0-9]*)$/;
+const POSITIVE_INTEGER_PATTERN = /^[1-9][0-9]*$/;
+const VISIBLE_ASCII_PATTERN = /^[\x21-\x7e]+$/;
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+const MAX_MAIL_DISPATCH_ATTEMPTS = 10;
+// Resend currently retains an idempotency key for 24 hours. The final retry
+// must be scheduled before that boundary, including timer and timeout slop.
+const RESEND_IDEMPOTENCY_RETENTION_MS = 24 * 60 * 60 * 1_000;
 
 function requireValue(
   environment: NodeJS.ProcessEnv,
@@ -322,5 +352,161 @@ export function loadDeliveryCredentialConfig(
     });
   } catch {
     throw new Error("Delivery credential configuration is invalid");
+  }
+}
+
+function invalidMailRuntimeConfiguration(): Error {
+  return new Error("Mail runtime configuration is invalid");
+}
+
+function requireMailRuntimeValue(
+  environment: NodeJS.ProcessEnv,
+  name:
+    | "MAIL_DISPATCH_INTERVAL_MS"
+    | "MAIL_DISPATCH_LEASE_MS"
+    | "MAIL_DISPATCH_MAX_ATTEMPTS"
+    | "MAIL_DISPATCH_RETRY_DELAYS_MS"
+    | "RESEND_FROM_EMAIL"
+    | "RESEND_REQUEST_TIMEOUT_MS",
+): string {
+  const value = environment[name];
+  if (typeof value !== "string" || value.length === 0) {
+    throw invalidMailRuntimeConfiguration();
+  }
+  return value;
+}
+
+function parseMailPositiveInteger(
+  environment: NodeJS.ProcessEnv,
+  name:
+    | "MAIL_DISPATCH_INTERVAL_MS"
+    | "MAIL_DISPATCH_LEASE_MS"
+    | "MAIL_DISPATCH_MAX_ATTEMPTS"
+    | "RESEND_REQUEST_TIMEOUT_MS",
+): number {
+  const value = requireMailRuntimeValue(environment, name);
+  if (!POSITIVE_INTEGER_PATTERN.test(value)) {
+    throw invalidMailRuntimeConfiguration();
+  }
+  const parsed = Number(value);
+  if (
+    !Number.isSafeInteger(parsed) ||
+    parsed < 1 ||
+    parsed > MAX_TIMER_DELAY_MS
+  ) {
+    throw invalidMailRuntimeConfiguration();
+  }
+  return parsed;
+}
+
+function parseMailRetryDelays(
+  environment: NodeJS.ProcessEnv,
+  maxAttempts: number,
+): readonly number[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(
+      requireMailRuntimeValue(environment, "MAIL_DISPATCH_RETRY_DELAYS_MS"),
+    );
+  } catch {
+    throw invalidMailRuntimeConfiguration();
+  }
+  if (
+    !Array.isArray(parsed) ||
+    parsed.length !== maxAttempts - 1 ||
+    parsed.some(
+      (value) =>
+        typeof value !== "number" ||
+        !Number.isSafeInteger(value) ||
+        value < 0 ||
+        value > MAX_TIMER_DELAY_MS,
+    )
+  ) {
+    throw invalidMailRuntimeConfiguration();
+  }
+  return Object.freeze([...parsed]) as readonly number[];
+}
+
+export function loadMailRuntimeConfig(
+  environment: NodeJS.ProcessEnv = process.env,
+): MailRuntimeConfig {
+  const enabled = environment.MAIL_DISPATCH_ENABLED;
+  if (enabled !== "true" && enabled !== "false") {
+    throw invalidMailRuntimeConfiguration();
+  }
+  if (enabled === "false") {
+    return Object.freeze({ enabled: false });
+  }
+
+  const intervalMs = parseMailPositiveInteger(
+    environment,
+    "MAIL_DISPATCH_INTERVAL_MS",
+  );
+  const leaseMs = parseMailPositiveInteger(
+    environment,
+    "MAIL_DISPATCH_LEASE_MS",
+  );
+  const maxAttempts = parseMailPositiveInteger(
+    environment,
+    "MAIL_DISPATCH_MAX_ATTEMPTS",
+  );
+  if (maxAttempts > MAX_MAIL_DISPATCH_ATTEMPTS) {
+    throw invalidMailRuntimeConfiguration();
+  }
+  const requestTimeoutMs = parseMailPositiveInteger(
+    environment,
+    "RESEND_REQUEST_TIMEOUT_MS",
+  );
+  if (requestTimeoutMs >= leaseMs) {
+    throw invalidMailRuntimeConfiguration();
+  }
+  const retryDelaysMs = parseMailRetryDelays(environment, maxAttempts);
+  const retryWindowMs = retryDelaysMs.reduce(
+    (total, delay) => total + delay + requestTimeoutMs + intervalMs,
+    0,
+  );
+  if (
+    !Number.isSafeInteger(retryWindowMs) ||
+    retryWindowMs >= RESEND_IDEMPOTENCY_RETENTION_MS
+  ) {
+    throw invalidMailRuntimeConfiguration();
+  }
+
+  let fromEmail: string;
+  try {
+    fromEmail = canonicalizeEmail(
+      requireMailRuntimeValue(environment, "RESEND_FROM_EMAIL"),
+    );
+  } catch {
+    throw invalidMailRuntimeConfiguration();
+  }
+
+  return Object.freeze({
+    enabled: true,
+    dispatcher: Object.freeze({
+      intervalMs,
+      leaseMs,
+      maxAttempts,
+      retryDelaysMs,
+    }),
+    resend: Object.freeze({ fromEmail, requestTimeoutMs }),
+  });
+}
+
+export function loadResendCredentialConfig(
+  environment: NodeJS.ProcessEnv = process.env,
+): ResendCredentialConfig {
+  const directory = environment.CREDENTIALS_DIRECTORY?.trim();
+  if (!directory) {
+    throw new Error("Resend credential configuration is invalid");
+  }
+  try {
+    const apiKey = readCredential(directory, "resend_api_key");
+    if (apiKey.length > 512 || !VISIBLE_ASCII_PATTERN.test(apiKey)) {
+      throw new Error("invalid credential");
+    }
+    return Object.freeze({ apiKey });
+  } catch {
+    throw new Error("Resend credential configuration is invalid");
   }
 }
