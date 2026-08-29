@@ -10,6 +10,7 @@ import {
 } from "./mail-outbox.js";
 
 const MAIL_LEASE_TOKEN_BYTES = 32;
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 interface MailOutboxRow {
   readonly idempotency_key: string;
@@ -62,6 +63,10 @@ export type MailDispatchResult =
       readonly outcome: "sent" | "retry_scheduled" | "failed" | "lease_lost";
       readonly attempts: number;
     };
+
+export interface MailDispatcherRunner {
+  readonly stop: () => Promise<void>;
+}
 
 function requireDate(value: Date): Date {
   if (!(value instanceof Date) || !Number.isFinite(value.getTime())) {
@@ -363,4 +368,39 @@ export async function dispatchNextMail(
   )
     ? { outcome: "sent", attempts: claimed.attempts }
     : { outcome: "lease_lost", attempts: claimed.attempts };
+}
+
+export function startMailDispatcher(
+  dependencies: MailDispatcherDependencies,
+  intervalMs: number,
+): MailDispatcherRunner {
+  const validatedIntervalMs = requirePositiveInteger(intervalMs, "interval");
+  if (validatedIntervalMs > MAX_TIMER_DELAY_MS) {
+    throw new Error("Mail dispatcher interval is invalid");
+  }
+
+  let stopped = false;
+  let currentRun: Promise<void> | null = null;
+  const timer = setInterval(() => {
+    if (stopped || currentRun !== null) {
+      return;
+    }
+    currentRun = dispatchNextMail(dependencies)
+      .then(() => undefined)
+      .catch(() => undefined)
+      .finally(() => {
+        currentRun = null;
+      });
+  }, validatedIntervalMs);
+  timer.unref();
+
+  return Object.freeze({
+    stop: async (): Promise<void> => {
+      if (!stopped) {
+        stopped = true;
+        clearInterval(timer);
+      }
+      await currentRun;
+    },
+  });
 }

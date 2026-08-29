@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 
 import type { DatabaseConnection } from "../../src/db.js";
 import {
   dispatchNextMail,
+  startMailDispatcher,
   type MailDelivery,
   type MailDispatcherDependencies,
   type MailTransport,
@@ -101,6 +103,20 @@ function dependencies(
     randomBytes: (size) => Buffer.alloc(size, 0x72),
     ...overrides,
   };
+}
+
+async function waitFor(
+  condition: () => boolean,
+  message: string,
+  timeoutMs: number = 1_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() >= deadline) {
+      throw new Error(message);
+    }
+    await delay(5);
+  }
 }
 
 test("dispatches one due message and records only a recipient HMAC", async () => {
@@ -422,5 +438,129 @@ test("fails before delivery when the audit key cannot be derived", async () => {
       row(database, "SELECT status, attempts FROM mail_outbox"),
       { status: "pending", attempts: 0 },
     );
+  });
+});
+
+test("the runner rejects unsafe timer intervals before scheduling work", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const dispatcher = dependencies(database, { async send() {} });
+    for (const intervalMs of [0, -1, 1.5, Number.NaN, 2_147_483_648]) {
+      assert.throws(
+        () => startMailDispatcher(dispatcher, intervalMs),
+        /Mail dispatcher interval is invalid/,
+      );
+    }
+  });
+});
+
+test("the runner skips overlapping ticks and serially processes due mail", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    insertMail(database);
+    insertMail(database, { id: 42 });
+    let activeSends = 0;
+    let maxActiveSends = 0;
+    let sends = 0;
+    let releaseFirst: (() => void) | undefined;
+    const runner = startMailDispatcher(
+      dependencies(database, {
+        async send() {
+          sends += 1;
+          activeSends += 1;
+          maxActiveSends = Math.max(maxActiveSends, activeSends);
+          if (sends === 1) {
+            await new Promise<void>((resolve) => {
+              releaseFirst = resolve;
+            });
+          }
+          activeSends -= 1;
+        },
+      }),
+      5,
+    );
+
+    try {
+      await waitFor(
+        () => releaseFirst !== undefined,
+        "first mail dispatch did not start",
+      );
+      await delay(30);
+      assert.equal(sends, 1);
+      releaseFirst?.();
+      await waitFor(() => sends === 2, "second mail dispatch did not start");
+      assert.equal(maxActiveSends, 1);
+    } finally {
+      releaseFirst?.();
+      await runner.stop();
+    }
+  });
+});
+
+test("runner stop waits for in-flight delivery and prevents future ticks", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    insertMail(database);
+    let sends = 0;
+    let releaseSend: (() => void) | undefined;
+    const runner = startMailDispatcher(
+      dependencies(database, {
+        async send() {
+          sends += 1;
+          await new Promise<void>((resolve) => {
+            releaseSend = resolve;
+          });
+        },
+      }),
+      5,
+    );
+
+    await waitFor(
+      () => releaseSend !== undefined,
+      "mail dispatch did not start before stop",
+    );
+    let stopped = false;
+    const stopping = runner.stop().then(() => {
+      stopped = true;
+    });
+    await delay(20);
+    assert.equal(stopped, false);
+    releaseSend?.();
+    await stopping;
+
+    insertMail(database, { id: 42 });
+    await delay(30);
+    assert.equal(sends, 1);
+    await runner.stop();
+  });
+});
+
+test("the runner isolates one dispatcher rejection and resumes on a later tick", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    insertMail(database);
+    let randomCalls = 0;
+    let sends = 0;
+    const runner = startMailDispatcher(
+      dependencies(
+        database,
+        {
+          async send() {
+            sends += 1;
+          },
+        },
+        {
+          randomBytes: (size) => {
+            randomCalls += 1;
+            return Buffer.alloc(randomCalls === 1 ? size - 1 : size, 0x72);
+          },
+        },
+      ),
+      5,
+    );
+
+    try {
+      await waitFor(() => sends === 1, "mail runner did not recover");
+      assert.ok(randomCalls >= 2);
+      assert.equal(row(database, "SELECT * FROM mail_outbox"), undefined);
+    } finally {
+      await runner.stop();
+    }
   });
 });
