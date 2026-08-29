@@ -40,11 +40,49 @@ function insertMail(
     readonly leaseToken?: string | null;
   } = {},
 ): void {
+  const id = options.id ?? 41;
+  const generation = options.generation ?? 1;
+  const email = options.email ?? "dispatcher.user@example.com";
+  database
+    .prepare(
+      `INSERT OR IGNORE INTO invite_codes (
+         code_hash, is_bootstrap, created_by_admin_id, max_uses, used_count,
+         expires_at, revoked_at, note, created_at
+       ) VALUES ('mail-dispatcher-test-invite', 1, NULL, 100, 0,
+                 '2026-08-30T00:00:00.000Z', NULL, NULL, ?)`,
+    )
+    .run(NOW.toISOString());
+  const invite = database
+    .prepare(
+      "SELECT id FROM invite_codes WHERE code_hash = 'mail-dispatcher-test-invite'",
+    )
+    .all()[0] as { readonly id: number };
+  database
+    .prepare(
+      `INSERT INTO pending_registrations (
+         id, email, registration_token_hash, registration_token_key_version,
+         invite_code_id, otp_hash, otp_key_version, otp_generation, phase,
+         verified_at, attempts, resend_count, last_sent_at, expires_at,
+         consumed_at, superseded_at, created_at
+       ) VALUES (?, ?, ?, 2, ?, ?, 2, ?, 'awaiting_verification', NULL,
+                 0, ?, ?, '2026-08-29T00:10:00.000Z', NULL, NULL, ?)`,
+    )
+    .run(
+      id,
+      email,
+      `registration-token-${id}`,
+      invite.id,
+      `otp-hash-${id}-${generation}`,
+      generation,
+      generation,
+      NOW.toISOString(),
+      NOW.toISOString(),
+    );
   const encrypted = encryptRegistrationOtpPayload(
     {
-      pendingRegistrationId: options.id ?? 41,
-      otpGeneration: options.generation ?? 1,
-      toEmail: options.email ?? "dispatcher.user@example.com",
+      pendingRegistrationId: id,
+      otpGeneration: generation,
+      toEmail: email,
       otp: options.otp ?? "042917",
     },
     MAIL_KEYS,
@@ -173,6 +211,165 @@ test("leaves messages that are not due untouched", async () => {
     assert.deepEqual(
       row(database, "SELECT status, attempts FROM mail_outbox"),
       { status: "pending", attempts: 0 },
+    );
+  });
+});
+
+test("never sends stale or non-current registration mail", async () => {
+  const cases: ReadonlyArray<{
+    readonly name: string;
+    readonly mutate: (database: DatabaseConnection) => void;
+  }> = [
+    {
+      name: "expired",
+      mutate: (database) => {
+        database
+          .prepare("UPDATE pending_registrations SET expires_at = ?")
+          .run(NOW.toISOString());
+      },
+    },
+    {
+      name: "invalid expiry",
+      mutate: (database) => {
+        database
+          .prepare("UPDATE pending_registrations SET expires_at = 'invalid'")
+          .run();
+      },
+    },
+    {
+      name: "verified",
+      mutate: (database) => {
+        database
+          .prepare(
+            "UPDATE pending_registrations SET phase = 'verified', verified_at = ?",
+          )
+          .run(NOW.toISOString());
+      },
+    },
+    {
+      name: "consumed",
+      mutate: (database) => {
+        database
+          .prepare("UPDATE pending_registrations SET consumed_at = ?")
+          .run(NOW.toISOString());
+      },
+    },
+    {
+      name: "superseded",
+      mutate: (database) => {
+        database
+          .prepare("UPDATE pending_registrations SET superseded_at = ?")
+          .run(NOW.toISOString());
+      },
+    },
+    {
+      name: "newer generation",
+      mutate: (database) => {
+        database
+          .prepare("UPDATE pending_registrations SET otp_generation = 2")
+          .run();
+      },
+    },
+    {
+      name: "recipient mismatch",
+      mutate: (database) => {
+        database
+          .prepare(
+            "UPDATE pending_registrations SET email = 'other@example.com'",
+          )
+          .run();
+      },
+    },
+    {
+      name: "missing registration",
+      mutate: (database) => {
+        database.prepare("DELETE FROM pending_registrations").run();
+      },
+    },
+    {
+      name: "non-canonical idempotency key",
+      mutate: (database) => {
+        database
+          .prepare(
+            "UPDATE mail_outbox SET idempotency_key = 'register-otp-v1:041:1'",
+          )
+          .run();
+      },
+    },
+  ];
+
+  for (const fixture of cases) {
+    await withAuthenticationDatabase(async (database) => {
+      insertMail(database);
+      fixture.mutate(database);
+      let sends = 0;
+
+      const result = await dispatchNextMail(
+        dependencies(database, {
+          async send() {
+            sends += 1;
+          },
+        }),
+      );
+
+      assert.deepEqual(
+        result,
+        { outcome: "failed", attempts: 0 },
+        fixture.name,
+      );
+      assert.equal(sends, 0, fixture.name);
+      assert.equal(row(database, "SELECT * FROM mail_outbox"), undefined);
+      assert.deepEqual(
+        row(
+          database,
+          "SELECT outcome, final_attempts FROM mail_outbox_audit",
+        ),
+        { outcome: "failed", final_attempts: 0 },
+        fixture.name,
+      );
+    });
+  }
+});
+
+test("rechecks registration state after claim and before transport delivery", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    insertMail(database);
+    let clockCalls = 0;
+    let sends = 0;
+
+    const result = await dispatchNextMail(
+      dependencies(
+        database,
+        {
+          async send() {
+            sends += 1;
+          },
+        },
+        {
+          now: () => {
+            clockCalls += 1;
+            if (clockCalls === 2) {
+              database
+                .prepare(
+                  "UPDATE pending_registrations SET phase = 'verified', verified_at = ?",
+                )
+                .run(NOW.toISOString());
+            }
+            return new Date(NOW);
+          },
+        },
+      ),
+    );
+
+    assert.deepEqual(result, { outcome: "failed", attempts: 1 });
+    assert.equal(sends, 0);
+    assert.equal(row(database, "SELECT * FROM mail_outbox"), undefined);
+    assert.deepEqual(
+      row(
+        database,
+        "SELECT outcome, final_attempts FROM mail_outbox_audit",
+      ),
+      { outcome: "failed", final_attempts: 1 },
     );
   });
 });

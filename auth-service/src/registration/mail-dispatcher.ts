@@ -5,6 +5,7 @@ import type { TokenHmacKeyring } from "../session/session-token.js";
 import {
   computeMailRecipientAuditHmac,
   decryptRegistrationOtpPayload,
+  parseRegistrationOtpIdempotencyKey,
   type EncryptedRegistrationOtpPayload,
   type MailOutboxRandomBytesSource,
 } from "./mail-outbox.js";
@@ -129,6 +130,46 @@ function parseOutboxRow(value: unknown): MailOutboxRow {
   return value as MailOutboxRow;
 }
 
+function isCurrentRegistrationMail(
+  database: DatabaseConnection,
+  mail: { readonly idempotencyKey: string; readonly toEmail: string },
+  now: Date,
+): boolean {
+  const identity = parseRegistrationOtpIdempotencyKey(mail.idempotencyKey);
+  if (identity === null) {
+    return false;
+  }
+  const value = database
+    .prepare(
+      `SELECT email, otp_generation, phase, verified_at, expires_at,
+              consumed_at, superseded_at
+       FROM pending_registrations
+       WHERE id = ?`,
+    )
+    .all(identity.pendingRegistrationId)[0];
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const registration = value as Record<string, unknown>;
+  if (
+    registration.email !== mail.toEmail ||
+    registration.otp_generation !== identity.otpGeneration ||
+    registration.phase !== "awaiting_verification" ||
+    registration.verified_at !== null ||
+    registration.consumed_at !== null ||
+    registration.superseded_at !== null ||
+    typeof registration.expires_at !== "string"
+  ) {
+    return false;
+  }
+  const expiresAt = new Date(registration.expires_at);
+  return (
+    Number.isFinite(expiresAt.getTime()) &&
+    expiresAt.toISOString() === registration.expires_at &&
+    expiresAt.getTime() > now.getTime()
+  );
+}
+
 function claimNextMail(
   dependencies: MailDispatcherDependencies,
   now: Date,
@@ -169,7 +210,16 @@ function claimNextMail(
       dependencies.mailPayloadEncKeyring,
       dependencies.mailPayloadEncKeyring.version,
     );
-    const shouldAttemptDelivery = parsed.attempts < maxAttempts;
+    const shouldAttemptDelivery =
+      parsed.attempts < maxAttempts &&
+      isCurrentRegistrationMail(
+        dependencies.database,
+        {
+          idempotencyKey: parsed.idempotency_key,
+          toEmail: parsed.to_email,
+        },
+        now,
+      );
     const result = dependencies.database
       .prepare(
         `UPDATE mail_outbox
@@ -333,6 +383,22 @@ export async function dispatchNextMail(
       "failed",
       requireDate(nowSource()),
     )
+      ? { outcome: "failed", attempts: claimed.attempts }
+      : { outcome: "lease_lost", attempts: claimed.attempts };
+  }
+
+  const deliveryTime = requireDate(nowSource());
+  if (
+    !isCurrentRegistrationMail(
+      dependencies.database,
+      {
+        idempotencyKey: claimed.encrypted.idempotencyKey,
+        toEmail: claimed.encrypted.toEmail,
+      },
+      deliveryTime,
+    )
+  ) {
+    return finalizeMail(dependencies, claimed, "failed", deliveryTime)
       ? { outcome: "failed", attempts: claimed.attempts }
       : { outcome: "lease_lost", attempts: claimed.attempts };
   }
