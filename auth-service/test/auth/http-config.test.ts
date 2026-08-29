@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { loadAuthCredentialConfig } from "../../src/config.js";
+import {
+  loadAuthCredentialConfig,
+  loadMailRuntimeConfig,
+  loadResendCredentialConfig,
+} from "../../src/config.js";
 
 const KEY_V1 = Buffer.alloc(32, 0x31).toString("base64");
 const KEY_V2 = Buffer.alloc(32, 0x32).toString("base64");
@@ -38,6 +42,9 @@ async function withCredentialDirectory<Result>(
     await writeFile(join(directory, "csrf_signing_key"), `${CSRF_KEY}\n`, {
       mode: 0o600,
     });
+    await writeFile(join(directory, "resend_api_key"), "example_api_key\n", {
+      mode: 0o600,
+    });
     return await operation(directory);
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -68,6 +75,91 @@ test("loads only the frozen credential names and strict key formats", async () =
     });
     assert.equal(config.csrfSigningKey.length, 32);
     assert.equal(config.csrfSigningKey.toString("base64"), CSRF_KEY);
+  });
+});
+
+const VALID_MAIL_ENVIRONMENT: NodeJS.ProcessEnv = {
+  MAIL_DISPATCH_ENABLED: "true",
+  MAIL_DISPATCH_INTERVAL_MS: "1000",
+  MAIL_DISPATCH_LEASE_MS: "30000",
+  MAIL_DISPATCH_MAX_ATTEMPTS: "3",
+  MAIL_DISPATCH_RETRY_DELAYS_MS: "[1000,2000]",
+  RESEND_FROM_EMAIL: "sender@example.com",
+  RESEND_REQUEST_TIMEOUT_MS: "5000",
+};
+
+test("mail runtime requires explicit opt-in and ignores provider values when disabled", () => {
+  assert.deepEqual(loadMailRuntimeConfig({ MAIL_DISPATCH_ENABLED: "false" }), {
+    enabled: false,
+  });
+  assert.throws(
+    () => loadMailRuntimeConfig({}),
+    /Mail runtime configuration is invalid/,
+  );
+  assert.throws(
+    () => loadMailRuntimeConfig({ MAIL_DISPATCH_ENABLED: " false " }),
+    /Mail runtime configuration is invalid/,
+  );
+});
+
+test("mail runtime loads only explicit bounded dispatcher and Resend values", () => {
+  assert.deepEqual(loadMailRuntimeConfig(VALID_MAIL_ENVIRONMENT), {
+    enabled: true,
+    dispatcher: {
+      intervalMs: 1000,
+      leaseMs: 30000,
+      maxAttempts: 3,
+      retryDelaysMs: [1000, 2000],
+    },
+    resend: {
+      fromEmail: "sender@example.com",
+      requestTimeoutMs: 5000,
+    },
+  });
+});
+
+test("mail runtime fails closed on unsafe timing, retry, or sender values", () => {
+  const invalidEnvironments: NodeJS.ProcessEnv[] = [
+    { ...VALID_MAIL_ENVIRONMENT, MAIL_DISPATCH_INTERVAL_MS: "0" },
+    { ...VALID_MAIL_ENVIRONMENT, MAIL_DISPATCH_LEASE_MS: "5000" },
+    { ...VALID_MAIL_ENVIRONMENT, MAIL_DISPATCH_MAX_ATTEMPTS: "11" },
+    { ...VALID_MAIL_ENVIRONMENT, MAIL_DISPATCH_RETRY_DELAYS_MS: "[1000]" },
+    {
+      ...VALID_MAIL_ENVIRONMENT,
+      MAIL_DISPATCH_MAX_ATTEMPTS: "2",
+      MAIL_DISPATCH_RETRY_DELAYS_MS: "[86400000]",
+    },
+    { ...VALID_MAIL_ENVIRONMENT, RESEND_FROM_EMAIL: "not-an-email" },
+    { ...VALID_MAIL_ENVIRONMENT, RESEND_REQUEST_TIMEOUT_MS: "50000" },
+  ];
+
+  for (const environment of invalidEnvironments) {
+    assert.throws(
+      () => loadMailRuntimeConfig(environment),
+      /Mail runtime configuration is invalid/,
+    );
+  }
+});
+
+test("Resend API key loads only from the private credential directory", async () => {
+  assert.throws(
+    () => loadResendCredentialConfig({}),
+    /Resend credential configuration is invalid/,
+  );
+
+  await withCredentialDirectory(async (directory) => {
+    assert.deepEqual(
+      loadResendCredentialConfig({ CREDENTIALS_DIRECTORY: directory }),
+      { apiKey: "example_api_key" },
+    );
+    await writeFile(join(directory, "resend_api_key"), "not visible\nkey", {
+      mode: 0o600,
+    });
+    assert.throws(
+      () =>
+        loadResendCredentialConfig({ CREDENTIALS_DIRECTORY: directory }),
+      /Resend credential configuration is invalid/,
+    );
   });
 });
 

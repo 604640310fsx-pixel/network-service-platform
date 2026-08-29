@@ -6,13 +6,30 @@ import {
   loadAuthCredentialConfig,
   loadConfig,
   loadDeliveryCredentialConfig,
+  loadMailRuntimeConfig,
+  loadResendCredentialConfig,
 } from "./config.js";
 import { initializeDatabase } from "./db.js";
 import { startOrderExpirySweep } from "./payment/order-expiry.js";
+import { startRegistrationMailRuntime } from "./registration/mail-runtime.js";
+import { ResendMailTransport } from "./registration/resend-mail-transport.js";
 
 async function start(): Promise<void> {
   const config = loadConfig();
   const credentials = loadAuthCredentialConfig();
+  const mailConfig = loadMailRuntimeConfig();
+  const resendCredentials = mailConfig.enabled
+    ? loadResendCredentialConfig()
+    : null;
+  const mailTransport =
+    mailConfig.enabled && resendCredentials !== null
+      ? new ResendMailTransport({
+          apiKey: resendCredentials.apiKey,
+          fromEmail: mailConfig.resend.fromEmail,
+          requestTimeoutMs: mailConfig.resend.requestTimeoutMs,
+          dispatcherLeaseMs: mailConfig.dispatcher.leaseMs,
+        })
+      : null;
   const alipay = config.paymentEnabled ? loadAlipayConfig() : null;
   const delivery = config.paymentEnabled
     ? loadDeliveryCredentialConfig()
@@ -71,6 +88,8 @@ async function start(): Promise<void> {
     payment,
   });
   let databaseClosed = false;
+  let mailDispatcher: ReturnType<typeof startRegistrationMailRuntime> | null =
+    null;
 
   const closeDatabase = (): void => {
     if (!databaseClosed) {
@@ -83,11 +102,22 @@ async function start(): Promise<void> {
 
   app.addHook("onClose", async () => {
     expirySweep?.stop();
+    await mailDispatcher?.stop();
     closeDatabase();
   });
 
   try {
     await app.listen({ host: config.host, port: config.port });
+    if (mailConfig.enabled && mailTransport !== null) {
+      mailDispatcher = startRegistrationMailRuntime(
+        {
+          database,
+          mailPayloadEncKeyring: credentials.mailPayloadEncKeyring,
+          transport: mailTransport,
+        },
+        mailConfig.dispatcher,
+      );
+    }
   } catch (error) {
     await app.close().catch(() => undefined);
     closeDatabase();
