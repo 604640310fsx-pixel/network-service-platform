@@ -1,34 +1,55 @@
-/* 登录后的服务器状态页只承载现有 3002 监控，不复制或伪造监控数据。 */
+/* 登录后的服务器状态页只承载现有 3002 监控，不复制或伪造监控数据。
+   单层贴边：topbar 之下监控占满整个主面板；无外层内边距、无装饰面板、
+   无 iframe 边框 / 圆角 / 阴影 / 冗余背景；只有 iframe 自身一处滚动面。 */
+
+/* fill 模式：整壳锁定到视口高度并关闭文档滚动，使 iframe 成为唯一滚动面，
+   避免"文档滚动 + iframe 短滚动条"的双层滚动。仅 /status 启用，不影响其它壳层页面。 */
+.cc-shell--fill {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+.cc-shell--fill .cc-main {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 归零 globals.css 裸 main 的 max-width:1440px / margin:0 auto / padding:32px 36px，
+   与 .cc-home main 既有做法一致，让监控真正贴边铺满。 */
 .cc-shell .cc-status-page {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
   width: 100%;
-  padding: 14px var(--cc-gutter) 28px;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
   background: var(--cc-bg);
   color: var(--cc-text);
 }
 
 .cc-status-frame {
+  flex: 1 1 auto;
   display: block;
   width: 100%;
   max-width: 100%;
-  height: clamp(560px, calc(100dvh - 152px), 1500px);
-  border: 1px solid var(--cc-line);
-  border-radius: 12px;
-  background: var(--cc-panel);
+  min-height: 0;
+  border: 0;
+  background: var(--cc-bg);
 }
 
+/* 未配置监控地址：保留真实空状态，但简洁无外框（不再是"页面外套卡片"）。 */
 .cc-status-empty {
-  min-height: clamp(360px, calc(100dvh - 210px), 760px);
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 8px;
   padding: 32px 20px;
-  border: 1px solid var(--cc-line);
-  border-radius: 12px;
-  background: var(--cc-panel);
+  background: var(--cc-bg);
   text-align: center;
 }
 
@@ -44,12 +65,4 @@
   color: var(--cc-text-3);
   font-size: 12.5px;
   line-height: 1.7;
-}
-
-@media (max-width: 820px) {
-  .cc-shell .cc-status-page { padding-top: 10px; padding-bottom: 20px; }
-  .cc-status-frame {
-    height: clamp(520px, calc(100dvh - 130px), 1100px);
-    border-radius: 10px;
-  }
 }

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
-import { useThemePreference } from "../../lib/theme";
+import { useThemePreference, type ThemePreference } from "../../lib/theme";
 import "./customer-center.css";
 
 type DrawerKind = "navigation" | "order";
@@ -11,6 +11,15 @@ type DrawerContextValue = {
 };
 
 const CustomerDrawerContext = createContext<DrawerContextValue | null>(null);
+// 让壳层内的页面读取当前实时主题（topbar 主题切换的唯一真源），
+// 供 /status 把主题单向下发给嵌入的 3002 iframe，无需在 iframe 内另设开关。
+const CustomerShellThemeContext = createContext<ThemePreference | null>(null);
+
+export function useCustomerShellTheme(): ThemePreference {
+  const value = useContext(CustomerShellThemeContext);
+  if (!value) throw new Error("useCustomerShellTheme must be used inside CustomerCenterShell");
+  return value;
+}
 // 已迁移到客户中心视觉的路由；其余菜单继续走 disabled / 待接入策略。
 const migratedPaths = new Set<string>(["/status", "/subscribe", "/dashboard", "/services", "/network", "/monitor", "/orders"]);
 
@@ -48,10 +57,14 @@ export function CustomerCenterShell({
   children,
   title,
   description,
+  fill = false,
 }: {
   children: ReactNode;
   title: string;
   description: string;
+  /** fill=true：topbar 之下的内容占满剩余主面板、无外层内边距，
+      让 /status 的监控成为单层贴边工作面，仅 iframe 自身滚动。 */
+  fill?: boolean;
 }) {
   const { theme, toggleTheme } = useThemePreference();
   const [activeDrawer, setActiveDrawer] = useState<DrawerKind | null>(null);
@@ -108,7 +121,8 @@ export function CustomerCenterShell({
 
   return (
     <CustomerDrawerContext.Provider value={{ activeDrawer, openDrawer, closeDrawer }}>
-      <div className="cc-shell" data-theme={theme} ref={rootRef}>
+      <CustomerShellThemeContext.Provider value={theme}>
+      <div className={`cc-shell${fill ? " cc-shell--fill" : ""}`} data-theme={theme} ref={rootRef}>
         <aside
           className={`cc-sidebar ${activeDrawer === "navigation" ? "is-open" : ""}`}
           data-cc-drawer="navigation"
@@ -181,6 +195,7 @@ export function CustomerCenterShell({
 
         {activeDrawer && <button type="button" className={`cc-scrim ${activeDrawer === "navigation" ? "is-navigation" : ""}`} onClick={closeDrawer} aria-label="关闭抽屉" />}
       </div>
+      </CustomerShellThemeContext.Provider>
     </CustomerDrawerContext.Provider>
   );
 }

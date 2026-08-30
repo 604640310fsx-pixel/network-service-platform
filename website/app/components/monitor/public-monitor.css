@@ -1,21 +1,31 @@
-/* 公开 /monitor 页面样式。继承官网 --cc-* 令牌与 .cc-home 基座，
-   只负责标题区、监控主体与空状态；不重设 Header/Footer，不做花哨 Hero。 */
+/* 公开 /monitor 页面样式。继承官网 --cc-* 令牌与 .cc-home 基座。
+   监控主体为单层贴边工作面：无边框 / 圆角 / 装饰卡片，占满 header 与标题带之外的
+   视口高度，仅 iframe 自身一处滚动，不出现"文档 + iframe"双层滚动。 */
 
+/* 锁定为视口高度的应用式布局：header + 标题带 + 监控恰好铺满一屏。
+   专用监控页不重复展示大页脚，iframe 依 flex 占据剩余高度并成为唯一滚动面。 */
+.pm-shell.cc-home {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
 .pm-shell.cc-home .pm-main {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 
 /* 简洁标题区 */
 .pm-head {
+  flex: 0 0 auto;
   border-bottom: 1px solid var(--cc-hairline);
   background: var(--cc-panel);
 }
 .pm-head .home-wrap {
-  padding-top: 34px;
-  padding-bottom: 26px;
+  padding-top: 26px;
+  padding-bottom: 22px;
 }
 .pm-eyebrow {
   display: inline-block;
@@ -26,7 +36,7 @@
 .pm-head h1 {
   margin: 10px 0 0;
   color: var(--cc-text);
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
@@ -37,30 +47,25 @@
   text-wrap: pretty;
 }
 
-/* 监控主体：给 iframe 足够高度，薄边框而非巨大装饰卡片 */
+/* 监控主体：贴边铺满剩余高度，无外框。 */
 .pm-monitor {
   flex: 1 1 auto;
   display: flex;
-  padding: 22px 0 40px;
-  background: var(--cc-bg);
-}
-.pm-monitor-wrap {
-  flex: 1 1 auto;
-  display: flex;
   min-width: 0;
+  min-height: 0;
+  background: var(--cc-bg);
 }
 .pm-frame {
   flex: 1 1 auto;
   display: block;
   width: 100%;
   max-width: 100%;
-  height: clamp(520px, calc(100dvh - 260px), 1400px);
-  border: 1px solid var(--cc-line);
-  border-radius: 12px;
-  background: var(--cc-panel);
+  min-height: 0;
+  border: 0;
+  background: var(--cc-bg);
 }
 
-/* 未配置监控地址的真实空状态 */
+/* 未配置监控地址的真实空状态：简洁、无外框。 */
 .pm-empty {
   flex: 1 1 auto;
   display: flex;
@@ -68,11 +73,8 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: clamp(320px, calc(100dvh - 320px), 720px);
   padding: 40px 24px;
-  border: 1px solid var(--cc-line);
-  border-radius: 12px;
-  background: var(--cc-panel);
+  background: var(--cc-bg);
   text-align: center;
 }
 .pm-empty strong {
@@ -91,10 +93,8 @@
 
 @media (max-width: 820px) {
   .pm-head .home-wrap {
-    padding-top: 24px;
-    padding-bottom: 20px;
+    padding-top: 20px;
+    padding-bottom: 18px;
   }
-  .pm-head h1 { font-size: 21px; }
-  .pm-monitor { padding: 16px 0 28px; }
-  .pm-frame { height: clamp(440px, calc(100dvh - 220px), 900px); }
+  .pm-head h1 { font-size: 20px; }
 }
