@@ -330,7 +330,9 @@ export function registerPaymentAdminHttpRoutes(
       let allowedMonitorTargets: ReadonlySet<string>;
       try {
         allowedMonitorTargets = new Set(
-          (await dependencies.monitorTargetCatalog.list()).map((item) => item.key),
+          (await dependencies.monitorTargetCatalog.list())
+            .filter((item) => item.state === "active")
+            .map((item) => item.key),
         );
       } catch {
         return reply.code(503).send(errorResponse("monitor_unavailable"));

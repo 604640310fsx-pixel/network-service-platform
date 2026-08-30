@@ -5,6 +5,7 @@ import {
   createMonitorTargetCatalog,
   normalizeMonitorApiOrigin,
   normalizeMonitorTargetKey,
+  normalizeMonitorTargetState,
 } from "../../src/monitor/target-catalog.js";
 
 test("monitor catalog returns only sanitized target keys and labels", async () => {
@@ -23,12 +24,21 @@ test("monitor catalog returns only sanitized target keys and labels", async () =
             target_host: "sensitive.internal.example",
             tcp_port: 443,
             has_data: true,
+            collector_enabled: true,
+            customer_state: "active",
           },
           {
             target_name: "Tokyo Transit A",
             display_name: "日本东京 VPS 中转 A",
             target_host: "192.0.2.99",
             tcp_port: 8443,
+            collector_enabled: false,
+          },
+          {
+            target_name: "Retired Transit",
+            display_name: "已退役线路",
+            target_host: "198.51.100.99",
+            customer_state: "retired",
           },
         ],
       }), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -36,8 +46,9 @@ test("monitor catalog returns only sanitized target keys and labels", async () =
   );
 
   assert.deepEqual(await catalog.list(), [
-    { key: "DMIT Premium", label: "DMIT Premium" },
-    { key: "Tokyo Transit A", label: "日本东京 VPS 中转 A" },
+    { key: "DMIT Premium", label: "DMIT Premium", state: "active" },
+    { key: "Tokyo Transit A", label: "日本东京 VPS 中转 A", state: "disabled" },
+    { key: "Retired Transit", label: "已退役线路", state: "retired" },
   ]);
   assert.equal(requestUrl, "http://192.0.2.10:3002/api/vps-targets");
   assert.equal(requestInit?.method, "GET");
@@ -61,6 +72,10 @@ test("monitor catalog and configuration fail closed on malformed values", async 
   for (const invalidKey of ["", " key", "key ", "bad\nkey", "x".repeat(129)]) {
     assert.equal(normalizeMonitorTargetKey(invalidKey), null);
   }
+  assert.equal(normalizeMonitorTargetState(undefined, true), "active");
+  assert.equal(normalizeMonitorTargetState(undefined, false), "disabled");
+  assert.equal(normalizeMonitorTargetState("retired", true), "retired");
+  assert.equal(normalizeMonitorTargetState("deleted", true), null);
 
   const duplicateCatalog = createMonitorTargetCatalog(
     "https://monitor.example.test",
@@ -72,4 +87,14 @@ test("monitor catalog and configuration fail closed on malformed values", async 
     })),
   );
   await assert.rejects(() => duplicateCatalog.list(), /invalid/);
+
+  const invalidStateCatalog = createMonitorTargetCatalog(
+    "https://monitor.example.test",
+    async () => new Response(JSON.stringify({
+      targets: [
+        { target_name: "target", display_name: "Target", customer_state: "deleted" },
+      ],
+    })),
+  );
+  await assert.rejects(() => invalidStateCatalog.list(), /invalid/);
 });

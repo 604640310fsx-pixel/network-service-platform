@@ -26,8 +26,8 @@ h1{margin:0;font-size:34px;line-height:1.08;font-weight:650;letter-spacing:.01em
 .overall-status i{width:18px;height:18px;border-radius:50%;background:currentColor}.overall-status.normal{color:var(--green)}.overall-status.warning{color:var(--orange)}.overall-status.degraded,.overall-status.down{color:var(--red)}.overall-status.stale{color:var(--gray)}
 .last-update{display:flex;align-items:center;gap:10px;margin:16px 0 0;color:#969ca5;font-size:18px}.last-update time{color:#bfc5ce;font-variant-numeric:tabular-nums}.live-pulse,.eyebrow{display:none}
 .vps-picker{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));column-gap:9px;row-gap:6px;width:760px;margin-right:49px}
-.vps-option{--vps:#7f9ffc;display:flex;align-items:center;column-gap:10px;min-width:0;min-height:39px;padding:5px 12px;border:1px solid #2c323c;border-radius:9px;background:#10141a;text-align:left;cursor:pointer}
-.vps-option.active{border-color:rgba(245,158,11,.78);background:rgba(245,158,11,.06);box-shadow:inset 0 0 0 1px rgba(245,158,11,.12)}.vps-option.no-data{border-style:dashed}.vps-option i{flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:var(--vps)}.vps-option.no-data i{background:#838c9d}
+.vps-option{display:flex;align-items:center;column-gap:10px;min-width:0;min-height:39px;padding:5px 12px;border:1px solid #2c323c;border-radius:9px;background:#10141a;text-align:left;cursor:pointer}
+.vps-option.active{border-color:rgba(245,158,11,.78);background:rgba(245,158,11,.06);box-shadow:inset 0 0 0 1px rgba(245,158,11,.12)}.vps-option.no-data{border-style:dashed}.vps-option i{flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:#838c9d}.vps-option.online i{background:var(--blue)}.vps-option.offline i{background:var(--red)}.vps-option.disabled i{background:#838c9d}
 .vps-option span{display:block;min-width:0;overflow:hidden;color:#e7ebf1;font-size:14px;font-weight:650;line-height:1.2;text-overflow:ellipsis;white-space:nowrap}.vps-option.skeleton{opacity:.45;cursor:default}
 
 /* Shared reference panels. */
@@ -149,7 +149,7 @@ html[data-theme="light"] .last-update time{color:#2b3038}
 html[data-theme="light"] .vps-option{border-color:#dfe3e9;background:#ffffff}
 html[data-theme="light"] .vps-option.active{border-color:rgba(176,109,5,.6);background:rgba(245,158,11,.1);box-shadow:inset 0 0 0 1px rgba(176,109,5,.2)}
 html[data-theme="light"] .vps-option span{color:#1a1e25}
-html[data-theme="light"] .vps-option.no-data i{background:#9aa2ae}
+html[data-theme="light"] .vps-option.disabled i,html[data-theme="light"] .vps-option.loading i{background:#9aa2ae}
 
 /* 面板与延迟图工具条 */
 html[data-theme="light"] .panel{background:linear-gradient(145deg,#ffffff,#fbfcfe)}
@@ -167,7 +167,7 @@ html[data-theme="light"] .chart-loading span{border-color:#d2d8e0;border-top-col
 html[data-theme="light"] .chart-update-caption{color:#828b99}
 
 /* 选中 VPS 运行时指标条 */
-html[data-theme="light"] .system-metric{border-right-color:#e7ebf0}
+html[data-theme="light"] .system-metric{border-right-color:#e7ebf0;border-bottom-color:#e7ebf0}
 html[data-theme="light"] .system-metric>span,html[data-theme="light"] .network-metric span{color:#5c6472}
 html[data-theme="light"] .system-metric>b,html[data-theme="light"] .network-metric b{color:#101419}
 html[data-theme="light"] .network-arrow{color:#3a414c}
@@ -187,6 +187,8 @@ html[data-theme="light"] .route-result span{color:#828b99}
 html[data-theme="light"] .route-updated{color:#828b99}
 html[data-theme="light"] .route-updated b{color:#5c6472}
 html[data-theme="light"] .table-wrap{border-color:#dfe3e9}
+html[data-theme="light"] .table-wrap{scrollbar-color:#aab2be transparent}
+html[data-theme="light"] .table-wrap::-webkit-scrollbar-thumb{background:#aab2be}
 html[data-theme="light"] .table-wrap th{border-bottom-color:#e2e6ec;background:#f4f6f9;color:#5c6472}
 html[data-theme="light"] .route-hop td{border-bottom-color:#eef1f5;color:#3a414c}
 html[data-theme="light"] .route-asn{color:#3a414c}

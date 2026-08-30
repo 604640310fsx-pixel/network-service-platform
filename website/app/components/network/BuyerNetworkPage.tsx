@@ -10,6 +10,10 @@ import {
   type MyServiceItem,
   type ServiceStatus,
 } from "../../lib/payment-api";
+import {
+  buyerStatusHref,
+  resolveBuyerStatusHref,
+} from "../../lib/buyerStatusLink";
 import { resolveSelection } from "../../lib/resolveSelection";
 import "./buyer-network.css";
 
@@ -22,7 +26,8 @@ import "./buyer-network.css";
    IP、面板地址、凭据、监控 ID 或供应商身份；线路条数也不当作在线节点数使用。
    三个接口相互独立：交付线路读取失败时保留仍然有效的服务与订单，只降级为局部警告 + 重试。
    视觉语言：真实数据用 --cc-text 强调，未知数据用 --cc-text-4 弱化，二者一眼可分。
-   公开 /monitor 保持独立入口，不与账户数据混用。 */
+   账户内线路入口统一进入 /status，并携带后端校验的 VPS 目标；公开 /monitor 仍保持独立，
+   但不再从本账户数据卡片跳转。 */
 
 type Resource<T> =
   | { readonly kind: "loading" }
@@ -278,11 +283,7 @@ function DeliveryLineLinks({
         <li key={line.position}>
           <Link
             className="cc-net-line-label"
-            to={
-              line.monitorTargetKey === null
-                ? "/status"
-                : `/status?vps=${encodeURIComponent(line.monitorTargetKey)}`
-            }
+            to={buyerStatusHref(line.monitorTargetKey)}
             aria-label={`线路 ${line.position}：${line.label}（订单 ${orderRef}），前往服务器状态页查看`}
           >
             <span className="cc-net-line-label-index" aria-hidden="true">{line.position}</span>
@@ -544,6 +545,7 @@ function TrafficPanel({
   accountServices: readonly AccountServiceView[];
 }) {
   const ready = servicesState.kind === "ready";
+  const statusHref = resolveBuyerStatusHref(accountServices);
 
   return (
     <section className="cc-net-panel" aria-labelledby="cc-net-traffic-title">
@@ -648,10 +650,10 @@ function TrafficPanel({
       <div className="cc-net-monitor-note">
         <span className="cc-net-monitor-icon"><MonitorIcon /></span>
         <div>
-          <strong>账户数据与公开监控相互独立</strong>
-          <p>本页只展示关联账户服务；公开实时监控展示三网线路运行状态，不代表你的节点或账户用量。</p>
+          <strong>买家线路与服务器状态联动</strong>
+          <p>本入口优先打开当前账户首个已绑定 VPS；也可点击上方任一已交付线路查看其对应 VPS。</p>
         </div>
-        <Link className="cc-net-ghost" to="/monitor">查看公开实时监控</Link>
+        <Link className="cc-net-ghost" to={statusHref}>查看买家服务器状态</Link>
       </div>
     </section>
   );

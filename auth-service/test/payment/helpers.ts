@@ -105,8 +105,9 @@ export function paymentDependencies(
     csrfSigningKey: CSRF_KEY,
     monitorTargetCatalog: {
       list: async () => [
-        { key: "DMIT Premium", label: "DMIT Premium" },
-        { key: "Tokyo Transit A", label: "日本东京 VPS 中转 A" },
+        { key: "DMIT Premium", label: "DMIT Premium", state: "active" },
+        { key: "Tokyo Transit A", label: "日本东京 VPS 中转 A", state: "active" },
+        { key: "Paused VPS", label: "维护中的 VPS", state: "disabled" },
       ],
     },
     appId: "app-123",

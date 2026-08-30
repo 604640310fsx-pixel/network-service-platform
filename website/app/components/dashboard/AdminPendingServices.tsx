@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   PaymentApiError,
   getAdminMonitorTargets,
@@ -16,6 +16,13 @@ const SCENARIO_LABELS: Record<string, string> = {
   work: "跨境办公",
   other: "其他",
 };
+const MONITOR_TARGET_REFRESH_MS = 15_000;
+
+function monitorTargetOptionLabel(target: AdminMonitorTarget) {
+  if (target.state === "disabled") return `${target.label}（已停用）`;
+  if (target.state === "retired") return `${target.label}（已退役）`;
+  return target.label;
+}
 
 function formatFen(amountFen: number) {
   const amount = amountFen / 100;
@@ -59,6 +66,30 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
   const [monitorTargets, setMonitorTargets] = useState<AdminMonitorTarget[]>([]);
   const [monitorTargetsLoading, setMonitorTargetsLoading] = useState(true);
   const [monitorTargetsError, setMonitorTargetsError] = useState<string | null>(null);
+  const monitorTargetsRequest = useRef(0);
+  const monitorTargetsController = useRef<AbortController | null>(null);
+
+  const refreshMonitorTargets = useCallback(async (showLoading: boolean) => {
+    const requestId = ++monitorTargetsRequest.current;
+    monitorTargetsController.current?.abort();
+    const controller = new AbortController();
+    monitorTargetsController.current = controller;
+    if (showLoading) setMonitorTargetsLoading(true);
+    try {
+      const targets = await getAdminMonitorTargets(controller.signal);
+      if (requestId !== monitorTargetsRequest.current) return;
+      setMonitorTargets(targets);
+      setMonitorTargetsError(null);
+    } catch (loadError) {
+      if (requestId !== monitorTargetsRequest.current) return;
+      setMonitorTargetsError(adminErrorMessage(loadError));
+    } finally {
+      if (requestId === monitorTargetsRequest.current) {
+        setMonitorTargetsLoading(false);
+        monitorTargetsController.current = null;
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -75,23 +106,25 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
       .finally(() => {
         if (!stopped) setLoading(false);
       });
-    void getAdminMonitorTargets(controller.signal)
-      .then((targets) => {
-        if (stopped) return;
-        setMonitorTargets(targets);
-        setMonitorTargetsError(null);
-      })
-      .catch((loadError: unknown) => {
-        if (!stopped) setMonitorTargetsError(adminErrorMessage(loadError));
-      })
-      .finally(() => {
-        if (!stopped) setMonitorTargetsLoading(false);
-      });
     return () => {
       stopped = true;
       controller.abort();
     };
   }, []);
+
+  useEffect(() => {
+    void refreshMonitorTargets(true);
+    const interval = window.setInterval(
+      () => void refreshMonitorTargets(false),
+      MONITOR_TARGET_REFRESH_MS,
+    );
+    return () => {
+      window.clearInterval(interval);
+      monitorTargetsController.current?.abort();
+      monitorTargetsController.current = null;
+      monitorTargetsRequest.current += 1;
+    };
+  }, [refreshMonitorTargets]);
 
   async function markOpen(serviceId: number) {
     if (openingId !== null) return;
@@ -111,6 +144,9 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
       });
     } catch (openError) {
       setError(adminErrorMessage(openError));
+      if (openError instanceof PaymentApiError && openError.code === "invalid_monitor_target") {
+        void refreshMonitorTargets(false);
+      }
     } finally {
       setOpeningId(null);
     }
@@ -154,6 +190,8 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
       return { ...current, [serviceId]: nextItems };
     });
   }
+
+  const activeMonitorTargets = monitorTargets.filter((target) => target.state === "active");
 
   return (
     <section className="dash-panel" aria-labelledby="dash-admin-services-title">
@@ -213,7 +251,7 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
                       <span>对应 VPS 线路服务器</span>
                       <select
                         value={deliveryItem.monitorTargetKey}
-                        disabled={monitorTargetsLoading || monitorTargets.length === 0}
+                        disabled={monitorTargetsLoading || activeMonitorTargets.length === 0}
                         onChange={(event) => updateDeliveryItem(
                           item.serviceId,
                           index,
@@ -224,13 +262,30 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
                         <option value="">
                           {monitorTargetsLoading
                             ? "正在读取 3002 VPS…"
-                            : monitorTargets.length === 0
+                            : activeMonitorTargets.length === 0
                               ? "暂无可用 VPS"
                               : "请选择 VPS"}
                         </option>
-                        {monitorTargets.map((target) => (
-                          <option key={target.key} value={target.key}>{target.label}</option>
-                        ))}
+                        {deliveryItem.monitorTargetKey !== "" &&
+                          !monitorTargets.some((target) => target.key === deliveryItem.monitorTargetKey) && (
+                            <option value={deliveryItem.monitorTargetKey} disabled>
+                              原 VPS 已移除（请重新选择）
+                            </option>
+                          )}
+                        {monitorTargets
+                          .filter((target) => (
+                            target.state !== "retired" ||
+                            target.key === deliveryItem.monitorTargetKey
+                          ))
+                          .map((target) => (
+                          <option
+                            key={target.key}
+                            value={target.key}
+                            disabled={target.state !== "active"}
+                          >
+                            {monitorTargetOptionLabel(target)}
+                          </option>
+                          ))}
                       </select>
                     </label>
                     <label className="dash-delivery-field dash-delivery-url-field">
@@ -265,7 +320,14 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
                   >
                     添加订阅链接
                   </button>
-                  <small>每条订阅必须绑定 3002 中已存在的 VPS；页面不会显示主机名、IP 或端口 · {serviceDeliveryItems.length}/20</small>
+                  <button
+                    type="button"
+                    disabled={monitorTargetsLoading}
+                    onClick={() => void refreshMonitorTargets(true)}
+                  >
+                    {monitorTargetsLoading ? "同步中…" : "刷新 VPS 列表"}
+                  </button>
+                  <small>每 15 秒从 3002 自动同步；停用或退役目标不能新分配，提交时服务端会再次校验 · {serviceDeliveryItems.length}/20</small>
                 </div>
               </fieldset>
               <div className="dash-service-foot">
@@ -276,7 +338,7 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
                   disabled={
                     openingId !== null ||
                     monitorTargetsLoading ||
-                    monitorTargets.length === 0
+                    activeMonitorTargets.length === 0
                   }
                   aria-busy={openingId === item.serviceId}
                   onClick={() => void markOpen(item.serviceId)}

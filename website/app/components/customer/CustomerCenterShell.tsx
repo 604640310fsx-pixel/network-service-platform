@@ -154,7 +154,7 @@ export function CustomerCenterShell({
             <header><b>网络状态监控</b></header>
             <strong className="cc-monitor-status">实时监控已上线</strong>
             <p>查看三网线路与实时网络运行状态</p>
-            <NavLink to="/monitor" className="cc-monitor-link" onClick={closeDrawer}>查看实时监控</NavLink>
+            <NavLink to="/status" className="cc-monitor-link" onClick={closeDrawer}>查看服务器状态</NavLink>
           </section>
         </aside>
 

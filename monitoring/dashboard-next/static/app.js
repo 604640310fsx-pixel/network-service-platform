@@ -7,7 +7,7 @@ const RANGE_LABELS = {'1h':'1 小时','6h':'6 小时','24h':'24 小时','7d':'7 
 const RANGE_MS = {'1h':3600000,'6h':21600000,'24h':86400000,'7d':604800000};
 const savedVps=(()=>{try{return localStorage.getItem('network-monitor-selected-vps')}catch{return null}})();
 const requestedVps=(()=>{try{const value=new URLSearchParams(location.search).get('vps');return value&&value===value.trim()&&value.length<=128&&!/[\u0000-\u001f\u007f]/.test(value)?value:null}catch{return null}})();
-const state = {type:'icmp', range:'24h', target:'AliDNS', lastVps:requestedVps||savedVps||'DMIT Premium', vpsTargets:[], visible:new Set(['telecom','mobile','unicom']), samples:[], chart:null, liveKey:null, targetRequest:0, chartRequest:0, liveRequest:0, refreshPromise:null, chartController:null, vpsStatusRequest:0, vpsStatusPromise:null, vpsStatusTarget:null};
+const state = {type:'icmp', range:'24h', target:'AliDNS', lastVps:requestedVps||savedVps||'DMIT Premium', vpsTargets:[], visible:new Set(['telecom','mobile','unicom']), samples:[], chart:null, liveKey:null, targetRequest:0, chartRequest:0, liveRequest:0, refreshPromise:null, chartController:null, vpsCatalogRequest:0, vpsStatusRequest:0, vpsStatusPromise:null, vpsStatusTarget:null};
 const routeState={wan:'telecom',direction:'outbound',protocol:'icmp',target:'DMIT Premium',targets:[],hops:[],expanded:false,request:0,controller:null};
 
 const $ = selector => document.querySelector(selector);
@@ -70,6 +70,8 @@ function renderVpsUnavailable(status,label,target){
 }
 
 function renderVpsStatus(data){
+  if(data.customer_state==='disabled')return renderVpsUnavailable('disabled','已停用',data.target);
+  if(data.customer_state==='retired')return renderVpsUnavailable('missing','已退役',data.target);
   const item=data.item;
   if(!item){
     const label=data.source_status==='connecting'?'读取中':'未接入';
@@ -88,6 +90,15 @@ function renderVpsStatus(data){
 }
 
 async function loadVpsStatus(target=state.lastVps){
+  const targetItem=state.vpsTargets.find(item=>item.target_name===target);
+  if(targetItem?.customer_state==='retired'){
+    renderVpsUnavailable('missing','已退役或移除',target);
+    return true;
+  }
+  if(targetItem?.customer_state==='disabled'){
+    renderVpsUnavailable('disabled','已停用',target);
+    return true;
+  }
   if(state.vpsStatusPromise&&state.vpsStatusTarget===target)return state.vpsStatusPromise;
   const requestId=++state.vpsStatusRequest;state.vpsStatusTarget=target;
   const task=(async()=>{
@@ -96,7 +107,11 @@ async function loadVpsStatus(target=state.lastVps){
       if(requestId!==state.vpsStatusRequest||target!==state.lastVps)return false;
       renderVpsStatus(data);return true;
     }catch(error){
-      if(requestId===state.vpsStatusRequest&&target===state.lastVps)renderVpsUnavailable('stale','暂不可用',target);
+      if(requestId===state.vpsStatusRequest&&target===state.lastVps){
+        const currentTarget=state.vpsTargets.find(item=>item.target_name===target);
+        const removed=currentTarget?.customer_state==='retired';
+        renderVpsUnavailable(removed?'missing':'stale',removed?'已退役或移除':'暂不可用',target);
+      }
       console.error(error);return false;
     }
   })();
@@ -122,20 +137,86 @@ async function loadTargets(){
 function renderVpsPicker(){
   $('#vpsPicker').innerHTML=state.vpsTargets.map(item=>{
     const active=state.lastVps===item.target_name;
-    return `<button class="vps-option${active?' active':''}${item.has_data?'':' no-data'}" data-target="${escapeHtml(item.target_name)}" aria-pressed="${active}" title="${escapeHtml(item.display_name)}"><i></i><span>${escapeHtml(item.display_name)}</span></button>`;
+    const monitorState=['online','offline','disabled'].includes(item.monitor_state)?item.monitor_state:'loading';
+    const monitorLabel=item.customer_state==='retired'
+      ? '已退役'
+      : {online:'在线',offline:'离线或连接不上',disabled:'已停用',loading:'读取中'}[monitorState];
+    return `<button class="vps-option ${monitorState}${active?' active':''}${item.has_data?'':' no-data'}" data-target="${escapeHtml(item.target_name)}" aria-pressed="${active}" title="${escapeHtml(item.display_name)} · ${monitorLabel}"><i></i><span>${escapeHtml(item.display_name)}</span></button>`;
   }).join('');
 }
 
+function normalizeVpsCustomerState(value,collectorEnabled){
+  if(value==='active'||value==='disabled'||value==='retired')return value;
+  if(value==null)return collectorEnabled===false?'disabled':'active';
+  return 'disabled';
+}
+
+function vpsPickerMonitorState(item,data){
+  if(normalizeVpsCustomerState(item.customer_state,item.collector_enabled)!=='active')return 'disabled';
+  return data?.fresh&&data?.item?.online?'online':'offline';
+}
+
+async function refreshVpsPickerStatus(){
+  const targets=[...state.vpsTargets];
+  if(!targets.length)return false;
+
+  const statuses=await Promise.all(targets.map(async item=>{
+    if(item.customer_state!=='active')return [item.target_name,'disabled'];
+    try{
+      const data=await getJSON(`/api/vps-status?target=${encodeURIComponent(item.target_name)}`);
+      return [item.target_name,vpsPickerMonitorState(item,data)];
+    }catch(error){
+      console.error(error);
+      return [item.target_name,'offline'];
+    }
+  }));
+
+  const byTarget=new Map(statuses);
+  state.vpsTargets=state.vpsTargets.map(item=>({
+    ...item,
+    monitor_state:byTarget.get(item.target_name)||item.monitor_state||'offline'
+  }));
+  renderVpsPicker();
+  return true;
+}
+
 async function loadVpsTargets(){
+  const requestId=++state.vpsCatalogRequest;
   const data=await getJSON('/api/vps-targets');
+  if(requestId!==state.vpsCatalogRequest)return false;
   const order=['DMIT Premium','DMIT Eyeball','NetLab Global US','Zillion Network','Evoxt Premium','Alibaba Cloud','NetLab Global HK','Yecaoyun Cloud'];
-  state.vpsTargets=data.targets.filter(item=>item.target_name!=='Yecaoyun Cloud2-current' && !/Yecaoyun Cloud2/i.test(item.display_name ?? '')).sort((a,b)=>{
+  const catalog=data.targets.map(item=>({
+    ...item,
+    customer_state:normalizeVpsCustomerState(item.customer_state,item.collector_enabled)
+  }));
+  const hasRequested=requestedVps&&catalog.some(item=>item.target_name===requestedVps);
+  if(requestedVps&&!hasRequested){
+    catalog.push({
+      target_name:requestedVps,
+      display_name:requestedVps,
+      collector_enabled:false,
+      customer_state:'retired',
+      has_data:false,
+      monitor_state:'disabled'
+    });
+  }
+  state.vpsTargets=catalog.filter(item=>item.customer_state!=='retired'||item.target_name===requestedVps).sort((a,b)=>{
     const ai=order.indexOf(a.target_name),bi=order.indexOf(b.target_name);
-    return (ai<0?99:ai)-(bi<0?99:bi);
+    const orderDifference=(ai<0?99:ai)-(bi<0?99:bi);
+    return orderDifference||String(a.display_name).localeCompare(String(b.display_name),'zh-CN');
   });
   const names=state.vpsTargets.map(item=>item.target_name);
-  if(!names.includes(state.lastVps))state.lastVps=names.includes('DMIT Premium')?'DMIT Premium':names[0];
+  if(requestedVps){
+    state.lastVps=requestedVps;
+  }else if(!names.includes(state.lastVps)){
+    const activeTargets=state.vpsTargets.filter(item=>item.customer_state==='active');
+    state.lastVps=activeTargets.some(item=>item.target_name==='DMIT Premium')
+      ? 'DMIT Premium'
+      : activeTargets[0]?.target_name||state.vpsTargets[0]?.target_name||state.lastVps;
+  }
   renderVpsPicker();
+  await refreshVpsPickerStatus();
+  return true;
 }
 
 async function selectVps(target){
@@ -562,7 +643,8 @@ async function init(){
   try{await Promise.all([loadOverview(),loadVpsTargets(),loadTargets(),loadRoute()]);await Promise.all([loadChart(),loadLive(false),loadVpsStatus()]);}
   catch(error){console.error(error);$('#chartLoading').innerHTML='<span></span>候选 API 读取失败';setOverall({status:'stale',label:'读取失败'});}
   setInterval(()=>{if(!document.hidden){loadLive(true);loadVpsStatus()}},5000);
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden){loadLive(true);loadVpsStatus()}});
+  setInterval(()=>{if(!document.hidden)loadVpsTargets()},15000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden){loadLive(true);loadVpsStatus();loadVpsTargets()}});
 }
 if(typeof window!=='undefined'&&typeof document!=='undefined'){
   initThemeEmbed();
@@ -570,5 +652,5 @@ if(typeof window!=='undefined'&&typeof document!=='undefined'){
 }
 /* 供 node --test 校验纯逻辑；浏览器经典脚本里 module 未定义，短路跳过。 */
 if(typeof module!=='undefined'&&module.exports){
-  module.exports={THEME_MESSAGE_TYPE,normalizeTheme,isLoopbackOrigin,isTrustedThemeMessage};
+  module.exports={THEME_MESSAGE_TYPE,normalizeTheme,isLoopbackOrigin,isTrustedThemeMessage,normalizeVpsCustomerState,vpsPickerMonitorState};
 }

@@ -491,8 +491,9 @@ test("admin list returns the full frozen snapshot and open requires admin plus v
       assert.equal(targets.headers["cache-control"], "no-store");
       assert.deepEqual(targets.json(), {
         items: [
-          { key: "DMIT Premium", label: "DMIT Premium" },
-          { key: "Tokyo Transit A", label: "日本东京 VPS 中转 A" },
+          { key: "DMIT Premium", label: "DMIT Premium", state: "active" },
+          { key: "Tokyo Transit A", label: "日本东京 VPS 中转 A", state: "active" },
+          { key: "Paused VPS", label: "维护中的 VPS", state: "disabled" },
         ],
       });
       const unavailableApp = buildApp({
@@ -525,6 +526,30 @@ test("admin list returns the full frozen snapshot and open requires admin plus v
         TOKEN_KEYRING,
       ).tokenHash;
       const csrf = issueCsrfToken(dependencies.csrfSigningKey, adminSessionHash);
+      const disabledTarget = await app.inject({
+        method: "POST",
+        url: `/api/admin/services/${serviceId}/open`,
+        headers: {
+          cookie: adminSession.cookie,
+          "content-type": "application/json",
+          "x-csrf-token": csrf,
+        },
+        payload: {
+          items: [
+            {
+              label: "暂停线路",
+              subscriptionUrl: "https://subscription.example.test/paused",
+              monitorTargetKey: "Paused VPS",
+            },
+          ],
+        },
+      });
+      assert.equal(disabledTarget.statusCode, 400);
+      assert.deepEqual(disabledTarget.json(), {
+        error: { code: "invalid_monitor_target" },
+      });
+      assert.equal(firstValue(database, "SELECT status FROM services"), "pending_open");
+
       const opened = await app.inject({
         method: "POST",
         url: `/api/admin/services/${serviceId}/open`,
