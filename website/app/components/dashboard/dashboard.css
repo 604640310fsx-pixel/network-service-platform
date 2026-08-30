@@ -36,6 +36,22 @@
 .dash-primary-link { height: 40px; display: inline-flex; align-items: center; padding: 0 18px; border: 0; border-radius: 10px; background: #f59e0b; color: var(--cc-accent-ink); font-size: 13.5px; font-weight: 600; text-decoration: none; white-space: nowrap; cursor: pointer; }
 .dash-primary-link:hover { filter: brightness(1.05); }
 .dash-primary-link:disabled { cursor: not-allowed; opacity: 0.55; filter: none; }
+.dash-buyer-card .dash-service-head > div { min-width: 0; }
+.dash-buyer-card .dash-service-head strong { color: var(--cc-text); overflow-wrap: anywhere; }
+.dash-tag.is-accent { border-color: var(--cc-accent-line); background: var(--cc-accent-tint); color: var(--cc-accent); font-weight: 600; }
+.dash-secondary-link { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; padding: 0 14px; border: 1px solid var(--cc-line); border-radius: 9px; background: var(--cc-card); color: var(--cc-text-2); font-size: 12.5px; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.dash-secondary-link:hover { border-color: var(--cc-accent-line); background: var(--cc-accent-tint); color: var(--cc-accent); }
+
+/* 买家节点入口：账户内数据页与公开实时监控保持为两个清晰入口。 */
+.dash-network-entry-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dash-network-entry { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 11px 13px; align-items: start; padding: 15px 16px; border: 1px solid var(--cc-line); border-radius: 10px; background: var(--cc-card); }
+.dash-network-icon { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--cc-accent-line); border-radius: 10px; background: var(--cc-accent-tint); color: var(--cc-accent); }
+.dash-network-icon svg { width: 19px; height: 19px; stroke-width: 1.6; }
+.dash-network-entry > div { min-width: 0; }
+.dash-network-entry strong { color: var(--cc-text); font-size: 14px; font-weight: 600; }
+.dash-network-entry p { margin: 4px 0 0; color: var(--cc-text-3); font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.dash-network-entry small { display: block; margin-top: 8px; color: var(--cc-text-4); font-size: 11.5px; }
+.dash-network-entry > .dash-secondary-link { grid-column: 2; justify-self: start; }
 
 /* 管理员人工开通：复用现有服务卡，仅补列表间距与错误提示。 */
 .dash-admin-list { display: flex; flex-direction: column; gap: 10px; }
@@ -152,6 +168,10 @@ button.dash-action strong { color: var(--cc-text-3); font-weight: 500; }
   .dash-split { grid-template-columns: minmax(0, 1fr); }
 }
 
+@media (max-width: 980px) {
+  .dash-network-entry-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* 平板中段：自适应列会退化成 3+1 落单，此处显式降为 2 列。 */
 @media (min-width: 821px) and (max-width: 980px) {
   .dash-stat-grid,
@@ -170,6 +190,9 @@ button.dash-action strong { color: var(--cc-text-3); font-weight: 500; }
   .dash-service { padding: 13px 14px 14px; }
   .dash-service-head strong { font-size: 17px; }
   .dash-primary-link { width: 100%; justify-content: center; }
+  .dash-service-foot .dash-secondary-link { width: 100%; }
+  .dash-network-entry { grid-template-columns: auto minmax(0, 1fr); padding: 13px 14px; }
+  .dash-network-entry > .dash-secondary-link { grid-column: 1 / -1; width: 100%; }
   .dash-delivery-row { grid-template-columns: minmax(0, 1fr); }
   .dash-delivery-remove { width: 100%; }
   .dash-diagnosis-facts,

@@ -12,7 +12,7 @@ type DrawerContextValue = {
 
 const CustomerDrawerContext = createContext<DrawerContextValue | null>(null);
 // 已迁移到客户中心视觉的路由；其余菜单继续走 disabled / 待接入策略。
-const migratedPaths = new Set<string>(["/subscribe", "/dashboard", "/services", "/monitor", "/orders"]);
+const migratedPaths = new Set<string>(["/subscribe", "/dashboard", "/services", "/network", "/monitor", "/orders"]);
 
 export function useCustomerDrawer() {
   const value = useContext(CustomerDrawerContext);
@@ -22,7 +22,7 @@ export function useCustomerDrawer() {
 
 const navigation = [
   { group: "概览", items: [["/status", "服务器状态"], ["/dashboard", "仪表板"]] },
-  { group: "订阅管理", items: [["/subscribe", "套餐订阅"], ["/services", "当前套餐"], ["/monitor", "节点与流量"], ["/orders", "订单"]] },
+  { group: "订阅管理", items: [["/subscribe", "套餐订阅"], ["/services", "当前套餐"], ["/network", "节点与流量"], ["/orders", "订单"]] },
   { group: "支持与帮助", items: [["/tickets", "工单"], ["/docs", "使用文档"]] },
   { group: "账户设置", items: [["/profile", "个人中心"], ["/invites", "邀请中心"], ["/referrals", "邀请/推广"]] },
 ] as const;
@@ -34,7 +34,7 @@ function NavIcon({ href }: { href: string }) {
     case "/dashboard": return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="M12 12l4-3" /></svg>;
     case "/subscribe": return <svg {...common}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 10h18M8 15h4" /></svg>;
     case "/services": return <svg {...common}><path d="M4 7h16M4 12h10M4 17h13" /></svg>;
-    case "/monitor": return <svg {...common}><circle cx="12" cy="5" r="2.4" /><circle cx="5" cy="18" r="2.4" /><circle cx="19" cy="18" r="2.4" /><path d="M12 7.4v4.2M10 13l-3.6 3M14 13l3.6 3" /></svg>;
+    case "/network": return <svg {...common}><circle cx="12" cy="5" r="2.4" /><circle cx="5" cy="18" r="2.4" /><circle cx="19" cy="18" r="2.4" /><path d="M12 7.4v4.2M10 13l-3.6 3M14 13l3.6 3" /></svg>;
     case "/orders": return <svg {...common}><path d="M6 3h9l5 5v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" /><path d="M14 3v6h6M9 14h6M9 17h4" /></svg>;
     case "/tickets": return <svg {...common}><path d="M21 12a9 9 0 1 1-3.2-6.9" /><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9.5h.01M15 9.5h.01" /></svg>;
     case "/docs": return <svg {...common}><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v18H6.5A2.5 2.5 0 0 1 4 18.5v-13z" /><path d="M8 8h7M8 12h7" /></svg>;
