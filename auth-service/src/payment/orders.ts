@@ -891,6 +891,48 @@ export function listMyServices(
   });
 }
 
+export interface MyDeliveryLineItem {
+  readonly orderRef: string;
+  readonly position: number;
+  readonly label: string;
+}
+
+/* 买家可见的交付线路名称。所有权在 SQL 层限定；只读取已经交付的公开名称，
+   不读取或解密订阅 URL，也不暴露主机名、IP、面板地址或内部监控标识。 */
+export function listMyDeliveryLines(
+  database: DatabaseConnection,
+  userId: number,
+): MyDeliveryLineItem[] {
+  const rows = database
+    .prepare(
+      `SELECT orders.order_ref, service_delivery_items.position,
+              service_delivery_items.label
+       FROM service_delivery_items
+       JOIN services ON services.id = service_delivery_items.service_id
+       JOIN payments ON payments.id = services.payment_id
+       JOIN orders ON orders.id = payments.order_id
+       WHERE orders.user_id = ? AND services.status = 'open'
+       ORDER BY services.id DESC, service_delivery_items.position ASC`,
+    )
+    .all(userId);
+  return rows.map((row) => {
+    if (typeof row !== "object" || row === null || Array.isArray(row)) {
+      throw new Error("Service delivery database invariant failed");
+    }
+    const value = row as Record<string, unknown>;
+    const position = rowNumber(value, "position");
+    const label = rowString(value, "label");
+    if (!Number.isSafeInteger(position) || position < 1 || label.trim() !== label || label.length === 0) {
+      throw new Error("Service delivery database invariant failed");
+    }
+    return {
+      orderRef: rowString(value, "order_ref"),
+      position,
+      label,
+    };
+  });
+}
+
 export interface MyOrderItem {
   readonly orderRef: string;
   readonly typeId: string;

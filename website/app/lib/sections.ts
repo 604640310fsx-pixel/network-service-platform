@@ -1,6 +1,8 @@
 export const sectionKeys = [
+  "status",
   "dashboard",
   "services",
+  "network",
   "monitor",
   "orders",
   "subscribe",

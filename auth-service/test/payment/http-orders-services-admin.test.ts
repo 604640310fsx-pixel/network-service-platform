@@ -283,6 +283,116 @@ test("me/services derives ownership only through services to payments to orders"
   });
 });
 
+test("me/delivery-lines returns only buyer-visible labels for the owning user", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const userId = insertAuthenticationUser(database, {
+      email: "line-owner@example.com",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const otherId = insertAuthenticationUser(database, {
+      email: "line-other@example.com",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const adminId = insertAuthenticationUser(database, {
+      email: "line-admin@example.com",
+      passwordHash: "hash",
+      status: "active",
+      role: "admin",
+    });
+    const userSession = insertWebSession(database, userId);
+    const otherSession = insertWebSession(database, otherId);
+    const adminSession = insertWebSession(database, adminId);
+    const dependencies = paymentDependencies(database);
+    const order = createPaymentOrder(dependencies, {
+      idempotencyKey: "delivery-line-key",
+      rawAccessToken: ACCESS_TOKEN_A,
+      selection: localIspSelection(),
+      contact: "line-contact",
+      scenarios: [],
+      notes: null,
+      acknowledgedAmountFen: 7_900,
+      userId,
+    });
+    finalizePaid(dependencies, {
+      outTradeNo: order.orderRef,
+      tradeNo: "trade-delivery-line",
+      tradeStatus: "TRADE_SUCCESS",
+      totalAmount: "79.00",
+      totalAmountFen: 7_900,
+      appId: "app-123",
+      sellerId: "seller-456",
+      notification: { notifyId: "notify-delivery-line", payloadHash: "delivery-line-hash" },
+    });
+    const serviceId = firstValue(database, "SELECT id FROM services");
+    assert.equal(typeof serviceId, "number");
+    const app = buildApp({ payment: dependencies });
+    try {
+      const adminSessionHash = computeSessionTokenHash(
+        adminSession.rawToken,
+        TOKEN_KEYRING,
+      ).tokenHash;
+      const csrf = issueCsrfToken(dependencies.csrfSigningKey, adminSessionHash);
+      const opened = await app.inject({
+        method: "POST",
+        url: `/api/admin/services/${serviceId}/open`,
+        headers: {
+          cookie: adminSession.cookie,
+          "content-type": "application/json",
+          "x-csrf-token": csrf,
+        },
+        payload: {
+          items: [
+            {
+              label: "日本中转 A",
+              subscriptionUrl: "https://subscription.example.test/customer-line",
+            },
+          ],
+        },
+      });
+      assert.equal(opened.statusCode, 200);
+
+      const mine = await app.inject({
+        method: "GET",
+        url: "/api/me/delivery-lines",
+        headers: { cookie: userSession.cookie },
+      });
+      assert.equal(mine.statusCode, 200);
+      assert.equal(mine.headers["cache-control"], "no-store");
+      assert.deepEqual(mine.json(), {
+        items: [{ orderRef: order.orderRef, position: 1, label: "日本中转 A" }],
+      });
+      assert.equal(mine.body.includes("subscription.example.test"), false);
+      assert.deepEqual(Object.keys(mine.json().items[0]).sort(), ["label", "orderRef", "position"]);
+
+      const others = await app.inject({
+        method: "GET",
+        url: "/api/me/delivery-lines",
+        headers: { cookie: otherSession.cookie },
+      });
+      assert.equal(others.statusCode, 200);
+      assert.deepEqual(others.json(), { items: [] });
+
+      const anonymous = await app.inject({ method: "GET", url: "/api/me/delivery-lines" });
+      assert.equal(anonymous.statusCode, 401);
+
+      database
+        .prepare("UPDATE service_delivery_items SET label = ? WHERE service_id = ?")
+        .run(" 非规范线路名 ", serviceId);
+      const corrupt = await app.inject({
+        method: "GET",
+        url: "/api/me/delivery-lines",
+        headers: { cookie: userSession.cookie },
+      });
+      assert.equal(corrupt.statusCode, 503);
+      assert.deepEqual(corrupt.json(), { error: { code: "payment_unavailable" } });
+    } finally {
+      await app.close();
+    }
+  });
+});
+
 test("admin list returns the full frozen snapshot and open requires admin plus valid CSRF", async () => {
   await withAuthenticationDatabase(async (database) => {
     const userId = insertAuthenticationUser(database, {

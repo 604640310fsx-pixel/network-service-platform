@@ -4,6 +4,8 @@ import { CustomerOrdersPage } from "./customer/CustomerOrdersPage";
 import { CustomerServicesPage } from "./customer/CustomerServicesPage";
 import { DashboardPage } from "./dashboard/DashboardPage";
 import { PublicMonitorPage } from "./monitor/PublicMonitorPage";
+import { BuyerNetworkPage } from "./network/BuyerNetworkPage";
+import { BuyerServerStatusPage } from "./status/BuyerServerStatusPage";
 import { SubscribePage } from "./subscribe/SubscribePage";
 import type { SectionKey } from "../lib/sections";
 import { sectionKeys } from "../lib/sections";
@@ -16,6 +18,13 @@ export function DashboardShell() {
   }
 
   const section = requestedSection as SectionKey;
+  if (section === "status") {
+    return (
+      <CustomerCenterShell title="服务器状态" description="查看账户已交付的 VPS 中转线路与状态接入情况">
+        <BuyerServerStatusPage />
+      </CustomerCenterShell>
+    );
+  }
   if (section === "subscribe") {
     return (
       <CustomerCenterShell
@@ -44,6 +53,13 @@ export function DashboardShell() {
     return (
       <CustomerCenterShell title="订单" description="查看你的订单、支付状态与开通进度">
         <CustomerOrdersPage />
+      </CustomerCenterShell>
+    );
+  }
+  if (section === "network") {
+    return (
+      <CustomerCenterShell title="节点与流量" description="查看账户服务、节点状态与流量数据接入情况">
+        <BuyerNetworkPage />
       </CustomerCenterShell>
     );
   }

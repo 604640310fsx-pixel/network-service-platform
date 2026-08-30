@@ -5,25 +5,17 @@ import { AdminDiagnosisPanel } from "./AdminDiagnosisPanel";
 import { AdminInviteCodesPanel } from "./AdminInviteCodesPanel";
 import { AdminPendingServices } from "./AdminPendingServices";
 import { AdminPlansPanel } from "./AdminPlansPanel";
-import { CurrentServicesPanel } from "./CurrentServicesPanel";
+import { BuyerDashboardOverview } from "./BuyerDashboardOverview";
 import "./dashboard.css";
 
-/* 说明：当前服务与管理员待开通列表接真实 API；其余业务数值仍是“待接入”占位。
-   Dashboard 不接入监控指标，只提供已经上线的公开 /monitor 页面入口。 */
-
-const PENDING = "—";
-
-const overviewStats = [
-  { label: "运行中服务", status: "待接入" },
-  { label: "本月用量", status: "暂无数据" },
-  { label: "最近到期", status: "暂无数据" },
-  { label: "工单与告警", status: "待接入" },
-] as const;
+/* 买家概览只读取既有 /api/me/services 与 /api/me/orders；节点、流量等未提供
+   公共契约的数据始终显示待接入，不使用硬编码或 Mock 数值。管理员面板权限保持不变。 */
 
 const quickActions = [
   { href: "/subscribe", label: "套餐订阅", hint: "选择并配置新套餐" },
   { href: "/services", label: "当前套餐", hint: "查看已支付服务与开通进度" },
   { href: "/orders", label: "订单", hint: "查看订单与支付状态" },
+  { href: "/network", label: "节点与流量", hint: "查看账户内网络数据接入状态" },
   { href: "/monitor", label: "实时监控", hint: "查看三网实时网络状态" },
 ] as const;
 
@@ -46,40 +38,7 @@ export function DashboardPage() {
   return (
     <main className="dash-page">
       <div className="dash-layout">
-        <section className="dash-panel" aria-labelledby="dash-overview-title">
-          <h2 id="dash-overview-title"><em>OVERVIEW</em>服务概览<span>数据待接入</span></h2>
-          <div className="dash-stat-grid">
-            {overviewStats.map((stat) => (
-              <article className="dash-stat" key={stat.label}>
-                <span>{stat.label}</span>
-                <strong>{PENDING}</strong>
-                <small><i aria-hidden="true" />{stat.status}</small>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <div className="dash-split">
-          <section className="dash-panel" aria-labelledby="dash-service-title">
-            <h2 id="dash-service-title"><em>SERVICE</em>当前服务</h2>
-            <CurrentServicesPanel />
-          </section>
-
-          <section className="dash-panel" aria-labelledby="dash-network-title">
-            <h2 id="dash-network-title"><em>NETWORK</em>网络状态</h2>
-            <div className="dash-service">
-              <div className="dash-service-head">
-                <div>
-                  <strong>实时网络监控已上线</strong>
-                  <small>本页不展示实时指标，前往实时监控查看三网线路与运行状态。</small>
-                </div>
-              </div>
-              <div className="dash-service-foot">
-                <Link className="dash-primary-link" to="/monitor">查看实时监控</Link>
-              </div>
-            </div>
-          </section>
-        </div>
+        <BuyerDashboardOverview />
 
         {principal?.role === "admin" && <AdminDiagnosisPanel csrfToken={csrfToken} />}
         {principal?.role === "admin" && <AdminInviteCodesPanel csrfToken={csrfToken} />}

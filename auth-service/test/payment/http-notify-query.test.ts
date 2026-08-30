@@ -62,6 +62,7 @@ test("PAYMENT_ENABLED=false makes every payment business endpoint 503 while heal
       payload: formBody(notifyFields("DL1")),
     }),
     app.inject({ method: "GET", url: "/api/me/services" }),
+    app.inject({ method: "GET", url: "/api/me/delivery-lines" }),
     app.inject({
       method: "GET",
       url: "/api/admin/services?status=pending_open",
@@ -70,7 +71,7 @@ test("PAYMENT_ENABLED=false makes every payment business endpoint 503 while heal
   ]);
   assert.deepEqual(
     responses.map((response) => response.statusCode),
-    [503, 503, 503, 503, 503, 503, 503],
+    [503, 503, 503, 503, 503, 503, 503, 503],
   );
   const health = await app.inject({ method: "GET", url: "/health" });
   assert.equal(health.statusCode, 200);

@@ -40,7 +40,7 @@ function adminErrorMessage(error: unknown) {
     case "csrf_invalid": return "安全校验已失效，请刷新页面后重试。";
     case "invalid_transition": return "该服务状态已变化，请刷新后确认。";
     case "items_required": return "请至少填写一条订阅链接。";
-    case "invalid_item": return "请检查线路名称与 HTTPS 订阅链接。";
+    case "invalid_item": return "请检查买家可见线路名称与 HTTPS 订阅链接。";
     case "invalid_response": return "待开通服务数据返回异常。";
     default: return "暂时无法处理待开通服务，请稍后重试。";
   }
@@ -98,7 +98,7 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
   }
 
   function defaultDeliveryItems(): DeliveryItemInput[] {
-    return [{ label: "订阅线路 1", subscriptionUrl: "" }];
+    return [{ label: "", subscriptionUrl: "" }];
   }
 
   function deliveryItems(serviceId: number): DeliveryItemInput[] {
@@ -122,7 +122,7 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
     setDrafts((current) => {
       const nextItems = [...(current[serviceId] ?? defaultDeliveryItems())];
       if (nextItems.length >= 20) return current;
-      nextItems.push({ label: `订阅线路 ${nextItems.length + 1}`, subscriptionUrl: "" });
+      nextItems.push({ label: "", subscriptionUrl: "" });
       return { ...current, [serviceId]: nextItems };
     });
   }
@@ -174,16 +174,17 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
                 <div><dt>补充说明</dt><dd>{item.notes?.trim() || "—"}</dd></div>
               </dl>
               <fieldset className="dash-delivery-form">
-                <legend>交付订阅链接</legend>
+                <legend>交付订阅线路</legend>
                 {serviceDeliveryItems.map((deliveryItem, index) => (
                   <div className="dash-delivery-row" key={index}>
                     <label className="dash-delivery-field">
-                      <span>线路名称</span>
+                      <span>买家可见线路名称</span>
                       <input
                         type="text"
                         maxLength={200}
                         value={deliveryItem.label}
                         onChange={(event) => updateDeliveryItem(item.serviceId, index, "label", event.target.value)}
+                        placeholder="例如：日本中转 A"
                         autoComplete="off"
                       />
                     </label>
@@ -219,11 +220,11 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
                   >
                     添加订阅链接
                   </button>
-                  <small>{serviceDeliveryItems.length}/20</small>
+                  <small>使用脱敏别名，不填写主机名、IP 或面板地址 · {serviceDeliveryItems.length}/20</small>
                 </div>
               </fieldset>
               <div className="dash-service-foot">
-                <p>填写并核对订阅链接后，再保存并开通服务。</p>
+                <p>填写买家可见的脱敏线路名称并核对订阅链接后，再保存并开通服务。</p>
                 <button
                   type="button"
                   className="dash-primary-link"
