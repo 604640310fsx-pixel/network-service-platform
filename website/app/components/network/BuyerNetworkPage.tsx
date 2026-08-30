@@ -2,8 +2,10 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
   PaymentApiError,
+  getMyDeliveryLines,
   getMyOrders,
   getMyServices,
+  type MyDeliveryLineItem,
   type MyOrderItem,
   type MyServiceItem,
   type ServiceStatus,
@@ -12,10 +14,13 @@ import { resolveSelection } from "../../lib/resolveSelection";
 import "./buyer-network.css";
 
 /* /network 买家「节点与流量」页。
-   真实数据只来自既有 GET /api/me/services 与 GET /api/me/orders；服务属性名称来自
-   已冻结的 SUBSCRIBE-CATALOG-V1（目录标称，非实测值）。节点在线 / 超时 / 离线、
-   实际用量、配额与重置周期没有公共契约，一律显示「待接入」的未知态：参考稿里的
+   真实数据只来自既有 GET /api/me/services、GET /api/me/orders 与 GET /api/me/delivery-lines；
+   服务属性名称来自已冻结的 SUBSCRIBE-CATALOG-V1（目录标称，非实测值）。节点在线 / 超时 /
+   离线、实际用量、配额与重置周期没有公共契约，一律显示「待接入」的未知态：参考稿里的
    0 在本页一律写成 —，绝不渲染伪造的 0 值或 Mock 生产数据。
+   交付线路只展示后端已脱敏的 orderRef / position / label 三项，绝不展示订阅地址、主机名、
+   IP、面板地址、凭据、监控 ID 或供应商身份；线路条数也不当作在线节点数使用。
+   三个接口相互独立：交付线路读取失败时保留仍然有效的服务与订单，只降级为局部警告 + 重试。
    视觉语言：真实数据用 --cc-text 强调，未知数据用 --cc-text-4 弱化，二者一眼可分。
    公开 /monitor 保持独立入口，不与账户数据混用。 */
 
@@ -34,11 +39,17 @@ type AccountServiceView = {
   readonly type: string | null;
   readonly traffic: string | null;
   readonly bandwidth: string | null;
+  readonly lines: readonly MyDeliveryLineItem[];
+};
+
+type OrphanLineGroup = {
+  readonly orderRef: string;
+  readonly lines: readonly MyDeliveryLineItem[];
 };
 
 const UNKNOWN = "—";
 
-function resourceErrorMessage(resource: "服务" | "订单", error: unknown): string {
+function resourceErrorMessage(resource: "服务" | "订单" | "交付线路", error: unknown): string {
   if (error instanceof PaymentApiError && error.code === "invalid_response") {
     return `${resource}数据返回异常，请稍后重试。`;
   }
@@ -59,11 +70,34 @@ function catalogValue(value: string): string | null {
   return value === UNKNOWN || value === "" ? null : value;
 }
 
+/* 交付线路按 orderRef 聚合，组内按 position 升序：position 是买家可见的线路序号，
+   与「VPS 中转线路 N」一一对应，必须保留而不是重新编号。 */
+function groupLinesByOrder(
+  lines: readonly MyDeliveryLineItem[] | null,
+): Map<string, MyDeliveryLineItem[]> {
+  const grouped = new Map<string, MyDeliveryLineItem[]>();
+  for (const line of lines ?? []) {
+    const bucket = grouped.get(line.orderRef);
+    if (bucket === undefined) {
+      grouped.set(line.orderRef, [line]);
+      continue;
+    }
+    bucket.push(line);
+  }
+  for (const bucket of grouped.values()) {
+    bucket.sort((left, right) => left.position - right.position);
+  }
+  return grouped;
+}
+
 /* 服务接口只能证明账户关联服务及其开通状态，不能证明节点数量。
-   订单仅用于补充服务的目录属性；缺失或读取失败时属性留空，不猜测地区与运营商。 */
+   订单仅用于补充服务的目录属性；缺失或读取失败时属性留空，不猜测地区与运营商。
+   交付线路按 orderRef 挂到对应服务上；读取失败时 lines 为空，由调用方区分
+   「尚未配置线路名称」与「线路名称暂不可读取」，不把两者混为一谈。 */
 function buildAccountServices(
   services: readonly MyServiceItem[],
   orders: readonly MyOrderItem[] | null,
+  linesByOrder: Map<string, MyDeliveryLineItem[]>,
 ): AccountServiceView[] {
   const orderList: readonly MyOrderItem[] = orders ?? [];
   const orderByRef = new Map(orderList.map((order) => [order.orderRef, order] as const));
@@ -71,6 +105,7 @@ function buildAccountServices(
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     .map((service) => {
       const order = orderByRef.get(service.orderRef) ?? null;
+      const lines = linesByOrder.get(service.orderRef) ?? [];
       if (order === null) {
         return {
           orderRef: service.orderRef,
@@ -81,6 +116,7 @@ function buildAccountServices(
           type: null,
           traffic: null,
           bandwidth: null,
+          lines,
         };
       }
       const resolved = resolveSelection({
@@ -100,8 +136,23 @@ function buildAccountServices(
         type: resolved.selectedType?.name ?? order.typeId,
         traffic: catalogValue(resolved.summary.traffic),
         bandwidth: catalogValue(resolved.summary.bandwidth),
+        lines,
       };
     });
+}
+
+/* 服务与交付线路是两个独立请求，可能在同一次刷新里读到不同快照。
+   匹配不上任何服务的线路不静默丢弃，单独成组显示，避免真实数据凭空消失。 */
+function collectOrphanLineGroups(
+  linesByOrder: Map<string, MyDeliveryLineItem[]>,
+  services: readonly MyServiceItem[],
+): OrphanLineGroup[] {
+  const knownRefs = new Set(services.map((service) => service.orderRef));
+  const groups: OrphanLineGroup[] = [];
+  for (const [orderRef, lines] of linesByOrder) {
+    if (!knownRefs.has(orderRef)) groups.push({ orderRef, lines });
+  }
+  return groups;
 }
 
 function RefreshIcon() {
@@ -211,21 +262,99 @@ function StateBlock({
   );
 }
 
+/* 每条买家可见线路名称都是一个指向 /status 的链接：可见文本包含完整名称，
+   aria-label 再补上序号、所属订单与去向，读屏和键盘都能独立理解这条链接。
+   长名称必须整段换行显示，绝不截断成看不出是哪条线路的省略号。 */
+function DeliveryLineLinks({
+  lines,
+  orderRef,
+}: {
+  lines: readonly MyDeliveryLineItem[];
+  orderRef: string;
+}) {
+  return (
+    <ul className="cc-net-line-labels">
+      {lines.map((line) => (
+        <li key={line.position}>
+          <Link
+            className="cc-net-line-label"
+            to="/status"
+            aria-label={`线路 ${line.position}：${line.label}（订单 ${orderRef}），前往服务器状态页查看`}
+          >
+            <span className="cc-net-line-label-index" aria-hidden="true">{line.position}</span>
+            <span className="cc-net-line-label-text">{line.label}</span>
+            <span className="cc-net-line-label-go" aria-hidden="true">服务器状态</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/* 一个服务的交付线路区块有四种诚实状态，彼此不可互相顶替：
+   1. pending_open：明确「等待人工交付」，此时后端本就不会返回任何线路名称；
+   2. 已开通且有线路：逐条列出可访问链接；
+   3. 已开通但线路接口仍在读取 / 读取失败：显示读取中或「暂不可读取」，不谎称未配置；
+   4. 已开通、线路接口成功但没有名称：显示「尚未配置买家可见线路名称」。 */
+function ServiceDeliveryLines({
+  service,
+  deliveryState,
+}: {
+  service: AccountServiceView;
+  deliveryState: Resource<readonly MyDeliveryLineItem[]>;
+}) {
+  if (service.serviceStatus === "pending_open") {
+    return (
+      <p className="cc-net-line-note">
+        等待人工交付：服务完成开通后才会生成买家可见线路名称，当前不展示任何线路。
+      </p>
+    );
+  }
+  if (service.lines.length > 0) {
+    return <DeliveryLineLinks lines={service.lines} orderRef={service.orderRef} />;
+  }
+  if (deliveryState.kind === "loading") {
+    return <p className="cc-net-line-note">正在读取该服务的线路名称…</p>;
+  }
+  if (deliveryState.kind === "ready") {
+    return (
+      <p className="cc-net-line-note is-unknown">
+        尚未配置买家可见线路名称：服务已开通，但没有可展示的线路条目。
+      </p>
+    );
+  }
+  return (
+    <p className="cc-net-line-note is-unknown">
+      线路名称暂不可读取，本次未显示该服务的任何线路。
+    </p>
+  );
+}
+
 function NodesPanel({
   servicesState,
   accountServices,
   ordersState,
+  deliveryState,
+  orphanLineGroups,
   onRetry,
+  onRetryDeliveryLines,
 }: {
   servicesState: Resource<readonly MyServiceItem[]>;
   accountServices: readonly AccountServiceView[];
   ordersState: Resource<readonly MyOrderItem[]>;
+  deliveryState: Resource<readonly MyDeliveryLineItem[]>;
+  orphanLineGroups: readonly OrphanLineGroup[];
   onRetry: () => void;
+  onRetryDeliveryLines: () => void;
 }) {
   const openCount = accountServices.filter((service) => service.serviceStatus === "open").length;
   const ready = servicesState.kind === "ready";
+  /* 线路条数只作为「名称记录数」出现在说明文字里，并且始终与「不代表节点数量」同句，
+     绝不进入四格统计，也绝不被读成在线节点数。 */
+  const lineCountText =
+    deliveryState.kind === "ready" ? ` · 已交付线路名称 ${deliveryState.items.length} 条` : "";
   const subline = ready
-    ? `关联服务 ${accountServices.length} 项 · 已开通 ${openCount} 项 · 不代表节点数量`
+    ? `关联服务 ${accountServices.length} 项 · 已开通 ${openCount} 项${lineCountText} · 不代表节点数量`
     : servicesState.kind === "loading"
       ? "正在读取账户服务"
       : "账户服务暂不可读取";
@@ -305,6 +434,32 @@ function NodesPanel({
               服务属性（地区、运营商、类型）暂时无法读取，已留空而非猜测。
             </p>
           )}
+
+          {/* 局部失败：服务与订单仍然有效，只有交付线路读不到。保留已读到的真实数据，
+              降级成带重试的警告，绝不把整页替换成错误态。 */}
+          {(deliveryState.kind === "error" || deliveryState.kind === "unauthorized") && (
+            <div className="cc-net-warning" role="status">
+              <div>
+                <strong>
+                  {deliveryState.kind === "error"
+                    ? deliveryState.message
+                    : "线路名称需要重新登录后读取"}
+                </strong>
+                <p>
+                  下方服务与开通状态仍是本次读取到的真实数据；仅线路名称未能读取，已按服务逐条标注，不使用缓存或示例线路顶替。
+                </p>
+              </div>
+              <div className="cc-net-warning-actions">
+                <button type="button" className="cc-net-ghost" onClick={onRetryDeliveryLines}>
+                  重试读取线路名称
+                </button>
+                {deliveryState.kind === "unauthorized" && (
+                  <a className="cc-net-ghost" href="/login">重新登录</a>
+                )}
+              </div>
+            </div>
+          )}
+
           <ul className="cc-net-lines">
             {accountServices.map((service) => {
               const isOpen = service.serviceStatus === "open";
@@ -319,27 +474,49 @@ function NodesPanel({
                     : "套餐属性待读取";
               return (
                 <li className="cc-net-line" key={service.orderRef}>
-                  <span className={`cc-net-line-dot ${isOpen ? "is-open" : ""}`} aria-hidden="true" />
-                  <div className="cc-net-line-id">
-                    <strong>{service.orderRef}</strong>
-                    <small>
-                      {attributes.length > 0 ? attributes.join(" · ") : attributeLabel}
-                      <i aria-hidden="true" />
-                      {formatDate(service.createdAt)}
-                    </small>
+                  <div className="cc-net-line-top">
+                    <span className={`cc-net-line-dot ${isOpen ? "is-open" : ""}`} aria-hidden="true" />
+                    <div className="cc-net-line-id">
+                      <strong>{service.orderRef}</strong>
+                      <small>
+                        {attributes.length > 0 ? attributes.join(" · ") : attributeLabel}
+                        <i aria-hidden="true" />
+                        {formatDate(service.createdAt)}
+                      </small>
+                    </div>
+                    <div className="cc-net-line-meta">
+                      <span className={`cc-net-badge ${isOpen ? "is-open" : ""}`}>
+                        {isOpen ? "已开通" : "待开通"}
+                      </span>
+                      {!isOpen && <span className="cc-net-badge is-waiting">等待人工交付</span>}
+                      <span className="cc-net-badge is-unknown">运行状态待接入</span>
+                    </div>
                   </div>
-                  <div className="cc-net-line-meta">
-                    <span className={`cc-net-badge ${isOpen ? "is-open" : ""}`}>
-                      {isOpen ? "已开通" : "待开通"}
-                    </span>
-                    <span className="cc-net-badge is-unknown">运行状态待接入</span>
+                  <div className="cc-net-line-delivery">
+                    <span className="cc-net-line-delivery-label">交付线路名称</span>
+                    <ServiceDeliveryLines service={service} deliveryState={deliveryState} />
                   </div>
                 </li>
               );
             })}
           </ul>
+
+          {orphanLineGroups.length > 0 && (
+            <div className="cc-net-orphan">
+              <strong>未匹配到账户服务的已交付线路</strong>
+              <p>以下线路名称属于当前账户，但本次读到的服务列表里没有对应记录；刷新后通常会归入对应服务。</p>
+              {orphanLineGroups.map((group) => (
+                <div className="cc-net-orphan-group" key={group.orderRef}>
+                  <small>关联订单 {group.orderRef}</small>
+                  <DeliveryLineLinks lines={group.lines} orderRef={group.orderRef} />
+                </div>
+              ))}
+            </div>
+          )}
+
           <p className="cc-net-panel-foot">
-            以上仅为关联账户服务，不等于节点清单。节点总数、在线、超时与离线状态均保持未知态。
+            以上仅为关联账户服务与其买家可见线路名称，不等于节点清单：线路条数不是在线节点数，
+            节点总数、在线、超时与离线状态均保持未知态。线路名称不包含订阅地址、主机名、IP、面板地址或任何连接信息。
           </p>
         </>
       )}
@@ -479,7 +656,9 @@ function TrafficPanel({
 export function BuyerNetworkPage() {
   const [servicesState, setServicesState] = useState<Resource<readonly MyServiceItem[]>>({ kind: "loading" });
   const [ordersState, setOrdersState] = useState<Resource<readonly MyOrderItem[]>>({ kind: "loading" });
+  const [deliveryState, setDeliveryState] = useState<Resource<readonly MyDeliveryLineItem[]>>({ kind: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
+  const [deliveryToken, setDeliveryToken] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -519,12 +698,47 @@ export function BuyerNetworkPage() {
     };
   }, [reloadToken]);
 
+  /* 交付线路单独一个 effect 和单独一个 token：局部重试只重新读取线路名称，
+     不会把已经读到的服务与订单打回 loading，避免有效数据在重试时闪没。
+     整页刷新（reloadToken）同样会触发这里，保持三份数据同一次刷新。 */
+  useEffect(() => {
+    const controller = new AbortController();
+    let stopped = false;
+    setDeliveryState({ kind: "loading" });
+
+    void getMyDeliveryLines(controller.signal)
+      .then((items) => {
+        if (!stopped) setDeliveryState({ kind: "ready", items });
+      })
+      .catch((error: unknown) => {
+        if (stopped) return;
+        if (error instanceof PaymentApiError && error.code === "unauthorized") {
+          setDeliveryState({ kind: "unauthorized" });
+          return;
+        }
+        setDeliveryState({ kind: "error", message: resourceErrorMessage("交付线路", error) });
+      });
+
+    return () => {
+      stopped = true;
+      controller.abort();
+    };
+  }, [reloadToken, deliveryToken]);
+
   const services = servicesState.kind === "ready" ? servicesState.items : null;
   const orders = ordersState.kind === "ready" ? ordersState.items : null;
+  const deliveryLines = deliveryState.kind === "ready" ? deliveryState.items : null;
+  const linesByOrder = groupLinesByOrder(deliveryLines);
   const accountServices: readonly AccountServiceView[] =
-    services === null ? [] : buildAccountServices(services, orders);
-  const isLoading = servicesState.kind === "loading" || ordersState.kind === "loading";
+    services === null ? [] : buildAccountServices(services, orders, linesByOrder);
+  const orphanLineGroups: readonly OrphanLineGroup[] =
+    services === null ? [] : collectOrphanLineGroups(linesByOrder, services);
+  const isLoading =
+    servicesState.kind === "loading" ||
+    ordersState.kind === "loading" ||
+    deliveryState.kind === "loading";
   const reload = () => setReloadToken((token) => token + 1);
+  const reloadDeliveryLines = () => setDeliveryToken((token) => token + 1);
 
   return (
     <main className="cc-net-page">
@@ -533,7 +747,7 @@ export function BuyerNetworkPage() {
           <span className="cc-net-head-icon"><NodesIcon /></span>
           <div>
             <h1>可用节点与流量明细</h1>
-            <p>关联服务与开通状态来自你的真实账户数据；节点清单、在线状态与流量统计尚未接入，保持未知态而不显示为 0。</p>
+            <p>关联服务、开通状态与已交付线路名称来自你的真实账户数据；节点清单、在线状态与流量统计尚未接入，保持未知态而不显示为 0。</p>
           </div>
           <button type="button" onClick={reload} disabled={isLoading}>
             <RefreshIcon />
@@ -546,7 +760,10 @@ export function BuyerNetworkPage() {
             servicesState={servicesState}
             accountServices={accountServices}
             ordersState={ordersState}
+            deliveryState={deliveryState}
+            orphanLineGroups={orphanLineGroups}
             onRetry={reload}
+            onRetryDeliveryLines={reloadDeliveryLines}
           />
           <TrafficPanel
             servicesState={servicesState}

@@ -38,9 +38,11 @@
 .cc-net-metrics small { display: block; margin-top: 3px; color: var(--cc-text-4); font-size: 10.5px; }
 .cc-net-metrics article.is-unknown strong { color: var(--cc-text-4); }
 
-/* 关联服务清单：展示真实服务与开通状态，但明确不把服务条目当作节点。 */
+/* 关联服务清单：展示真实服务与开通状态，但明确不把服务条目当作节点。
+   每张卡是两层：上层是服务标识与状态徽标，下层是该服务的买家可见交付线路名称。 */
 .cc-net-lines { list-style: none; margin: 0; padding: 14px 20px 0; display: flex; flex-direction: column; gap: 9px; }
-.cc-net-line { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; padding: 13px 14px; border: 1px solid var(--cc-line); border-radius: 10px; background: var(--cc-card); }
+.cc-net-line { min-width: 0; display: flex; flex-direction: column; padding: 13px 14px; border: 1px solid var(--cc-line); border-radius: 10px; background: var(--cc-card); }
+.cc-net-line-top { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; }
 .cc-net-line-dot { width: 9px; height: 9px; flex: 0 0 9px; border: 1.5px solid var(--cc-text-4); border-radius: 50%; background: transparent; }
 .cc-net-line-dot.is-open { border-color: var(--cc-accent); background: var(--cc-accent); }
 .cc-net-line-id { min-width: 0; flex: 1 1 190px; }
@@ -50,7 +52,39 @@
 .cc-net-line-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-left: auto; }
 .cc-net-badge { padding: 2px 8px; border: 1px solid var(--cc-line); border-radius: 5px; background: var(--cc-inset); color: var(--cc-text-2); font-size: 11.5px; line-height: 1.6; white-space: nowrap; }
 .cc-net-badge.is-open { border-color: var(--cc-accent-line); background: var(--cc-accent-tint); color: var(--cc-accent); font-weight: 600; }
+.cc-net-badge.is-waiting { border-style: dashed; background: transparent; color: var(--cc-text-2); }
 .cc-net-badge.is-unknown { border-style: dashed; background: transparent; color: var(--cc-text-4); }
+
+/* 交付线路区块：每条名称都是可聚焦的链接，长名称整段换行，绝不截断。 */
+.cc-net-line-delivery { min-width: 0; margin-top: 11px; padding-top: 11px; border-top: 1px dashed var(--cc-hairline); }
+.cc-net-line-delivery-label { display: block; color: var(--cc-text-4); font-size: 11px; letter-spacing: 0.04em; }
+.cc-net-line-labels { list-style: none; margin: 7px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.cc-net-line-label { min-width: 0; display: flex; align-items: flex-start; gap: 9px; padding: 8px 10px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-inset); color: var(--cc-text); text-decoration: none; }
+.cc-net-line-label:hover { border-color: var(--cc-accent-line); background: var(--cc-accent-tint); }
+.cc-net-line-label:focus-visible { outline: 2px solid #f59e0b; outline-offset: 2px; }
+.cc-net-line-label-index { width: 20px; height: 20px; flex: 0 0 20px; margin-top: 1px; display: grid; place-items: center; border: 1px solid var(--cc-line); border-radius: 6px; background: var(--cc-card); color: var(--cc-text-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.cc-net-line-label-text { min-width: 0; flex: 1 1 auto; font-size: 12.5px; font-weight: 600; line-height: 1.55; overflow-wrap: anywhere; }
+.cc-net-line-label-go { flex: 0 0 auto; margin-left: auto; padding-top: 1px; color: var(--cc-text-4); font-size: 11px; white-space: nowrap; }
+.cc-net-line-label:hover .cc-net-line-label-go { color: var(--cc-accent); }
+/* 待交付 / 未配置 / 暂不可读取：三种诚实文案共用同一虚线容器，不伪装成线路条目。 */
+.cc-net-line-note { margin: 7px 0 0; padding: 8px 10px; border: 1px dashed var(--cc-line); border-radius: 8px; color: var(--cc-text-3); font-size: 11.5px; line-height: 1.6; overflow-wrap: anywhere; }
+.cc-net-line-note.is-unknown { color: var(--cc-text-4); }
+
+/* 局部失败警告：服务与订单仍然有效，只有交付线路读不到时出现，带独立重试。 */
+.cc-net-warning { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 13px; margin: 14px 20px 0; padding: 12px 13px; border: 1px solid var(--cc-accent-line); border-radius: 10px; background: var(--cc-accent-tint); }
+.cc-net-warning > div:first-child { min-width: 0; flex: 1 1 240px; }
+.cc-net-warning strong { display: block; color: var(--cc-text); font-size: 12.5px; font-weight: 600; overflow-wrap: anywhere; }
+.cc-net-warning p { margin: 4px 0 0; color: var(--cc-text-3); font-size: 11.5px; line-height: 1.6; overflow-wrap: anywhere; }
+.cc-net-warning-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+
+/* 服务与线路是两个独立快照：匹配不上服务的线路单独成组，不静默丢弃真实数据。 */
+.cc-net-orphan { margin: 14px 20px 0; padding: 12px 13px; border: 1px dashed var(--cc-line); border-radius: 10px; }
+.cc-net-orphan > strong { display: block; color: var(--cc-text-2); font-size: 12.5px; font-weight: 600; }
+.cc-net-orphan > p { margin: 4px 0 0; color: var(--cc-text-4); font-size: 11.5px; line-height: 1.6; overflow-wrap: anywhere; }
+.cc-net-orphan-group { margin-top: 10px; }
+.cc-net-orphan-group > small { display: block; color: var(--cc-text-4); font-size: 11px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.cc-net-orphan-group .cc-net-line-labels { margin-top: 6px; }
+
 .cc-net-panel-foot { margin: 14px 20px 0; padding-top: 13px; border-top: 1px solid var(--cc-hairline); color: var(--cc-text-4); font-size: 11.5px; line-height: 1.65; overflow-wrap: anywhere; }
 .cc-net-inline-note { margin: 14px 20px 0; padding: 9px 11px; border: 1px dashed var(--cc-line); border-radius: 8px; color: var(--cc-text-3); font-size: 11.5px; line-height: 1.6; overflow-wrap: anywhere; }
 
@@ -143,8 +177,12 @@
   .cc-net-traffic-summary { grid-template-columns: minmax(0, 1fr); }
   .cc-net-line-meta { margin-left: 0; }
   .cc-net-state { min-height: 190px; margin: 14px; padding: 22px 14px; }
+  .cc-net-warning-actions { margin-left: 0; }
+  .cc-net-warning-actions .cc-net-ghost { flex: 1 1 auto; }
   .cc-net-panel-foot,
   .cc-net-inline-note,
+  .cc-net-warning,
+  .cc-net-orphan,
   .cc-net-monitor-note { margin-left: 14px; margin-right: 14px; }
   /* 窄屏改为堆叠卡片，每行自带字段名，避免四列表格产生横向滚动 */
   .cc-net-traffic-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
