@@ -1,13 +1,17 @@
 export const MONITOR_TARGET_KEY_MAX_LENGTH = 128;
 export const MONITOR_TARGET_LABEL_MAX_LENGTH = 200;
+export const MONITOR_TARGET_STATES = ["active", "disabled", "retired"] as const;
 
 const MONITOR_RESPONSE_MAX_BYTES = 256 * 1024;
 const MONITOR_REQUEST_TIMEOUT_MS = 5_000;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
 
+export type MonitorTargetState = (typeof MONITOR_TARGET_STATES)[number];
+
 export interface MonitorTargetOption {
   readonly key: string;
   readonly label: string;
+  readonly state: MonitorTargetState;
 }
 
 export interface MonitorTargetCatalog {
@@ -37,6 +41,16 @@ export function normalizeMonitorTargetKey(value: unknown): string | null {
 
 function normalizeMonitorTargetLabel(value: unknown): string | null {
   return normalizedBoundedText(value, MONITOR_TARGET_LABEL_MAX_LENGTH);
+}
+
+export function normalizeMonitorTargetState(
+  value: unknown,
+  collectorEnabled: unknown,
+): MonitorTargetState | null {
+  if (value === undefined) return collectorEnabled === false ? "disabled" : "active";
+  return typeof value === "string" && MONITOR_TARGET_STATES.includes(value as MonitorTargetState)
+    ? value as MonitorTargetState
+    : null;
 }
 
 export function normalizeMonitorApiOrigin(value: unknown): string | null {
@@ -81,11 +95,15 @@ function parseMonitorTargets(value: unknown): readonly MonitorTargetOption[] {
       const target = rawTarget as Record<string, unknown>;
       const key = normalizeMonitorTargetKey(target.target_name);
       const label = normalizeMonitorTargetLabel(target.display_name);
-      if (key === null || label === null || seen.has(key)) {
+      const state = normalizeMonitorTargetState(
+        target.customer_state,
+        target.collector_enabled,
+      );
+      if (key === null || label === null || state === null || seen.has(key)) {
         throw new Error("Monitor target response is invalid");
       }
       seen.add(key);
-      return Object.freeze({ key, label });
+      return Object.freeze({ key, label, state });
     }),
   );
 }

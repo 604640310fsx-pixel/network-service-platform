@@ -35,16 +35,18 @@ STATUS_RANK = {"normal": 0, "warning": 1, "degraded": 2, "down": 3, "stale": 4}
 NEZHA_BASE_URL = os.environ.get("NEZHA_BASE_URL", "http://127.0.0.1:8008").rstrip("/")
 NEZHA_WS_PATH = "/api/v1/ws/server"
 NEZHA_MAX_FRAME_BYTES = 4 * 1024 * 1024
-VPS_TARGET_NAMES = (
-    "Zillion Network",
-    "Alibaba Cloud",
-    "NetLab Global HK",
-    "DMIT Premium",
-    "DMIT Eyeball",
-    "NetLab Global US",
-    "Evoxt Premium",
-    "Yecaoyun Cloud",
-)
+VPS_CUSTOMER_STATES = frozenset(("active", "disabled", "retired"))
+VPS_DISPLAY_NAMES = {
+    "Zillion Network": "美国 Zillion Network",
+    "Alibaba Cloud": "新加坡 Alibaba Cloud",
+    "NetLab Global HK": "香港 NetLab Global",
+    "DMIT Premium": "美国 DMIT Premium",
+    "DMIT Eyeball": "美国 DMIT Eyeball",
+    "NetLab Global US": "美国 NetLab Global",
+    "Evoxt Premium": "马来 Evoxt Premium",
+    "Yecaoyun Cloud": "香港 Yecaoyun Cloud",
+    "Yecaoyun Cloud2-current": "香港 Yecaoyun Cloud2",
+}
 CACHE_LOCK = threading.Lock()
 CACHE = {}
 CACHE_KEY_LOCKS = {}
@@ -57,7 +59,8 @@ NEZHA_STATE = {
     "targets": {},
     "error": "connecting",
 }
-TARGET_HOSTS_CACHE = None
+VPS_CATALOG_LOCK = threading.Lock()
+VPS_CATALOG_CACHE = {"signature": None, "items": ()}
 ROUTE_NORMALIZED_MAX_BYTES = 2 * 1024 * 1024
 ROUTE_RAW_MAX_BYTES = 2 * 1024 * 1024
 ROUTE_DIRECTIONS = ("outbound", "return")
@@ -83,17 +86,69 @@ class RoutePayloadError(ValueError):
     pass
 
 
+def vps_catalog_text(value, limit):
+    if not isinstance(value, str) or value.strip() != value or not value or len(value) > limit:
+        raise ValueError("invalid VPS target config")
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        raise ValueError("invalid VPS target config")
+    return value
+
+
+def vps_customer_state(item):
+    if "customer_state" not in item:
+        return "disabled" if item.get("enabled") is False else "active"
+    state = item["customer_state"]
+    if state not in VPS_CUSTOMER_STATES:
+        raise ValueError("invalid VPS customer state")
+    return state
+
+
+def load_vps_catalog():
+    with VPS_CATALOG_LOCK:
+        stat = TARGETS_PATH.stat()
+        signature = (
+            str(TARGETS_PATH.resolve()),
+            stat.st_ino,
+            stat.st_mtime_ns,
+            stat.st_size,
+        )
+        if VPS_CATALOG_CACHE["signature"] == signature:
+            return VPS_CATALOG_CACHE["items"]
+        payload = json.loads(TARGETS_PATH.read_text(encoding="utf-8"))
+        raw_targets = payload.get("tcp_targets")
+        if not isinstance(raw_targets, list) or len(raw_targets) > 100:
+            raise ValueError("invalid VPS target config")
+        seen = set()
+        items = []
+        for raw_item in raw_targets:
+            if not isinstance(raw_item, dict):
+                raise ValueError("invalid VPS target config")
+            name = vps_catalog_text(raw_item.get("name"), 128)
+            host = vps_catalog_text(raw_item.get("host"), 255)
+            if name in seen:
+                raise ValueError("duplicate VPS target")
+            seen.add(name)
+            display_name = raw_item.get("display_name")
+            if display_name is None:
+                display_name = VPS_DISPLAY_NAMES.get(name, name)
+            else:
+                display_name = vps_catalog_text(display_name, 200)
+            items.append({
+                "name": name,
+                "display_name": display_name,
+                "host": host,
+                "tcp_port": raw_item.get("tcp_port"),
+                "enabled": bool(raw_item.get("enabled")),
+                "customer_state": vps_customer_state(raw_item),
+            })
+        cached = tuple(items)
+        VPS_CATALOG_CACHE["signature"] = signature
+        VPS_CATALOG_CACHE["items"] = cached
+        return cached
+
+
 def target_hosts():
-    global TARGET_HOSTS_CACHE
-    if TARGET_HOSTS_CACHE is not None:
-        return TARGET_HOSTS_CACHE
-    config = json.loads(TARGETS_PATH.read_text())
-    TARGET_HOSTS_CACHE = {
-        item["name"]: item["host"]
-        for item in config.get("tcp_targets", [])
-        if item.get("name") in VPS_TARGET_NAMES
-    }
-    return TARGET_HOSTS_CACHE
+    return {item["name"]: item["host"] for item in load_vps_catalog()}
 
 
 def optional_integer(value):
@@ -1124,18 +1179,6 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json({"type": test_type, "targets": [dict(row) for row in rows]})
 
     def vps_targets(self):
-        config = json.loads(TARGETS_PATH.read_text())
-        display_names = {
-            "Zillion Network": "美国 Zillion Network",
-            "Alibaba Cloud": "新加坡 Alibaba Cloud",
-            "NetLab Global HK": "香港 NetLab Global",
-            "DMIT Premium": "美国 DMIT Premium",
-            "DMIT Eyeball": "美国 DMIT Eyeball",
-            "NetLab Global US": "美国 NetLab Global",
-            "Evoxt Premium": "马来 Evoxt Premium",
-            "Yecaoyun Cloud": "香港 Yecaoyun Cloud",
-            "Yecaoyun Cloud2-current": "香港 Yecaoyun Cloud2",
-        }
         with connect() as conn:
             rows = conn.execute(
                 """
@@ -1145,14 +1188,15 @@ class Handler(BaseHTTPRequestHandler):
             ).fetchall()
         sampled = {row["target_name"]: dict(row) for row in rows}
         targets = []
-        for item in config.get("tcp_targets", []):
+        for item in load_vps_catalog():
             stats = sampled.get(item["name"])
             targets.append({
                 "target_name": item["name"],
-                "display_name": display_names.get(item["name"], item["name"]),
+                "display_name": item["display_name"],
                 "target_host": item["host"],
                 "tcp_port": item.get("tcp_port"),
-                "collector_enabled": bool(item.get("enabled")),
+                "collector_enabled": item["enabled"],
+                "customer_state": item["customer_state"],
                 "has_data": stats is not None,
                 "samples": stats["samples"] if stats else 0,
                 "latest_timestamp": stats["latest_timestamp"] if stats else None,
@@ -1161,9 +1205,23 @@ class Handler(BaseHTTPRequestHandler):
 
     def vps_status(self, query):
         target = query.get("target", ["DMIT Premium"])[0]
-        configured = target_hosts()
-        if target not in configured:
+        catalog = {item["name"]: item for item in load_vps_catalog()}
+        configured = catalog.get(target)
+        if configured is None:
             return self.send_json({"error": "unknown target"}, 404)
+        customer_state = configured["customer_state"]
+        if customer_state != "active":
+            return self.send_json({
+                "source": "nezha-public",
+                "source_status": customer_state,
+                "customer_state": customer_state,
+                "fresh": False,
+                "updated_at": None,
+                "snapshot_age_seconds": None,
+                "target": target,
+                "target_host": configured["host"],
+                "item": None,
+            })
         with NEZHA_LOCK:
             connected = bool(NEZHA_STATE["connected"])
             updated_at = NEZHA_STATE["updated_at"]
@@ -1180,11 +1238,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json({
             "source": "nezha-public",
             "source_status": source_status,
+            "customer_state": customer_state,
             "fresh": fresh,
             "updated_at": updated_at,
             "snapshot_age_seconds": age,
             "target": target,
-            "target_host": configured[target],
+            "target_host": configured["host"],
             "item": item,
         })
 

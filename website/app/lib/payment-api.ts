@@ -114,6 +114,7 @@ export type MyDeliveryLineItem = {
 export type AdminMonitorTarget = {
   readonly key: string;
   readonly label: string;
+  readonly state: "active" | "disabled" | "retired";
 };
 
 // GET /api/me/orders 单项。字段严格对应冻结后端契约；serviceStatus 可为 null（无服务）。
@@ -521,7 +522,7 @@ function parseAdminPendingServices(value: unknown): AdminPendingServiceItem[] {
   });
 }
 
-function parseAdminMonitorTargets(value: unknown): AdminMonitorTarget[] {
+export function parseAdminMonitorTargets(value: unknown): AdminMonitorTarget[] {
   const body = requireRecord(value);
   if (!Array.isArray(body.items) || body.items.length > 100) {
     throw new PaymentApiError("invalid_response");
@@ -530,6 +531,7 @@ function parseAdminMonitorTargets(value: unknown): AdminMonitorTarget[] {
   return body.items.map((rawItem) => {
     const item = requireRecord(rawItem);
     const key = normalizeMonitorTargetKey(item.key);
+    const state = item.state === undefined ? "active" : item.state;
     if (
       key === null ||
       typeof item.label !== "string" ||
@@ -537,12 +539,13 @@ function parseAdminMonitorTargets(value: unknown): AdminMonitorTarget[] {
       item.label.length < 1 ||
       item.label.length > MONITOR_TARGET_LABEL_MAX_LENGTH ||
       CONTROL_CHARACTER_PATTERN.test(item.label) ||
+      (state !== "active" && state !== "disabled" && state !== "retired") ||
       seen.has(key)
     ) {
       throw new PaymentApiError("invalid_response");
     }
     seen.add(key);
-    return { key, label: item.label };
+    return { key, label: item.label, state };
   });
 }
 

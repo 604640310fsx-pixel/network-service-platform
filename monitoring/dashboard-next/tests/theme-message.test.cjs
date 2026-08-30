@@ -8,6 +8,8 @@ const {
   isLoopbackOrigin,
   isTrustedThemeMessage,
   normalizeTheme,
+  normalizeVpsCustomerState,
+  vpsPickerMonitorState,
 } = require('../static/app.js');
 
 const parentWindow = {};
@@ -91,5 +93,56 @@ test('embedded layout has a dedicated single-layer shell override', () => {
   assert.match(css, /html\[data-embedded="true"\] \.shell/);
   assert.match(css, /width:100%;margin:0/);
   assert.match(css, /border:0;border-radius:0/);
+  assert.match(css, /html\[data-theme="light"\] \.system-metric\{[^}]*border-bottom-color:#e7ebf0/);
+  assert.match(css, /html\[data-theme="light"\] \.table-wrap\{scrollbar-color:#aab2be transparent\}/);
+  assert.match(css, /html\[data-theme="light"\] \.table-wrap::\-webkit-scrollbar-thumb\{background:#aab2be\}/);
   assert.doesNotMatch(css, /body\{[^}]*min-width:1180px/);
+});
+
+test('VPS picker maps live, unavailable, and explicitly disabled targets to stable states', () => {
+  assert.equal(normalizeVpsCustomerState('active', false), 'active');
+  assert.equal(normalizeVpsCustomerState('disabled', true), 'disabled');
+  assert.equal(normalizeVpsCustomerState('retired', true), 'retired');
+  assert.equal(normalizeVpsCustomerState(undefined, true), 'active');
+  assert.equal(normalizeVpsCustomerState(undefined, false), 'disabled');
+  assert.equal(normalizeVpsCustomerState('invalid', true), 'disabled');
+  assert.equal(
+    vpsPickerMonitorState(
+      { target_name: 'DMIT Premium', customer_state: 'active' },
+      { fresh: true, item: { online: true } },
+    ),
+    'online',
+  );
+  assert.equal(
+    vpsPickerMonitorState(
+      { target_name: 'NetLab Global US', customer_state: 'active' },
+      { fresh: true, item: { online: false } },
+    ),
+    'offline',
+  );
+  assert.equal(
+    vpsPickerMonitorState(
+      { target_name: 'NetLab Global US', customer_state: 'active' },
+      { fresh: false, item: { online: true } },
+    ),
+    'offline',
+  );
+  assert.equal(
+    vpsPickerMonitorState(
+      { target_name: 'Alibaba Cloud', customer_state: 'disabled' },
+      { fresh: true, item: { online: true } },
+    ),
+    'disabled',
+  );
+  assert.equal(
+    vpsPickerMonitorState(
+      { target_name: 'Removed VPS', customer_state: 'retired' },
+      { fresh: true, item: { online: true } },
+    ),
+    'disabled',
+  );
+
+  const source = fs.readFileSync(path.join(__dirname, '../static/app.js'), 'utf8');
+  assert.match(source, /setInterval\(\(\)=>\{if\(!document\.hidden\)loadVpsTargets\(\)\},15000\)/);
+  assert.doesNotMatch(source, /disabledVpsTargets|Yecaoyun Cloud2-current/);
 });
