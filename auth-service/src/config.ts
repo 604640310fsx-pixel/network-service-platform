@@ -5,6 +5,7 @@ import { canonicalizeEmail } from "./auth/email.js";
 import type { RateLimitKeyring } from "./http/rate-limit.js";
 import type { InviteHmacKeyring } from "./registration/invite-code.js";
 import type { TokenHmacKeyring } from "./session/session-token.js";
+import { normalizeMonitorApiOrigin } from "./monitor/target-catalog.js";
 
 export const LOOPBACK_HOST = "127.0.0.1" as const;
 
@@ -50,6 +51,10 @@ export interface AuthCredentialConfig {
 export interface DeliveryCredentialConfig {
   readonly deliveryEncKeyring: TokenHmacKeyring;
 }
+
+export type MonitorRuntimeConfig =
+  | { readonly enabled: false }
+  | { readonly enabled: true; readonly apiOrigin: string };
 
 export interface MailDispatcherRuntimeConfig {
   readonly intervalMs: number;
@@ -353,6 +358,20 @@ export function loadDeliveryCredentialConfig(
   } catch {
     throw new Error("Delivery credential configuration is invalid");
   }
+}
+
+export function loadMonitorRuntimeConfig(
+  environment: NodeJS.ProcessEnv = process.env,
+): MonitorRuntimeConfig {
+  const configured = environment.MONITOR_API_ORIGIN;
+  if (configured === undefined) {
+    return Object.freeze({ enabled: false });
+  }
+  const apiOrigin = normalizeMonitorApiOrigin(configured);
+  if (apiOrigin === null) {
+    throw new Error("Monitor runtime configuration is invalid");
+  }
+  return Object.freeze({ enabled: true, apiOrigin });
 }
 
 function invalidMailRuntimeConfiguration(): Error {

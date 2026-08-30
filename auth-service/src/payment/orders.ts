@@ -8,6 +8,7 @@ import {
 } from "../session/order-access-token.js";
 import type { TokenHmacKeyring } from "../session/session-token.js";
 import type { AlipaySdkLike } from "./alipay.js";
+import { normalizeMonitorTargetKey } from "../monitor/target-catalog.js";
 import {
   findRedeemedCouponCode,
   normalizeCouponCode,
@@ -753,6 +754,7 @@ export interface ServiceDeliveryItem {
   readonly position: number;
   readonly label: string;
   readonly subscriptionUrl: string;
+  readonly monitorTargetKey: string | null;
 }
 
 function rowBuffer(row: Record<string, unknown>, name: string): Buffer {
@@ -773,7 +775,8 @@ export function readServiceDeliveryItems(
   }
   return database
     .prepare(
-      `SELECT position, label, key_version, nonce, ciphertext, tag
+      `SELECT position, label, monitor_target_key,
+              key_version, nonce, ciphertext, tag
        FROM service_delivery_items
        WHERE service_id = ?
        ORDER BY position ASC`,
@@ -786,10 +789,18 @@ export function readServiceDeliveryItems(
       const value = row as Record<string, unknown>;
       const position = rowNumber(value, "position");
       const label = rowString(value, "label");
+      const monitorTargetKey = rowNullableString(value, "monitor_target_key");
       const keyVersion = rowNumber(value, "key_version");
+      if (
+        monitorTargetKey !== null &&
+        normalizeMonitorTargetKey(monitorTargetKey) === null
+      ) {
+        throw new Error("Service delivery database invariant failed");
+      }
       return {
         position,
         label,
+        monitorTargetKey,
         subscriptionUrl: decryptServiceDeliveryItem(
           {
             serviceId,
@@ -895,10 +906,12 @@ export interface MyDeliveryLineItem {
   readonly orderRef: string;
   readonly position: number;
   readonly label: string;
+  readonly monitorTargetKey: string | null;
 }
 
 /* 买家可见的交付线路名称。所有权在 SQL 层限定；只读取已经交付的公开名称，
-   不读取或解密订阅 URL，也不暴露主机名、IP、面板地址或内部监控标识。 */
+   以及管理员绑定的 3002 目标键；不读取或解密订阅 URL，也不暴露主机名、IP、
+   面板地址或监控源返回的连接字段。历史未绑定行保持 null。 */
 export function listMyDeliveryLines(
   database: DatabaseConnection,
   userId: number,
@@ -906,7 +919,8 @@ export function listMyDeliveryLines(
   const rows = database
     .prepare(
       `SELECT orders.order_ref, service_delivery_items.position,
-              service_delivery_items.label
+              service_delivery_items.label,
+              service_delivery_items.monitor_target_key
        FROM service_delivery_items
        JOIN services ON services.id = service_delivery_items.service_id
        JOIN payments ON payments.id = services.payment_id
@@ -922,13 +936,21 @@ export function listMyDeliveryLines(
     const value = row as Record<string, unknown>;
     const position = rowNumber(value, "position");
     const label = rowString(value, "label");
-    if (!Number.isSafeInteger(position) || position < 1 || label.trim() !== label || label.length === 0) {
+    const monitorTargetKey = rowNullableString(value, "monitor_target_key");
+    if (
+      !Number.isSafeInteger(position) ||
+      position < 1 ||
+      label.trim() !== label ||
+      label.length === 0 ||
+      (monitorTargetKey !== null && normalizeMonitorTargetKey(monitorTargetKey) === null)
+    ) {
       throw new Error("Service delivery database invariant failed");
     }
     return {
       orderRef: rowString(value, "order_ref"),
       position,
       label,
+      monitorTargetKey,
     };
   });
 }
@@ -1121,7 +1143,11 @@ export function openService(
   readonly id: number;
   readonly status: "open";
   readonly openedAt: string;
-  readonly items: ReadonlyArray<{ readonly position: number; readonly label: string }>;
+  readonly items: ReadonlyArray<{
+    readonly position: number;
+    readonly label: string;
+    readonly monitorTargetKey: string;
+  }>;
 } {
   if (
     input.items.length < 1 ||
@@ -1168,15 +1194,17 @@ export function openService(
     }
     const insertDeliveryItem = database.prepare(
       `INSERT INTO service_delivery_items (
-         service_id, position, label, key_version, nonce, ciphertext, tag,
+         service_id, position, label, monitor_target_key,
+         key_version, nonce, ciphertext, tag,
          created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const item of input.items) {
       insertDeliveryItem.run(
         input.serviceId,
         item.position,
         item.label,
+        item.monitorTargetKey,
         item.keyVersion,
         item.nonce,
         item.ciphertext,
@@ -1195,7 +1223,11 @@ export function openService(
       id: input.serviceId,
       status: "open" as const,
       openedAt,
-      items: input.items.map(({ position, label }) => ({ position, label })),
+      items: input.items.map(({ position, label, monitorTargetKey }) => ({
+        position,
+        label,
+        monitorTargetKey,
+      })),
     };
   });
   return operation.immediate();

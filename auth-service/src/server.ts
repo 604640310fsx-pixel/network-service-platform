@@ -7,9 +7,11 @@ import {
   loadConfig,
   loadDeliveryCredentialConfig,
   loadMailRuntimeConfig,
+  loadMonitorRuntimeConfig,
   loadResendCredentialConfig,
 } from "./config.js";
 import { initializeDatabase } from "./db.js";
+import { createMonitorTargetCatalog } from "./monitor/target-catalog.js";
 import { startOrderExpirySweep } from "./payment/order-expiry.js";
 import { startRegistrationMailRuntime } from "./registration/mail-runtime.js";
 import { ResendMailTransport } from "./registration/resend-mail-transport.js";
@@ -34,6 +36,9 @@ async function start(): Promise<void> {
   const delivery = config.paymentEnabled
     ? loadDeliveryCredentialConfig()
     : null;
+  const monitor = config.paymentEnabled
+    ? loadMonitorRuntimeConfig()
+    : ({ enabled: false } as const);
   const alipaySdk =
     alipay === null
       ? null
@@ -54,6 +59,9 @@ async function start(): Promise<void> {
           tokenHmacKeyring: credentials.tokenHmacKeyring,
           deliveryEncKeyring: delivery.deliveryEncKeyring,
           csrfSigningKey: credentials.csrfSigningKey,
+          monitorTargetCatalog: monitor.enabled
+            ? createMonitorTargetCatalog(monitor.apiOrigin)
+            : null,
           appId: alipay.appId,
           sellerId: alipay.sellerId,
           notifyUrl: alipay.notifyUrl,

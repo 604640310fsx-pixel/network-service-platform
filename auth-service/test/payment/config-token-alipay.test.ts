@@ -8,6 +8,7 @@ import {
   loadAlipayConfig,
   loadConfig,
   loadDeliveryCredentialConfig,
+  loadMonitorRuntimeConfig,
 } from "../../src/config.js";
 import { issueCsrfToken, verifyCsrfToken } from "../../src/http/csrf.js";
 import {
@@ -72,6 +73,26 @@ test("delivery credential loader reads only the frozen independent keyring", asy
     );
   } finally {
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("monitor runtime is optional but strictly validates its private API origin", () => {
+  assert.deepEqual(loadMonitorRuntimeConfig({}), { enabled: false });
+  assert.deepEqual(
+    loadMonitorRuntimeConfig({ MONITOR_API_ORIGIN: "http://192.0.2.10:3002" }),
+    { enabled: true, apiOrigin: "http://192.0.2.10:3002" },
+  );
+  for (const value of [
+    "",
+    " http://192.0.2.10:3002",
+    "ftp://192.0.2.10:3002",
+    "http://user:pass@192.0.2.10:3002",
+    "http://192.0.2.10:3002/api",
+  ]) {
+    assert.throws(
+      () => loadMonitorRuntimeConfig({ MONITOR_API_ORIGIN: value }),
+      /Monitor runtime configuration is invalid/,
+    );
   }
 });
 

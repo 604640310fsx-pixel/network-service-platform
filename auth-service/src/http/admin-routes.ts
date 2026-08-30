@@ -263,6 +263,26 @@ export function registerPaymentAdminHttpRoutes(
     },
   );
 
+  app.get("/api/admin/monitor-targets", async (request, reply) => {
+    setNoStore(reply);
+    if (!dependencies.enabled) {
+      return reply.code(503).send(errorResponse("payment_unavailable"));
+    }
+    const auth = authorizeAdminSession(request, dependencies);
+    if (!auth.ok) {
+      return reply.code(auth.statusCode).send(errorResponse(auth.code));
+    }
+    if (dependencies.monitorTargetCatalog === null) {
+      return reply.code(503).send(errorResponse("monitor_unavailable"));
+    }
+    try {
+      const items = await dependencies.monitorTargetCatalog.list();
+      return reply.code(200).send({ items });
+    } catch {
+      return reply.code(503).send(errorResponse("monitor_unavailable"));
+    }
+  });
+
   app.post<{ Params: { id: string }; Body: unknown }>(
     "/api/admin/services/:id/open",
     async (request, reply) => {
@@ -303,6 +323,24 @@ export function registerPaymentAdminHttpRoutes(
       const parsedItems = parseOpenItems(request.body);
       if (!parsedItems.ok) {
         return reply.code(400).send(errorResponse(parsedItems.code));
+      }
+      if (dependencies.monitorTargetCatalog === null) {
+        return reply.code(503).send(errorResponse("monitor_unavailable"));
+      }
+      let allowedMonitorTargets: ReadonlySet<string>;
+      try {
+        allowedMonitorTargets = new Set(
+          (await dependencies.monitorTargetCatalog.list()).map((item) => item.key),
+        );
+      } catch {
+        return reply.code(503).send(errorResponse("monitor_unavailable"));
+      }
+      if (
+        parsedItems.items.some(
+          (item) => !allowedMonitorTargets.has(item.monitorTargetKey),
+        )
+      ) {
+        return reply.code(400).send(errorResponse("invalid_monitor_target"));
       }
       try {
         const encryptedItems = parsedItems.items.map((item, index) =>

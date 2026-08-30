@@ -5,6 +5,7 @@ import {
 } from "node:crypto";
 
 import type { TokenHmacKeyring } from "../session/session-token.js";
+import { normalizeMonitorTargetKey } from "../monitor/target-catalog.js";
 
 export const DELIVERY_AUTH_TAG_BYTES = 16;
 export const DELIVERY_NONCE_BYTES = 12;
@@ -17,11 +18,13 @@ const BASE64_32_BYTE_KEY_PATTERN = /^[A-Za-z0-9+/]{43}=$/;
 export interface ServiceDeliveryInput {
   readonly label: string;
   readonly subscriptionUrl: string;
+  readonly monitorTargetKey: string;
 }
 
 export interface EncryptedServiceDeliveryItem {
   readonly position: number;
   readonly label: string;
+  readonly monitorTargetKey: string;
   readonly keyVersion: number;
   readonly nonce: Buffer;
   readonly ciphertext: Buffer;
@@ -29,6 +32,11 @@ export interface EncryptedServiceDeliveryItem {
 }
 
 export type DeliveryRandomBytesSource = (size: number) => Buffer;
+
+interface NormalizedDeliveryPayload {
+  readonly label: string;
+  readonly subscriptionUrl: string;
+}
 
 function assertPositiveInteger(value: number): void {
   if (!Number.isSafeInteger(value) || value < 1) {
@@ -72,9 +80,9 @@ function serializeAad(
   );
 }
 
-export function normalizeServiceDeliveryInput(
+function normalizeDeliveryPayload(
   value: unknown,
-): ServiceDeliveryInput | null {
+): NormalizedDeliveryPayload | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return null;
   }
@@ -105,6 +113,21 @@ export function normalizeServiceDeliveryInput(
     return null;
   }
   return { label, subscriptionUrl };
+}
+
+export function normalizeServiceDeliveryInput(
+  value: unknown,
+): ServiceDeliveryInput | null {
+  const payload = normalizeDeliveryPayload(value);
+  if (payload === null || typeof value !== "object" || value === null) {
+    return null;
+  }
+  const monitorTargetKey = normalizeMonitorTargetKey(
+    (value as Record<string, unknown>).monitorTargetKey,
+  );
+  return monitorTargetKey === null
+    ? null
+    : { ...payload, monitorTargetKey };
 }
 
 export function encryptServiceDeliveryItem(
@@ -145,6 +168,7 @@ export function encryptServiceDeliveryItem(
   return {
     position: input.position,
     label: normalized.label,
+    monitorTargetKey: normalized.monitorTargetKey,
     keyVersion,
     nonce,
     ciphertext,
@@ -153,7 +177,9 @@ export function encryptServiceDeliveryItem(
 }
 
 export function decryptServiceDeliveryItem(
-  input: EncryptedServiceDeliveryItem & { readonly serviceId: number },
+  input: Omit<EncryptedServiceDeliveryItem, "monitorTargetKey"> & {
+    readonly serviceId: number;
+  },
   keyring: TokenHmacKeyring,
 ): string {
   assertPositiveInteger(input.serviceId);
@@ -182,7 +208,7 @@ export function decryptServiceDeliveryItem(
     decipher.final(),
   ]).toString("utf8");
   if (
-    normalizeServiceDeliveryInput({
+    normalizeDeliveryPayload({
       label: input.label,
       subscriptionUrl,
     }) === null

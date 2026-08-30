@@ -155,7 +155,7 @@ test("creates and independently verifies a single-file backup from a live WAL da
       operation: "create",
       quickCheck: "ok",
       foreignKeyFailures: 0,
-      migrations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+      migrations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
       sha256: result.sha256,
       bytes: result.bytes,
       fileMode: "0600",
@@ -181,7 +181,7 @@ test("creates and independently verifies a single-file backup from a live WAL da
         backupDatabase
           .prepare("SELECT version FROM schema_migrations ORDER BY version")
           .all(),
-        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map(
+        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14].map(
           (version) => ({ version }),
         ),
       );
@@ -202,7 +202,7 @@ test("creates and independently verifies a single-file backup from a live WAL da
       "--expected-sha256",
       result.sha256,
       "--expected-last-migration",
-      "13",
+      "14",
     ]);
     assert.equal(verified.exitCode, 0, verified.stderr);
     assert.deepEqual(parseSuccess(verified.stdout), {

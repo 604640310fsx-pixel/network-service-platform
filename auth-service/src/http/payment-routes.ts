@@ -40,6 +40,7 @@ import {
   type PaymentEventInput,
 } from "../payment/state-machine.js";
 import type { TokenHmacKeyring } from "../session/session-token.js";
+import type { MonitorTargetCatalog } from "../monitor/target-catalog.js";
 
 const NOTIFY_BODY_LIMIT = 65_536;
 const CRITICAL_NOTIFY_FIELDS = [
@@ -58,6 +59,7 @@ export interface PaymentEnabledDependencies extends OrderServiceDependencies {
   readonly enabled: true;
   readonly sellerId: string;
   readonly csrfSigningKey: Buffer;
+  readonly monitorTargetCatalog: MonitorTargetCatalog | null;
 }
 
 export type PaymentHttpDependencies =

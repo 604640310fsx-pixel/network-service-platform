@@ -103,6 +103,12 @@ export function paymentDependencies(
     tokenHmacKeyring: TOKEN_KEYRING,
     deliveryEncKeyring: DELIVERY_KEYRING,
     csrfSigningKey: CSRF_KEY,
+    monitorTargetCatalog: {
+      list: async () => [
+        { key: "DMIT Premium", label: "DMIT Premium" },
+        { key: "Tokyo Transit A", label: "日本东京 VPS 中转 A" },
+      ],
+    },
     appId: "app-123",
     sellerId: "seller-456",
     notifyUrl: "https://example.test/api/pay/alipay/notify",
