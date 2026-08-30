@@ -112,7 +112,7 @@ test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", 
 
     assert.deepEqual(
       migrationRows.map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
     );
     for (const row of migrationRows) {
       assert.match(row.applied_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
@@ -400,6 +400,7 @@ test("keeps token, OTP, invite, reset, and outbox storage boundaries", async () 
     for (const encryptedField of ["nonce", "ciphertext", "tag", "key_version"]) {
       assert.ok(deliveryItems.includes(encryptedField));
     }
+    assert.ok(deliveryItems.includes("monitor_target_key"));
     assert.ok(!deliveryItems.includes("subscription_url"));
   });
 });

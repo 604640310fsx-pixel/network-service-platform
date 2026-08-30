@@ -347,6 +347,7 @@ test("me/delivery-lines returns only buyer-visible labels for the owning user", 
             {
               label: "日本中转 A",
               subscriptionUrl: "https://subscription.example.test/customer-line",
+              monitorTargetKey: "Tokyo Transit A",
             },
           ],
         },
@@ -361,10 +362,20 @@ test("me/delivery-lines returns only buyer-visible labels for the owning user", 
       assert.equal(mine.statusCode, 200);
       assert.equal(mine.headers["cache-control"], "no-store");
       assert.deepEqual(mine.json(), {
-        items: [{ orderRef: order.orderRef, position: 1, label: "日本中转 A" }],
+        items: [{
+          orderRef: order.orderRef,
+          position: 1,
+          label: "日本中转 A",
+          monitorTargetKey: "Tokyo Transit A",
+        }],
       });
       assert.equal(mine.body.includes("subscription.example.test"), false);
-      assert.deepEqual(Object.keys(mine.json().items[0]).sort(), ["label", "orderRef", "position"]);
+      assert.deepEqual(Object.keys(mine.json().items[0]).sort(), [
+        "label",
+        "monitorTargetKey",
+        "orderRef",
+        "position",
+      ]);
 
       const others = await app.inject({
         method: "GET",
@@ -465,6 +476,42 @@ test("admin list returns the full frozen snapshot and open requires admin plus v
         ],
       });
 
+      const targetForbidden = await app.inject({
+        method: "GET",
+        url: "/api/admin/monitor-targets",
+        headers: { cookie: userSession.cookie },
+      });
+      assert.equal(targetForbidden.statusCode, 403);
+      const targets = await app.inject({
+        method: "GET",
+        url: "/api/admin/monitor-targets",
+        headers: { cookie: adminSession.cookie },
+      });
+      assert.equal(targets.statusCode, 200);
+      assert.equal(targets.headers["cache-control"], "no-store");
+      assert.deepEqual(targets.json(), {
+        items: [
+          { key: "DMIT Premium", label: "DMIT Premium" },
+          { key: "Tokyo Transit A", label: "日本东京 VPS 中转 A" },
+        ],
+      });
+      const unavailableApp = buildApp({
+        payment: { ...dependencies, monitorTargetCatalog: null },
+      });
+      try {
+        const unavailable = await unavailableApp.inject({
+          method: "GET",
+          url: "/api/admin/monitor-targets",
+          headers: { cookie: adminSession.cookie },
+        });
+        assert.equal(unavailable.statusCode, 503);
+        assert.deepEqual(unavailable.json(), {
+          error: { code: "monitor_unavailable" },
+        });
+      } finally {
+        await unavailableApp.close();
+      }
+
       const badCsrf = await app.inject({
         method: "POST",
         url: `/api/admin/services/${serviceId}/open`,
@@ -491,6 +538,7 @@ test("admin list returns the full frozen snapshot and open requires admin plus v
             {
               label: "订阅线路 1",
               subscriptionUrl: "https://subscription.example.test/customer",
+              monitorTargetKey: "DMIT Premium",
             },
           ],
         },
@@ -500,7 +548,11 @@ test("admin list returns the full frozen snapshot and open requires admin plus v
         id: serviceId,
         status: "open",
         openedAt: "2026-08-21T00:00:00.000Z",
-        items: [{ position: 1, label: "订阅线路 1" }],
+        items: [{
+          position: 1,
+          label: "订阅线路 1",
+          monitorTargetKey: "DMIT Premium",
+        }],
       });
       assert.equal(firstValue(database, "SELECT status FROM services"), "open");
       assert.deepEqual(
@@ -526,6 +578,7 @@ test("admin list returns the full frozen snapshot and open requires admin plus v
             {
               label: "订阅线路 1",
               subscriptionUrl: "https://subscription.example.test/customer",
+              monitorTargetKey: "DMIT Premium",
             },
           ],
         },

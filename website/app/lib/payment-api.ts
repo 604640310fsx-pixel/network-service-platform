@@ -14,6 +14,9 @@ const ORDER_REF_PATTERN = /^DL[A-Za-z0-9]{1,64}$/;
 const DELIVERY_MAX_ITEMS = 20;
 const DELIVERY_MAX_LABEL_LENGTH = 200;
 const DELIVERY_MAX_URL_BYTES = 2048;
+const MONITOR_TARGET_KEY_MAX_LENGTH = 128;
+const MONITOR_TARGET_LABEL_MAX_LENGTH = 200;
+const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -24,11 +27,13 @@ export type ServiceDeliveryItem = {
   readonly position: number;
   readonly label: string;
   readonly subscriptionUrl: string;
+  readonly monitorTargetKey: string | null;
 };
 
 export type DeliveryItemInput = {
   readonly label: string;
   readonly subscriptionUrl: string;
+  readonly monitorTargetKey: string;
 };
 
 export type RequirementDraft = {
@@ -103,6 +108,12 @@ export type MyDeliveryLineItem = {
   readonly orderRef: string;
   readonly position: number;
   readonly label: string;
+  readonly monitorTargetKey: string | null;
+};
+
+export type AdminMonitorTarget = {
+  readonly key: string;
+  readonly label: string;
 };
 
 // GET /api/me/orders 单项。字段严格对应冻结后端契约；serviceStatus 可为 null（无服务）。
@@ -140,7 +151,11 @@ export type OpenServiceResult = {
   readonly id: number;
   readonly status: "open";
   readonly openedAt: string;
-  readonly items: ReadonlyArray<{ readonly position: number; readonly label: string }>;
+  readonly items: ReadonlyArray<{
+    readonly position: number;
+    readonly label: string;
+    readonly monitorTargetKey: string;
+  }>;
 };
 
 export class PaymentApiError extends Error {
@@ -213,7 +228,22 @@ function isAbsoluteHttpsUrl(value: unknown): value is string {
   }
 }
 
-export function normalizeDeliveryItemInput(value: unknown): DeliveryItemInput | null {
+function normalizeMonitorTargetKey(value: unknown): string | null {
+  if (
+    typeof value !== "string" ||
+    value.trim() !== value ||
+    value.length < 1 ||
+    value.length > MONITOR_TARGET_KEY_MAX_LENGTH ||
+    CONTROL_CHARACTER_PATTERN.test(value)
+  ) {
+    return null;
+  }
+  return value;
+}
+
+function normalizeDeliveryPayload(
+  value: unknown,
+): Pick<DeliveryItemInput, "label" | "subscriptionUrl"> | null {
   if (!isRecord(value)) return null;
   const { label, subscriptionUrl } = value;
   if (typeof label !== "string" || typeof subscriptionUrl !== "string") return null;
@@ -234,17 +264,37 @@ export function normalizeDeliveryItemInput(value: unknown): DeliveryItemInput | 
   return { label: normalizedLabel, subscriptionUrl };
 }
 
+export function normalizeDeliveryItemInput(value: unknown): DeliveryItemInput | null {
+  const payload = normalizeDeliveryPayload(value);
+  if (payload === null || !isRecord(value)) return null;
+  const monitorTargetKey = normalizeMonitorTargetKey(value.monitorTargetKey);
+  return monitorTargetKey === null
+    ? null
+    : { ...payload, monitorTargetKey };
+}
+
 function parseDeliveryItems(value: unknown): readonly ServiceDeliveryItem[] {
   if (!Array.isArray(value) || value.length < 1 || value.length > DELIVERY_MAX_ITEMS) {
     throw new PaymentApiError("invalid_response");
   }
   return value.map((rawItem, index) => {
     const item = requireRecord(rawItem);
-    const normalized = normalizeDeliveryItemInput(item);
-    if (item.position !== index + 1 || normalized === null) {
+    const normalized = normalizeDeliveryPayload(item);
+    const monitorTargetKey = item.monitorTargetKey === null
+      ? null
+      : normalizeMonitorTargetKey(item.monitorTargetKey);
+    if (
+      item.position !== index + 1 ||
+      normalized === null ||
+      (monitorTargetKey === null && item.monitorTargetKey !== null)
+    ) {
       throw new PaymentApiError("invalid_response");
     }
-    return { position: item.position, ...normalized };
+    return {
+      position: item.position,
+      ...normalized,
+      monitorTargetKey,
+    };
   });
 }
 
@@ -357,12 +407,16 @@ function parseMyDeliveryLines(value: unknown): MyDeliveryLineItem[] {
 
   return body.items.map((rawItem) => {
     const item = requireRecord(rawItem);
+    const monitorTargetKey = item.monitorTargetKey === null
+      ? null
+      : normalizeMonitorTargetKey(item.monitorTargetKey);
     if (
       !isNonEmptyString(item.orderRef) ||
       !isPositiveInteger(item.position) ||
       !isNonEmptyString(item.label) ||
       item.label !== item.label.trim() ||
-      item.label.length > DELIVERY_MAX_LABEL_LENGTH
+      item.label.length > DELIVERY_MAX_LABEL_LENGTH ||
+      (monitorTargetKey === null && item.monitorTargetKey !== null)
     ) {
       throw new PaymentApiError("invalid_response");
     }
@@ -370,6 +424,7 @@ function parseMyDeliveryLines(value: unknown): MyDeliveryLineItem[] {
       orderRef: item.orderRef,
       position: item.position,
       label: item.label,
+      monitorTargetKey,
     };
   });
 }
@@ -466,6 +521,31 @@ function parseAdminPendingServices(value: unknown): AdminPendingServiceItem[] {
   });
 }
 
+function parseAdminMonitorTargets(value: unknown): AdminMonitorTarget[] {
+  const body = requireRecord(value);
+  if (!Array.isArray(body.items) || body.items.length > 100) {
+    throw new PaymentApiError("invalid_response");
+  }
+  const seen = new Set<string>();
+  return body.items.map((rawItem) => {
+    const item = requireRecord(rawItem);
+    const key = normalizeMonitorTargetKey(item.key);
+    if (
+      key === null ||
+      typeof item.label !== "string" ||
+      item.label.trim() !== item.label ||
+      item.label.length < 1 ||
+      item.label.length > MONITOR_TARGET_LABEL_MAX_LENGTH ||
+      CONTROL_CHARACTER_PATTERN.test(item.label) ||
+      seen.has(key)
+    ) {
+      throw new PaymentApiError("invalid_response");
+    }
+    seen.add(key);
+    return { key, label: item.label };
+  });
+}
+
 function parseOpenService(value: unknown): OpenServiceResult {
   const body = requireRecord(value);
   if (
@@ -480,16 +560,22 @@ function parseOpenService(value: unknown): OpenServiceResult {
   }
   const items = body.items.map((rawItem, index) => {
     const item = requireRecord(rawItem);
+    const monitorTargetKey = normalizeMonitorTargetKey(item.monitorTargetKey);
     if (
       item.position !== index + 1 ||
       typeof item.label !== "string" ||
       item.label.length === 0 ||
       item.label !== item.label.trim() ||
-      item.label.length > DELIVERY_MAX_LABEL_LENGTH
+      item.label.length > DELIVERY_MAX_LABEL_LENGTH ||
+      monitorTargetKey === null
     ) {
       throw new PaymentApiError("invalid_response");
     }
-    return { position: item.position, label: item.label };
+    return {
+      position: item.position,
+      label: item.label,
+      monitorTargetKey,
+    };
   });
   return { id: body.id, status: body.status, openedAt: body.openedAt, items };
 }
@@ -690,6 +776,15 @@ export async function getAdminPendingServices(signal?: AbortSignal): Promise<Adm
     signal,
   });
   return parseAdminPendingServices(response);
+}
+
+export async function getAdminMonitorTargets(signal?: AbortSignal): Promise<AdminMonitorTarget[]> {
+  const response = await requestJson("/api/admin/monitor-targets", {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  return parseAdminMonitorTargets(response);
 }
 
 export async function openAdminService(

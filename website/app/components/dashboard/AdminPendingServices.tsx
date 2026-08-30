@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import {
   PaymentApiError,
+  getAdminMonitorTargets,
   getAdminPendingServices,
   openAdminService,
+  type AdminMonitorTarget,
   type AdminPendingServiceItem,
   type DeliveryItemInput,
 } from "../../lib/payment-api";
@@ -41,6 +43,8 @@ function adminErrorMessage(error: unknown) {
     case "invalid_transition": return "该服务状态已变化，请刷新后确认。";
     case "items_required": return "请至少填写一条订阅链接。";
     case "invalid_item": return "请检查买家可见线路名称与 HTTPS 订阅链接。";
+    case "invalid_monitor_target": return "选择的 VPS 已不可用，请刷新目标列表后重试。";
+    case "monitor_unavailable": return "暂时无法读取 3002 VPS 列表，当前不能开通服务。";
     case "invalid_response": return "待开通服务数据返回异常。";
     default: return "暂时无法处理待开通服务，请稍后重试。";
   }
@@ -52,6 +56,9 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
   const [error, setError] = useState<string | null>(null);
   const [openingId, setOpeningId] = useState<number | null>(null);
   const [drafts, setDrafts] = useState<Record<number, DeliveryItemInput[]>>({});
+  const [monitorTargets, setMonitorTargets] = useState<AdminMonitorTarget[]>([]);
+  const [monitorTargetsLoading, setMonitorTargetsLoading] = useState(true);
+  const [monitorTargetsError, setMonitorTargetsError] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -67,6 +74,18 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
       })
       .finally(() => {
         if (!stopped) setLoading(false);
+      });
+    void getAdminMonitorTargets(controller.signal)
+      .then((targets) => {
+        if (stopped) return;
+        setMonitorTargets(targets);
+        setMonitorTargetsError(null);
+      })
+      .catch((loadError: unknown) => {
+        if (!stopped) setMonitorTargetsError(adminErrorMessage(loadError));
+      })
+      .finally(() => {
+        if (!stopped) setMonitorTargetsLoading(false);
       });
     return () => {
       stopped = true;
@@ -98,7 +117,7 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
   }
 
   function defaultDeliveryItems(): DeliveryItemInput[] {
-    return [{ label: "", subscriptionUrl: "" }];
+    return [{ label: "", subscriptionUrl: "", monitorTargetKey: "" }];
   }
 
   function deliveryItems(serviceId: number): DeliveryItemInput[] {
@@ -122,7 +141,7 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
     setDrafts((current) => {
       const nextItems = [...(current[serviceId] ?? defaultDeliveryItems())];
       if (nextItems.length >= 20) return current;
-      nextItems.push({ label: "", subscriptionUrl: "" });
+      nextItems.push({ label: "", subscriptionUrl: "", monitorTargetKey: "" });
       return { ...current, [serviceId]: nextItems };
     });
   }
@@ -139,7 +158,9 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
   return (
     <section className="dash-panel" aria-labelledby="dash-admin-services-title">
       <h2 id="dash-admin-services-title"><em>DELIVERY</em>待开通服务<span>{loading ? "读取中" : `${items.length} 项`}</span></h2>
-      {error && <p className="dash-inline-error" role="alert">{error}</p>}
+      {(error ?? monitorTargetsError) && (
+        <p className="dash-inline-error" role="alert">{error ?? monitorTargetsError}</p>
+      )}
       {!loading && items.length === 0 && error === null && (
         <div className="dash-service"><div className="dash-service-head"><div><strong>—</strong><small>当前没有待开通服务</small></div><span className="dash-tag">已处理</span></div></div>
       )}
@@ -188,6 +209,30 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
                         autoComplete="off"
                       />
                     </label>
+                    <label className="dash-delivery-field dash-delivery-target-field">
+                      <span>对应 VPS 线路服务器</span>
+                      <select
+                        value={deliveryItem.monitorTargetKey}
+                        disabled={monitorTargetsLoading || monitorTargets.length === 0}
+                        onChange={(event) => updateDeliveryItem(
+                          item.serviceId,
+                          index,
+                          "monitorTargetKey",
+                          event.target.value,
+                        )}
+                      >
+                        <option value="">
+                          {monitorTargetsLoading
+                            ? "正在读取 3002 VPS…"
+                            : monitorTargets.length === 0
+                              ? "暂无可用 VPS"
+                              : "请选择 VPS"}
+                        </option>
+                        {monitorTargets.map((target) => (
+                          <option key={target.key} value={target.key}>{target.label}</option>
+                        ))}
+                      </select>
+                    </label>
                     <label className="dash-delivery-field dash-delivery-url-field">
                       <span>HTTPS 订阅链接</span>
                       <input
@@ -220,7 +265,7 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
                   >
                     添加订阅链接
                   </button>
-                  <small>使用脱敏别名，不填写主机名、IP 或面板地址 · {serviceDeliveryItems.length}/20</small>
+                  <small>每条订阅必须绑定 3002 中已存在的 VPS；页面不会显示主机名、IP 或端口 · {serviceDeliveryItems.length}/20</small>
                 </div>
               </fieldset>
               <div className="dash-service-foot">
@@ -228,7 +273,11 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
                 <button
                   type="button"
                   className="dash-primary-link"
-                  disabled={openingId !== null}
+                  disabled={
+                    openingId !== null ||
+                    monitorTargetsLoading ||
+                    monitorTargets.length === 0
+                  }
                   aria-busy={openingId === item.serviceId}
                   onClick={() => void markOpen(item.serviceId)}
                 >

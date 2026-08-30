@@ -77,7 +77,11 @@ test("delivery encryption round-trips with unique nonces and rejects tampering o
     {
       serviceId: 17,
       position: 1,
-      item: { label: "订阅线路 1", subscriptionUrl: DELIVERY_URL },
+      item: {
+        label: "订阅线路 1",
+        subscriptionUrl: DELIVERY_URL,
+        monitorTargetKey: "DMIT Premium",
+      },
     },
     DELIVERY_KEYRING,
   );
@@ -85,7 +89,11 @@ test("delivery encryption round-trips with unique nonces and rejects tampering o
     {
       serviceId: 17,
       position: 1,
-      item: { label: "订阅线路 1", subscriptionUrl: DELIVERY_URL },
+      item: {
+        label: "订阅线路 1",
+        subscriptionUrl: DELIVERY_URL,
+        monitorTargetKey: "DMIT Premium",
+      },
     },
     DELIVERY_KEYRING,
   );
@@ -130,8 +138,16 @@ test("delivery input enforces exact HTTPS, label, item-count, and UTF-8 byte bou
   )}`;
   const over = `${exact}a`;
   assert.equal(Buffer.byteLength(exact), DELIVERY_MAX_URL_UTF8_BYTES);
-  assert.notEqual(normalizeServiceDeliveryInput({ label: " 线路 1 ", subscriptionUrl: exact }), null);
-  assert.equal(normalizeServiceDeliveryInput({ label: "线路 1", subscriptionUrl: over }), null);
+  assert.notEqual(normalizeServiceDeliveryInput({
+    label: " 线路 1 ",
+    subscriptionUrl: exact,
+    monitorTargetKey: "DMIT Premium",
+  }), null);
+  assert.equal(normalizeServiceDeliveryInput({
+    label: "线路 1",
+    subscriptionUrl: over,
+    monitorTargetKey: "DMIT Premium",
+  }), null);
   for (const subscriptionUrl of [
     "",
     " http://example.test/sub",
@@ -142,15 +158,37 @@ test("delivery input enforces exact HTTPS, label, item-count, and UTF-8 byte bou
     "clash://install-config?url=x",
   ]) {
     assert.equal(
-      normalizeServiceDeliveryInput({ label: "线路 1", subscriptionUrl }),
+      normalizeServiceDeliveryInput({
+        label: "线路 1",
+        subscriptionUrl,
+        monitorTargetKey: "DMIT Premium",
+      }),
       null,
     );
   }
-  assert.equal(normalizeServiceDeliveryInput({ label: " ", subscriptionUrl: DELIVERY_URL }), null);
+  assert.equal(normalizeServiceDeliveryInput({
+    label: " ",
+    subscriptionUrl: DELIVERY_URL,
+    monitorTargetKey: "DMIT Premium",
+  }), null);
   assert.equal(
-    normalizeServiceDeliveryInput({ label: "x".repeat(201), subscriptionUrl: DELIVERY_URL }),
+    normalizeServiceDeliveryInput({
+      label: "x".repeat(201),
+      subscriptionUrl: DELIVERY_URL,
+      monitorTargetKey: "DMIT Premium",
+    }),
     null,
   );
+  for (const monitorTargetKey of ["", " DMIT Premium", "DMIT Premium ", "x".repeat(129), "bad\nkey"]) {
+    assert.equal(
+      normalizeServiceDeliveryInput({
+        label: "线路 1",
+        subscriptionUrl: DELIVERY_URL,
+        monitorTargetKey,
+      }),
+      null,
+    );
+  }
   assert.equal(DELIVERY_MAX_ITEMS, 20);
 });
 
@@ -218,6 +256,7 @@ test("admin save-and-open is atomic and customer delivery is authorized before d
           items: Array.from({ length: 21 }, (_, index) => ({
             label: `线路 ${index + 1}`,
             subscriptionUrl: `${DELIVERY_URL}&line=${index + 1}`,
+            monitorTargetKey: "DMIT Premium",
           })),
         },
       });
@@ -232,9 +271,37 @@ test("admin save-and-open is atomic and customer delivery is authorized before d
           "content-type": "application/json",
           "x-csrf-token": csrf,
         },
-        payload: { items: [{ label: "线路", subscriptionUrl: "http://example.test" }] },
+        payload: {
+          items: [{
+            label: "线路",
+            subscriptionUrl: "http://example.test",
+            monitorTargetKey: "DMIT Premium",
+          }],
+        },
       });
       assert.equal(invalidUrl.statusCode, 400);
+
+      const unknownTarget = await app.inject({
+        method: "POST",
+        url: `/api/admin/services/${serviceId}/open`,
+        headers: {
+          cookie: adminSession.cookie,
+          "content-type": "application/json",
+          "x-csrf-token": csrf,
+        },
+        payload: {
+          items: [{
+            label: "线路",
+            subscriptionUrl: DELIVERY_URL,
+            monitorTargetKey: "Unknown VPS",
+          }],
+        },
+      });
+      assert.equal(unknownTarget.statusCode, 400);
+      assert.deepEqual(unknownTarget.json(), {
+        error: { code: "invalid_monitor_target" },
+      });
+      assert.equal(firstValue(database, "SELECT status FROM services"), "pending_open");
 
       const opened = await app.inject({
         method: "POST",
@@ -246,28 +313,43 @@ test("admin save-and-open is atomic and customer delivery is authorized before d
         },
         payload: {
           items: [
-            { label: " 订阅线路 1 ", subscriptionUrl: DELIVERY_URL },
+            {
+              label: " 订阅线路 1 ",
+              subscriptionUrl: DELIVERY_URL,
+              monitorTargetKey: "DMIT Premium",
+            },
             {
               label: "订阅线路 2",
               subscriptionUrl: "https://subscription.example.test/backup",
+              monitorTargetKey: "Tokyo Transit A",
             },
           ],
         },
       });
       assert.equal(opened.statusCode, 200);
       assert.deepEqual(opened.json().items, [
-        { position: 1, label: "订阅线路 1" },
-        { position: 2, label: "订阅线路 2" },
+        { position: 1, label: "订阅线路 1", monitorTargetKey: "DMIT Premium" },
+        { position: 2, label: "订阅线路 2", monitorTargetKey: "Tokyo Transit A" },
       ]);
       assert.equal(opened.body.includes(DELIVERY_URL), false);
       assert.equal(firstValue(database, "SELECT status FROM services"), "open");
       const stored = allRows(
         database,
-        "SELECT position, label, key_version, nonce, ciphertext, tag FROM service_delivery_items ORDER BY position",
+        "SELECT position, label, monitor_target_key, key_version, nonce, ciphertext, tag FROM service_delivery_items ORDER BY position",
       );
       assert.equal(stored.length, 2);
       assert.equal(JSON.stringify(stored).includes(DELIVERY_URL), false);
       assert.equal(stored[0]?.key_version, DELIVERY_KEYRING.version);
+      assert.equal(stored[0]?.monitor_target_key, "DMIT Premium");
+      assert.equal(stored[1]?.monitor_target_key, "Tokyo Transit A");
+      for (const invalidTarget of ["", " DMIT Premium", "x".repeat(129)]) {
+        assert.throws(
+          () => database
+            .prepare("UPDATE service_delivery_items SET monitor_target_key = ? WHERE service_id = ?")
+            .run(invalidTarget, serviceId),
+          /CHECK constraint failed/,
+        );
+      }
 
       const ownerRead = await app.inject({
         method: "GET",
@@ -278,11 +360,17 @@ test("admin save-and-open is atomic and customer delivery is authorized before d
       assert.deepEqual(ownerRead.json().service, {
         status: "open",
         items: [
-          { position: 1, label: "订阅线路 1", subscriptionUrl: DELIVERY_URL },
+          {
+            position: 1,
+            label: "订阅线路 1",
+            subscriptionUrl: DELIVERY_URL,
+            monitorTargetKey: "DMIT Premium",
+          },
           {
             position: 2,
             label: "订阅线路 2",
             subscriptionUrl: "https://subscription.example.test/backup",
+            monitorTargetKey: "Tokyo Transit A",
           },
         ],
       });
@@ -317,7 +405,13 @@ test("admin save-and-open is atomic and customer delivery is authorized before d
           "content-type": "application/json",
           "x-csrf-token": csrf,
         },
-        payload: { items: [{ label: "线路", subscriptionUrl: DELIVERY_URL }] },
+        payload: {
+          items: [{
+            label: "线路",
+            subscriptionUrl: DELIVERY_URL,
+            monitorTargetKey: "DMIT Premium",
+          }],
+        },
       });
       assert.equal(repeated.statusCode, 409);
     } finally {
@@ -353,6 +447,7 @@ test("open transaction rolls back service and delivery rows when a later insert 
           item: {
             label: `线路 ${position}`,
             subscriptionUrl: `${DELIVERY_URL}&position=${position}`,
+            monitorTargetKey: "DMIT Premium",
           },
         },
         DELIVERY_KEYRING,
@@ -413,7 +508,11 @@ test("historical open service omits items while decrypt failure returns 503 and 
         {
           serviceId,
           position: 1,
-          item: { label: "线路", subscriptionUrl: DELIVERY_URL },
+          item: {
+            label: "线路",
+            subscriptionUrl: DELIVERY_URL,
+            monitorTargetKey: "DMIT Premium",
+          },
         },
         DELIVERY_KEYRING,
       );

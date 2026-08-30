@@ -20,7 +20,7 @@ export function DashboardShell() {
   const section = requestedSection as SectionKey;
   if (section === "status") {
     return (
-      <CustomerCenterShell title="服务器状态" description="查看账户已交付的 VPS 中转线路与状态接入情况">
+      <CustomerCenterShell title="服务器状态" description="查看 3002 实时监控；从已交付线路进入时自动选择对应 VPS">
         <BuyerServerStatusPage />
       </CustomerCenterShell>
     );

@@ -262,9 +262,9 @@ function StateBlock({
   );
 }
 
-/* 每条买家可见线路名称都是一个指向 /status 的链接：可见文本包含完整名称，
-   aria-label 再补上序号、所属订单与去向，读屏和键盘都能独立理解这条链接。
-   长名称必须整段换行显示，绝不截断成看不出是哪条线路的省略号。 */
+/* 每条买家可见线路名称都指向 /status。管理员已绑定 3002 目标时，仅把经过
+   后端校验的目标键放入 vps 查询参数，让监控页自动选中；历史未绑定行进入
+   默认监控视图，不根据线路名称猜测 VPS。长名称仍完整换行显示。 */
 function DeliveryLineLinks({
   lines,
   orderRef,
@@ -278,7 +278,11 @@ function DeliveryLineLinks({
         <li key={line.position}>
           <Link
             className="cc-net-line-label"
-            to="/status"
+            to={
+              line.monitorTargetKey === null
+                ? "/status"
+                : `/status?vps=${encodeURIComponent(line.monitorTargetKey)}`
+            }
             aria-label={`线路 ${line.position}：${line.label}（订单 ${orderRef}），前往服务器状态页查看`}
           >
             <span className="cc-net-line-label-index" aria-hidden="true">{line.position}</span>

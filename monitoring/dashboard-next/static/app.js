@@ -6,7 +6,8 @@ const WAN_META = {
 const RANGE_LABELS = {'1h':'1 小时','6h':'6 小时','24h':'24 小时','7d':'7 天'};
 const RANGE_MS = {'1h':3600000,'6h':21600000,'24h':86400000,'7d':604800000};
 const savedVps=(()=>{try{return localStorage.getItem('network-monitor-selected-vps')}catch{return null}})();
-const state = {type:'icmp', range:'24h', target:'AliDNS', lastVps:savedVps||'DMIT Premium', vpsTargets:[], visible:new Set(['telecom','mobile','unicom']), samples:[], chart:null, liveKey:null, targetRequest:0, chartRequest:0, liveRequest:0, refreshPromise:null, chartController:null, vpsStatusRequest:0, vpsStatusPromise:null, vpsStatusTarget:null};
+const requestedVps=(()=>{try{const value=new URLSearchParams(location.search).get('vps');return value&&value===value.trim()&&value.length<=128&&!/[\u0000-\u001f\u007f]/.test(value)?value:null}catch{return null}})();
+const state = {type:'icmp', range:'24h', target:'AliDNS', lastVps:requestedVps||savedVps||'DMIT Premium', vpsTargets:[], visible:new Set(['telecom','mobile','unicom']), samples:[], chart:null, liveKey:null, targetRequest:0, chartRequest:0, liveRequest:0, refreshPromise:null, chartController:null, vpsStatusRequest:0, vpsStatusPromise:null, vpsStatusTarget:null};
 const routeState={wan:'telecom',direction:'outbound',protocol:'icmp',target:'DMIT Premium',targets:[],hops:[],expanded:false,request:0,controller:null};
 
 const $ = selector => document.querySelector(selector);

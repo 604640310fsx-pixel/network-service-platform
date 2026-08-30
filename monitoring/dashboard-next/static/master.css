@@ -75,8 +75,8 @@ footer{display:flex;justify-content:space-between;padding:15px 8px 2px;color:#51
   .system-metric{padding-inline:14px}.network-metric{gap:9px;padding-inline:8px}.network-arrow{font-size:40px}.route-head-controls{gap:8px}.route-head-controls .segmented button{min-width:0;padding-inline:7px}.route-head-controls .segmented:first-child button{width:118px}.route-head-controls .segmented:nth-child(2) button{width:138px}.outline-button{width:120px;padding-inline:8px}
 }
 
-/* Native mobile layout. Desktop geometry above remains unchanged. */
-@media(max-width:900px){
+/* Embedded/sidebar and native mobile layout. Full-width desktop geometry remains unchanged. */
+@media(max-width:1179px){
   body{min-width:0}
   .shell{width:calc(100% - 12px);margin:6px;padding:6px;border-radius:12px}
 

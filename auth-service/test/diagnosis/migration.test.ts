@@ -102,7 +102,7 @@ test("Migration 013 enforces frozen diagnosis checks, state combinations, and ad
   });
 });
 
-test("applies Migration 013 to an existing 001-012 database without changing business rows", async () => {
+test("applies Migration 014 to an existing 001-013 database without changing business rows", async () => {
   const directory = await mkdtemp(join(tmpdir(), "diagnosis-migration-compat-"));
   const database = openAndVerifyDatabase(join(directory, "auth.sqlite"));
   try {
@@ -176,8 +176,16 @@ test("applies Migration 013 to an existing 001-012 database without changing bus
       },
       before,
     );
-    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 13);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 14);
     assert.equal(firstNumber(database, "SELECT COUNT(*) FROM diagnosis_requests"), 0);
+    assert.deepEqual(
+      database
+        .prepare("PRAGMA table_info(service_delivery_items)")
+        .all()
+        .map((row) => (row as { readonly name: string }).name)
+        .includes("monitor_target_key"),
+      true,
+    );
   } finally {
     database.close();
     await rm(directory, { recursive: true, force: true });
