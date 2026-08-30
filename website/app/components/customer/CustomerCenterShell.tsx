@@ -12,7 +12,7 @@ type DrawerContextValue = {
 
 const CustomerDrawerContext = createContext<DrawerContextValue | null>(null);
 // 已迁移到客户中心视觉的路由；其余菜单继续走 disabled / 待接入策略。
-const migratedPaths = new Set<string>(["/subscribe", "/dashboard", "/services", "/network", "/monitor", "/orders"]);
+const migratedPaths = new Set<string>(["/status", "/subscribe", "/dashboard", "/services", "/network", "/monitor", "/orders"]);
 
 export function useCustomerDrawer() {
   const value = useContext(CustomerDrawerContext);

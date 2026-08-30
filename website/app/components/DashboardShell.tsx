@@ -5,6 +5,7 @@ import { CustomerServicesPage } from "./customer/CustomerServicesPage";
 import { DashboardPage } from "./dashboard/DashboardPage";
 import { PublicMonitorPage } from "./monitor/PublicMonitorPage";
 import { BuyerNetworkPage } from "./network/BuyerNetworkPage";
+import { BuyerServerStatusPage } from "./status/BuyerServerStatusPage";
 import { SubscribePage } from "./subscribe/SubscribePage";
 import type { SectionKey } from "../lib/sections";
 import { sectionKeys } from "../lib/sections";
@@ -17,6 +18,13 @@ export function DashboardShell() {
   }
 
   const section = requestedSection as SectionKey;
+  if (section === "status") {
+    return (
+      <CustomerCenterShell title="服务器状态" description="查看账户已交付的 VPS 中转线路与状态接入情况">
+        <BuyerServerStatusPage />
+      </CustomerCenterShell>
+    );
+  }
   if (section === "subscribe") {
     return (
       <CustomerCenterShell

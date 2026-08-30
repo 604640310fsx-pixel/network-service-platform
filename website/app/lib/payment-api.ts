@@ -99,6 +99,12 @@ export type MyServiceItem = {
   readonly createdAt: string;
 };
 
+export type MyDeliveryLineItem = {
+  readonly orderRef: string;
+  readonly position: number;
+  readonly label: string;
+};
+
 // GET /api/me/orders 单项。字段严格对应冻结后端契约；serviceStatus 可为 null（无服务）。
 export type MyOrderItem = {
   readonly orderRef: string;
@@ -341,6 +347,29 @@ function parseMyServices(value: unknown): MyServiceItem[] {
       orderStatus: item.orderStatus,
       serviceStatus: item.serviceStatus,
       createdAt: item.createdAt,
+    };
+  });
+}
+
+function parseMyDeliveryLines(value: unknown): MyDeliveryLineItem[] {
+  const body = requireRecord(value);
+  if (!Array.isArray(body.items)) throw new PaymentApiError("invalid_response");
+
+  return body.items.map((rawItem) => {
+    const item = requireRecord(rawItem);
+    if (
+      !isNonEmptyString(item.orderRef) ||
+      !isPositiveInteger(item.position) ||
+      !isNonEmptyString(item.label) ||
+      item.label !== item.label.trim() ||
+      item.label.length > DELIVERY_MAX_LABEL_LENGTH
+    ) {
+      throw new PaymentApiError("invalid_response");
+    }
+    return {
+      orderRef: item.orderRef,
+      position: item.position,
+      label: item.label,
     };
   });
 }
@@ -634,6 +663,15 @@ export async function getMyServices(signal?: AbortSignal): Promise<MyServiceItem
     signal,
   });
   return parseMyServices(response);
+}
+
+export async function getMyDeliveryLines(signal?: AbortSignal): Promise<MyDeliveryLineItem[]> {
+  const response = await requestJson("/api/me/delivery-lines", {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  return parseMyDeliveryLines(response);
 }
 
 export async function getMyOrders(signal?: AbortSignal): Promise<MyOrderItem[]> {

@@ -19,6 +19,7 @@ import {
   auditDeliveryDecryptFailure,
   createPaymentOrder,
   getAuthorizedOrderStatus,
+  listMyDeliveryLines,
   listMyOrders,
   listMyServices,
   PaymentDomainError,
@@ -669,6 +670,24 @@ export function registerPaymentHttpRoutes(
       return reply
         .code(200)
         .send({ items: listMyServices(dependencies.database, session.principal.userId) });
+    } catch {
+      return reply.code(503).send(errorResponse("payment_unavailable"));
+    }
+  });
+
+  app.get("/api/me/delivery-lines", async (request, reply) => {
+    setNoStore(reply);
+    if (!dependencies.enabled) {
+      return reply.code(503).send(errorResponse("payment_unavailable"));
+    }
+    try {
+      const session = readPaymentSession(request, dependencies);
+      if (session === null) {
+        return reply.code(401).send(errorResponse("unauthorized"));
+      }
+      return reply
+        .code(200)
+        .send({ items: listMyDeliveryLines(dependencies.database, session.principal.userId) });
     } catch {
       return reply.code(503).send(errorResponse("payment_unavailable"));
     }
