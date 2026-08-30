@@ -233,19 +233,20 @@ function drawChart(samples){
   const xAt = epoch => plot.x + (epoch-minTime)/(maxTime-minTime)*plot.w;
   const yAt = value => zeroY-Number(value)/yMax*dataHeight;
 
+  const ct=chartTheme();
   ctx.clearRect(0,0,width,height);
   ctx.font = `${compact ? 12 : 20}px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif`;
   ctx.textBaseline='middle';
   for(let i=0;i<=5;i++){
     const y=plot.y+dataHeight*i/5, value=yMax*(1-i/5);
-    ctx.strokeStyle='rgba(115,130,150,.12)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(plot.x,y);ctx.lineTo(plot.x+plot.w,y);ctx.stroke();
-    ctx.fillStyle='#a0a5ad';ctx.textAlign='right';ctx.fillText(`${Math.round(value)}ms`,plot.x-(compact?8:18),y);
+    ctx.strokeStyle=ct.gridStrong;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(plot.x,y);ctx.lineTo(plot.x+plot.w,y);ctx.stroke();
+    ctx.fillStyle=ct.axis;ctx.textAlign='right';ctx.fillText(`${Math.round(value)}ms`,plot.x-(compact?8:18),y);
   }
   const xDivisions = compact ? 3 : 6;
   for(let i=0;i<=xDivisions;i++){
     const x=plot.x+plot.w*i/xDivisions, epoch=minTime+(maxTime-minTime)*i/xDivisions;
-    ctx.strokeStyle='rgba(115,130,150,.08)';ctx.beginPath();ctx.moveTo(x,plot.y);ctx.lineTo(x,plot.y+plot.h);ctx.stroke();
-    ctx.fillStyle='#a0a5ad';ctx.textAlign=i===0?'left':i===xDivisions?'right':'center';ctx.fillText(axisShanghai(epoch),x,plot.y+plot.h+(compact?18:22));
+    ctx.strokeStyle=ct.gridSoft;ctx.beginPath();ctx.moveTo(x,plot.y);ctx.lineTo(x,plot.y+plot.h);ctx.stroke();
+    ctx.fillStyle=ct.axis;ctx.textAlign=i===0?'left':i===xDivisions?'right':'center';ctx.fillText(axisShanghai(epoch),x,plot.y+plot.h+(compact?18:22));
   }
   ctx.save();ctx.beginPath();ctx.rect(plot.x,plot.y,plot.w,plot.h);ctx.clip();
   for(const [wan,meta] of Object.entries(WAN_META)){
@@ -308,18 +309,19 @@ function drawHover(rows){
     canvas.width=Math.round(rect.width*dpr);canvas.height=Math.round(rect.height*dpr);
   }
   const ctx=canvas.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,rect.width,rect.height);
+  const ct=chartTheme();
   const {plot,zeroY,xAt,yAt}=state.chart;
   const offsetX=baseRect.left-rect.left,offsetY=baseRect.top-rect.top;
   const anchor=rows.reduce((sum,row)=>sum+row.epoch,0)/rows.length;
   const x=Math.max(plot.x,Math.min(plot.x+plot.w,xAt(anchor)))+offsetX;
   ctx.save();ctx.beginPath();ctx.rect(plot.x+offsetX,plot.y+offsetY,plot.w,plot.h);ctx.clip();
-  ctx.strokeStyle='rgba(225,231,239,.78)';ctx.lineWidth=1.35;ctx.setLineDash([6,5]);ctx.beginPath();ctx.moveTo(x,plot.y+offsetY);ctx.lineTo(x,plot.y+plot.h+offsetY);ctx.stroke();ctx.setLineDash([]);
+  ctx.strokeStyle=ct.hoverLine;ctx.lineWidth=1.35;ctx.setLineDash([6,5]);ctx.beginPath();ctx.moveTo(x,plot.y+offsetY);ctx.lineTo(x,plot.y+plot.h+offsetY);ctx.stroke();ctx.setLineDash([]);
   for(const row of rows){
     const meta=WAN_META[row.wan];
     const lineValue=valueOnLine(row.wan,anchor);
     if(lineValue!=null){
       const y=yAt(lineValue)+offsetY;ctx.shadowBlur=0;ctx.fillStyle=meta.color;ctx.beginPath();ctx.arc(x,y,4.5,0,Math.PI*2);ctx.fill();
-      ctx.fillStyle='#f7fafc';ctx.beginPath();ctx.arc(x,y,2,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle=ct.hoverInner;ctx.beginPath();ctx.arc(x,y,2,0,Math.PI*2);ctx.fill();
     }else{
       const y=zeroY+10+offsetY;ctx.strokeStyle='#ff4d4f';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x-5,y-5);ctx.lineTo(x+5,y+5);ctx.moveTo(x+5,y-5);ctx.lineTo(x-5,y+5);ctx.stroke();
     }
@@ -502,6 +504,59 @@ function bindInteractions(){
   let resizeTimer;window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>drawChart(state.samples),120)});
 }
 
+/* ===== 主题嵌入契约（只读接收，监控内不新增任何主题开关） =====
+   监控主题只有两条来源：URL 的 ?theme= 初值（避免首屏闪烁），以及父页面经精确 origin
+   校验后单向下发的版本化 postMessage。直接打开（无父 / 无 query）时保持既有默认深色。
+   主题消息不含任何客户 / 节点 / 监控 / 凭据 / 业务数据，也不提供任何回读通道。 */
+const THEME_MESSAGE_TYPE='nsp-monitor-theme:v1';
+function normalizeTheme(value){return value==='light'?'light':'dark';}
+function isLoopbackOrigin(origin){
+  try{const host=new URL(origin).hostname;return host==='localhost'||host==='127.0.0.1'||host==='[::1]'||host==='::1';}catch{return false;}
+}
+function chartTheme(){
+  const light=typeof document!=='undefined'&&document.documentElement.dataset.theme==='light';
+  return light
+    ? {gridStrong:'rgba(90,102,122,.18)',gridSoft:'rgba(90,102,122,.10)',axis:'#5c6472',hoverLine:'rgba(40,46,57,.55)',hoverInner:'#ffffff'}
+    : {gridStrong:'rgba(115,130,150,.12)',gridSoft:'rgba(115,130,150,.08)',axis:'#a0a5ad',hoverLine:'rgba(225,231,239,.78)',hoverInner:'#f7fafc'};
+}
+/* 生产可信父源：由 <meta name="monitor-embed-origin"> 绑定已冻结的 canonical 网站
+   origin；未配置即对跨源父页面 fail-closed。 */
+function approvedParentOrigins(){
+  const list=[];
+  try{
+    const meta=document.querySelector('meta[name="monitor-embed-origin"]');
+    const raw=meta&&meta.content?meta.content.trim():'';
+    if(raw){for(const item of raw.split(/[\s,]+/)){if(!item)continue;try{list.push(new URL(item).origin);}catch{}}}
+  }catch{}
+  return list;
+}
+/* 纯校验：source 必须是本 iframe 的父窗口；type 必须精确匹配版本化类型；theme 只接受
+   dark|light；origin 必须命中已批准网站 origin、或与监控同源、或仅当监控自身运行在
+   loopback 时接受 loopback 父源。任一不满足即拒绝。 */
+function isTrustedThemeMessage(event,config){
+  if(!event||event.source==null||event.source!==config.parentWindow)return false;
+  const data=event.data;
+  if(!data||typeof data!=='object'||data.type!==THEME_MESSAGE_TYPE)return false;
+  if(data.theme!=='dark'&&data.theme!=='light')return false;
+  const origin=event.origin;
+  if(Array.isArray(config.approvedOrigins)&&config.approvedOrigins.includes(origin))return true;
+  if(origin===config.monitorOrigin)return true;
+  if(config.allowLoopback&&isLoopbackOrigin(origin))return true;
+  return false;
+}
+function applyTheme(theme){document.documentElement.dataset.theme=normalizeTheme(theme);}
+function initThemeEmbed(){
+  document.documentElement.dataset.embedded=window.parent!==window?'true':'false';
+  try{applyTheme(new URLSearchParams(location.search).get('theme'));}catch{applyTheme('dark');}
+  const monitorOrigin=location.origin;
+  const config={parentWindow:window.parent,monitorOrigin,approvedOrigins:approvedParentOrigins(),allowLoopback:isLoopbackOrigin(monitorOrigin)};
+  window.addEventListener('message',event=>{
+    if(!isTrustedThemeMessage(event,config))return;
+    applyTheme(event.data.theme);
+    if(state.chart)drawChart(state.samples);
+  });
+}
+
 async function init(){
   bindInteractions();
   try{await Promise.all([loadOverview(),loadVpsTargets(),loadTargets(),loadRoute()]);await Promise.all([loadChart(),loadLive(false),loadVpsStatus()]);}
@@ -509,4 +564,11 @@ async function init(){
   setInterval(()=>{if(!document.hidden){loadLive(true);loadVpsStatus()}},5000);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden){loadLive(true);loadVpsStatus()}});
 }
-init();
+if(typeof window!=='undefined'&&typeof document!=='undefined'){
+  initThemeEmbed();
+  init();
+}
+/* 供 node --test 校验纯逻辑；浏览器经典脚本里 module 未定义，短路跳过。 */
+if(typeof module!=='undefined'&&module.exports){
+  module.exports={THEME_MESSAGE_TYPE,normalizeTheme,isLoopbackOrigin,isTrustedThemeMessage};
+}

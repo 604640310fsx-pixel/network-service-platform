@@ -3,10 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="color-scheme" content="dark">
+  <meta name="color-scheme" content="dark light">
+  <!-- 主题消息只接受已冻结的 canonical 网站 origin；本地开发仍仅在监控自身为
+       loopback 时接受 loopback 父页面。这里不使用通配符或 bare domain。 -->
+  <meta name="monitor-embed-origin" content="https://www.siqiapparel.com">
   <title>广州三网线路监控 · 候选版</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="/master.css?v=20260804-4thread-8vps">
+  <!-- 首屏主题：从 ?theme= 读取初值并落到 <html data-theme>，避免浅色首屏闪烁；无参数保持默认深色。 -->
+  <script>(function(){try{var t=new URLSearchParams(location.search).get('theme');document.documentElement.dataset.theme=(t==='light')?'light':'dark';}catch(e){document.documentElement.dataset.theme='dark';}})();</script>
+  <link rel="stylesheet" href="/master.css?v=20260831-theme-sync">
 </head>
 <body>
   <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
@@ -130,6 +135,6 @@
       <span>不提供测速、重启、切换线路、修改路由或修复操作</span>
     </footer>
   </main>
-  <script src="/app.js?v=20260803-2030"></script>
+  <script src="/app.js?v=20260831-theme-sync"></script>
 </body>
 </html>
