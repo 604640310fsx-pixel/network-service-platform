@@ -192,6 +192,45 @@ function RecentOrderCard({
   );
 }
 
+/* 概览下方的「更多」列表：只展示已读取到的真实条目，作为特写卡之后的第二层级。 */
+function MoreList({
+  title,
+  items,
+  to,
+  linkLabel,
+}: {
+  title: string;
+  items: readonly {
+    readonly key: string;
+    readonly orderRef: string;
+    readonly meta: string;
+    readonly badge: string;
+    readonly accent: boolean;
+  }[];
+  to: string;
+  linkLabel: string;
+}) {
+  return (
+    <div className="dash-more">
+      <div className="dash-more-head">
+        <strong>{title}</strong>
+        <Link to={to}>{linkLabel}</Link>
+      </div>
+      <ul className="dash-more-list">
+        {items.map((item) => (
+          <li key={item.key}>
+            <div>
+              <strong>{item.orderRef}</strong>
+              <small>{item.meta}</small>
+            </div>
+            <span className={`dash-tag ${item.accent ? "is-accent" : ""}`}>{item.badge}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function NetworkIcon({ kind }: { kind: "nodes" | "monitor" }) {
   const common = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "aria-hidden": true } as const;
   if (kind === "nodes") {
@@ -247,7 +286,29 @@ export function BuyerDashboardOverview() {
   const orders = ordersState.kind === "ready" ? ordersState.items : null;
   const openCount = services?.filter((item) => item.serviceStatus === "open").length ?? null;
   const pendingCount = services === null || openCount === null ? null : services.length - openCount;
+  const unpaidCount = orders?.filter((item) => item.status === "pending").length ?? null;
   const reload = () => setReloadToken((token) => token + 1);
+
+  // 特写卡展示最近一项，其余最多三项进入「更多」列表，形成概览 → 特写 → 列表的层级。
+  // 与 CurrentServiceCard 同一比较器，保证特写项与列表项不重复。
+  const sortedServices: readonly MyServiceItem[] =
+    services === null ? [] : [...services].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  const extraServices = sortedServices.slice(1, 4).map((item) => ({
+    key: item.orderRef,
+    orderRef: item.orderRef,
+    meta: `${formatDate(item.createdAt)} · ${formatFen(item.amountFen)}`,
+    badge: serviceStatusLabel(item.serviceStatus),
+    accent: item.serviceStatus === "open",
+  }));
+  // 订单不在前端重排：后端已按 createdAt DESC 排序。
+  const recentOrders: readonly MyOrderItem[] = orders ?? [];
+  const extraOrders = recentOrders.slice(1, 4).map((item) => ({
+    key: item.orderRef,
+    orderRef: item.orderRef,
+    meta: `${formatDate(item.createdAt)} · ${formatFen(item.amountFen)}`,
+    badge: ORDER_STATUS_LABEL[item.status],
+    accent: item.status === "paid",
+  }));
 
   const overviewStats = [
     {
@@ -270,6 +331,11 @@ export function BuyerDashboardOverview() {
       value: orders === null ? "—" : String(orders.length),
       hint: stateHint(ordersState, "全部订单"),
     },
+    {
+      label: "待支付",
+      value: unpaidCount === null ? "—" : String(unpaidCount),
+      hint: stateHint(ordersState, "等待付款"),
+    },
   ] as const;
 
   return (
@@ -289,13 +355,25 @@ export function BuyerDashboardOverview() {
 
       <div className="dash-split">
         <section className="dash-panel" aria-labelledby="dash-service-title">
-          <h2 id="dash-service-title"><em>SERVICE</em>当前服务</h2>
+          <h2 id="dash-service-title">
+            <em>SERVICE</em>当前服务
+            {services !== null && <span>共 {services.length} 项</span>}
+          </h2>
           <CurrentServiceCard state={servicesState} onRetry={reload} />
+          {extraServices.length > 0 && (
+            <MoreList title="更早的服务" items={extraServices} to="/services" linkLabel="查看全部服务" />
+          )}
         </section>
 
         <section className="dash-panel" aria-labelledby="dash-order-title">
-          <h2 id="dash-order-title"><em>ORDERS</em>最近订单</h2>
+          <h2 id="dash-order-title">
+            <em>ORDERS</em>最近订单
+            {orders !== null && <span>共 {orders.length} 项</span>}
+          </h2>
           <RecentOrderCard state={ordersState} onRetry={reload} />
+          {extraOrders.length > 0 && (
+            <MoreList title="更早的订单" items={extraOrders} to="/orders" linkLabel="查看全部订单" />
+          )}
         </section>
       </div>
 

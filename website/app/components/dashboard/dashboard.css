@@ -42,6 +42,19 @@
 .dash-secondary-link { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; padding: 0 14px; border: 1px solid var(--cc-line); border-radius: 9px; background: var(--cc-card); color: var(--cc-text-2); font-size: 12.5px; font-weight: 600; text-decoration: none; white-space: nowrap; }
 .dash-secondary-link:hover { border-color: var(--cc-accent-line); background: var(--cc-accent-tint); color: var(--cc-accent); }
 
+/* 特写卡之后的第二层级：更早的服务 / 订单，只列真实条目。 */
+.dash-more { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--cc-hairline); }
+.dash-more-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 9px; }
+.dash-more-head strong { color: var(--cc-text-3); font-size: 12px; font-weight: 600; }
+.dash-more-head a { margin-left: auto; color: var(--cc-text-3); font-size: 11.5px; text-decoration: none; white-space: nowrap; }
+.dash-more-head a:hover { color: var(--cc-accent); }
+.dash-more-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.dash-more-list li { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 10px 12px; border: 1px solid var(--cc-hairline); border-radius: 9px; background: var(--cc-card); }
+.dash-more-list li > div { min-width: 0; flex: 1 1 160px; }
+.dash-more-list strong { display: block; color: var(--cc-text-2); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.dash-more-list small { display: block; margin-top: 2px; color: var(--cc-text-4); font-size: 11.5px; overflow-wrap: anywhere; }
+.dash-more-list .dash-tag { margin-left: auto; }
+
 /* 买家节点入口：账户内数据页与公开实时监控保持为两个清晰入口。 */
 .dash-network-entry-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .dash-network-entry { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 11px 13px; align-items: start; padding: 15px 16px; border: 1px solid var(--cc-line); border-radius: 10px; background: var(--cc-card); }
@@ -191,6 +204,8 @@ button.dash-action strong { color: var(--cc-text-3); font-weight: 500; }
   .dash-service-head strong { font-size: 17px; }
   .dash-primary-link { width: 100%; justify-content: center; }
   .dash-service-foot .dash-secondary-link { width: 100%; }
+  .dash-more-list li { padding: 10px 11px; }
+  .dash-more-list .dash-tag { margin-left: 0; }
   .dash-network-entry { grid-template-columns: auto minmax(0, 1fr); padding: 13px 14px; }
   .dash-network-entry > .dash-secondary-link { grid-column: 1 / -1; width: 100%; }
   .dash-delivery-row { grid-template-columns: minmax(0, 1fr); }
