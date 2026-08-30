@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
 import { AdminCouponsPanel } from "./AdminCouponsPanel";
 import { AdminDiagnosisPanel } from "./AdminDiagnosisPanel";
+import { AdminInviteCodesPanel } from "./AdminInviteCodesPanel";
 import { AdminPendingServices } from "./AdminPendingServices";
 import { AdminPlansPanel } from "./AdminPlansPanel";
 import { CurrentServicesPanel } from "./CurrentServicesPanel";
@@ -81,6 +82,7 @@ export function DashboardPage() {
         </div>
 
         {principal?.role === "admin" && <AdminDiagnosisPanel csrfToken={csrfToken} />}
+        {principal?.role === "admin" && <AdminInviteCodesPanel csrfToken={csrfToken} />}
         {principal?.role === "admin" && <AdminPendingServices csrfToken={csrfToken} />}
         {principal?.role === "admin" && <AdminPlansPanel csrfToken={csrfToken} />}
         {principal?.role === "admin" && <AdminCouponsPanel csrfToken={csrfToken} />}

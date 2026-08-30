@@ -10,6 +10,10 @@ import {
   type RegistrationHttpDependencies,
 } from "./http/registration-routes.js";
 import {
+  registerInviteAdminHttpRoutes,
+  type InviteAdminHttpDependencies,
+} from "./http/invite-admin-routes.js";
+import {
   registerDiagnosisHttpRoutes,
   type DiagnosisHttpDependencies,
 } from "./http/diagnosis-routes.js";
@@ -34,6 +38,7 @@ const HEALTH_RESPONSE_SCHEMA = {
 export interface BuildAppOptions {
   readonly auth?: AuthHttpDependencies;
   readonly registration?: RegistrationHttpDependencies;
+  readonly inviteAdmin?: InviteAdminHttpDependencies;
   readonly diagnosis?: DiagnosisHttpDependencies;
   readonly payment?: PaymentHttpDependencies;
 }
@@ -62,6 +67,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   }
   if (options.registration !== undefined) {
     registerRegistrationHttpRoutes(app, options.registration);
+  }
+  if (options.inviteAdmin !== undefined) {
+    registerInviteAdminHttpRoutes(app, options.inviteAdmin);
   }
   if (options.diagnosis !== undefined) {
     registerDiagnosisHttpRoutes(app, options.diagnosis);

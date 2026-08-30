@@ -1,18 +1,45 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
+import {
+  completeRegistration,
+  RegistrationApiError,
+  resendRegistrationCode,
+  startRegistration,
+  verifyRegistrationCode,
+} from "../../lib/registration-api";
 import { AuthNotice, AuthShell, RevealIcon } from "./AuthShell";
 import { PASSWORD_MAX_LENGTH, REGISTRATION_PASSWORD_MIN_LENGTH } from "./passwordPolicy";
 
-/* WEB-AUTH-01A：仅注册页视觉与本地状态。
-   本页不发送任何网络请求，不发邮件、不 mock 验证码、不创建用户 / Session，
-   不写 Cookie / token / storage，不自动跳转 Dashboard。
-   真实注册接线（含邀请码与验证码的服务端语义）留给后续包。 */
+/* 注册流程严格接入既有服务端状态机。registration token 只保存在组件内存，
+   不写 Cookie / storage、不记录明文邀请码或验证码，也不自动建立登录 Session。 */
 
-const DEMO_LATENCY_MS = 900;
 const VERIFICATION_COUNTDOWN_SECONDS = 60;
 
-type FormStatus = "idle" | "submitting";
+type FormStatus = "idle" | "sending" | "submitting";
+type RegistrationPhase =
+  | "not_started"
+  | "awaiting_verification"
+  | "verified"
+  | "completed";
 type Notice = { tone: "danger" | "neutral"; text: string };
+
+function registrationErrorMessage(error: unknown): string {
+  if (!(error instanceof RegistrationApiError)) {
+    return "注册服务暂时不可用，请稍后重试。";
+  }
+  switch (error.code) {
+    case "rate_limited":
+      return "请求过于频繁，请稍后再试。";
+    case "password_policy_violation":
+      return "密码不符合安全要求，请检查后重试。";
+    case "invalid_or_expired":
+      return "验证码无效或已过期，请重新获取后再试。";
+    case "invalid_request":
+      return "请检查填写内容后重试。";
+    default:
+      return "暂时无法完成注册，请稍后重试。";
+  }
+}
 
 export function RegisterPage() {
   const emailId = useId();
@@ -32,11 +59,14 @@ export function RegisterPage() {
   const [revealPassword, setRevealPassword] = useState(false);
   const [revealConfirm, setRevealConfirm] = useState(false);
   const [status, setStatus] = useState<FormStatus>("idle");
+  const [phase, setPhase] = useState<RegistrationPhase>("not_started");
+  const [registrationToken, setRegistrationToken] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [countdown, setCountdown] = useState(0);
-  const submitTimerRef = useRef<number | null>(null);
 
-  const submitting = status === "submitting";
+  const busy = status !== "idle";
+  const identityLocked = phase !== "not_started";
+  const completed = phase === "completed";
   const confirmMismatch = confirmPassword.length > 0 && password !== confirmPassword;
 
   useEffect(() => {
@@ -45,25 +75,69 @@ export function RegisterPage() {
     return () => window.clearTimeout(tick);
   }, [countdown]);
 
-  useEffect(() => () => {
-    if (submitTimerRef.current !== null) window.clearTimeout(submitTimerRef.current);
-  }, []);
-
-  function handleSendCode() {
-    if (countdown > 0 || submitting) return;
-    // 只做本地倒计时演示，不发请求、不发邮件、不产生任何验证码。
-    setCountdown(VERIFICATION_COUNTDOWN_SECONDS);
-    setNotice({ tone: "neutral", text: "验证码服务尚未接入，此处仅为界面演示。" });
+  async function handleSendCode() {
+    if (
+      countdown > 0 ||
+      busy ||
+      phase === "verified" ||
+      phase === "completed"
+    ) {
+      return;
+    }
+    setNotice(null);
+    setStatus("sending");
+    try {
+      if (phase === "not_started") {
+        const canonicalEmail = email.trim();
+        const canonicalInvite = inviteCode.trim().toUpperCase();
+        if (canonicalEmail === "" || canonicalInvite === "") {
+          setNotice({ tone: "danger", text: "请先填写邮箱和邀请码。" });
+          return;
+        }
+        const token = await startRegistration(
+          canonicalEmail,
+          canonicalInvite,
+        );
+        setEmail(canonicalEmail);
+        setInviteCode(canonicalInvite);
+        setRegistrationToken(token);
+        setPhase("awaiting_verification");
+      } else {
+        if (registrationToken === null) {
+          setNotice({
+            tone: "danger",
+            text: "注册状态已失效，请刷新页面后重新开始。",
+          });
+          return;
+        }
+        await resendRegistrationCode(registrationToken);
+      }
+      setCountdown(VERIFICATION_COUNTDOWN_SECONDS);
+      setNotice({
+        tone: "neutral",
+        text: "如果邮箱和邀请码有效，验证码将发送到该邮箱，请注意查收。",
+      });
+    } catch (error) {
+      setNotice({ tone: "danger", text: registrationErrorMessage(error) });
+    } finally {
+      setStatus("idle");
+    }
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitting) return;
+    if (busy || completed) return;
 
-    // 最小本地校验：只做存在性与两次密码一致性。
-    // 邀请码格式、验证码规则、密码策略均由服务端裁决，本页不自行发明。
-    if (!email.trim() || !verificationCode.trim() || !password || !confirmPassword || !inviteCode.trim()) {
-      setNotice({ tone: "danger", text: "请填写全部字段后再提交。" });
+    if (phase === "not_started" || registrationToken === null) {
+      setNotice({ tone: "danger", text: "请先发送并获取邮箱验证码。" });
+      return;
+    }
+    if (
+      (phase === "awaiting_verification" && verificationCode.trim() === "") ||
+      !password ||
+      !confirmPassword
+    ) {
+      setNotice({ tone: "danger", text: "请填写验证码和密码后再提交。" });
       return;
     }
     if (password !== confirmPassword) {
@@ -71,14 +145,39 @@ export function RegisterPage() {
       return;
     }
 
-    // 进入 loading 时不清空既有提示，避免提示区消失造成布局跳动。
     setStatus("submitting");
-    if (submitTimerRef.current !== null) window.clearTimeout(submitTimerRef.current);
-    submitTimerRef.current = window.setTimeout(() => {
+    setNotice(null);
+    let currentToken = registrationToken;
+    try {
+      if (phase === "awaiting_verification") {
+        currentToken = await verifyRegistrationCode(
+          currentToken,
+          verificationCode.trim(),
+        );
+        setRegistrationToken(currentToken);
+        setPhase("verified");
+      }
+      await completeRegistration(
+        currentToken,
+        password,
+        confirmPassword,
+      );
+      setRegistrationToken(null);
+      setPhase("completed");
+      setCountdown(0);
+      setVerificationCode("");
+      setInviteCode("");
+      setPassword("");
+      setConfirmPassword("");
+      setNotice({
+        tone: "neutral",
+        text: "注册完成。现在可以前往登录客户中心。",
+      });
+    } catch (error) {
+      setNotice({ tone: "danger", text: registrationErrorMessage(error) });
+    } finally {
       setStatus("idle");
-      // 如实说明：注册服务尚未接线，不冒充任何服务端结果、不创建任何账号。
-      setNotice({ tone: "danger", text: "注册服务尚未接入，当前页面仅供界面验收。" });
-    }, DEMO_LATENCY_MS);
+    }
   }
 
   return (
@@ -100,7 +199,7 @@ export function RegisterPage() {
               maxLength={254}
               placeholder="you@example.com"
               value={email}
-              disabled={submitting}
+              disabled={busy || identityLocked}
               aria-describedby={notice ? noticeId : undefined}
               onChange={(event) => setEmail(event.target.value)}
             />
@@ -120,18 +219,35 @@ export function RegisterPage() {
                 spellCheck={false}
                 placeholder="请输入邮件中的验证码"
                 value={verificationCode}
-                disabled={submitting}
+                maxLength={6}
+                disabled={busy || phase === "not_started" || completed}
                 onChange={(event) => setVerificationCode(event.target.value)}
               />
             </div>
             <button
               type="button"
               className="auth-code-button"
-              disabled={submitting || countdown > 0}
-              aria-disabled={submitting || countdown > 0}
-              onClick={handleSendCode}
+              disabled={
+                busy ||
+                countdown > 0 ||
+                phase === "verified" ||
+                completed
+              }
+              aria-disabled={
+                busy ||
+                countdown > 0 ||
+                phase === "verified" ||
+                completed
+              }
+              onClick={() => void handleSendCode()}
             >
-              {countdown > 0 ? `${countdown} 秒后重发` : "发送验证码"}
+              {status === "sending"
+                ? "正在发送…"
+                : countdown > 0
+                  ? `${countdown} 秒后重发`
+                  : phase === "not_started"
+                    ? "发送验证码"
+                    : "重新发送验证码"}
             </button>
           </div>
         </div>
@@ -147,7 +263,7 @@ export function RegisterPage() {
               maxLength={PASSWORD_MAX_LENGTH}
               placeholder="请设置密码"
               value={password}
-              disabled={submitting}
+              disabled={busy || completed}
               aria-describedby={passwordHintId}
               onChange={(event) => setPassword(event.target.value)}
             />
@@ -157,7 +273,7 @@ export function RegisterPage() {
               aria-label={revealPassword ? "隐藏密码" : "显示密码"}
               aria-pressed={revealPassword}
               aria-controls={passwordId}
-              disabled={submitting}
+              disabled={busy || completed}
               onClick={() => setRevealPassword((current) => !current)}
             >
               <RevealIcon revealed={revealPassword} />
@@ -179,7 +295,7 @@ export function RegisterPage() {
               maxLength={PASSWORD_MAX_LENGTH}
               placeholder="请再次输入密码"
               value={confirmPassword}
-              disabled={submitting}
+              disabled={busy || completed}
               aria-invalid={confirmMismatch}
               aria-describedby={confirmMismatch ? confirmHintId : undefined}
               onChange={(event) => setConfirmPassword(event.target.value)}
@@ -190,7 +306,7 @@ export function RegisterPage() {
               aria-label={revealConfirm ? "隐藏确认密码" : "显示确认密码"}
               aria-pressed={revealConfirm}
               aria-controls={confirmId}
-              disabled={submitting}
+              disabled={busy || completed}
               onClick={() => setRevealConfirm((current) => !current)}
             >
               <RevealIcon revealed={revealConfirm} />
@@ -212,16 +328,17 @@ export function RegisterPage() {
               autoComplete="off"
               autoCapitalize="characters"
               spellCheck={false}
+              maxLength={34}
               placeholder="请输入邀请码"
               value={inviteCode}
-              disabled={submitting}
-              onChange={(event) => setInviteCode(event.target.value)}
+              disabled={busy || identityLocked}
+              onChange={(event) => setInviteCode(event.target.value.toUpperCase())}
             />
           </div>
         </div>
 
-        <button type="submit" className="auth-submit" disabled={submitting} aria-busy={submitting}>
-          {submitting ? "正在注册…" : "注册"}
+        <button type="submit" className="auth-submit" disabled={busy || completed} aria-busy={status === "submitting"}>
+          {completed ? "注册完成" : status === "submitting" ? "正在注册…" : "注册"}
         </button>
       </form>
 

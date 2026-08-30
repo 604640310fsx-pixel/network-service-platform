@@ -78,6 +78,12 @@ async function start(): Promise<void> {
           rateLimitKeyring: credentials.rateLimitKeyring,
         }
       : undefined,
+    inviteAdmin: {
+      database,
+      tokenHmacKeyring: credentials.tokenHmacKeyring,
+      inviteHmacKeyring: credentials.inviteHmacKeyring,
+      csrfSigningKey: credentials.csrfSigningKey,
+    },
     diagnosis: {
       database,
       nodeEnv: config.nodeEnv,
