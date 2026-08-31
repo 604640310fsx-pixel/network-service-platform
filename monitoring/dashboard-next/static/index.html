@@ -12,7 +12,7 @@
   <!-- 首屏主题：从 ?theme= 读取初值并落到 <html data-theme>，避免浅色首屏闪烁；无参数保持默认深色。
        ?view=mini 时同时落到 <html data-view>，供侧栏紧凑三网视图切换布局。 -->
   <script>(function(){try{var q=new URLSearchParams(location.search);var t=q.get('theme');document.documentElement.dataset.theme=(t==='light')?'light':'dark';if(q.get('view')==='mini')document.documentElement.dataset.view='mini';}catch(e){document.documentElement.dataset.theme='dark';}})();</script>
-  <link rel="stylesheet" href="/master.css?v=20260831-mini">
+  <link rel="stylesheet" href="/master.css?v=20260831-mini-r1">
 </head>
 <body>
   <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
@@ -137,32 +137,33 @@
     </footer>
   </main>
 
-  <!-- 侧栏紧凑三网视图：仅在 ?view=mini 时可见（app.js 走 initMini）；曲线来自同源
-       /api/latency 真实样本，无数据时显示中性未就绪态，不编造延迟。 -->
+  <!-- 侧栏紧凑三网视图：仅在 ?view=mini 时可见（app.js 走 initMini）。曲线为穿过同源
+       /api/latency 真实样本的平滑路径（不新增/不插值虚构样本），末端点用于表现活跃；
+       无数据时显示中性未就绪态，不编造延迟。单一标题由外层官网卡片承担，此处不再重复。 -->
   <section class="mini-monitor" aria-label="电信 / 移动 / 联通 实时延迟">
-    <div class="mini-head">
-      <span class="mini-title">三网实时延迟</span>
+    <div class="mini-top">
+      <span class="mini-caption">近 6 小时延迟趋势</span>
       <span class="mini-live" id="miniStatus"><i aria-hidden="true"></i><b>读取中</b></span>
     </div>
     <div class="mini-rows">
       <div class="mini-row telecom" data-wan="telecom" data-state="loading">
         <span class="mini-name">电信</span>
-        <span class="mini-spark"><svg viewBox="0 0 100 26" preserveAspectRatio="none" aria-hidden="true"><polyline points=""></polyline></svg></span>
+        <span class="mini-spark"><svg viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true"><path class="mini-line" d=""></path><path class="mini-flow" d=""></path></svg><i class="mini-endpoint" aria-hidden="true" hidden></i></span>
         <b class="mini-value">读取中</b>
       </div>
       <div class="mini-row mobile" data-wan="mobile" data-state="loading">
         <span class="mini-name">移动</span>
-        <span class="mini-spark"><svg viewBox="0 0 100 26" preserveAspectRatio="none" aria-hidden="true"><polyline points=""></polyline></svg></span>
+        <span class="mini-spark"><svg viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true"><path class="mini-line" d=""></path><path class="mini-flow" d=""></path></svg><i class="mini-endpoint" aria-hidden="true" hidden></i></span>
         <b class="mini-value">读取中</b>
       </div>
       <div class="mini-row unicom" data-wan="unicom" data-state="loading">
         <span class="mini-name">联通</span>
-        <span class="mini-spark"><svg viewBox="0 0 100 26" preserveAspectRatio="none" aria-hidden="true"><polyline points=""></polyline></svg></span>
+        <span class="mini-spark"><svg viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true"><path class="mini-line" d=""></path><path class="mini-flow" d=""></path></svg><i class="mini-endpoint" aria-hidden="true" hidden></i></span>
         <b class="mini-value">读取中</b>
       </div>
     </div>
   </section>
 
-  <script src="/app.js?v=20260831-mini"></script>
+  <script src="/app.js?v=20260831-mini-r1"></script>
 </body>
 </html>

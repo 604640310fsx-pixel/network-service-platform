@@ -12,7 +12,7 @@ const {
   vpsPickerMonitorState,
   buildMiniSeries,
   miniRowState,
-  miniSparkPoints,
+  buildMiniCurve,
 } = require('../static/app.js');
 
 const parentWindow = {};
@@ -87,8 +87,8 @@ test('static entry binds the canonical parent and exposes no monitor-owned theme
     /<meta name="monitor-embed-origin" content="https:\/\/www\.siqiapparel\.com">/,
   );
   assert.doesNotMatch(html, /theme[-_ ]?toggle|切换到(?:浅色|深色)主题/i);
-  assert.match(html, /master\.css\?v=20260831-mini/);
-  assert.match(html, /app\.js\?v=20260831-mini/);
+  assert.match(html, /master\.css\?v=20260831-mini-r1/);
+  assert.match(html, /app\.js\?v=20260831-mini-r1/);
 });
 
 test('compact sidebar mini view is a query mode on the same page, not a new route', () => {
@@ -100,6 +100,13 @@ test('compact sidebar mini view is a query mode on the same page, not a new rout
   assert.match(html, /class="mini-row mobile"[^>]*data-wan="mobile"/);
   assert.match(html, /class="mini-row unicom"[^>]*data-wan="unicom"/);
 
+  // 单一标题由外层官网卡片承担，紧凑视图内不再重复大标题（避免卡中卡）。
+  assert.doesNotMatch(html, /class="mini-title"/);
+  assert.doesNotMatch(html, /<polyline/); // 已改用平滑路径而非锯齿折线
+  assert.match(html, /<path class="mini-line"/);
+  assert.match(html, /<path class="mini-flow"/); // 高光只沿同一条真实路径移动
+  assert.match(html, /class="mini-endpoint"/); // 末端活跃点
+
   const source = fs.readFileSync(path.join(__dirname, '../static/app.js'), 'utf8');
   // 紧凑视图只跑轻量 mini 逻辑，读取既有同源 /api/latency，每 15 秒刷新，不新增后端。
   assert.match(source, /dataset\.view==='mini'\)initMini\(\)/);
@@ -108,8 +115,10 @@ test('compact sidebar mini view is a query mode on the same page, not a new rout
 
   const css = fs.readFileSync(path.join(__dirname, '../static/master.css'), 'utf8');
   assert.match(css, /html\[data-view="mini"\] \.shell\{display:none\}/);
+  assert.match(css, /\.mini-spark\.has-line \.mini-flow\{[^}]*animation:mini-flow/);
   // 动效须尊重 prefers-reduced-motion。
   assert.match(css, /@media\(prefers-reduced-motion:reduce\)/);
+  assert.match(css, /\.mini-spark\.has-line \.mini-flow,.mini-endpoint\{animation:none\}/);
 });
 
 test('mini series never invents latency and never keeps a stale value as current', () => {
@@ -143,20 +152,27 @@ test('mini series never invents latency and never keeps a stale value as current
   assert.ok(empty.every((row) => row.current === null && row.values.length === 0));
 });
 
-test('miniSparkPoints maps values into the viewBox and stays empty below two points', () => {
-  assert.equal(miniSparkPoints([], 100, 26, 2), '');
-  assert.equal(miniSparkPoints([12], 100, 26, 2), '');
-  const points = miniSparkPoints([0, 10], 100, 26, 2).split(' ');
-  assert.equal(points.length, 2);
-  const [x0, y0] = points[0].split(',').map(Number);
-  const [x1, y1] = points[1].split(',').map(Number);
-  assert.equal(x0, 2); // 左内边距
-  assert.equal(x1, 98); // 右内边距
-  assert.equal(y0, 24); // 最小值落到底部（h-pad）
-  assert.equal(y1, 2); // 最大值落到顶部（pad）
-  // 全等值时走中线，不制造虚假起伏。
-  const flat = miniSparkPoints([5, 5, 5], 100, 26, 2).split(' ');
-  assert.ok(flat.every((point) => Number(point.split(',')[1]) === 13));
+test('buildMiniCurve smooths through the real points without inventing samples', () => {
+  // 少于两个有效点：不画线、不给端点（诚实空态）。
+  assert.deepEqual(buildMiniCurve([], 100, 30, 3), { d: '', endpoint: null });
+  assert.deepEqual(buildMiniCurve([12], 100, 30, 3), { d: '', endpoint: null });
+
+  const curve = buildMiniCurve([0, 10], 100, 30, 3);
+  // 平滑曲线（三次贝塞尔 C 指令），而非锯齿折线。
+  assert.match(curve.d, /^M3,27C/);
+  // 曲线严格从第一个真实点出发、止于最后一个真实点（不外插）。
+  assert.ok(curve.d.startsWith('M3,27'));
+  assert.ok(curve.d.endsWith('97,3'));
+  // 端点为归一化坐标：最新（也是最大）值在顶部内边距处。
+  assert.deepEqual(curve.endpoint, { x: 0.97, y: 0.1 });
+
+  // 全等值走中线，不制造虚假起伏；端点归一化 y=0.5，且每个 y 坐标都恰为中线 15。
+  const flat = buildMiniCurve([5, 5, 5], 100, 30, 3);
+  assert.equal(flat.endpoint.y, 0.5);
+  assert.ok(/^M3,15C/.test(flat.d));
+  assert.ok(flat.d.endsWith('97,15'));
+  const ys = (flat.d.match(/,(-?\d+(?:\.\d+)?)/g) || []).map((m) => Number(m.slice(1)));
+  assert.ok(ys.length > 0 && ys.every((y) => y === 15));
 });
 
 test('embedded layout has a dedicated single-layer shell override', () => {

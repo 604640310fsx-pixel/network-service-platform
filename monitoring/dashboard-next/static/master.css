@@ -19,41 +19,49 @@ html[data-embedded="true"] .shell{
 }
 
 /* ===== 侧栏紧凑三网视图（?view=mini）=====
-   与完整监控同源、同一 /api/latency 数据；仅换一套紧凑呈现，供官网侧栏 iframe 嵌入。
-   背景透明贴合父卡片；颜色沿用 --blue/--green/--red/--text/--muted，深浅主题自动适配。 */
+   只把 3002 的真实 /api/latency 样本压缩成一张轻量观测面。外层官网承担卡片与标题，
+   iframe 自身保持透明，不再形成黑色“卡中卡”。动态高光只沿真实曲线路径移动，不制造
+   新采样点或数值；末端点表示最近真实样本。 */
 .mini-monitor{display:none}
 html[data-view="mini"]{background:transparent}
 html[data-view="mini"] body{min-width:0;min-height:0;background:transparent}
 html[data-view="mini"] .shell{display:none}
 html[data-view="mini"] .mini-monitor{
-  display:flex;flex-direction:column;gap:7px;height:100vh;padding:9px 11px;overflow:hidden;
+  display:flex;flex-direction:column;gap:5px;height:100vh;padding:0;overflow:hidden;
 }
-.mini-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.mini-title{color:var(--muted);font-size:11.5px;font-weight:560;letter-spacing:.02em}
-.mini-live{display:inline-flex;align-items:center;gap:5px;color:var(--faint);font-size:10.5px}
-.mini-live i{width:6px;height:6px;border-radius:50%;background:var(--gray);flex:0 0 auto}
-.mini-live b{font-weight:500}
+.mini-top{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:18px}
+.mini-caption{color:var(--faint);font-size:9.5px;font-weight:520;letter-spacing:.035em}
+.mini-live{display:inline-flex;align-items:center;gap:5px;color:var(--faint);font-size:9.5px;white-space:nowrap}
+.mini-live i{width:5px;height:5px;border-radius:50%;background:var(--gray);flex:0 0 auto}
+.mini-live b{font-weight:560}
 html[data-mini-state="live"] .mini-live{color:var(--green)}
 html[data-mini-state="live"] .mini-live i{background:var(--green);animation:mini-pulse 2.4s ease-in-out infinite}
 html[data-mini-state="stale"] .mini-live{color:var(--orange)}
 html[data-mini-state="stale"] .mini-live i{background:var(--orange)}
-@keyframes mini-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.78)}}
-.mini-rows{flex:1 1 auto;display:flex;flex-direction:column;justify-content:space-between;min-height:0;gap:5px}
-.mini-row{--wan:var(--gray);display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:9px;min-height:0}
+@keyframes mini-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.42;transform:scale(.72)}}
+.mini-rows{flex:1 1 auto;display:grid;grid-template-rows:repeat(3,minmax(0,1fr));min-height:0}
+.mini-row{--wan:var(--gray);display:grid;grid-template-columns:27px minmax(0,1fr) 46px;align-items:center;gap:7px;min-height:0;border-top:1px solid color-mix(in srgb,var(--line-soft) 72%,transparent)}
 .mini-row.telecom{--wan:var(--blue)}.mini-row.mobile{--wan:var(--green)}.mini-row.unicom{--wan:var(--red)}
-.mini-name{color:var(--text);font-size:12px;font-weight:560}
-.mini-spark{position:relative;height:26px;min-width:0}
-.mini-spark svg{display:block;width:100%;height:100%}
-.mini-spark polyline{fill:none;stroke:var(--wan);stroke-width:1.5px;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;opacity:0;transition:opacity .5s ease}
-.mini-spark.has-line polyline{opacity:.95}
-.mini-value{color:var(--wan);font-size:11.5px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.mini-name{color:var(--text);font-size:10.5px;font-weight:620}
+.mini-spark{position:relative;height:30px;min-width:0;overflow:visible}
+.mini-spark::after{content:"";position:absolute;left:0;right:0;top:50%;border-top:1px solid color-mix(in srgb,var(--line-soft) 58%,transparent);pointer-events:none}
+.mini-spark svg{position:relative;z-index:1;display:block;width:100%;height:100%;overflow:visible}
+.mini-line,.mini-flow{fill:none;stroke:var(--wan);stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.mini-line{stroke-width:1.25px;opacity:0;transition:opacity .45s ease}
+.mini-flow{stroke-width:1.8px;stroke-dasharray:9 151;stroke-dashoffset:160;opacity:0}
+.mini-spark.has-line .mini-line{opacity:.58}
+.mini-spark.has-line .mini-flow{opacity:.9;animation:mini-flow 3.2s linear infinite}
+@keyframes mini-flow{to{stroke-dashoffset:0}}
+.mini-endpoint{position:absolute;z-index:2;width:5px;height:5px;border-radius:50%;background:var(--wan);transform:translate(-50%,-50%);animation:mini-endpoint 2.1s ease-in-out infinite}
+@keyframes mini-endpoint{0%,100%{opacity:1;transform:translate(-50%,-50%) scale(1)}50%{opacity:.46;transform:translate(-50%,-50%) scale(.68)}}
+.mini-value{color:var(--wan);font-size:10.5px;font-weight:650;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
 .mini-row[data-state="down"]{--wan:var(--red)}
-.mini-row[data-state="down"] .mini-spark polyline{opacity:.4}
+.mini-row[data-state="down"] .mini-line{opacity:.3}.mini-row[data-state="down"] .mini-flow{display:none}.mini-row[data-state="down"] .mini-endpoint{animation:none;opacity:.45}
 .mini-row[data-state="empty"],.mini-row[data-state="loading"]{--wan:var(--gray)}
-.mini-row[data-state="empty"] .mini-value,.mini-row[data-state="loading"] .mini-value{color:var(--faint);font-weight:500}
+.mini-row[data-state="empty"] .mini-value,.mini-row[data-state="loading"] .mini-value{color:var(--faint);font-weight:520}
 @media(prefers-reduced-motion:reduce){
-  html[data-mini-state="live"] .mini-live i{animation:none}
-  .mini-spark polyline{transition:none}
+  html[data-mini-state="live"] .mini-live i,.mini-spark.has-line .mini-flow,.mini-endpoint{animation:none}
+  .mini-line{transition:none}.mini-flow{display:none}.mini-endpoint{opacity:1}
 }
 
 /* Header and retained VPS selector. */

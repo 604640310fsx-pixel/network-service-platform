@@ -590,7 +590,7 @@ function bindInteractions(){
    iframe 嵌入。永不编造延迟：数值只反映真实最新样本，最新样本失败或缺失时显示无响应 /
    暂无数据，而非保留过期值当当前；曲线取窗口内成功样本作为趋势。每 15 秒刷新一次。 */
 const MINI_WANS=[['telecom','电信'],['mobile','移动'],['unicom','联通']];
-const MINI_W=100,MINI_H=26,MINI_PAD=2,MINI_MAX_POINTS=48;
+const MINI_W=100,MINI_H=30,MINI_PAD=3,MINI_MAX_POINTS=30;
 
 /** 由 /api/latency 的 samples 归约出每条线路的紧凑序列（纯函数，供 node --test 校验）。
     samples 已按时间升序。values 只收集成功且有 avg_ms 的点用于画趋势；current 只在
@@ -622,20 +622,27 @@ function miniRowState(row){
   return 'empty';
 }
 
-/** 把数值序列映射为紧凑 SVG 折线 points（viewBox 0 0 w h，上下留 pad）。纯函数。
-    有效点少于 2 个返回 ''，调用方据此不画线（保持诚实空态）。 */
-function miniSparkPoints(values,w,h,pad){
+/** 把真实样本序列映射为平滑 SVG 曲线（viewBox 0 0 w h，上下留 pad）。纯函数。
+    用 Catmull-Rom→三次贝塞尔，曲线严格穿过每个真实采样点：只是把已有折线画得顺滑，
+    不新增、不插值任何虚构样本。返回 { d, endpoint }；有效点少于 2 个时 d='' 且 endpoint
+    为 null（调用方据此不画线、隐藏端点，保持诚实空态）。endpoint 为归一化坐标(0..1)。 */
+function buildMiniCurve(values,w,h,pad){
   const nums=(Array.isArray(values)?values:[]).filter(v=>typeof v==='number'&&Number.isFinite(v));
-  if(nums.length<2)return '';
-  const p=pad==null?2:pad;
+  if(nums.length<2)return {d:'',endpoint:null};
+  const p=pad==null?3:pad;
   const min=Math.min(...nums),max=Math.max(...nums),span=max-min;
   const innerH=h-p*2,stepX=(w-p*2)/(nums.length-1);
+  const pts=nums.map((v,i)=>[p+stepX*i,span===0?h/2:p+innerH*(1-(v-min)/span)]);
   const r=n=>Math.round(n*100)/100;
-  return nums.map((v,i)=>{
-    const x=p+stepX*i;
-    const y=span===0?h/2:p+innerH*(1-(v-min)/span);
-    return `${r(x)},${r(y)}`;
-  }).join(' ');
+  let d=`M${r(pts[0][0])},${r(pts[0][1])}`;
+  for(let i=0;i<pts.length-1;i+=1){
+    const p0=pts[i-1]||pts[i],p1=pts[i],p2=pts[i+1],p3=pts[i+2]||pts[i+1];
+    const c1x=p1[0]+(p2[0]-p0[0])/6,c1y=p1[1]+(p2[1]-p0[1])/6;
+    const c2x=p2[0]-(p3[0]-p1[0])/6,c2y=p2[1]-(p3[1]-p1[1])/6;
+    d+=`C${r(c1x)},${r(c1y)} ${r(c2x)},${r(c2y)} ${r(p2[0])},${r(p2[1])}`;
+  }
+  const last=pts[pts.length-1];
+  return {d,endpoint:{x:r(last[0]/w),y:r(last[1]/h)}};
 }
 
 function setMiniStatus(state){
@@ -650,13 +657,20 @@ function renderMini(rows){
     if(!el)continue;
     const state=miniRowState(row);
     el.dataset.state=state;
-    const points=miniSparkPoints(row.values.slice(-MINI_MAX_POINTS),MINI_W,MINI_H,MINI_PAD);
-    const line=el.querySelector('.mini-spark polyline');
-    if(line)line.setAttribute('points',points);
+    const curve=buildMiniCurve(row.values.slice(-MINI_MAX_POINTS),MINI_W,MINI_H,MINI_PAD);
+    const line=el.querySelector('.mini-spark .mini-line');
+    const flow=el.querySelector('.mini-spark .mini-flow');
+    if(line)line.setAttribute('d',curve.d);
+    if(flow)flow.setAttribute('d',curve.d);
     const spark=el.querySelector('.mini-spark');
-    if(spark)spark.classList.toggle('has-line',points!=='');
+    if(spark)spark.classList.toggle('has-line',curve.d!=='');
+    const dot=el.querySelector('.mini-endpoint');
+    if(dot){
+      if(curve.endpoint){dot.style.left=`${curve.endpoint.x*100}%`;dot.style.top=`${curve.endpoint.y*100}%`;}
+      dot.hidden=!curve.endpoint;
+    }
     const value=el.querySelector('.mini-value');
-    if(value)value.textContent=state==='ok'?`${row.current.toFixed(row.current<100?1:0)} ms`:state==='down'?'无响应':'暂无数据';
+    if(value)value.textContent=state==='ok'?`${Math.round(row.current)} ms`:state==='down'?'无响应':'暂无数据';
   }
 }
 
@@ -750,5 +764,5 @@ if(typeof window!=='undefined'&&typeof document!=='undefined'){
 }
 /* 供 node --test 校验纯逻辑；浏览器经典脚本里 module 未定义，短路跳过。 */
 if(typeof module!=='undefined'&&module.exports){
-  module.exports={THEME_MESSAGE_TYPE,normalizeTheme,isLoopbackOrigin,isTrustedThemeMessage,normalizeVpsCustomerState,vpsPickerMonitorState,buildMiniSeries,miniRowState,miniSparkPoints};
+  module.exports={THEME_MESSAGE_TYPE,normalizeTheme,isLoopbackOrigin,isTrustedThemeMessage,normalizeVpsCustomerState,vpsPickerMonitorState,buildMiniSeries,miniRowState,buildMiniCurve};
 }
