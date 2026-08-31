@@ -216,6 +216,12 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
   .cc-menu-button { display: grid; }
 }
 
+/* 矮窗口强制改用普通文档流：导航必须完整排完，监控卡才能出现。
+   侧栏自身负责滚动，避免任何 Flex 收缩或浏览器缩放把卡片提前顶进导航区域。 */
+@media (max-height: 1000px) {
+  .cc-sidebar { display: block; }
+}
+
 @media (max-width: 820px) {
   .cc-shell { --cc-gutter: 14px; }
   .cc-page-title h1 { font-size: 15px; }
