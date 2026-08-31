@@ -12,8 +12,6 @@ const {
   vpsPickerMonitorState,
   buildMiniSeries,
   miniRowState,
-  miniThin,
-  miniDomain,
   buildMiniCurve,
 } = require('../static/app.js');
 
@@ -89,21 +87,18 @@ test('static entry binds the canonical parent and exposes no monitor-owned theme
     /<meta name="monitor-embed-origin" content="https:\/\/www\.siqiapparel\.com">/,
   );
   assert.doesNotMatch(html, /theme[-_ ]?toggle|切换到(?:浅色|深色)主题/i);
-  assert.match(html, /master\.css\?v=20260831-mini-r3/);
-  assert.match(html, /app\.js\?v=20260831-mini-r3/);
+  assert.match(html, /master\.css\?v=20260831-mini-r1/);
+  assert.match(html, /app\.js\?v=20260831-mini-r1/);
 });
 
 test('compact sidebar mini view is a query mode on the same page, not a new route', () => {
   const html = fs.readFileSync(path.join(__dirname, '../static/index.html'), 'utf8');
   // 首屏根据 ?view=mini 落 data-view，供同一页面切换紧凑布局。
   assert.match(html, /view'\)==='mini'\)document\.documentElement\.dataset\.view='mini'/);
-  // 三条线路共用同一观测面，并各自保留曲线与读数标识。
-  assert.match(html, /class="mini-line" data-wan="telecom"/);
-  assert.match(html, /class="mini-line" data-wan="mobile"/);
-  assert.match(html, /class="mini-line" data-wan="unicom"/);
-  assert.match(html, /class="mini-readout" data-wan="telecom"/);
-  assert.match(html, /class="mini-readout" data-wan="mobile"/);
-  assert.match(html, /class="mini-readout" data-wan="unicom"/);
+  // 三条线路都在紧凑视图中被显式标注。
+  assert.match(html, /class="mini-row telecom"[^>]*data-wan="telecom"/);
+  assert.match(html, /class="mini-row mobile"[^>]*data-wan="mobile"/);
+  assert.match(html, /class="mini-row unicom"[^>]*data-wan="unicom"/);
 
   // 单一标题由外层官网卡片承担，紧凑视图内不再重复大标题（避免卡中卡）。
   assert.doesNotMatch(html, /class="mini-title"/);
@@ -120,10 +115,10 @@ test('compact sidebar mini view is a query mode on the same page, not a new rout
 
   const css = fs.readFileSync(path.join(__dirname, '../static/master.css'), 'utf8');
   assert.match(css, /html\[data-view="mini"\] \.shell\{display:none\}/);
-  assert.match(css, /\.mini-flow\[data-state="ok"\]\{[^}]*animation:mini-flow/);
+  assert.match(css, /\.mini-spark\.has-line \.mini-flow\{[^}]*animation:mini-flow/);
   // 动效须尊重 prefers-reduced-motion。
   assert.match(css, /@media\(prefers-reduced-motion:reduce\)/);
-  assert.match(css, /\.mini-flow,\.mini-flow\[data-state="ok"\]\{display:none;animation:none\}/);
+  assert.match(css, /\.mini-spark\.has-line \.mini-flow,.mini-endpoint\{animation:none\}/);
 });
 
 test('mini series never invents latency and never keeps a stale value as current', () => {
@@ -157,7 +152,7 @@ test('mini series never invents latency and never keeps a stale value as current
   assert.ok(empty.every((row) => row.current === null && row.values.length === 0));
 });
 
-test('buildMiniCurve smooths real points without exaggerating small changes', () => {
+test('buildMiniCurve smooths through the real points without inventing samples', () => {
   // 少于两个有效点：不画线、不给端点（诚实空态）。
   assert.deepEqual(buildMiniCurve([], 100, 30, 3), { d: '', endpoint: null });
   assert.deepEqual(buildMiniCurve([12], 100, 30, 3), { d: '', endpoint: null });
@@ -165,16 +160,11 @@ test('buildMiniCurve smooths real points without exaggerating small changes', ()
   const curve = buildMiniCurve([0, 10], 100, 30, 3);
   // 平滑曲线（三次贝塞尔 C 指令），而非锯齿折线。
   assert.match(curve.d, /^M3,27C/);
-  // 曲线严格从第一个真实点出发、止于最后一个真实点（不外插）。视觉域带缓冲，
-  // 因而最大值不再被强制顶到上边界。
+  // 曲线严格从第一个真实点出发、止于最后一个真实点（不外插）。
   assert.ok(curve.d.startsWith('M3,27'));
-  assert.ok(curve.d.endsWith('97,10.2'));
-  assert.deepEqual(curve.endpoint, { x: 0.97, y: 0.34 });
-
-  // 只有亚毫秒级变化时，所有路径控制点也保持在安静的小范围内，不夸张成全高山峰。
-  const subtle = buildMiniCurve([24, 24.5, 24.2, 24.6], 100, 30, 3);
-  const subtleYs = (subtle.d.match(/,(-?\d+(?:\.\d+)?)/g) || []).map((m) => Number(m.slice(1)));
-  assert.ok(Math.max(...subtleYs) - Math.min(...subtleYs) < 5);
+  assert.ok(curve.d.endsWith('97,3'));
+  // 端点为归一化坐标：最新（也是最大）值在顶部内边距处。
+  assert.deepEqual(curve.endpoint, { x: 0.97, y: 0.1 });
 
   // 全等值走中线，不制造虚假起伏；端点归一化 y=0.5，且每个 y 坐标都恰为中线 15。
   const flat = buildMiniCurve([5, 5, 5], 100, 30, 3);
@@ -183,18 +173,6 @@ test('buildMiniCurve smooths real points without exaggerating small changes', ()
   assert.ok(flat.d.endsWith('97,15'));
   const ys = (flat.d.match(/,(-?\d+(?:\.\d+)?)/g) || []).map((m) => Number(m.slice(1)));
   assert.ok(ys.length > 0 && ys.every((y) => y === 15));
-});
-
-test('mini series thinning keeps real endpoints and uses one shared visual domain', () => {
-  assert.deepEqual(miniThin([1, 2, 3, 4, 5, 6], 4), [1, 3, 4, 6]);
-  assert.deepEqual(miniThin([1, null, 2, Number.NaN, 3], 8), [1, 2, 3]);
-
-  const domain = miniDomain([[24, 25], [30, 31], []]);
-  assert.ok(domain.min < 24);
-  assert.ok(domain.max > 31);
-  const low = buildMiniCurve([24, 25], 100, 30, 3, domain);
-  const high = buildMiniCurve([30, 31], 100, 30, 3, domain);
-  assert.ok(low.endpoint.y > high.endpoint.y);
 });
 
 test('embedded layout has a dedicated single-layer shell override', () => {
