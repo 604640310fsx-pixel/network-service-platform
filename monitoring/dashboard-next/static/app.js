@@ -588,9 +588,10 @@ function bindInteractions(){
 /* ===== 侧栏紧凑三网视图（?view=mini）=====
    与完整监控同一页面、同一 /api/latency 同源只读数据；仅换一套紧凑呈现，供官网侧栏
    iframe 嵌入。永不编造延迟：数值只反映真实最新样本，最新样本失败或缺失时显示无响应 /
-   暂无数据，而非保留过期值当当前；曲线取窗口内成功样本作为趋势。每 15 秒刷新一次。 */
+   '—'，而非保留过期值当当前；曲线取窗口内最近的真实成功样本作为趋势。每 15 秒刷新一次。 */
 const MINI_WANS=[['telecom','电信'],['mobile','移动'],['unicom','联通']];
-const MINI_W=100,MINI_H=30,MINI_PAD=3,MINI_MAX_POINTS=30;
+/* 与批准设计「网络状态监控卡片」一致的绘图盒：viewBox 260x46、上下留 5、最多 14 个点。 */
+const MINI_W=260,MINI_H=46,MINI_PAD=5,MINI_MAX_POINTS=14;
 
 /** 由 /api/latency 的 samples 归约出每条线路的紧凑序列（纯函数，供 node --test 校验）。
     samples 已按时间升序。values 只收集成功且有 avg_ms 的点用于画趋势；current 只在
@@ -622,56 +623,80 @@ function miniRowState(row){
   return 'empty';
 }
 
-/** 把真实样本序列映射为平滑 SVG 曲线（viewBox 0 0 w h，上下留 pad）。纯函数。
-    用 Catmull-Rom→三次贝塞尔，曲线严格穿过每个真实采样点：只是把已有折线画得顺滑，
-    不新增、不插值任何虚构样本。返回 { d, endpoint }；有效点少于 2 个时 d='' 且 endpoint
-    为 null（调用方据此不画线、隐藏端点，保持诚实空态）。endpoint 为归一化坐标(0..1)。 */
-function buildMiniCurve(values,w,h,pad){
-  const nums=(Array.isArray(values)?values:[]).filter(v=>typeof v==='number'&&Number.isFinite(v));
-  if(nums.length<2)return {d:'',endpoint:null};
-  const p=pad==null?3:pad;
-  const min=Math.min(...nums),max=Math.max(...nums),span=max-min;
-  const innerH=h-p*2,stepX=(w-p*2)/(nums.length-1);
-  const pts=nums.map((v,i)=>[p+stepX*i,span===0?h/2:p+innerH*(1-(v-min)/span)]);
-  const r=n=>Math.round(n*100)/100;
-  let d=`M${r(pts[0][0])},${r(pts[0][1])}`;
-  for(let i=0;i<pts.length-1;i+=1){
-    const p0=pts[i-1]||pts[i],p1=pts[i],p2=pts[i+1],p3=pts[i+2]||pts[i+1];
-    const c1x=p1[0]+(p2[0]-p0[0])/6,c1y=p1[1]+(p2[1]-p0[1])/6;
-    const c2x=p2[0]-(p3[0]-p1[0])/6,c2y=p2[1]-(p3[1]-p1[1])/6;
-    d+=`C${r(c1x)},${r(c1y)} ${r(c2x)},${r(c2y)} ${r(p2[0])},${r(p2[1])}`;
+/** 三网共用的纵向刻度（纯函数）。设计源的视觉基准为 6..60ms；真实样本超出时扩展
+    边界而不裁掉数据，处于基准范围内时保持原设计的克制振幅，避免用样本自身最小/最大值
+    把轻微波动夸张成全高尖峰。无有效样本时返回 null。 */
+function buildMiniDomain(rows,maxPoints){
+  const limit=maxPoints||MINI_MAX_POINTS;
+  let lo=Infinity,hi=-Infinity;
+  for(const row of (Array.isArray(rows)?rows:[])){
+    const values=row&&Array.isArray(row.values)?row.values.slice(-limit):[];
+    for(const value of values){
+      if(typeof value!=='number'||!Number.isFinite(value))continue;
+      if(value<lo)lo=value;
+      if(value>hi)hi=value;
+    }
   }
-  const last=pts[pts.length-1];
-  return {d,endpoint:{x:r(last[0]/w),y:r(last[1]/h)}};
+  if(!Number.isFinite(lo)||!Number.isFinite(hi))return null;
+  return {lo:Math.min(6,lo),hi:Math.max(60,hi)};
+}
+
+/** 把真实样本序列映射为设计同款折线（纯函数）：等间距 x、y 随延迟增大而下移，
+    超出定域时截断到边界。只取最近 maxPoints 个真实成功样本并与右边缘对齐（最新在最右），
+    既不插值也不外插；有效点少于 2 个时返回 ''，调用方据此不画线，保持诚实空态。 */
+function buildMiniPath(values,domain,w,h,pad,maxPoints){
+  const limit=maxPoints||MINI_MAX_POINTS;
+  const nums=(Array.isArray(values)?values:[]).filter(v=>typeof v==='number'&&Number.isFinite(v)).slice(-limit);
+  if(!domain||nums.length<2)return '';
+  const span=domain.hi-domain.lo||1;
+  const p=pad==null?MINI_PAD:pad;
+  const step=w/(limit-1);
+  const offset=w-step*(nums.length-1);
+  return nums.map((value,index)=>{
+    const t=Math.max(0,Math.min(1,(value-domain.lo)/span));
+    const y=p+t*(h-p*2);
+    return (index?'L':'M')+(offset+index*step).toFixed(1)+' '+y.toFixed(1);
+  }).join(' ');
+}
+
+/** 三网平均延迟（纯函数）：只对最新一次探测成功的线路取平均，失败或无样本的线路不计入，
+    也不用历史值顶替。全部不可用时返回 null，由调用方显示 '—'。 */
+function buildMiniAverage(rows){
+  const nums=(Array.isArray(rows)?rows:[])
+    .map(row=>row&&row.current)
+    .filter(value=>typeof value==='number'&&Number.isFinite(value));
+  if(!nums.length)return null;
+  return nums.reduce((total,value)=>total+value,0)/nums.length;
 }
 
 function setMiniStatus(state){
   document.documentElement.dataset.miniState=state;
-  const label=$('#miniStatus b');
-  if(label)label.textContent=state==='live'?'实时':state==='stale'?'同步暂时失败':'读取中';
+  const label=$('#miniStatus');
+  // live 态用设计给定的 LIVE 标记；设计未覆盖的读取中 / 同步失败沿用监控既有中文措辞。
+  if(label)label.textContent=state==='live'?'LIVE':state==='stale'?'同步失败':'读取中';
 }
 
 function renderMini(rows){
+  const domain=buildMiniDomain(rows,MINI_MAX_POINTS);
   for(const row of rows){
-    const el=$(`.mini-row[data-wan="${row.wan}"]`);
-    if(!el)continue;
     const state=miniRowState(row);
-    el.dataset.state=state;
-    const curve=buildMiniCurve(row.values.slice(-MINI_MAX_POINTS),MINI_W,MINI_H,MINI_PAD);
-    const line=el.querySelector('.mini-spark .mini-line');
-    const flow=el.querySelector('.mini-spark .mini-flow');
-    if(line)line.setAttribute('d',curve.d);
-    if(flow)flow.setAttribute('d',curve.d);
-    const spark=el.querySelector('.mini-spark');
-    if(spark)spark.classList.toggle('has-line',curve.d!=='');
-    const dot=el.querySelector('.mini-endpoint');
-    if(dot){
-      if(curve.endpoint){dot.style.left=`${curve.endpoint.x*100}%`;dot.style.top=`${curve.endpoint.y*100}%`;}
-      dot.hidden=!curve.endpoint;
+    const line=$(`.mini-line[data-wan="${row.wan}"]`);
+    if(line){
+      const d=buildMiniPath(row.values,domain,MINI_W,MINI_H,MINI_PAD,MINI_MAX_POINTS);
+      line.setAttribute('d',d);
+      line.classList.toggle('has-line',d!=='');
     }
-    const value=el.querySelector('.mini-value');
-    if(value)value.textContent=state==='ok'?`${Math.round(row.current)} ms`:state==='down'?'无响应':'暂无数据';
+    const chip=$(`.mini-chip[data-wan="${row.wan}"]`);
+    if(chip){
+      chip.dataset.state=state;
+      const value=chip.querySelector('b');
+      // 只显示真实最新样本；最新失败显示无响应，窗口内无样本显示 '—'，不保留过期值。
+      if(value)value.textContent=state==='ok'?row.current.toFixed(1):state==='down'?'无响应':'—';
+    }
   }
+  const average=buildMiniAverage(rows);
+  const averageNode=$('#miniAvg');
+  if(averageNode)averageNode.textContent=average==null?'—':average.toFixed(1);
 }
 
 let miniRendered=false;
@@ -764,5 +789,5 @@ if(typeof window!=='undefined'&&typeof document!=='undefined'){
 }
 /* 供 node --test 校验纯逻辑；浏览器经典脚本里 module 未定义，短路跳过。 */
 if(typeof module!=='undefined'&&module.exports){
-  module.exports={THEME_MESSAGE_TYPE,normalizeTheme,isLoopbackOrigin,isTrustedThemeMessage,normalizeVpsCustomerState,vpsPickerMonitorState,buildMiniSeries,miniRowState,buildMiniCurve};
+  module.exports={THEME_MESSAGE_TYPE,normalizeTheme,isLoopbackOrigin,isTrustedThemeMessage,normalizeVpsCustomerState,vpsPickerMonitorState,buildMiniSeries,miniRowState,buildMiniDomain,buildMiniPath,buildMiniAverage};
 }

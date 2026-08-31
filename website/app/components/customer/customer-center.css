@@ -22,6 +22,18 @@
   --cc-progress: #2b323b;
   --cc-shadow: none;
   --cc-shadow-raised: 0 2px 10px rgba(0, 0, 0, 0.32);
+  /* 「查看服务器状态」按钮：深色取值直接来自批准设计原文件。 */
+  --cc-monitor-fill: #3a2e1c;
+  --cc-monitor-fill-hover: #493a24;
+  --cc-monitor-line: #c1862c;
+  --cc-monitor-line-hover: #e8931f;
+  --cc-monitor-ink: #e8931f;
+  --cc-monitor-shell: #12161d;
+  --cc-monitor-shell-line: rgba(255, 255, 255, 0.06);
+  --cc-monitor-card: #171c24;
+  --cc-monitor-card-line: rgba(255, 255, 255, 0.08);
+  --cc-monitor-nav-ink: #c3c9d4;
+  --cc-monitor-nav-line: #8a919e;
 }
 
 .cc-shell[data-theme="light"] {
@@ -48,6 +60,18 @@
   --cc-progress: #d2d8e0;
   --cc-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
   --cc-shadow-raised: 0 4px 14px -6px rgba(16, 24, 40, 0.13);
+  /* 设计只给了深色稿；浅色按同一强调色关系换算，保持小字号对比度。 */
+  --cc-monitor-fill: #fdf3e3;
+  --cc-monitor-fill-hover: #f9e8c8;
+  --cc-monitor-line: #dfb264;
+  --cc-monitor-line-hover: #b06d05;
+  --cc-monitor-ink: #8d5703;
+  --cc-monitor-shell: #f7f8fa;
+  --cc-monitor-shell-line: rgba(16, 20, 25, 0.08);
+  --cc-monitor-card: #fff;
+  --cc-monitor-card-line: rgba(16, 20, 25, 0.1);
+  --cc-monitor-nav-ink: #5c6472;
+  --cc-monitor-nav-line: #7b8492;
 }
 
 .cc-shell,
@@ -75,7 +99,8 @@ html:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track,
 body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #101419; }
 
 .cc-shell {
-  --cc-sidebar-width: 258px;
+  /* 批准的 Claude Design 原文件外壳为 300px 内容宽 + 14px 双侧内边距 + 1px 边框。 */
+  --cc-sidebar-width: 330px;
   --cc-gutter: 26px;
   --cc-top-height: 67px;
   display: flex;
@@ -146,13 +171,45 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
 .cc-nav-group a.is-active svg { opacity: 1; }
 .cc-nav-group button.cc-nav-pending { cursor: not-allowed; color: var(--cc-text-3); opacity: 0.72; }
 
-.cc-monitor-card { margin: 13px; padding: 14px 15px; border: 1px solid var(--cc-line); border-radius: 12px; background: var(--cc-card); }
-.cc-monitor-card header { margin-bottom: 6px; }
-.cc-monitor-card header b { color: var(--cc-text-2); font-size: 12.5px; }
-.cc-monitor-card .cc-monitor-status { display: block; color: var(--cc-accent); font-size: 13.5px; }
-.cc-monitor-card p { margin: 4px 0 11px; color: var(--cc-text-3); font-size: 11.5px; line-height: 1.55; }
-.cc-monitor-card .cc-monitor-link { display: flex; min-height: 34px; align-items: center; justify-content: center; border: 1px solid var(--cc-accent-line); border-radius: 8px; background: var(--cc-accent-tint); color: var(--cc-accent); text-decoration: none; font-size: 12.5px; font-weight: 600; }
-.cc-monitor-card .cc-monitor-link:hover { background: var(--cc-accent-inset); }
+/* 网络状态监控卡：以下尺寸逐项对应 Claude Design 的
+   「网络状态监控卡片.dc.html」，不再另做比例压缩。外壳 330px（border-box）内含
+   置灰的仪表板语境行和唯一一层监控卡；实时数据仍由 3002 的透明 mini iframe 提供。 */
+.cc-monitor-shell {
+  width: 100%;
+  flex: 0 0 auto;
+  padding: 14px;
+  border: 1px solid var(--cc-monitor-shell-line);
+  border-radius: 10px;
+  background: var(--cc-monitor-shell);
+}
+.cc-monitor-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: var(--cc-monitor-nav-ink);
+  opacity: 0.32;
+}
+.cc-monitor-nav-box {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  border: 1.4px solid var(--cc-monitor-nav-line);
+  border-radius: 3px;
+}
+.cc-monitor-nav-label { font-size: 13.5px; line-height: 15px; }
+.cc-monitor-card { padding: 13px 13px 12px; border: 1px solid var(--cc-monitor-card-line); border-radius: 10px; background: var(--cc-monitor-card); }
+/* 98px = 15(标题) + 10 + 41(平均值与曲线) + 11 + 21(胶囊)，与 master.css 的紧凑视图一致。 */
+.cc-monitor-embed { height: 98px; margin-bottom: 11px; overflow: hidden; background: transparent; }
+.cc-monitor-frame { display: block; width: 100%; height: 100%; border: 0; background: transparent; color-scheme: normal; }
+.cc-monitor-unconfigured { margin-bottom: 11px; }
+.cc-monitor-unconfigured b { display: block; color: var(--cc-text-2); font-size: 11px; font-weight: 600; letter-spacing: 0.09em; }
+.cc-monitor-unconfigured p { margin: 6px 0 0; color: var(--cc-text-3); font-size: 11.5px; line-height: 1.55; text-wrap: pretty; }
+.cc-monitor-card .cc-monitor-link { display: flex; height: 36px; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--cc-monitor-line); border-radius: 8px; background: var(--cc-monitor-fill); color: var(--cc-monitor-ink); text-decoration: none; font-size: 12.5px; font-weight: 700; letter-spacing: 0.02em; transition: background 0.14s, border-color 0.14s; }
+.cc-monitor-card .cc-monitor-link span { font-size: 13px; line-height: 1; }
+.cc-monitor-card .cc-monitor-link:hover { background: var(--cc-monitor-fill-hover); border-color: var(--cc-monitor-line-hover); }
 
 .cc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .cc-topbar { position: sticky; top: 0; z-index: 30; min-height: var(--cc-top-height); display: flex; align-items: center; gap: 14px; padding: 15px var(--cc-gutter); border-bottom: 1px solid var(--cc-hairline); background: var(--cc-top); backdrop-filter: saturate(160%) blur(12px); }
@@ -181,13 +238,13 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
      两者叠加会让 .cc-sidebar 这类 height:100vh 元素在屏幕上比实际视口还高
      （zoom:1.06 时高出 6%），position:sticky 顶到顶部后底部内容永远显示不出来、
      也无法滚动到（网络状态监控卡片消失的根因）。间距令牌保留，只去掉 zoom 本身。 */
-  .cc-shell { --cc-gutter: 34px; --cc-sidebar-width: 274px; }
+  .cc-shell { --cc-gutter: 34px; --cc-sidebar-width: 330px; }
 }
 
 @media (max-width: 1024px) {
   /* overscroll-behavy-y: contain 防止触屏滑到抽屉内容顶/底部后，滚动手势"漏"到背后页面，
      造成"划一下导航栏和主内容一起动"的观感（抽屉本身用 fixed 定位并未真的跟着移动）。 */
-  .cc-sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: 278px; height: 100%; transform: translateX(-101%); visibility: hidden; transition: transform 0.26s cubic-bezier(0.3, 0.8, 0.3, 1), visibility 0s 0.26s; overflow-y: auto; overscroll-behavior-y: contain; padding-bottom: env(safe-area-inset-bottom); }
+  .cc-sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: min(330px, calc(100vw - 24px)); height: 100%; transform: translateX(-101%); visibility: hidden; transition: transform 0.26s cubic-bezier(0.3, 0.8, 0.3, 1), visibility 0s 0.26s; overflow-y: auto; overscroll-behavior-y: contain; padding-bottom: env(safe-area-inset-bottom); }
   .cc-sidebar.is-open { transform: none; visibility: visible; transition: transform 0.26s cubic-bezier(0.3, 0.8, 0.3, 1); }
   .cc-navigation { flex: none; overflow: visible; }
   .cc-brand { position: sticky; top: 0; z-index: 1; background: var(--cc-panel); }

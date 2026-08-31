@@ -19,49 +19,54 @@ html[data-embedded="true"] .shell{
 }
 
 /* ===== 侧栏紧凑三网视图（?view=mini）=====
-   只把 3002 的真实 /api/latency 样本压缩成一张轻量观测面。外层官网承担卡片与标题，
-   iframe 自身保持透明，不再形成黑色“卡中卡”。动态高光只沿真实曲线路径移动，不制造
-   新采样点或数值；末端点表示最近真实样本。 */
+   实现批准设计「网络状态监控卡片」：标题 + LIVE、三网平均值 + 共用刻度折线、三枚线路胶囊。
+   只把 3002 的真实 /api/latency 样本压缩成一张轻量观测面；外层官网卡片承担卡片外框、
+   内边距与按钮，iframe 自身保持透明且不重复标题，不再形成黑色“卡中卡”。
+   总高 98px = 15(标题) + 10 + 41(数值与曲线) + 11 + 21(胶囊)，与外层 .cc-monitor-embed 一致。 */
 .mini-monitor{display:none}
 html[data-view="mini"]{background:transparent}
 html[data-view="mini"] body{min-width:0;min-height:0;background:transparent}
 html[data-view="mini"] .shell{display:none}
 html[data-view="mini"] .mini-monitor{
-  display:flex;flex-direction:column;gap:5px;height:100vh;padding:0;overflow:hidden;
+  /* 线路配色取自设计原文件；浅色主题下压暗以保证小字号对比度。 */
+  --mini-telecom:#3b82f6;--mini-mobile:#22c55e;--mini-unicom:#ef4444;
+  --mini-label:#7b8492;--mini-figure:#f5f7fa;
+  display:flex;flex-direction:column;height:100vh;padding:0;overflow:hidden
 }
-.mini-top{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:18px}
-.mini-caption{color:var(--faint);font-size:9.5px;font-weight:520;letter-spacing:.035em}
-.mini-live{display:inline-flex;align-items:center;gap:5px;color:var(--faint);font-size:9.5px;white-space:nowrap}
-.mini-live i{width:5px;height:5px;border-radius:50%;background:var(--gray);flex:0 0 auto}
-.mini-live b{font-weight:560}
-html[data-mini-state="live"] .mini-live{color:var(--green)}
-html[data-mini-state="live"] .mini-live i{background:var(--green);animation:mini-pulse 2.4s ease-in-out infinite}
+html[data-theme="light"][data-view="mini"] .mini-monitor{
+  --mini-telecom:#2563eb;--mini-mobile:#15803d;--mini-unicom:#dc2626;
+  --mini-label:#727b8a;--mini-figure:#101419
+}
+
+.mini-top{display:flex;align-items:center;justify-content:space-between;gap:8px;height:15px}
+.mini-caption{font-size:11px;font-weight:600;letter-spacing:.09em;color:var(--mini-label)}
+.mini-live{font:600 9.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.1em;color:var(--mini-label);white-space:nowrap}
+html[data-mini-state="live"] .mini-live{color:#4ade80}
+html[data-theme="light"][data-mini-state="live"] .mini-live{color:#15803d}
 html[data-mini-state="stale"] .mini-live{color:var(--orange)}
-html[data-mini-state="stale"] .mini-live i{background:var(--orange)}
-@keyframes mini-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.42;transform:scale(.72)}}
-.mini-rows{flex:1 1 auto;display:grid;grid-template-rows:repeat(3,minmax(0,1fr));min-height:0}
-.mini-row{--wan:var(--gray);display:grid;grid-template-columns:27px minmax(0,1fr) 46px;align-items:center;gap:7px;min-height:0;border-top:1px solid color-mix(in srgb,var(--line-soft) 72%,transparent)}
-.mini-row.telecom{--wan:var(--blue)}.mini-row.mobile{--wan:var(--green)}.mini-row.unicom{--wan:var(--red)}
-.mini-name{color:var(--text);font-size:10.5px;font-weight:620}
-.mini-spark{position:relative;height:30px;min-width:0;overflow:visible}
-.mini-spark::after{content:"";position:absolute;left:0;right:0;top:50%;border-top:1px solid color-mix(in srgb,var(--line-soft) 58%,transparent);pointer-events:none}
-.mini-spark svg{position:relative;z-index:1;display:block;width:100%;height:100%;overflow:visible}
-.mini-line,.mini-flow{fill:none;stroke:var(--wan);stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
-.mini-line{stroke-width:1.25px;opacity:0;transition:opacity .45s ease}
-.mini-flow{stroke-width:1.8px;stroke-dasharray:9 151;stroke-dashoffset:160;opacity:0}
-.mini-spark.has-line .mini-line{opacity:.58}
-.mini-spark.has-line .mini-flow{opacity:.9;animation:mini-flow 3.2s linear infinite}
-@keyframes mini-flow{to{stroke-dashoffset:0}}
-.mini-endpoint{position:absolute;z-index:2;width:5px;height:5px;border-radius:50%;background:var(--wan);transform:translate(-50%,-50%);animation:mini-endpoint 2.1s ease-in-out infinite}
-@keyframes mini-endpoint{0%,100%{opacity:1;transform:translate(-50%,-50%) scale(1)}50%{opacity:.46;transform:translate(-50%,-50%) scale(.68)}}
-.mini-value{color:var(--wan);font-size:10.5px;font-weight:650;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
-.mini-row[data-state="down"]{--wan:var(--red)}
-.mini-row[data-state="down"] .mini-line{opacity:.3}.mini-row[data-state="down"] .mini-flow{display:none}.mini-row[data-state="down"] .mini-endpoint{animation:none;opacity:.45}
-.mini-row[data-state="empty"],.mini-row[data-state="loading"]{--wan:var(--gray)}
-.mini-row[data-state="empty"] .mini-value,.mini-row[data-state="loading"] .mini-value{color:var(--faint);font-weight:520}
+
+.mini-figure{display:flex;align-items:flex-end;gap:12px;height:41px;margin:10px 0 11px}
+.mini-avg{display:grid;gap:2px;flex:none}
+.mini-avg b{font:600 24px/1 ui-monospace,Menlo,monospace;letter-spacing:-.02em;color:var(--mini-figure);font-variant-numeric:tabular-nums}
+.mini-avg span{font-size:10.5px;line-height:15px;color:var(--mini-label)}
+.mini-chart{flex:1;display:block;height:38px;min-width:0}
+.mini-line{fill:none;stroke-linejoin:round;stroke-linecap:round;opacity:0;transition:opacity .45s ease}
+.mini-line.has-line{opacity:1}
+.mini-line[data-wan="telecom"]{stroke:var(--mini-telecom);stroke-width:1.8}
+.mini-line[data-wan="mobile"]{stroke:var(--mini-mobile);stroke-width:1.8}
+.mini-line[data-wan="unicom"]{stroke:var(--mini-unicom);stroke-width:1.6;stroke-opacity:.65}
+
+/* 原设计使用自然宽度胶囊；330px 外壳内的 274px 内容区可完整容纳三项。 */
+.mini-chips{display:flex;gap:6px;height:21px}
+.mini-chip{display:flex;align-items:center;gap:4px;min-width:0;padding:3px 7px;border-radius:5px;font:500 10.5px/1.4 ui-monospace,Menlo,monospace;white-space:nowrap}
+.mini-chip b{font-weight:500;font-variant-numeric:tabular-nums}
+.mini-chip[data-wan="telecom"]{background:color-mix(in srgb,var(--mini-telecom) 14%,transparent);color:var(--mini-telecom)}
+.mini-chip[data-wan="mobile"]{background:color-mix(in srgb,var(--mini-mobile) 14%,transparent);color:var(--mini-mobile)}
+.mini-chip[data-wan="unicom"]{background:color-mix(in srgb,var(--mini-unicom) 14%,transparent);color:var(--mini-unicom)}
+/* 无数据 / 读取中走中性灰，避免用线路色暗示存在真实读数。 */
+.mini-chip[data-state="empty"],.mini-chip[data-state="loading"]{background:color-mix(in srgb,var(--gray) 13%,transparent);color:var(--faint)}
 @media(prefers-reduced-motion:reduce){
-  html[data-mini-state="live"] .mini-live i,.mini-spark.has-line .mini-flow,.mini-endpoint{animation:none}
-  .mini-line{transition:none}.mini-flow{display:none}.mini-endpoint{opacity:1}
+  .mini-line{transition:none}
 }
 
 /* Header and retained VPS selector. */

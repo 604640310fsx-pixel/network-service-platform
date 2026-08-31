@@ -12,7 +12,9 @@ const {
   vpsPickerMonitorState,
   buildMiniSeries,
   miniRowState,
-  buildMiniCurve,
+  buildMiniDomain,
+  buildMiniPath,
+  buildMiniAverage,
 } = require('../static/app.js');
 
 const parentWindow = {};
@@ -87,38 +89,48 @@ test('static entry binds the canonical parent and exposes no monitor-owned theme
     /<meta name="monitor-embed-origin" content="https:\/\/www\.siqiapparel\.com">/,
   );
   assert.doesNotMatch(html, /theme[-_ ]?toggle|切换到(?:浅色|深色)主题/i);
-  assert.match(html, /master\.css\?v=20260831-mini-r1/);
-  assert.match(html, /app\.js\?v=20260831-mini-r1/);
+  assert.match(html, /master\.css\?v=20260901-mini-r2/);
+  assert.match(html, /app\.js\?v=20260901-mini-r2/);
 });
 
 test('compact sidebar mini view is a query mode on the same page, not a new route', () => {
   const html = fs.readFileSync(path.join(__dirname, '../static/index.html'), 'utf8');
   // 首屏根据 ?view=mini 落 data-view，供同一页面切换紧凑布局。
   assert.match(html, /view'\)==='mini'\)document\.documentElement\.dataset\.view='mini'/);
-  // 三条线路都在紧凑视图中被显式标注。
-  assert.match(html, /class="mini-row telecom"[^>]*data-wan="telecom"/);
-  assert.match(html, /class="mini-row mobile"[^>]*data-wan="mobile"/);
-  assert.match(html, /class="mini-row unicom"[^>]*data-wan="unicom"/);
-
-  // 单一标题由外层官网卡片承担，紧凑视图内不再重复大标题（避免卡中卡）。
-  assert.doesNotMatch(html, /class="mini-title"/);
-  assert.doesNotMatch(html, /<polyline/); // 已改用平滑路径而非锯齿折线
-  assert.match(html, /<path class="mini-line"/);
-  assert.match(html, /<path class="mini-flow"/); // 高光只沿同一条真实路径移动
-  assert.match(html, /class="mini-endpoint"/); // 末端活跃点
+  // 三条线路在曲线与胶囊中都被显式标注。
+  for (const wan of ['telecom', 'mobile', 'unicom']) {
+    assert.match(html, new RegExp(`<path class="mini-line" data-wan="${wan}"`));
+    assert.match(html, new RegExp(`<span class="mini-chip" data-wan="${wan}"`));
+  }
+  // 批准设计的结构：标题 + LIVE 状态、平均值、共用刻度的 260x46 折线画布。
+  assert.match(html, /class="mini-caption">网络状态监控</);
+  assert.match(html, /id="miniStatus"/);
+  assert.match(html, /id="miniAvg"/);
+  assert.match(html, /viewBox="0 0 260 46" preserveAspectRatio="none"/);
+  // 单一标题：外层官网卡片不再重复大标题，紧凑视图内也只有一处标题（避免卡中卡）。
+  assert.equal(html.match(/class="mini-caption"/g).length, 1);
+  assert.doesNotMatch(html, /<polyline/);
 
   const source = fs.readFileSync(path.join(__dirname, '../static/app.js'), 'utf8');
   // 紧凑视图只跑轻量 mini 逻辑，读取既有同源 /api/latency，每 15 秒刷新，不新增后端。
   assert.match(source, /dataset\.view==='mini'\)initMini\(\)/);
   assert.match(source, /getJSON\('\/api\/latency\?range=6h&type=icmp'\)/);
   assert.match(source, /setInterval\(\(\)=>\{if\(!document\.hidden\)loadMini\(false\)\},15000\)/);
+  // 绘图盒与批准设计一致。
+  assert.match(source, /const MINI_W=260,MINI_H=46,MINI_PAD=5,MINI_MAX_POINTS=14;/);
 
   const css = fs.readFileSync(path.join(__dirname, '../static/master.css'), 'utf8');
   assert.match(css, /html\[data-view="mini"\] \.shell\{display:none\}/);
-  assert.match(css, /\.mini-spark\.has-line \.mini-flow\{[^}]*animation:mini-flow/);
+  // 98px 的紧凑高度由三段固定高度构成，与官网 .cc-monitor-embed 对齐。
+  assert.match(css, /\.mini-top\{[^}]*height:15px\}/);
+  assert.match(css, /\.mini-figure\{[^}]*height:41px;margin:10px 0 11px\}/);
+  assert.match(css, /\.mini-chips\{[^}]*height:21px\}/);
+  // 原设计是自然宽度胶囊，不再压成三等分。
+  assert.match(css, /\.mini-chips\{display:flex;gap:6px;height:21px\}/);
   // 动效须尊重 prefers-reduced-motion。
   assert.match(css, /@media\(prefers-reduced-motion:reduce\)/);
-  assert.match(css, /\.mini-spark\.has-line \.mini-flow,.mini-endpoint\{animation:none\}/);
+  // 浅色主题下线路色单独压暗，保证 10.5px 小字号对比度。
+  assert.match(css, /html\[data-theme="light"\]\[data-view="mini"\] \.mini-monitor\{/);
 });
 
 test('mini series never invents latency and never keeps a stale value as current', () => {
@@ -152,27 +164,45 @@ test('mini series never invents latency and never keeps a stale value as current
   assert.ok(empty.every((row) => row.current === null && row.values.length === 0));
 });
 
-test('buildMiniCurve smooths through the real points without inventing samples', () => {
-  // 少于两个有效点：不画线、不给端点（诚实空态）。
-  assert.deepEqual(buildMiniCurve([], 100, 30, 3), { d: '', endpoint: null });
-  assert.deepEqual(buildMiniCurve([12], 100, 30, 3), { d: '', endpoint: null });
+test('mini chart shares one honest scale across the three carriers', () => {
+  const rows = [
+    { wan: 'telecom', values: [10, 20], current: 20 },
+    { wan: 'mobile', values: [40, 60], current: 60 },
+    { wan: 'unicom', values: [], current: null },
+  ];
+  const domain = buildMiniDomain(rows, 14);
+  // 正常值沿用设计源的 6..60 基准，避免把轻微波动夸张成全高尖峰。
+  assert.deepEqual(domain, { lo: 6, hi: 60 });
 
-  const curve = buildMiniCurve([0, 10], 100, 30, 3);
-  // 平滑曲线（三次贝塞尔 C 指令），而非锯齿折线。
-  assert.match(curve.d, /^M3,27C/);
-  // 曲线严格从第一个真实点出发、止于最后一个真实点（不外插）。
-  assert.ok(curve.d.startsWith('M3,27'));
-  assert.ok(curve.d.endsWith('97,3'));
-  // 端点为归一化坐标：最新（也是最大）值在顶部内边距处。
-  assert.deepEqual(curve.endpoint, { x: 0.97, y: 0.1 });
+  // 有效点少于两个：不画线，保持诚实空态。
+  assert.equal(buildMiniPath([], domain, 260, 46, 5, 14), '');
+  assert.equal(buildMiniPath([12], domain, 260, 46, 5, 14), '');
+  assert.equal(buildMiniPath([12, 13], null, 260, 46, 5, 14), '');
 
-  // 全等值走中线，不制造虚假起伏；端点归一化 y=0.5，且每个 y 坐标都恰为中线 15。
-  const flat = buildMiniCurve([5, 5, 5], 100, 30, 3);
-  assert.equal(flat.endpoint.y, 0.5);
-  assert.ok(/^M3,15C/.test(flat.d));
-  assert.ok(flat.d.endsWith('97,15'));
-  const ys = (flat.d.match(/,(-?\d+(?:\.\d+)?)/g) || []).map((m) => Number(m.slice(1)));
-  assert.ok(ys.length > 0 && ys.every((y) => y === 15));
+  // 与设计一致：y 随延迟增大而下移，上下各留 5；最新样本贴右边缘。
+  const telecom = buildMiniPath([6, 60], domain, 260, 46, 5, 14);
+  assert.equal(telecom, 'M240.0 5.0 L260.0 41.0');
+  // 超出定域的值截断到边界，不会画到画布外。
+  assert.equal(buildMiniPath([-5, 999], domain, 260, 46, 5, 14), 'M240.0 5.0 L260.0 41.0');
+  // 点数达到上限时起点回到左边缘，步长与设计一致（260 / 13）。
+  const full = buildMiniPath(Array.from({ length: 14 }, () => 35), domain, 260, 46, 5, 14);
+  assert.ok(full.startsWith('M0.0 '));
+  assert.ok(full.endsWith('L260.0 24.3'));
+
+  // 超出设计基准的真实值扩展边界，不裁掉数据；全等正常值保持基准范围。
+  assert.deepEqual(buildMiniDomain([{ wan: 'telecom', values: [2, 90] }], 14), { lo: 2, hi: 90 });
+  assert.deepEqual(buildMiniDomain([{ wan: 'telecom', values: [30, 30] }], 14), { lo: 6, hi: 60 });
+  // 完全没有真实样本时没有定域，也就没有任何线条。
+  assert.equal(buildMiniDomain([{ wan: 'telecom', values: [] }], 14), null);
+  assert.equal(buildMiniDomain(undefined, 14), null);
+});
+
+test('mini average only counts carriers whose latest probe actually succeeded', () => {
+  assert.equal(buildMiniAverage([{ current: 10 }, { current: 20 }, { current: 60 }]), 30);
+  // 最新失败 / 无样本的线路不计入，也不用历史值顶替。
+  assert.equal(buildMiniAverage([{ current: 10 }, { current: null }, { current: 30 }]), 20);
+  assert.equal(buildMiniAverage([{ current: null }, { current: null }, { current: null }]), null);
+  assert.equal(buildMiniAverage(undefined), null);
 });
 
 test('embedded layout has a dedicated single-layer shell override', () => {

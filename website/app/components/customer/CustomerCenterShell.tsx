@@ -1,13 +1,20 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { useThemePreference, type ThemePreference } from "../../lib/theme";
+import {
+  buildMonitorEmbedUrl,
+  createMonitorThemeMessage,
+  monitorPostTargetOrigin,
+} from "../../lib/monitorEmbed";
 import "./customer-center.css";
 
 type DrawerKind = "navigation" | "order";
@@ -58,6 +65,77 @@ function NavIcon({ href }: { href: string }) {
     case "/invites": return <svg {...common}><circle cx="9" cy="8" r="3.2" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0M18 8v6M15 11h6" /></svg>;
     default: return <svg {...common}><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" /><rect x="2.5" y="7" width="19" height="5" rx="1" /><path d="M12 7v13M12 7S10.5 3 8 3.6 8 7 12 7zM12 7s1.5-4 4-3.4S16 7 12 7z" /></svg>;
   }
+}
+
+/* 侧栏底部网络状态卡：实现批准设计「网络状态监控卡片」。
+   卡片外框、内边距与「查看服务器状态」按钮由官网侧栏承担；标题 + LIVE、三网平均值、
+   共用刻度折线与线路胶囊由既有 VITE_MONITOR_URL iframe 的 view=mini 紧凑模式渲染
+   （同源读取既有 /api/latency 真实样本，不新增后端 / 不放宽安全头 / 不编造延迟）。
+   iframe 透明贴合外框，只有这一层卡片，不再出现“卡中卡”。主题随客户中心 topbar 切换，
+   经精确 targetOrigin 单向 postMessage 下发，iframe 不重载、也不丢失内部刷新态。
+   未配置监控地址时显示真实的“未配置”态，不伪造在线数据。 */
+function SidebarMonitorCard({ theme, onNavigate }: { theme: ThemePreference; onNavigate: () => void }) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const base = import.meta.env.VITE_MONITOR_URL;
+  // 初始 src 只取一次主题，避免首屏闪烁；后续切换主题不改变 src，不触发 iframe 重载。
+  const initialThemeRef = useRef(theme);
+  const monitorSource = useMemo(
+    () =>
+      buildMonitorEmbedUrl(
+        base,
+        { target: null, theme: initialThemeRef.current, compact: true },
+        window.location.origin,
+      ),
+    [base],
+  );
+  const targetOrigin = useMemo(() => monitorPostTargetOrigin(base, window.location.origin), [base]);
+
+  const postTheme = useCallback(
+    (next: ThemePreference) => {
+      const frameWindow = iframeRef.current?.contentWindow;
+      if (!frameWindow || !targetOrigin) return;
+      frameWindow.postMessage(createMonitorThemeMessage(next), targetOrigin);
+    },
+    [targetOrigin],
+  );
+
+  useEffect(() => {
+    postTheme(theme);
+  }, [theme, postTheme]);
+
+  return (
+    <div className="cc-monitor-shell">
+      {/* 批准设计「网络状态监控卡片」的外层仪表板壳与置灰标题行：仅作视觉语境，
+          不是可点击导航（真实导航在上方 .cc-nav-group）。aria-hidden 避免读屏重复。 */}
+      <div className="cc-monitor-nav" aria-hidden="true">
+        <span className="cc-monitor-nav-box" />
+        <span className="cc-monitor-nav-label">仪表板</span>
+      </div>
+      <section className="cc-monitor-card" aria-label="网络状态监控">
+        {monitorSource ? (
+          <div className="cc-monitor-embed">
+            <iframe
+              ref={iframeRef}
+              className="cc-monitor-frame"
+              src={monitorSource}
+              title="电信 / 移动 / 联通 实时延迟概览"
+              loading="lazy"
+              referrerPolicy="same-origin"
+              onLoad={() => postTheme(theme)}
+            />
+          </div>
+        ) : (
+          <div className="cc-monitor-unconfigured" role="status">
+            <b>网络状态监控</b>
+            <p>监控地址未配置，配置后此处显示电信 / 移动 / 联通实时延迟。</p>
+          </div>
+        )}
+        <NavLink to="/status" className="cc-monitor-link" onClick={onNavigate}>
+          查看服务器状态<span aria-hidden="true">→</span>
+        </NavLink>
+      </section>
+    </div>
+  );
 }
 
 export function CustomerCenterShell({
@@ -159,12 +237,7 @@ export function CustomerCenterShell({
               </div>
             ))}
           </nav>
-          <section className="cc-monitor-card" aria-label="网络状态监控">
-            <header><b>网络状态监控</b></header>
-            <strong className="cc-monitor-status">实时监控已上线</strong>
-            <p>查看三网线路与实时网络运行状态</p>
-            <NavLink to="/status" className="cc-monitor-link" onClick={closeDrawer}>查看服务器状态</NavLink>
-          </section>
+          <SidebarMonitorCard theme={theme} onNavigate={closeDrawer} />
         </aside>
 
         <div className="cc-main">
