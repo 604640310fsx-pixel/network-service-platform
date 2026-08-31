@@ -590,7 +590,9 @@ function bindInteractions(){
    iframe 嵌入。永不编造延迟：数值只反映真实最新样本，最新样本失败或缺失时显示无响应 /
    暂无数据，而非保留过期值当当前；曲线取窗口内成功样本作为趋势。每 15 秒刷新一次。 */
 const MINI_WANS=[['telecom','电信'],['mobile','移动'],['unicom','联通']];
-const MINI_W=210,MINI_H=38,MINI_PAD=5,MINI_MAX_POINTS=48;
+/* 单条车道的绘图坐标系：viewBox 0 0 100 14，preserveAspectRatio=none 让曲线随侧栏宽度
+   自由拉伸（non-scaling-stroke 保证线宽恒定），高度与 .mini-lane 的 14px 1:1。 */
+const MINI_W=100,MINI_H=14,MINI_PAD=2.4,MINI_MAX_POINTS=48;
 
 /** 由 /api/latency 的 samples 归约出每条线路的紧凑序列（纯函数，供 node --test 校验）。
     samples 已按时间升序。values 只收集成功且有 avg_ms 的点用于画趋势；current 只在
@@ -685,34 +687,32 @@ function buildMiniCurve(values,w,h,pad,domain){
 
 function setMiniStatus(state){
   document.documentElement.dataset.miniState=state;
-  const label=$('#miniStatus b');
+  const label=$('#miniStatus');
   if(label)label.textContent=state==='live'?'实时':state==='stale'?'同步失败':'读取中';
 }
 
 function renderMini(rows){
-  // 先抽稀再求共享域：三条曲线必须落在同一把尺子上，读数才可比。
+  // 三条线路各占一条视觉道，但共享同一毫秒域；只分开位置，不夸大任何一条波动。
   const series=rows.map(row=>miniThin(row.values,MINI_MAX_POINTS));
   const domain=miniDomain(series);
   rows.forEach((row,index)=>{
+    const el=$(`.mini-row[data-wan="${row.wan}"]`);
+    if(!el)return;
     const state=miniRowState(row);
     const curve=buildMiniCurve(series[index],MINI_W,MINI_H,MINI_PAD,domain);
-    // d 为空时同时把状态降级为无曲线态，避免上一次渲染的样式残留。
-    const drawn=curve.d!==''?state:'empty';
-    for(const path of $$(`.mini-plot path[data-wan="${row.wan}"]`)){
+    const lane=el.querySelector('.mini-lane');
+    el.dataset.state=state;
+    if(lane)lane.dataset.plot=curve.d!==''?state:'none';
+    for(const path of el.querySelectorAll('.mini-line,.mini-flow')){
       path.setAttribute('d',curve.d);
-      path.dataset.state=drawn;
     }
-    const dot=$(`.mini-endpoint[data-wan="${row.wan}"]`);
+    const dot=el.querySelector('.mini-dot');
     if(dot){
       if(curve.endpoint){dot.style.left=`${curve.endpoint.x*100}%`;dot.style.top=`${curve.endpoint.y*100}%`;}
-      dot.dataset.state=drawn;
-      dot.hidden=!curve.endpoint;
+      dot.hidden=!curve.endpoint||state!=='ok';
     }
-    const readout=$(`.mini-readout[data-wan="${row.wan}"]`);
-    if(!readout)return;
-    readout.dataset.state=state;
-    const num=readout.querySelector('.mini-num');
-    const unit=readout.querySelector('.mini-unit');
+    const num=el.querySelector('.mini-num');
+    const unit=el.querySelector('.mini-unit');
     if(num)num.textContent=state==='ok'?String(Math.round(row.current)):state==='down'?'无响应':'暂无数据';
     if(unit)unit.hidden=state!=='ok';
   });
