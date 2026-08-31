@@ -5,8 +5,11 @@ const WAN_META = {
 };
 const RANGE_LABELS = {'1h':'1 小时','6h':'6 小时','24h':'24 小时','7d':'7 天'};
 const RANGE_MS = {'1h':3600000,'6h':21600000,'24h':86400000,'7d':604800000};
-const savedVps=(()=>{try{return localStorage.getItem('network-monitor-selected-vps')}catch{return null}})();
-const requestedVps=(()=>{try{const value=new URLSearchParams(location.search).get('vps');return value&&value===value.trim()&&value.length<=128&&!/[\u0000-\u001f\u007f]/.test(value)?value:null}catch{return null}})();
+function normalizeMonitorTarget(value){
+  return typeof value==='string'&&value.length>=1&&value.length<=128&&value===value.trim()&&!/[\u0000-\u001f\u007f]/.test(value)?value:null;
+}
+const savedVps=(()=>{try{return normalizeMonitorTarget(localStorage.getItem('network-monitor-selected-vps'))}catch{return null}})();
+const requestedVps=(()=>{try{return normalizeMonitorTarget(new URLSearchParams(location.search).get('vps'))}catch{return null}})();
 const state = {type:'icmp', range:'24h', target:'AliDNS', lastVps:requestedVps||savedVps||'DMIT Premium', vpsTargets:[], visible:new Set(['telecom','mobile','unicom']), samples:[], chart:null, liveKey:null, targetRequest:0, chartRequest:0, liveRequest:0, refreshPromise:null, chartController:null, vpsCatalogRequest:0, vpsStatusRequest:0, vpsStatusPromise:null, vpsStatusTarget:null};
 const routeState={wan:'telecom',direction:'outbound',protocol:'icmp',target:'DMIT Premium',targets:[],hops:[],expanded:false,request:0,controller:null};
 
@@ -700,10 +703,16 @@ function renderMini(rows){
 }
 
 let miniRendered=false;
+function miniLatencyUrl(target){
+  const selected=normalizeMonitorTarget(target)||'DMIT Premium';
+  return `/api/latency?range=6h&type=icmp&target=${encodeURIComponent(selected)}`;
+}
 async function loadMini(first){
   if(first)setMiniStatus('loading');
   try{
-    const data=await getJSON('/api/latency?range=6h&type=icmp');
+    const target=normalizeMonitorTarget(state.lastVps)||'DMIT Premium';
+    const data=await getJSON(miniLatencyUrl(target));
+    if(data.target!==target)throw new Error('mini target mismatch');
     renderMini(buildMiniSeries(data.samples));
     miniRendered=true;
     setMiniStatus('live');
@@ -789,5 +798,5 @@ if(typeof window!=='undefined'&&typeof document!=='undefined'){
 }
 /* 供 node --test 校验纯逻辑；浏览器经典脚本里 module 未定义，短路跳过。 */
 if(typeof module!=='undefined'&&module.exports){
-  module.exports={THEME_MESSAGE_TYPE,normalizeTheme,isLoopbackOrigin,isTrustedThemeMessage,normalizeVpsCustomerState,vpsPickerMonitorState,buildMiniSeries,miniRowState,buildMiniDomain,buildMiniPath,buildMiniAverage};
+  module.exports={THEME_MESSAGE_TYPE,normalizeTheme,isLoopbackOrigin,isTrustedThemeMessage,normalizeMonitorTarget,normalizeVpsCustomerState,vpsPickerMonitorState,buildMiniSeries,miniRowState,buildMiniDomain,buildMiniPath,buildMiniAverage,miniLatencyUrl};
 }

@@ -15,6 +15,7 @@ import {
   createMonitorThemeMessage,
   monitorPostTargetOrigin,
 } from "../../lib/monitorEmbed";
+import { buyerStatusHref } from "../../lib/buyerStatusLink";
 import "./customer-center.css";
 
 type DrawerKind = "navigation" | "order";
@@ -28,6 +29,9 @@ const CustomerDrawerContext = createContext<DrawerContextValue | null>(null);
 // 让壳层内的页面读取当前实时主题（topbar 主题切换的唯一真源），
 // 供 /status 把主题单向下发给嵌入的 3002 iframe，无需在 iframe 内另设开关。
 const CustomerShellThemeContext = createContext<ThemePreference | null>(null);
+// xg1 在监控目录中的稳定 target key。侧栏延迟与点击后的完整状态页必须绑定同一目标；
+// 不在前端保存或展示该 VPS 的地址。
+const SIDEBAR_MONITOR_TARGET = "Yecaoyun Cloud";
 
 export function useCustomerShellTheme(): ThemePreference {
   const value = useContext(CustomerShellThemeContext);
@@ -83,7 +87,7 @@ function SidebarMonitorCard({ theme, onNavigate }: { theme: ThemePreference; onN
     () =>
       buildMonitorEmbedUrl(
         base,
-        { target: null, theme: initialThemeRef.current, compact: true },
+        { target: SIDEBAR_MONITOR_TARGET, theme: initialThemeRef.current, compact: true },
         window.location.origin,
       ),
     [base],
@@ -123,7 +127,7 @@ function SidebarMonitorCard({ theme, onNavigate }: { theme: ThemePreference; onN
           <p>监控地址未配置，配置后此处显示电信 / 移动 / 联通实时延迟。</p>
         </div>
       )}
-      <NavLink to="/status" className="cc-monitor-link" onClick={onNavigate}>
+      <NavLink to={buyerStatusHref(SIDEBAR_MONITOR_TARGET)} className="cc-monitor-link" onClick={onNavigate}>
         查看服务器状态<span aria-hidden="true">→</span>
       </NavLink>
     </section>

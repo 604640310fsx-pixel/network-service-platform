@@ -8,6 +8,7 @@ const {
   isLoopbackOrigin,
   isTrustedThemeMessage,
   normalizeTheme,
+  normalizeMonitorTarget,
   normalizeVpsCustomerState,
   vpsPickerMonitorState,
   buildMiniSeries,
@@ -15,6 +16,7 @@ const {
   buildMiniDomain,
   buildMiniPath,
   buildMiniAverage,
+  miniLatencyUrl,
 } = require('../static/app.js');
 
 const parentWindow = {};
@@ -90,7 +92,7 @@ test('static entry binds the canonical parent and exposes no monitor-owned theme
   );
   assert.doesNotMatch(html, /theme[-_ ]?toggle|切换到(?:浅色|深色)主题/i);
   assert.match(html, /master\.css\?v=20260901-mini-r2/);
-  assert.match(html, /app\.js\?v=20260901-mini-r2/);
+  assert.match(html, /app\.js\?v=20260901-mini-r3/);
 });
 
 test('compact sidebar mini view is a query mode on the same page, not a new route', () => {
@@ -114,7 +116,7 @@ test('compact sidebar mini view is a query mode on the same page, not a new rout
   const source = fs.readFileSync(path.join(__dirname, '../static/app.js'), 'utf8');
   // 紧凑视图只跑轻量 mini 逻辑，读取既有同源 /api/latency，每 15 秒刷新，不新增后端。
   assert.match(source, /dataset\.view==='mini'\)initMini\(\)/);
-  assert.match(source, /getJSON\('\/api\/latency\?range=6h&type=icmp'\)/);
+  assert.match(source, /getJSON\(miniLatencyUrl\(target\)\)/);
   assert.match(source, /setInterval\(\(\)=>\{if\(!document\.hidden\)loadMini\(false\)\},15000\)/);
   // 绘图盒与批准设计一致。
   assert.match(source, /const MINI_W=260,MINI_H=46,MINI_PAD=5,MINI_MAX_POINTS=14;/);
@@ -135,6 +137,20 @@ test('compact sidebar mini view is a query mode on the same page, not a new rout
   assert.match(css, /@media\(prefers-reduced-motion:reduce\)/);
   // 浅色主题下线路色单独压暗，保证 10.5px 小字号对比度。
   assert.match(css, /html\[data-theme="light"\]\[data-view="mini"\] \.mini-monitor\{/);
+});
+
+test('compact latency request follows the selected VPS target', () => {
+  assert.equal(normalizeMonitorTarget('Yecaoyun Cloud'), 'Yecaoyun Cloud');
+  assert.equal(normalizeMonitorTarget(' Yecaoyun Cloud '), null);
+  assert.equal(normalizeMonitorTarget('bad\u0000target'), null);
+  assert.equal(
+    miniLatencyUrl('Yecaoyun Cloud'),
+    '/api/latency?range=6h&type=icmp&target=Yecaoyun%20Cloud',
+  );
+  assert.equal(
+    miniLatencyUrl(null),
+    '/api/latency?range=6h&type=icmp&target=DMIT%20Premium',
+  );
 });
 
 test('mini series never invents latency and never keeps a stale value as current', () => {
