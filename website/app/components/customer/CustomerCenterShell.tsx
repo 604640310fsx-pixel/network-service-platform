@@ -67,11 +67,11 @@ function NavIcon({ href }: { href: string }) {
   }
 }
 
-/* 侧栏底部网络状态卡：实现批准设计「网络状态监控卡片」。
-   卡片外框、内边距与「查看服务器状态」按钮由官网侧栏承担；标题 + LIVE、三网平均值、
+/* 侧栏底部网络状态卡：采用批准设计「网络状态监控卡片」的内卡部分。
+   内边距与「查看服务器状态」按钮由官网侧栏承担；标题 + LIVE、三网平均值、
    共用刻度折线与线路胶囊由既有 VITE_MONITOR_URL iframe 的 view=mini 紧凑模式渲染
    （同源读取既有 /api/latency 真实样本，不新增后端 / 不放宽安全头 / 不编造延迟）。
-   iframe 透明贴合外框，只有这一层卡片，不再出现“卡中卡”。主题随客户中心 topbar 切换，
+   iframe 画布与卡片同色，只有这一层卡片，不再出现黑色内块或“卡中卡”。主题随客户中心 topbar 切换，
    经精确 targetOrigin 单向 postMessage 下发，iframe 不重载、也不丢失内部刷新态。
    未配置监控地址时显示真实的“未配置”态，不伪造在线数据。 */
 function SidebarMonitorCard({ theme, onNavigate }: { theme: ThemePreference; onNavigate: () => void }) {
@@ -104,37 +104,29 @@ function SidebarMonitorCard({ theme, onNavigate }: { theme: ThemePreference; onN
   }, [theme, postTheme]);
 
   return (
-    <div className="cc-monitor-shell">
-      {/* 批准设计「网络状态监控卡片」的外层仪表板壳与置灰标题行：仅作视觉语境，
-          不是可点击导航（真实导航在上方 .cc-nav-group）。aria-hidden 避免读屏重复。 */}
-      <div className="cc-monitor-nav" aria-hidden="true">
-        <span className="cc-monitor-nav-box" />
-        <span className="cc-monitor-nav-label">仪表板</span>
-      </div>
-      <section className="cc-monitor-card" aria-label="网络状态监控">
-        {monitorSource ? (
-          <div className="cc-monitor-embed">
-            <iframe
-              ref={iframeRef}
-              className="cc-monitor-frame"
-              src={monitorSource}
-              title="电信 / 移动 / 联通 实时延迟概览"
-              loading="lazy"
-              referrerPolicy="same-origin"
-              onLoad={() => postTheme(theme)}
-            />
-          </div>
-        ) : (
-          <div className="cc-monitor-unconfigured" role="status">
-            <b>网络状态监控</b>
-            <p>监控地址未配置，配置后此处显示电信 / 移动 / 联通实时延迟。</p>
-          </div>
-        )}
-        <NavLink to="/status" className="cc-monitor-link" onClick={onNavigate}>
-          查看服务器状态<span aria-hidden="true">→</span>
-        </NavLink>
-      </section>
-    </div>
+    <section className="cc-monitor-card" aria-label="网络状态监控">
+      {monitorSource ? (
+        <div className="cc-monitor-embed">
+          <iframe
+            ref={iframeRef}
+            className="cc-monitor-frame"
+            src={monitorSource}
+            title="电信 / 移动 / 联通 实时延迟概览"
+            loading="lazy"
+            referrerPolicy="same-origin"
+            onLoad={() => postTheme(theme)}
+          />
+        </div>
+      ) : (
+        <div className="cc-monitor-unconfigured" role="status">
+          <b>网络状态监控</b>
+          <p>监控地址未配置，配置后此处显示电信 / 移动 / 联通实时延迟。</p>
+        </div>
+      )}
+      <NavLink to="/status" className="cc-monitor-link" onClick={onNavigate}>
+        查看服务器状态<span aria-hidden="true">→</span>
+      </NavLink>
+    </section>
   );
 }
 

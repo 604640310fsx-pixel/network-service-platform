@@ -28,12 +28,8 @@
   --cc-monitor-line: #c1862c;
   --cc-monitor-line-hover: #e8931f;
   --cc-monitor-ink: #e8931f;
-  --cc-monitor-shell: #12161d;
-  --cc-monitor-shell-line: rgba(255, 255, 255, 0.06);
   --cc-monitor-card: #171c24;
   --cc-monitor-card-line: rgba(255, 255, 255, 0.08);
-  --cc-monitor-nav-ink: #c3c9d4;
-  --cc-monitor-nav-line: #8a919e;
 }
 
 .cc-shell[data-theme="light"] {
@@ -66,12 +62,8 @@
   --cc-monitor-line: #dfb264;
   --cc-monitor-line-hover: #b06d05;
   --cc-monitor-ink: #8d5703;
-  --cc-monitor-shell: #f7f8fa;
-  --cc-monitor-shell-line: rgba(16, 20, 25, 0.08);
   --cc-monitor-card: #fff;
   --cc-monitor-card-line: rgba(16, 20, 25, 0.1);
-  --cc-monitor-nav-ink: #5c6472;
-  --cc-monitor-nav-line: #7b8492;
 }
 
 .cc-shell,
@@ -171,39 +163,12 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
 .cc-nav-group a.is-active svg { opacity: 1; }
 .cc-nav-group button.cc-nav-pending { cursor: not-allowed; color: var(--cc-text-3); opacity: 0.72; }
 
-/* 网络状态监控卡：以下尺寸逐项对应 Claude Design 的
-   「网络状态监控卡片.dc.html」，不再另做比例压缩。外壳 330px（border-box）内含
-   置灰的仪表板语境行和唯一一层监控卡；实时数据仍由 3002 的透明 mini iframe 提供。 */
-.cc-monitor-shell {
-  width: 100%;
-  flex: 0 0 auto;
-  padding: 14px;
-  border: 1px solid var(--cc-monitor-shell-line);
-  border-radius: 10px;
-  background: var(--cc-monitor-shell);
-}
-.cc-monitor-nav {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
-  padding: 9px 12px;
-  border-radius: 8px;
-  color: var(--cc-monitor-nav-ink);
-  opacity: 0.32;
-}
-.cc-monitor-nav-box {
-  width: 15px;
-  height: 15px;
-  flex: 0 0 15px;
-  border: 1.4px solid var(--cc-monitor-nav-line);
-  border-radius: 3px;
-}
-.cc-monitor-nav-label { font-size: 13.5px; line-height: 15px; }
-.cc-monitor-card { padding: 13px 13px 12px; border: 1px solid var(--cc-monitor-card-line); border-radius: 10px; background: var(--cc-monitor-card); }
+/* 网络状态监控卡：移除设计预览用的「仪表板」外壳，只保留唯一内卡。
+   侧栏 330px 减去两侧 15px 后，卡片保持原设计 300px 宽。 */
+.cc-monitor-card { flex: 0 0 auto; margin: 14px 15px; padding: 13px 13px 12px; border: 1px solid var(--cc-monitor-card-line); border-radius: 10px; background: var(--cc-monitor-card); }
 /* 98px = 15(标题) + 10 + 41(平均值与曲线) + 11 + 21(胶囊)，与 master.css 的紧凑视图一致。 */
-.cc-monitor-embed { height: 98px; margin-bottom: 11px; overflow: hidden; background: transparent; }
-.cc-monitor-frame { display: block; width: 100%; height: 100%; border: 0; background: transparent; color-scheme: normal; }
+.cc-monitor-embed { height: 98px; margin-bottom: 11px; overflow: hidden; background: var(--cc-monitor-card); }
+.cc-monitor-frame { display: block; width: 100%; height: 100%; border: 0; background: var(--cc-monitor-card); color-scheme: normal; }
 .cc-monitor-unconfigured { margin-bottom: 11px; }
 .cc-monitor-unconfigured b { display: block; color: var(--cc-text-2); font-size: 11px; font-weight: 600; letter-spacing: 0.09em; }
 .cc-monitor-unconfigured p { margin: 6px 0 0; color: var(--cc-text-3); font-size: 11.5px; line-height: 1.55; text-wrap: pretty; }

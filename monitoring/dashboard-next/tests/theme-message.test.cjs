@@ -121,6 +121,10 @@ test('compact sidebar mini view is a query mode on the same page, not a new rout
 
   const css = fs.readFileSync(path.join(__dirname, '../static/master.css'), 'utf8');
   assert.match(css, /html\[data-view="mini"\] \.shell\{display:none\}/);
+  // iframe 画布必须与外层卡片同色，不能回落成浏览器默认黑底；浅色主题对应白底。
+  assert.match(css, /html\[data-view="mini"\]\{background:#171c24\}/);
+  assert.match(css, /html\[data-theme="light"\]\[data-view="mini"\],/);
+  assert.match(css, /--mini-label:#727b8a;--mini-figure:#101419;background:#fff/);
   // 98px 的紧凑高度由三段固定高度构成，与官网 .cc-monitor-embed 对齐。
   assert.match(css, /\.mini-top\{[^}]*height:15px\}/);
   assert.match(css, /\.mini-figure\{[^}]*height:41px;margin:10px 0 11px\}/);
