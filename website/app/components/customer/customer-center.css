@@ -146,17 +146,23 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
 .cc-nav-group a.is-active svg { opacity: 1; }
 .cc-nav-group button.cc-nav-pending { cursor: not-allowed; color: var(--cc-text-3); opacity: 0.72; }
 
-.cc-monitor-card { margin: 13px; padding: 12px 14px 9px; border: 1px solid var(--cc-line); border-radius: 12px; background: var(--cc-card); }
-.cc-monitor-card header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
-.cc-monitor-card header b { color: var(--cc-text-2); font-size: 12px; font-weight: 620; letter-spacing: 0.015em; }
-.cc-monitor-tag { flex: 0 0 auto; color: var(--cc-text-4); font-size: 9.5px; letter-spacing: 0.08em; }
-/* 紧凑三网延迟预览：iframe 完全透明贴合外层卡片，不再形成第二层黑色容器。 */
-.cc-monitor-embed { height: 112px; margin: 0; overflow: hidden; background: transparent; }
+/* 侧栏底部的网络状态区不是一张嵌套卡片，而是侧栏自身的最后一段：去掉边框、圆角和
+   抬高的卡片底色，改用一条与导航同源的发丝线收口。左右缩进 24px＝导航容器 13px ＋
+   导航项内边距 11px，因此标题、曲线和读数与上方所有导航文字严格对齐。 */
+.cc-monitor-card { margin: 0; padding: 12px 24px 8px; border: 0; border-top: 1px solid var(--cc-hairline); border-radius: 0; background: transparent; }
+.cc-monitor-card header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.cc-monitor-card header b { color: var(--cc-text-3); font-size: 11px; font-weight: 600; line-height: 14px; letter-spacing: 0.09em; }
+/* “三网实时”与 iframe 内的实时状态和三个线路读数完全重复（且本就 aria-hidden），保留
+   会让标题行出现两个并排的右对齐微标签。只隐藏这一处装饰性重复，不动任何真实信息。 */
+.cc-monitor-tag { display: none; }
+/* 紧凑三网延迟预览：iframe 在深浅两套主题下都完全透明，直接贴合侧栏，不形成第二层容器。 */
+.cc-monitor-embed { height: 84px; margin: 0; overflow: hidden; background: transparent; }
 .cc-monitor-frame { display: block; width: 100%; height: 100%; border: 0; background: transparent; color-scheme: normal; }
-.cc-monitor-unconfigured { margin: 2px 0 11px; color: var(--cc-text-3); font-size: 11.5px; line-height: 1.55; text-wrap: pretty; }
-.cc-monitor-card .cc-monitor-link { display: flex; min-height: 28px; align-items: center; justify-content: space-between; gap: 8px; margin-top: 3px; padding-top: 7px; border-top: 1px solid var(--cc-hairline); color: var(--cc-text-3); text-decoration: none; font-size: 10.5px; font-weight: 560; transition: color 0.14s; }
-.cc-monitor-card .cc-monitor-link::after { content: "→"; color: var(--cc-accent); font-size: 13px; line-height: 1; transition: transform 0.14s; }
-.cc-monitor-card .cc-monitor-link:hover { color: var(--cc-text); }
+.cc-monitor-unconfigured { margin: 0; color: var(--cc-text-3); font-size: 11.5px; line-height: 1.55; text-wrap: pretty; }
+/* 服务器状态入口沿用导航项的圆角与 hover 反馈，读作侧栏的一个动作，而不是一行脚注。 */
+.cc-monitor-card .cc-monitor-link { display: flex; min-height: 26px; align-items: center; justify-content: space-between; gap: 8px; margin: 7px -9px 0; padding: 0 9px; border-radius: 8px; color: var(--cc-text-2); text-decoration: none; font-size: 11.5px; font-weight: 560; transition: color 0.14s, background 0.14s; }
+.cc-monitor-card .cc-monitor-link::after { content: "→"; color: var(--cc-accent); font-size: 12.5px; line-height: 1; transition: transform 0.14s; }
+.cc-monitor-card .cc-monitor-link:hover { color: var(--cc-text); background: var(--cc-soft); }
 .cc-monitor-card .cc-monitor-link:hover::after { transform: translateX(2px); }
 
 .cc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -197,6 +203,10 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
   .cc-navigation { flex: none; overflow: visible; }
   .cc-brand { position: sticky; top: 0; z-index: 1; background: var(--cc-panel); }
   .cc-menu-button { display: grid; }
+  /* 抽屉里这一段是可滚动内容的结尾（安全区由 .cc-sidebar 统一负责）：多留一点底部
+     余量，入口给到可点的触摸高度。 */
+  .cc-monitor-card { padding: 14px 24px 16px; }
+  .cc-monitor-card .cc-monitor-link { min-height: 36px; margin-top: 8px; font-size: 12.5px; }
 }
 
 @media (max-width: 820px) {

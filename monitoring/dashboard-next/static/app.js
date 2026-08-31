@@ -590,7 +590,7 @@ function bindInteractions(){
    iframe 嵌入。永不编造延迟：数值只反映真实最新样本，最新样本失败或缺失时显示无响应 /
    暂无数据，而非保留过期值当当前；曲线取窗口内成功样本作为趋势。每 15 秒刷新一次。 */
 const MINI_WANS=[['telecom','电信'],['mobile','移动'],['unicom','联通']];
-const MINI_W=100,MINI_H=30,MINI_PAD=3,MINI_MAX_POINTS=30;
+const MINI_W=210,MINI_H=38,MINI_PAD=5,MINI_MAX_POINTS=48;
 
 /** 由 /api/latency 的 samples 归约出每条线路的紧凑序列（纯函数，供 node --test 校验）。
     samples 已按时间升序。values 只收集成功且有 avg_ms 的点用于画趋势；current 只在
@@ -622,23 +622,61 @@ function miniRowState(row){
   return 'empty';
 }
 
+/** 等距抽稀：样本多于上限时按均匀步长挑选真实测量点，首尾必取。纯函数。
+    /api/latency?range=6h 每分钟一个桶（最多约 360 点），直接取末尾 N 点只会画出最近
+    半小时，与「近 6 小时」的标注不符。这里只做取舍，不做平均、不插值、不新增样本，
+    因此保留下来的每个顶点仍然是一次真实测量，曲线覆盖完整窗口。 */
+function miniThin(values,maxPoints){
+  const list=(Array.isArray(values)?values:[]).filter(v=>typeof v==='number'&&Number.isFinite(v));
+  const limit=Math.max(2,Math.floor(Number(maxPoints)||2));
+  if(list.length<=limit)return list;
+  const last=list.length-1;
+  const out=[];
+  for(let i=0;i<limit;i+=1)out.push(list[Math.round(last*i/(limit-1))]);
+  return out;
+}
+
+/** 三条线路共享的 ms 视觉域（纯函数）。同单位就该同轴：共享刻度既让「移动确实比电信高」
+    这类差异如实可见，也让单条线路 1–2ms 的抖动自然显得很小，而不是各自铺满全高变成
+    三座假山。真实范围只占视觉高度的 70%（上下各留 15% 缓冲），并以均值的 45% 和 8ms
+    作为跨度下限。只改变坐标尺度，不改变任何样本值。无有效样本时返回 null。 */
+function miniDomain(seriesList){
+  const all=[];
+  for(const values of (Array.isArray(seriesList)?seriesList:[])){
+    if(!Array.isArray(values))continue;
+    for(const value of values)if(typeof value==='number'&&Number.isFinite(value))all.push(value);
+  }
+  if(!all.length)return null;
+  const min=Math.min(...all),max=Math.max(...all);
+  const mean=all.reduce((sum,value)=>sum+value,0)/all.length;
+  const span=Math.max((max-min)/.7,Math.abs(mean)*.45,8);
+  const center=(min+max)/2;
+  let low=center-span/2,high=center+span/2;
+  if(low<0){high-=low;low=0;}
+  return {min:low,max:high};
+}
+
 /** 把真实样本序列映射为平滑 SVG 曲线（viewBox 0 0 w h，上下留 pad）。纯函数。
     用 Catmull-Rom→三次贝塞尔，曲线严格穿过每个真实采样点：只是把已有折线画得顺滑，
-    不新增、不插值任何虚构样本。返回 { d, endpoint }；有效点少于 2 个时 d='' 且 endpoint
-    为 null（调用方据此不画线、隐藏端点，保持诚实空态）。endpoint 为归一化坐标(0..1)。 */
-function buildMiniCurve(values,w,h,pad){
+    不新增、不插值任何虚构样本。domain 省略时按本序列自算，传入共享域时三条线路可比。
+    返回 { d, endpoint }；有效点少于 2 个时 d='' 且 endpoint 为 null（调用方据此不画线、
+    隐藏端点，保持诚实空态）。endpoint 为归一化坐标(0..1)。 */
+function buildMiniCurve(values,w,h,pad,domain){
   const nums=(Array.isArray(values)?values:[]).filter(v=>typeof v==='number'&&Number.isFinite(v));
   if(nums.length<2)return {d:'',endpoint:null};
   const p=pad==null?3:pad;
-  const min=Math.min(...nums),max=Math.max(...nums),span=max-min;
+  const usable=domain&&Number.isFinite(domain.min)&&Number.isFinite(domain.max)&&domain.max>domain.min;
+  const scale=usable?domain:miniDomain([nums]);
+  const span=scale.max-scale.min;
   const innerH=h-p*2,stepX=(w-p*2)/(nums.length-1);
-  const pts=nums.map((v,i)=>[p+stepX*i,span===0?h/2:p+innerH*(1-(v-min)/span)]);
+  const clampY=value=>Math.max(p,Math.min(h-p,value));
+  const pts=nums.map((v,i)=>[p+stepX*i,clampY(p+innerH*(1-(v-scale.min)/span))]);
   const r=n=>Math.round(n*100)/100;
   let d=`M${r(pts[0][0])},${r(pts[0][1])}`;
   for(let i=0;i<pts.length-1;i+=1){
     const p0=pts[i-1]||pts[i],p1=pts[i],p2=pts[i+1],p3=pts[i+2]||pts[i+1];
-    const c1x=p1[0]+(p2[0]-p0[0])/6,c1y=p1[1]+(p2[1]-p0[1])/6;
-    const c2x=p2[0]-(p3[0]-p1[0])/6,c2y=p2[1]-(p3[1]-p1[1])/6;
+    const c1x=p1[0]+(p2[0]-p0[0])/8,c1y=clampY(p1[1]+(p2[1]-p0[1])/8);
+    const c2x=p2[0]-(p3[0]-p1[0])/8,c2y=clampY(p2[1]-(p3[1]-p1[1])/8);
     d+=`C${r(c1x)},${r(c1y)} ${r(c2x)},${r(c2y)} ${r(p2[0])},${r(p2[1])}`;
   }
   const last=pts[pts.length-1];
@@ -648,30 +686,36 @@ function buildMiniCurve(values,w,h,pad){
 function setMiniStatus(state){
   document.documentElement.dataset.miniState=state;
   const label=$('#miniStatus b');
-  if(label)label.textContent=state==='live'?'实时':state==='stale'?'同步暂时失败':'读取中';
+  if(label)label.textContent=state==='live'?'实时':state==='stale'?'同步失败':'读取中';
 }
 
 function renderMini(rows){
-  for(const row of rows){
-    const el=$(`.mini-row[data-wan="${row.wan}"]`);
-    if(!el)continue;
+  // 先抽稀再求共享域：三条曲线必须落在同一把尺子上，读数才可比。
+  const series=rows.map(row=>miniThin(row.values,MINI_MAX_POINTS));
+  const domain=miniDomain(series);
+  rows.forEach((row,index)=>{
     const state=miniRowState(row);
-    el.dataset.state=state;
-    const curve=buildMiniCurve(row.values.slice(-MINI_MAX_POINTS),MINI_W,MINI_H,MINI_PAD);
-    const line=el.querySelector('.mini-spark .mini-line');
-    const flow=el.querySelector('.mini-spark .mini-flow');
-    if(line)line.setAttribute('d',curve.d);
-    if(flow)flow.setAttribute('d',curve.d);
-    const spark=el.querySelector('.mini-spark');
-    if(spark)spark.classList.toggle('has-line',curve.d!=='');
-    const dot=el.querySelector('.mini-endpoint');
+    const curve=buildMiniCurve(series[index],MINI_W,MINI_H,MINI_PAD,domain);
+    // d 为空时同时把状态降级为无曲线态，避免上一次渲染的样式残留。
+    const drawn=curve.d!==''?state:'empty';
+    for(const path of $$(`.mini-plot path[data-wan="${row.wan}"]`)){
+      path.setAttribute('d',curve.d);
+      path.dataset.state=drawn;
+    }
+    const dot=$(`.mini-endpoint[data-wan="${row.wan}"]`);
     if(dot){
       if(curve.endpoint){dot.style.left=`${curve.endpoint.x*100}%`;dot.style.top=`${curve.endpoint.y*100}%`;}
+      dot.dataset.state=drawn;
       dot.hidden=!curve.endpoint;
     }
-    const value=el.querySelector('.mini-value');
-    if(value)value.textContent=state==='ok'?`${Math.round(row.current)} ms`:state==='down'?'无响应':'暂无数据';
-  }
+    const readout=$(`.mini-readout[data-wan="${row.wan}"]`);
+    if(!readout)return;
+    readout.dataset.state=state;
+    const num=readout.querySelector('.mini-num');
+    const unit=readout.querySelector('.mini-unit');
+    if(num)num.textContent=state==='ok'?String(Math.round(row.current)):state==='down'?'无响应':'暂无数据';
+    if(unit)unit.hidden=state!=='ok';
+  });
 }
 
 let miniRendered=false;
@@ -764,5 +808,5 @@ if(typeof window!=='undefined'&&typeof document!=='undefined'){
 }
 /* 供 node --test 校验纯逻辑；浏览器经典脚本里 module 未定义，短路跳过。 */
 if(typeof module!=='undefined'&&module.exports){
-  module.exports={THEME_MESSAGE_TYPE,normalizeTheme,isLoopbackOrigin,isTrustedThemeMessage,normalizeVpsCustomerState,vpsPickerMonitorState,buildMiniSeries,miniRowState,buildMiniCurve};
+  module.exports={THEME_MESSAGE_TYPE,normalizeTheme,isLoopbackOrigin,isTrustedThemeMessage,normalizeVpsCustomerState,vpsPickerMonitorState,buildMiniSeries,miniRowState,miniThin,miniDomain,buildMiniCurve};
 }

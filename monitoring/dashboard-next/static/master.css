@@ -18,51 +18,9 @@ html[data-embedded="true"] .shell{
   background:var(--bg);box-shadow:none
 }
 
-/* ===== 侧栏紧凑三网视图（?view=mini）=====
-   只把 3002 的真实 /api/latency 样本压缩成一张轻量观测面。外层官网承担卡片与标题，
-   iframe 自身保持透明，不再形成黑色“卡中卡”。动态高光只沿真实曲线路径移动，不制造
-   新采样点或数值；末端点表示最近真实样本。 */
+/* 侧栏紧凑三网视图（?view=mini）的完整样式集中在文件末尾，见「侧栏观测面」一节：
+   它必须排在浅色主题之后才能覆盖同特异度的 body 底色。 */
 .mini-monitor{display:none}
-html[data-view="mini"]{background:transparent}
-html[data-view="mini"] body{min-width:0;min-height:0;background:transparent}
-html[data-view="mini"] .shell{display:none}
-html[data-view="mini"] .mini-monitor{
-  display:flex;flex-direction:column;gap:5px;height:100vh;padding:0;overflow:hidden;
-}
-.mini-top{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:18px}
-.mini-caption{color:var(--faint);font-size:9.5px;font-weight:520;letter-spacing:.035em}
-.mini-live{display:inline-flex;align-items:center;gap:5px;color:var(--faint);font-size:9.5px;white-space:nowrap}
-.mini-live i{width:5px;height:5px;border-radius:50%;background:var(--gray);flex:0 0 auto}
-.mini-live b{font-weight:560}
-html[data-mini-state="live"] .mini-live{color:var(--green)}
-html[data-mini-state="live"] .mini-live i{background:var(--green);animation:mini-pulse 2.4s ease-in-out infinite}
-html[data-mini-state="stale"] .mini-live{color:var(--orange)}
-html[data-mini-state="stale"] .mini-live i{background:var(--orange)}
-@keyframes mini-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.42;transform:scale(.72)}}
-.mini-rows{flex:1 1 auto;display:grid;grid-template-rows:repeat(3,minmax(0,1fr));min-height:0}
-.mini-row{--wan:var(--gray);display:grid;grid-template-columns:27px minmax(0,1fr) 46px;align-items:center;gap:7px;min-height:0;border-top:1px solid color-mix(in srgb,var(--line-soft) 72%,transparent)}
-.mini-row.telecom{--wan:var(--blue)}.mini-row.mobile{--wan:var(--green)}.mini-row.unicom{--wan:var(--red)}
-.mini-name{color:var(--text);font-size:10.5px;font-weight:620}
-.mini-spark{position:relative;height:30px;min-width:0;overflow:visible}
-.mini-spark::after{content:"";position:absolute;left:0;right:0;top:50%;border-top:1px solid color-mix(in srgb,var(--line-soft) 58%,transparent);pointer-events:none}
-.mini-spark svg{position:relative;z-index:1;display:block;width:100%;height:100%;overflow:visible}
-.mini-line,.mini-flow{fill:none;stroke:var(--wan);stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
-.mini-line{stroke-width:1.25px;opacity:0;transition:opacity .45s ease}
-.mini-flow{stroke-width:1.8px;stroke-dasharray:9 151;stroke-dashoffset:160;opacity:0}
-.mini-spark.has-line .mini-line{opacity:.58}
-.mini-spark.has-line .mini-flow{opacity:.9;animation:mini-flow 3.2s linear infinite}
-@keyframes mini-flow{to{stroke-dashoffset:0}}
-.mini-endpoint{position:absolute;z-index:2;width:5px;height:5px;border-radius:50%;background:var(--wan);transform:translate(-50%,-50%);animation:mini-endpoint 2.1s ease-in-out infinite}
-@keyframes mini-endpoint{0%,100%{opacity:1;transform:translate(-50%,-50%) scale(1)}50%{opacity:.46;transform:translate(-50%,-50%) scale(.68)}}
-.mini-value{color:var(--wan);font-size:10.5px;font-weight:650;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
-.mini-row[data-state="down"]{--wan:var(--red)}
-.mini-row[data-state="down"] .mini-line{opacity:.3}.mini-row[data-state="down"] .mini-flow{display:none}.mini-row[data-state="down"] .mini-endpoint{animation:none;opacity:.45}
-.mini-row[data-state="empty"],.mini-row[data-state="loading"]{--wan:var(--gray)}
-.mini-row[data-state="empty"] .mini-value,.mini-row[data-state="loading"] .mini-value{color:var(--faint);font-weight:520}
-@media(prefers-reduced-motion:reduce){
-  html[data-mini-state="live"] .mini-live i,.mini-spark.has-line .mini-flow,.mini-endpoint{animation:none}
-  .mini-line{transition:none}.mini-flow{display:none}.mini-endpoint{opacity:1}
-}
 
 /* Header and retained VPS selector. */
 .topbar{height:115px;display:flex;align-items:center;justify-content:space-between;gap:30px;padding:0 18px}
@@ -258,3 +216,104 @@ html[data-theme="light"] .mini-chart-grid i{background:#eef1f5}
 html[data-theme="light"] .speed-empty p{color:#828b99}
 html[data-theme="light"] .trend-labels{color:#828b99}
 html[data-theme="light"] footer{color:#828b99}
+
+/* ===== 侧栏观测面（?view=mini） =====
+   这不是一张嵌套在侧栏里的卡片，而是侧栏自身的一段安静观测面：外层 .cc-monitor-card
+   已经去掉边框与卡片底色，iframe 在深浅两套主题下都完全透明，两份文档读作同一个组件。
+
+   与被否决的旧版的关键差别：
+   1. 三条线路画在同一个观测面上、共用同一条 ms 视觉轴。同单位就该同轴——差异如实可见，
+      单条线路 1–2ms 的抖动也自然显得很小，不再是三座各自铺满全高的假山。
+   2. 没有网格线、没有行分隔线、没有基准线，只有曲线本身。
+   3. 数值用中性字色；蓝 / 绿 / 红只出现在细曲线和 5px 线路点上，作为克制的身份标识。
+   4. 动效只沿真实路径缓慢移动，且 prefers-reduced-motion 下完全静止。
+
+   必须排在浅色主题之后：html[data-theme="light"] body{background:#f1f3f6} 与
+   html[data-view="mini"] body 特异度相同，写在前面会让 iframe 在白色侧栏里露出灰底。 */
+html[data-view="mini"]{
+  /* 与 website/app/components/customer/customer-center.css 的侧栏令牌成对维护。 */
+  --mini-surface:#161a20;
+  --mini-ink:#e9edf3;
+  --mini-label:#a3abb7;
+  --mini-meta:#737b87;
+  --mini-faint:#5a626e;
+  /* 与主仪表板同色相、略降彩度的线路色：侧栏需要更安静的存在感。 */
+  --mini-telecom:#5b8def;
+  --mini-mobile:#5eb04a;
+  --mini-unicom:#e8615c;
+  --mini-idle:#6a727e;
+  --mini-warn:#c98a1e;
+  background:transparent
+}
+html[data-view="mini"][data-theme="light"]{
+  --mini-surface:#ffffff;
+  --mini-ink:#101419;
+  --mini-label:#5c6472;
+  --mini-meta:#828b99;
+  --mini-faint:#a2aab6;
+  --mini-telecom:#3a6fd8;
+  --mini-mobile:#3f8f3a;
+  --mini-unicom:#d0504c;
+  --mini-idle:#9aa2ae;
+  --mini-warn:#a8710a;
+  background:transparent
+}
+html[data-view="mini"] body,html[data-view="mini"][data-theme="light"] body{min-width:0;min-height:0;background:transparent}
+html[data-view="mini"] .shell{display:none}
+html[data-view="mini"] .mini-monitor{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+.mini-monitor [data-wan="telecom"]{--mini-wan:var(--mini-telecom)}
+.mini-monitor [data-wan="mobile"]{--mini-wan:var(--mini-mobile)}
+.mini-monitor [data-wan="unicom"]{--mini-wan:var(--mini-unicom)}
+
+/* 曲线面：210×38 的 viewBox 与侧栏内容宽度 1:1，preserveAspectRatio=none 让它随侧栏
+   宽度自由拉伸，non-scaling-stroke 保证线宽始终是同一个物理值。 */
+.mini-plot{position:relative;flex:0 0 38px;height:38px;min-width:0}
+.mini-plot svg{position:relative;z-index:1;display:block;width:100%;height:100%;overflow:visible}
+.mini-line,.mini-flow{fill:none;stroke:var(--mini-wan,var(--mini-idle));stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.mini-line{stroke-width:1.2px;opacity:0;transition:opacity .5s ease}
+.mini-line[data-state="ok"]{opacity:.72}
+.mini-line[data-state="down"]{opacity:.26}
+/* 高光是同一条 d 上的一小段虚线在缓慢前进：动效完全由真实曲线派生，不额外画东西。
+   三条线路错开相位，避免三束高光整齐划一地一起跑。 */
+.mini-flow{stroke-width:1.6px;stroke-dasharray:14 420;stroke-dashoffset:434;opacity:0}
+.mini-flow[data-state="ok"]{opacity:.5;animation:mini-flow 9s linear infinite}
+.mini-flow[data-wan="mobile"]{animation-delay:-3s}
+.mini-flow[data-wan="unicom"]{animation-delay:-6s}
+@keyframes mini-flow{to{stroke-dashoffset:0}}
+/* 末端点＝各线路最近一次真实测量。描边取侧栏底色，两条线路读数接近时仍能分辨层次。 */
+.mini-endpoint{position:absolute;z-index:2;width:3.5px;height:3.5px;border-radius:50%;background:var(--mini-wan,var(--mini-idle));box-shadow:0 0 0 1.5px var(--mini-surface);transform:translate(-50%,-50%);animation:mini-breathe 3.6s ease-in-out infinite}
+.mini-endpoint[data-wan="mobile"]{animation-delay:-1.2s}
+.mini-endpoint[data-wan="unicom"]{animation-delay:-2.4s}
+.mini-endpoint[data-state="down"]{background:var(--mini-unicom);animation:none;opacity:.5}
+@keyframes mini-breathe{0%,100%{opacity:1}50%{opacity:.45}}
+
+/* 曲线正下方的窗口说明与同步状态，读作一条 x 轴注记而不是又一行标题。 */
+.mini-axis{display:flex;flex:0 0 12px;align-items:center;justify-content:space-between;gap:8px;height:12px;min-width:0}
+.mini-window{color:var(--mini-faint);font-size:9px;letter-spacing:.04em;white-space:nowrap}
+.mini-live{display:inline-flex;align-items:center;gap:4px;min-width:0;color:var(--mini-faint);font-size:9px;white-space:nowrap}
+.mini-live i{flex:0 0 4px;width:4px;height:4px;border-radius:50%;background:var(--mini-idle)}
+.mini-live b{font-weight:560}
+html[data-mini-state="live"] .mini-live{color:var(--mini-meta)}
+html[data-mini-state="live"] .mini-live i{background:var(--mini-mobile);animation:mini-breathe 2.8s ease-in-out infinite}
+html[data-mini-state="stale"] .mini-live{color:var(--mini-warn)}
+html[data-mini-state="stale"] .mini-live i{background:var(--mini-warn)}
+
+/* 三个读数：标签在上、数值在下，中性字色，靠 margin-top:auto 贴住底部并吃掉余量，
+   iframe 高度微调时仍然是同一份呼吸感。没有分隔线，靠留白分组。 */
+.mini-readouts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 8px;margin-top:auto;min-width:0}
+.mini-readout{display:flex;flex-direction:column;gap:2px;min-width:0}
+.mini-name{display:flex;align-items:center;gap:5px;min-width:0;color:var(--mini-meta);font-size:9.5px;font-weight:560;line-height:11px;letter-spacing:.02em;white-space:nowrap}
+.mini-name::before{content:"";flex:0 0 5px;width:5px;height:5px;border-radius:50%;background:var(--mini-wan,var(--mini-idle))}
+.mini-value{display:flex;align-items:baseline;gap:2px;min-width:0;overflow:hidden;color:var(--mini-ink);font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums;line-height:14px;white-space:nowrap}
+.mini-num{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.mini-unit{flex:0 0 auto;color:var(--mini-faint);font-size:8.75px;font-weight:520}
+/* 不可用状态说真话，但不喧哗：字号降一档、退回次级字色，不占用数值的视觉权重。 */
+.mini-readout[data-state="down"]{--mini-wan:var(--mini-unicom)}
+.mini-readout[data-state="empty"],.mini-readout[data-state="loading"]{--mini-wan:var(--mini-idle)}
+.mini-readout:not([data-state="ok"]) .mini-value{color:var(--mini-meta);font-size:10.5px;font-weight:540}
+
+@media(prefers-reduced-motion:reduce){
+  .mini-flow,.mini-flow[data-state="ok"]{display:none;animation:none}
+  .mini-endpoint,html[data-mini-state="live"] .mini-live i{animation:none}
+  .mini-line{transition:none}
+}
