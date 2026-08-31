@@ -89,29 +89,28 @@ test('static entry binds the canonical parent and exposes no monitor-owned theme
     /<meta name="monitor-embed-origin" content="https:\/\/www\.siqiapparel\.com">/,
   );
   assert.doesNotMatch(html, /theme[-_ ]?toggle|切换到(?:浅色|深色)主题/i);
-  assert.match(html, /master\.css\?v=20260831-mini-r4/);
-  assert.match(html, /app\.js\?v=20260831-mini-r4/);
+  assert.match(html, /master\.css\?v=20260831-mini-r3/);
+  assert.match(html, /app\.js\?v=20260831-mini-r3/);
 });
 
 test('compact sidebar mini view is a query mode on the same page, not a new route', () => {
   const html = fs.readFileSync(path.join(__dirname, '../static/index.html'), 'utf8');
   // 首屏根据 ?view=mini 落 data-view，供同一页面切换紧凑布局。
   assert.match(html, /view'\)==='mini'\)document\.documentElement\.dataset\.view='mini'/);
-  // 三条线路各占一条独立曲线道，不再挤在同一个黑色绘图框里。
-  assert.match(html, /class="mini-row" data-wan="telecom"/);
-  assert.match(html, /class="mini-row" data-wan="mobile"/);
-  assert.match(html, /class="mini-row" data-wan="unicom"/);
-  assert.equal((html.match(/class="mini-lane"/g) || []).length, 3);
-  assert.equal((html.match(/class="mini-line"/g) || []).length, 3);
-  assert.equal((html.match(/class="mini-flow"/g) || []).length, 3);
-  assert.doesNotMatch(html, /class="mini-plot"/);
+  // 三条线路共用同一观测面，并各自保留曲线与读数标识。
+  assert.match(html, /class="mini-line" data-wan="telecom"/);
+  assert.match(html, /class="mini-line" data-wan="mobile"/);
+  assert.match(html, /class="mini-line" data-wan="unicom"/);
+  assert.match(html, /class="mini-readout" data-wan="telecom"/);
+  assert.match(html, /class="mini-readout" data-wan="mobile"/);
+  assert.match(html, /class="mini-readout" data-wan="unicom"/);
 
   // 单一标题由外层官网卡片承担，紧凑视图内不再重复大标题（避免卡中卡）。
   assert.doesNotMatch(html, /class="mini-title"/);
   assert.doesNotMatch(html, /<polyline/); // 已改用平滑路径而非锯齿折线
   assert.match(html, /<path class="mini-line"/);
   assert.match(html, /<path class="mini-flow"/); // 高光只沿同一条真实路径移动
-  assert.match(html, /class="mini-dot"/); // 末端活跃点
+  assert.match(html, /class="mini-endpoint"/); // 末端活跃点
 
   const source = fs.readFileSync(path.join(__dirname, '../static/app.js'), 'utf8');
   // 紧凑视图只跑轻量 mini 逻辑，读取既有同源 /api/latency，每 15 秒刷新，不新增后端。
@@ -121,10 +120,10 @@ test('compact sidebar mini view is a query mode on the same page, not a new rout
 
   const css = fs.readFileSync(path.join(__dirname, '../static/master.css'), 'utf8');
   assert.match(css, /html\[data-view="mini"\] \.shell\{display:none\}/);
-  assert.match(css, /\.mini-row\[data-state="ok"\] \.mini-flow\{[^}]*animation:mini-flow/);
+  assert.match(css, /\.mini-flow\[data-state="ok"\]\{[^}]*animation:mini-flow/);
   // 动效须尊重 prefers-reduced-motion。
   assert.match(css, /@media\(prefers-reduced-motion:reduce\)/);
-  assert.match(css, /\.mini-flow,\.mini-row\[data-state="ok"\] \.mini-flow\{display:none;animation:none\}/);
+  assert.match(css, /\.mini-flow,\.mini-flow\[data-state="ok"\]\{display:none;animation:none\}/);
 });
 
 test('mini series never invents latency and never keeps a stale value as current', () => {
