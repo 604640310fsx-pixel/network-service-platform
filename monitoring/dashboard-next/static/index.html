@@ -9,9 +9,10 @@
   <meta name="monitor-embed-origin" content="https://www.siqiapparel.com">
   <title>广州三网线路监控 · 候选版</title>
   <link rel="icon" href="data:,">
-  <!-- 首屏主题：从 ?theme= 读取初值并落到 <html data-theme>，避免浅色首屏闪烁；无参数保持默认深色。 -->
-  <script>(function(){try{var t=new URLSearchParams(location.search).get('theme');document.documentElement.dataset.theme=(t==='light')?'light':'dark';}catch(e){document.documentElement.dataset.theme='dark';}})();</script>
-  <link rel="stylesheet" href="/master.css?v=20260831-theme-sync">
+  <!-- 首屏主题：从 ?theme= 读取初值并落到 <html data-theme>，避免浅色首屏闪烁；无参数保持默认深色。
+       ?view=mini 时同时落到 <html data-view>，供侧栏紧凑三网视图切换布局。 -->
+  <script>(function(){try{var q=new URLSearchParams(location.search);var t=q.get('theme');document.documentElement.dataset.theme=(t==='light')?'light':'dark';if(q.get('view')==='mini')document.documentElement.dataset.view='mini';}catch(e){document.documentElement.dataset.theme='dark';}})();</script>
+  <link rel="stylesheet" href="/master.css?v=20260901-mini-r2">
 </head>
 <body>
   <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
@@ -135,6 +136,32 @@
       <span>不提供测速、重启、切换线路、修改路由或修复操作</span>
     </footer>
   </main>
-  <script src="/app.js?v=20260831-theme-sync"></script>
+
+  <!-- 侧栏紧凑三网视图：仅在 ?view=mini 时可见（app.js 走 initMini）。结构与批准设计
+       「网络状态监控卡片」一致：标题 + LIVE 状态、三网平均值 + 共用刻度折线、三枚线路胶囊。
+       曲线只连接同源 /api/latency 的真实成功样本（不插值、不编造），三条线共用同一纵向
+       刻度，低延迟在上、高延迟在下；无数据时显示中性未就绪态。外层官网卡片只负责卡片
+       外框与「查看服务器状态」按钮，不重复标题，避免卡中卡。 -->
+  <section class="mini-monitor" aria-label="电信 / 移动 / 联通 实时延迟">
+    <div class="mini-top">
+      <span class="mini-caption">网络状态监控</span>
+      <span class="mini-live" id="miniStatus">读取中</span>
+    </div>
+    <div class="mini-figure">
+      <div class="mini-avg"><b id="miniAvg">—</b><span>ms 平均</span></div>
+      <svg class="mini-chart" viewBox="0 0 260 46" preserveAspectRatio="none" aria-hidden="true">
+        <path class="mini-line" data-wan="unicom" d=""></path>
+        <path class="mini-line" data-wan="telecom" d=""></path>
+        <path class="mini-line" data-wan="mobile" d=""></path>
+      </svg>
+    </div>
+    <div class="mini-chips">
+      <span class="mini-chip" data-wan="telecom" data-state="loading">电信 <b>—</b></span>
+      <span class="mini-chip" data-wan="mobile" data-state="loading">移动 <b>—</b></span>
+      <span class="mini-chip" data-wan="unicom" data-state="loading">联通 <b>—</b></span>
+    </div>
+  </section>
+
+  <script src="/app.js?v=20260901-mini-r3"></script>
 </body>
 </html>

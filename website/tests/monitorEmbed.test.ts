@@ -62,6 +62,33 @@ test("buildMonitorEmbedUrl clears a pre-existing vps when target is null", () =>
   assert.equal(new URL(result!).searchParams.has("vps"), false);
 });
 
+test("buildMonitorEmbedUrl adds view=mini only when compact is requested", () => {
+  const compact = buildMonitorEmbedUrl(MONITOR, { target: null, theme: "dark", compact: true }, ORIGIN);
+  const compactUrl = new URL(compact!);
+  assert.equal(compactUrl.searchParams.get("view"), "mini");
+  assert.equal(compactUrl.searchParams.get("theme"), "dark");
+  assert.equal(compactUrl.searchParams.has("vps"), false);
+
+  const full = buildMonitorEmbedUrl(MONITOR, { target: null, theme: "dark" }, ORIGIN);
+  assert.equal(new URL(full!).searchParams.has("view"), false);
+
+  const explicitFalse = buildMonitorEmbedUrl(MONITOR, { target: null, theme: "light", compact: false }, ORIGIN);
+  assert.equal(new URL(explicitFalse!).searchParams.has("view"), false);
+});
+
+test("buildMonitorEmbedUrl clears a pre-existing view when compact is not requested", () => {
+  const result = buildMonitorEmbedUrl(MONITOR + "/?view=mini", { target: null, theme: "dark" }, ORIGIN);
+  assert.equal(new URL(result!).searchParams.has("view"), false);
+});
+
+test("buildMonitorEmbedUrl keeps vps and view=mini together for a compact targeted embed", () => {
+  const result = buildMonitorEmbedUrl(MONITOR, { target: "DMIT Premium", theme: "light", compact: true }, ORIGIN);
+  const url = new URL(result!);
+  assert.equal(url.searchParams.get("vps"), "DMIT Premium");
+  assert.equal(url.searchParams.get("view"), "mini");
+  assert.equal(url.searchParams.get("theme"), "light");
+});
+
 test("buildMonitorEmbedUrl rejects unconfigured or unsafe bases", () => {
   assert.equal(buildMonitorEmbedUrl(undefined, { target: null, theme: "dark" }, ORIGIN), null);
   assert.equal(buildMonitorEmbedUrl("   ", { target: null, theme: "dark" }, ORIGIN), null);

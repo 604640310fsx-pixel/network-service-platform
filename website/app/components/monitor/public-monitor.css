@@ -17,36 +17,11 @@
   min-height: 0;
 }
 
-/* 简洁标题区 */
+/* 与订阅配置器复用同一 WorkbenchBanner；这里只负责相同的页面宽度与外间距。 */
 .pm-head {
   flex: 0 0 auto;
-  border-bottom: 1px solid var(--cc-hairline);
-  background: var(--cc-panel);
+  background: var(--cc-bg);
 }
-.pm-head .home-wrap {
-  padding-top: 26px;
-  padding-bottom: 22px;
-}
-.pm-eyebrow {
-  display: inline-block;
-  color: var(--cc-text-4);
-  font-size: 12px;
-  letter-spacing: 0.14em;
-}
-.pm-head h1 {
-  margin: 10px 0 0;
-  color: var(--cc-text);
-  font-size: 24px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-.pm-head p {
-  margin: 8px 0 0;
-  color: var(--cc-text-3);
-  font-size: 14px;
-  text-wrap: pretty;
-}
-
 /* 监控主体：贴边铺满剩余高度，无外框。 */
 .pm-monitor {
   flex: 1 1 auto;
@@ -89,12 +64,4 @@
   font-size: 13.5px;
   line-height: 1.7;
   text-wrap: pretty;
-}
-
-@media (max-width: 820px) {
-  .pm-head .home-wrap {
-    padding-top: 20px;
-    padding-bottom: 18px;
-  }
-  .pm-head h1 { font-size: 20px; }
 }

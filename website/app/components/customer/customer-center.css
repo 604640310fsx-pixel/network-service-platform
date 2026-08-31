@@ -22,6 +22,14 @@
   --cc-progress: #2b323b;
   --cc-shadow: none;
   --cc-shadow-raised: 0 2px 10px rgba(0, 0, 0, 0.32);
+  /* 「查看服务器状态」按钮：深色取值直接来自批准设计原文件。 */
+  --cc-monitor-fill: #3a2e1c;
+  --cc-monitor-fill-hover: #493a24;
+  --cc-monitor-line: #c1862c;
+  --cc-monitor-line-hover: #e8931f;
+  --cc-monitor-ink: #e8931f;
+  --cc-monitor-card: #171c24;
+  --cc-monitor-card-line: rgba(255, 255, 255, 0.08);
 }
 
 .cc-shell[data-theme="light"] {
@@ -48,6 +56,14 @@
   --cc-progress: #d2d8e0;
   --cc-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
   --cc-shadow-raised: 0 4px 14px -6px rgba(16, 24, 40, 0.13);
+  /* 设计只给了深色稿；浅色按同一强调色关系换算，保持小字号对比度。 */
+  --cc-monitor-fill: #fdf3e3;
+  --cc-monitor-fill-hover: #f9e8c8;
+  --cc-monitor-line: #dfb264;
+  --cc-monitor-line-hover: #b06d05;
+  --cc-monitor-ink: #8d5703;
+  --cc-monitor-card: #fff;
+  --cc-monitor-card-line: rgba(16, 20, 25, 0.1);
 }
 
 .cc-shell,
@@ -58,6 +74,7 @@ body:has(.cc-shell) {
   scrollbar-width: thin;
   scrollbar-color: #d2d8e0 #f1f3f6;
 }
+html:has(.cc-shell) { scrollbar-gutter: stable; }
 html:has(.cc-shell[data-theme="dark"]),
 body:has(.cc-shell[data-theme="dark"]) { scrollbar-color: #2b323b #101419; }
 html:has(.cc-shell)::-webkit-scrollbar,
@@ -75,7 +92,8 @@ html:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track,
 body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #101419; }
 
 .cc-shell {
-  --cc-sidebar-width: 258px;
+  /* 紧凑侧栏：250px 监控卡左右各保留约 10px。 */
+  --cc-sidebar-width: 270px;
   --cc-gutter: 26px;
   --cc-top-height: 67px;
   display: flex;
@@ -97,22 +115,29 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
   z-index: 80;
   width: var(--cc-sidebar-width);
   height: 100vh;
+  height: 100dvh;
   flex: 0 0 var(--cc-sidebar-width);
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior-y: contain;
   background: var(--cc-panel);
   border-right: 1px solid var(--cc-hairline);
 }
 
-.cc-brand { display: flex; align-items: center; gap: 11px; padding: 21px 20px 18px; }
+.cc-brand { flex: 0 0 auto; display: flex; align-items: center; gap: 11px; padding: 21px 20px 18px; }
+/* 品牌图形本身可点击，作为返回官网首页的可访问链接（键盘可达、含无障碍名）。 */
+.cc-brand-link { display: inline-flex; align-items: center; border-radius: 8px; text-decoration: none; }
+.cc-brand-link:hover .cc-brand-mark { opacity: 1; }
 /* 与首页 Header/Footer 同一份品牌图形（.home-brand-mark，home.css），单色 CSS mask，
    跟随 --cc-accent 主题色，不为控制台单独引入第二套 Logo。 */
 .cc-brand-mark {
-  height: 30px; width: auto; aspect-ratio: 512 / 484; flex: 0 0 auto;
+  display: block;
+  height: 30px; width: 32px; aspect-ratio: 512 / 484; flex: 0 0 auto;
   background-color: var(--cc-accent);
   opacity: 0.86;
+  transition: opacity 0.14s;
   -webkit-mask-image: url("/brand-mark.png");
   mask-image: url("/brand-mark.png");
   -webkit-mask-repeat: no-repeat;
@@ -125,7 +150,7 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
 .cc-sidebar-close { width: 28px; height: 28px; margin-left: auto; display: grid; place-items: center; border: 0; background: transparent; color: var(--cc-text-3); cursor: pointer; }
 .cc-sidebar-close svg { width: 16px; height: 16px; stroke-width: 1.8; }
 
-.cc-navigation { flex: 1; overflow-y: auto; padding: 2px 13px 14px; }
+.cc-navigation { flex: 1 0 auto; overflow: visible; padding: 2px 13px 14px; }
 .cc-navigation,
 .cc-sidebar { scrollbar-width: none; }
 .cc-navigation::-webkit-scrollbar,
@@ -141,13 +166,17 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
 .cc-nav-group a.is-active svg { opacity: 1; }
 .cc-nav-group button.cc-nav-pending { cursor: not-allowed; color: var(--cc-text-3); opacity: 0.72; }
 
-.cc-monitor-card { margin: 13px; padding: 14px 15px; border: 1px solid var(--cc-line); border-radius: 12px; background: var(--cc-card); }
-.cc-monitor-card header { margin-bottom: 6px; }
-.cc-monitor-card header b { color: var(--cc-text-2); font-size: 12.5px; }
-.cc-monitor-card .cc-monitor-status { display: block; color: var(--cc-accent); font-size: 13.5px; }
-.cc-monitor-card p { margin: 4px 0 11px; color: var(--cc-text-3); font-size: 11.5px; line-height: 1.55; }
-.cc-monitor-card .cc-monitor-link { display: flex; min-height: 34px; align-items: center; justify-content: center; border: 1px solid var(--cc-accent-line); border-radius: 8px; background: var(--cc-accent-tint); color: var(--cc-accent); text-decoration: none; font-size: 12.5px; font-weight: 600; }
-.cc-monitor-card .cc-monitor-link:hover { background: var(--cc-accent-inset); }
+/* 网络状态监控卡：移除设计预览用的「仪表板」外壳，只保留唯一内卡；250px 卡体居中。 */
+.cc-monitor-card { width: 250px; flex: 0 0 auto; margin: 12px auto; padding: 11px 11px 10px; border: 1px solid var(--cc-monitor-card-line); border-radius: 9px; background: var(--cc-monitor-card); }
+/* 84px = 13(标题) + 8 + 35(平均值与曲线) + 9 + 19(胶囊)，与 mini 视图一致。 */
+.cc-monitor-embed { height: 84px; margin-bottom: 9px; overflow: hidden; background: var(--cc-monitor-card); }
+.cc-monitor-frame { display: block; width: 100%; height: 100%; border: 0; background: var(--cc-monitor-card); color-scheme: normal; }
+.cc-monitor-unconfigured { margin-bottom: 11px; }
+.cc-monitor-unconfigured b { display: block; color: var(--cc-text-2); font-size: 11px; font-weight: 600; letter-spacing: 0.09em; }
+.cc-monitor-unconfigured p { margin: 6px 0 0; color: var(--cc-text-3); font-size: 11.5px; line-height: 1.55; text-wrap: pretty; }
+.cc-monitor-card .cc-monitor-link { display: flex; height: 32px; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--cc-monitor-line); border-radius: 7px; background: var(--cc-monitor-fill); color: var(--cc-monitor-ink); text-decoration: none; font-size: 11.5px; font-weight: 700; letter-spacing: 0.02em; transition: background 0.14s, border-color 0.14s; }
+.cc-monitor-card .cc-monitor-link span { font-size: 12px; line-height: 1; }
+.cc-monitor-card .cc-monitor-link:hover { background: var(--cc-monitor-fill-hover); border-color: var(--cc-monitor-line-hover); }
 
 .cc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .cc-topbar { position: sticky; top: 0; z-index: 30; min-height: var(--cc-top-height); display: flex; align-items: center; gap: 14px; padding: 15px var(--cc-gutter); border-bottom: 1px solid var(--cc-hairline); background: var(--cc-top); backdrop-filter: saturate(160%) blur(12px); }
@@ -156,16 +185,18 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
 .cc-top-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .cc-icon-button,
 .cc-balance-placeholder,
-.cc-user-placeholder { height: 36px; border: 1px solid var(--cc-line); border-radius: 9px; background: var(--cc-inset); color: var(--cc-text-2); }
+.cc-user-link { height: 36px; border: 1px solid var(--cc-line); border-radius: 9px; background: var(--cc-inset); color: var(--cc-text-2); }
 .cc-icon-button { width: 36px; display: grid; place-items: center; cursor: pointer; }
 .cc-icon-button:hover { border-color: var(--cc-text-4); color: var(--cc-text); }
 .cc-icon-button svg { width: 15px; height: 15px; stroke-width: 1.8; }
 .cc-menu-button { width: 34px; height: 34px; flex: 0 0 34px; display: none; background: var(--cc-panel); }
 .cc-menu-button svg { width: 16px; height: 16px; stroke-width: 1.8; }
 .cc-balance-placeholder,
-.cc-user-placeholder { display: flex; align-items: center; gap: 7px; padding: 0 13px; font-size: 13.5px; white-space: nowrap; }
+.cc-user-link { display: flex; align-items: center; gap: 7px; padding: 0 13px; font-size: 13.5px; white-space: nowrap; }
 .cc-balance-placeholder b { color: var(--cc-text); font-variant-numeric: tabular-nums; }
-.cc-user-placeholder svg { width: 14px; height: 14px; stroke-width: 1.7; }
+.cc-user-link { text-decoration: none; cursor: pointer; transition: border-color 0.14s, color 0.14s, background 0.14s; }
+.cc-user-link:hover { border-color: var(--cc-text-4); background: var(--cc-soft); color: var(--cc-text); }
+.cc-user-link svg { width: 14px; height: 14px; stroke-width: 1.7; }
 .cc-scrim { position: fixed; inset: 0; z-index: 65; border: 0; background: var(--cc-scrim); cursor: default; }
 .cc-scrim.is-navigation { z-index: 75; }
 
@@ -176,17 +207,22 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
      两者叠加会让 .cc-sidebar 这类 height:100vh 元素在屏幕上比实际视口还高
      （zoom:1.06 时高出 6%），position:sticky 顶到顶部后底部内容永远显示不出来、
      也无法滚动到（网络状态监控卡片消失的根因）。间距令牌保留，只去掉 zoom 本身。 */
-  .cc-shell { --cc-gutter: 34px; --cc-sidebar-width: 274px; }
+  .cc-shell { --cc-gutter: 34px; --cc-sidebar-width: 270px; }
 }
 
 @media (max-width: 1024px) {
-  /* overscroll-behavy-y: contain 防止触屏滑到抽屉内容顶/底部后，滚动手势"漏"到背后页面，
-     造成"划一下导航栏和主内容一起动"的观感（抽屉本身用 fixed 定位并未真的跟着移动）。 */
-  .cc-sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: 278px; height: 100%; transform: translateX(-101%); visibility: hidden; transition: transform 0.26s cubic-bezier(0.3, 0.8, 0.3, 1), visibility 0s 0.26s; overflow-y: auto; overscroll-behavior-y: contain; padding-bottom: env(safe-area-inset-bottom); }
+  /* 高度足够时监控卡贴底；高度不足时侧栏整体滚动，让监控卡自然排在完整导航之后。 */
+  .cc-sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: min(270px, calc(100vw - 24px)); height: 100vh; height: 100dvh; transform: translateX(-101%); visibility: hidden; transition: transform 0.26s cubic-bezier(0.3, 0.8, 0.3, 1), visibility 0s 0.26s; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; padding-bottom: env(safe-area-inset-bottom); }
   .cc-sidebar.is-open { transform: none; visibility: visible; transition: transform 0.26s cubic-bezier(0.3, 0.8, 0.3, 1); }
-  .cc-navigation { flex: none; overflow: visible; }
+  .cc-navigation { flex: 1 0 auto; overflow: visible; }
   .cc-brand { position: sticky; top: 0; z-index: 1; background: var(--cc-panel); }
   .cc-menu-button { display: grid; }
+}
+
+/* 矮窗口强制改用普通文档流：导航必须完整排完，监控卡才能出现。
+   侧栏自身负责滚动，避免任何 Flex 收缩或浏览器缩放把卡片提前顶进导航区域。 */
+@media (max-height: 1000px) {
+  .cc-sidebar { display: block; }
 }
 
 @media (max-width: 820px) {
@@ -194,6 +230,6 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
   .cc-page-title h1 { font-size: 15px; }
   .cc-page-title p,
   .cc-balance-placeholder,
-  .cc-user-placeholder span { display: none; }
-  .cc-user-placeholder { width: 36px; justify-content: center; padding: 0; }
+  .cc-user-link span { display: none; }
+  .cc-user-link { width: 36px; justify-content: center; padding: 0; }
 }

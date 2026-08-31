@@ -13,6 +13,7 @@ import {
   type ProblemType,
 } from "../../lib/diagnosis-api";
 import { useThemePreference } from "../../lib/theme";
+import { WorkbenchBanner, workbenchBannerLayoutClass } from "../WorkbenchBanner";
 import "../home/home.css";
 import "./diagnosis.css";
 
@@ -193,25 +194,14 @@ export function DiagnosisPage() {
       <SiteHeader theme={theme} onToggleTheme={toggleTheme} />
       <main className="diagnosis-main">
         <section className="diagnosis-intro">
-          <div className="home-wrap diagnosis-intro-grid">
-            <div>
-              <p className="home-eyebrow"><i aria-hidden="true" />DIAGNOSIS INTAKE</p>
-              <h1>先把网络问题说清楚</h1>
-              <p>
-                本入口用于申请人工初步判断。提交不等于已经完成诊断；
-                正式诊断的范围和费用需要另行确认。
-              </p>
-            </div>
-            <aside className="diagnosis-safety" aria-labelledby="diagnosis-safety-title">
-              <span aria-hidden="true">安全提示</span>
-              <div>
-                <h2 id="diagnosis-safety-title">不要填写任何敏感凭据</h2>
-                <p>
-                  请勿提交密码、验证码、密钥、会话、支付资料、未经脱敏的客户或生产信息；
-                  也不要填写 Cookie 或远程控制凭据。
-                </p>
-              </div>
-            </aside>
+          <div className={workbenchBannerLayoutClass}>
+            <WorkbenchBanner
+              kicker="DIAGNOSIS INTAKE"
+              title="先把网络问题说清楚"
+              description="本入口用于申请人工初步判断。提交不等于已经完成诊断；正式诊断的范围和费用需要另行确认。"
+              statusLabel="不要填写任何敏感凭据"
+              badge="安全提示"
+            />
           </div>
         </section>
 

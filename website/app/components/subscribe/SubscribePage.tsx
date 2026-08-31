@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { networkTypes } from "../../lib/subscribeCatalog";
 import { parseSelectionParams, selectionToQuery, type CatalogSelection } from "../../lib/resolveSelection";
 import { usePlanAvailability } from "../../lib/planAvailability";
+import { WorkbenchBanner } from "../WorkbenchBanner";
 import { useCustomerDrawer } from "../customer/CustomerCenterShell";
 import { MobileOrderBar } from "./MobileOrderBar";
 import { OptionCard } from "./OptionCard";
@@ -141,17 +142,13 @@ export function SubscribePage() {
     <main className="sub-page">
       <div className="sub-layout">
         <div className="sub-content">
-          <header className="sub-workbench">
-            <div>
-              <span className="sub-workbench-kicker">NETWORK SOLUTION CONFIGURATOR</span>
-              <h1>配置适合业务场景的网络方案</h1>
-              <p>按网络架构、服务地区与所需选项逐步确认方案。目录价格已接入，未提供的周期价格保持待确认。</p>
-            </div>
-            <div className="sub-workbench-status" aria-label="页面状态">
-              <span><i aria-hidden="true" />方案配置台</span>
-              <small>CATALOG V1</small>
-            </div>
-          </header>
+          <WorkbenchBanner
+            kicker="NETWORK SOLUTION CONFIGURATOR"
+            title="配置适合业务场景的网络方案"
+            description="按网络架构、服务地区与所需选项逐步确认方案。目录价格已接入，未提供的周期价格保持待确认。"
+            statusLabel="方案配置台"
+            badge="CATALOG V1"
+          />
 
           <StepProgress steps={steps} currentStep={selection.currentStep} onStep={goToStep} />
 
