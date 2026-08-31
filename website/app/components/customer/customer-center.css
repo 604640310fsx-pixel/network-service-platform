@@ -91,8 +91,8 @@ html:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track,
 body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #101419; }
 
 .cc-shell {
-  /* 紧凑侧栏：250px 监控卡左右各保留 15px。 */
-  --cc-sidebar-width: 280px;
+  /* 紧凑侧栏：250px 监控卡左右各保留约 10px。 */
+  --cc-sidebar-width: 270px;
   --cc-gutter: 26px;
   --cc-top-height: 67px;
   display: flex;
@@ -164,7 +164,7 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
 .cc-nav-group button.cc-nav-pending { cursor: not-allowed; color: var(--cc-text-3); opacity: 0.72; }
 
 /* 网络状态监控卡：移除设计预览用的「仪表板」外壳，只保留唯一内卡；250px 卡体居中。 */
-.cc-monitor-card { width: 250px; flex: 0 0 auto; margin: 12px auto; padding: 11px 11px 10px; border: 1px solid var(--cc-monitor-card-line); border-radius: 9px; background: var(--cc-monitor-card); }
+.cc-monitor-card { width: 250px; flex: 0 0 auto; margin: 8px auto; padding: 11px 11px 10px; border: 1px solid var(--cc-monitor-card-line); border-radius: 9px; background: var(--cc-monitor-card); }
 /* 84px = 13(标题) + 8 + 35(平均值与曲线) + 9 + 19(胶囊)，与 mini 视图一致。 */
 .cc-monitor-embed { height: 84px; margin-bottom: 9px; overflow: hidden; background: var(--cc-monitor-card); }
 .cc-monitor-frame { display: block; width: 100%; height: 100%; border: 0; background: var(--cc-monitor-card); color-scheme: normal; }
@@ -202,13 +202,13 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
      两者叠加会让 .cc-sidebar 这类 height:100vh 元素在屏幕上比实际视口还高
      （zoom:1.06 时高出 6%），position:sticky 顶到顶部后底部内容永远显示不出来、
      也无法滚动到（网络状态监控卡片消失的根因）。间距令牌保留，只去掉 zoom 本身。 */
-  .cc-shell { --cc-gutter: 34px; --cc-sidebar-width: 280px; }
+  .cc-shell { --cc-gutter: 34px; --cc-sidebar-width: 270px; }
 }
 
 @media (max-width: 1024px) {
   /* overscroll-behavy-y: contain 防止触屏滑到抽屉内容顶/底部后，滚动手势"漏"到背后页面，
      造成"划一下导航栏和主内容一起动"的观感（抽屉本身用 fixed 定位并未真的跟着移动）。 */
-  .cc-sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: min(280px, calc(100vw - 24px)); height: 100%; transform: translateX(-101%); visibility: hidden; transition: transform 0.26s cubic-bezier(0.3, 0.8, 0.3, 1), visibility 0s 0.26s; overflow-y: auto; overscroll-behavior-y: contain; padding-bottom: env(safe-area-inset-bottom); }
+  .cc-sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: min(270px, calc(100vw - 24px)); height: 100%; transform: translateX(-101%); visibility: hidden; transition: transform 0.26s cubic-bezier(0.3, 0.8, 0.3, 1), visibility 0s 0.26s; overflow-y: auto; overscroll-behavior-y: contain; padding-bottom: env(safe-area-inset-bottom); }
   .cc-sidebar.is-open { transform: none; visibility: visible; transition: transform 0.26s cubic-bezier(0.3, 0.8, 0.3, 1); }
   .cc-navigation { flex: none; overflow: visible; }
   .cc-brand { position: sticky; top: 0; z-index: 1; background: var(--cc-panel); }
