@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useThemePreference } from "../../lib/theme";
+import { WorkbenchBanner } from "../WorkbenchBanner";
 import { SiteHeader } from "../home/SiteHeader";
 import {
   buildMonitorEmbedUrl,
@@ -49,10 +50,14 @@ export function PublicMonitorPage() {
 
       <main className="pm-main">
         <section className="pm-head">
-          <div className="home-wrap">
-            <span className="pm-eyebrow">实时观测</span>
-            <h1>实时网络监控</h1>
-            <p>查看当前三网线路与网络运行状态</p>
+          <div className="pm-head-layout">
+            <WorkbenchBanner
+              kicker="实时观测"
+              title="实时网络监控"
+              description="查看当前三网线路与网络运行状态"
+              statusLabel="实时数据同步"
+              badge="LIVE · 15S"
+            />
           </div>
         </section>
 
