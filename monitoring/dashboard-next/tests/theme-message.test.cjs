@@ -125,12 +125,12 @@ test('compact sidebar mini view is a query mode on the same page, not a new rout
   assert.match(css, /html\[data-view="mini"\]\{background:#171c24\}/);
   assert.match(css, /html\[data-theme="light"\]\[data-view="mini"\],/);
   assert.match(css, /--mini-label:#727b8a;--mini-figure:#101419;background:#fff/);
-  // 98px 的紧凑高度由三段固定高度构成，与官网 .cc-monitor-embed 对齐。
-  assert.match(css, /\.mini-top\{[^}]*height:15px\}/);
-  assert.match(css, /\.mini-figure\{[^}]*height:41px;margin:10px 0 11px\}/);
-  assert.match(css, /\.mini-chips\{[^}]*height:21px\}/);
+  // 84px 的紧凑高度由三段固定高度构成，与官网 .cc-monitor-embed 对齐。
+  assert.match(css, /\.mini-top\{[^}]*height:13px\}/);
+  assert.match(css, /\.mini-figure\{[^}]*height:35px;margin:8px 0 9px\}/);
+  assert.match(css, /\.mini-chips\{[^}]*height:19px\}/);
   // 原设计是自然宽度胶囊，不再压成三等分。
-  assert.match(css, /\.mini-chips\{display:flex;gap:6px;height:21px\}/);
+  assert.match(css, /\.mini-chips\{display:flex;gap:4px;height:19px\}/);
   // 动效须尊重 prefers-reduced-motion。
   assert.match(css, /@media\(prefers-reduced-motion:reduce\)/);
   // 浅色主题下线路色单独压暗，保证 10.5px 小字号对比度。
