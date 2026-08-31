@@ -52,7 +52,7 @@ export function PublicMonitorPage() {
         <section className="pm-head">
           <div className="pm-head-layout">
             <WorkbenchBanner
-              kicker="实时观测"
+              kicker="REAL-TIME OBSERVABILITY"
               title="实时网络监控"
               description="查看当前三网线路与网络运行状态"
               statusLabel="实时数据同步"
