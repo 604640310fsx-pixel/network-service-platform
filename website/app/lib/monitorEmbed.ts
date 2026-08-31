@@ -66,16 +66,20 @@ function toMonitorUrl(base: string | undefined, origin: string): URL | null {
 }
 
 /** 构造初始 iframe src：写入归一化 theme，并按需保留 / 清除 vps。
-    base 非法或未配置时返回 null，交由调用方渲染真实空状态。 */
+    compact=true 时追加 view=mini，让同一 3002 页面渲染侧栏用的紧凑三网视图
+    （同源读取既有 /api/latency，不新增后端 / 不放宽安全头）；否则清除 view，
+    保持完整监控视图。base 非法或未配置时返回 null，交由调用方渲染真实空状态。 */
 export function buildMonitorEmbedUrl(
   base: string | undefined,
-  options: { target: string | null; theme: MonitorTheme },
+  options: { target: string | null; theme: MonitorTheme; compact?: boolean },
   origin: string,
 ): string | null {
   const url = toMonitorUrl(base, origin);
   if (!url) return null;
   if (options.target === null) url.searchParams.delete("vps");
   else url.searchParams.set("vps", options.target);
+  if (options.compact) url.searchParams.set("view", "mini");
+  else url.searchParams.delete("view");
   url.searchParams.set("theme", normalizeMonitorTheme(options.theme));
   return url.toString();
 }

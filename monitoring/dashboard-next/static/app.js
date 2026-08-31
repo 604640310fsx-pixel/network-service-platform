@@ -585,6 +585,102 @@ function bindInteractions(){
   let resizeTimer;window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>drawChart(state.samples),120)});
 }
 
+/* ===== 侧栏紧凑三网视图（?view=mini）=====
+   与完整监控同一页面、同一 /api/latency 同源只读数据；仅换一套紧凑呈现，供官网侧栏
+   iframe 嵌入。永不编造延迟：数值只反映真实最新样本，最新样本失败或缺失时显示无响应 /
+   暂无数据，而非保留过期值当当前；曲线取窗口内成功样本作为趋势。每 15 秒刷新一次。 */
+const MINI_WANS=[['telecom','电信'],['mobile','移动'],['unicom','联通']];
+const MINI_W=100,MINI_H=26,MINI_PAD=2,MINI_MAX_POINTS=48;
+
+/** 由 /api/latency 的 samples 归约出每条线路的紧凑序列（纯函数，供 node --test 校验）。
+    samples 已按时间升序。values 只收集成功且有 avg_ms 的点用于画趋势；current 只在
+    最新样本成功时给出，否则为 null（不把过期样本当当前）。 */
+function buildMiniSeries(samples){
+  const rows=MINI_WANS.map(([wan,name])=>({wan,name,values:[],current:null,latestFailed:false,hasData:false}));
+  const byWan={};
+  for(const row of rows)byWan[row.wan]=row;
+  const list=Array.isArray(samples)?samples:[];
+  for(const sample of list){
+    if(!sample||typeof sample!=='object')continue;
+    const row=byWan[sample.wan];
+    if(!row)continue;
+    const value=Number(sample.avg_ms);
+    const ok=Boolean(sample.success)&&sample.avg_ms!=null&&Number.isFinite(value);
+    if(ok)row.values.push(value);
+    row.current=ok?value:null;
+    row.latestFailed=!ok;
+  }
+  for(const row of rows)row.hasData=row.values.length>0;
+  return rows;
+}
+
+/** 线路展示态：ok(最新成功) / down(有测量但最新失败) / empty(窗口内无样本)。纯函数。 */
+function miniRowState(row){
+  if(!row)return 'empty';
+  if(row.current!=null)return 'ok';
+  if(row.latestFailed||row.hasData)return 'down';
+  return 'empty';
+}
+
+/** 把数值序列映射为紧凑 SVG 折线 points（viewBox 0 0 w h，上下留 pad）。纯函数。
+    有效点少于 2 个返回 ''，调用方据此不画线（保持诚实空态）。 */
+function miniSparkPoints(values,w,h,pad){
+  const nums=(Array.isArray(values)?values:[]).filter(v=>typeof v==='number'&&Number.isFinite(v));
+  if(nums.length<2)return '';
+  const p=pad==null?2:pad;
+  const min=Math.min(...nums),max=Math.max(...nums),span=max-min;
+  const innerH=h-p*2,stepX=(w-p*2)/(nums.length-1);
+  const r=n=>Math.round(n*100)/100;
+  return nums.map((v,i)=>{
+    const x=p+stepX*i;
+    const y=span===0?h/2:p+innerH*(1-(v-min)/span);
+    return `${r(x)},${r(y)}`;
+  }).join(' ');
+}
+
+function setMiniStatus(state){
+  document.documentElement.dataset.miniState=state;
+  const label=$('#miniStatus b');
+  if(label)label.textContent=state==='live'?'实时':state==='stale'?'同步暂时失败':'读取中';
+}
+
+function renderMini(rows){
+  for(const row of rows){
+    const el=$(`.mini-row[data-wan="${row.wan}"]`);
+    if(!el)continue;
+    const state=miniRowState(row);
+    el.dataset.state=state;
+    const points=miniSparkPoints(row.values.slice(-MINI_MAX_POINTS),MINI_W,MINI_H,MINI_PAD);
+    const line=el.querySelector('.mini-spark polyline');
+    if(line)line.setAttribute('points',points);
+    const spark=el.querySelector('.mini-spark');
+    if(spark)spark.classList.toggle('has-line',points!=='');
+    const value=el.querySelector('.mini-value');
+    if(value)value.textContent=state==='ok'?`${row.current.toFixed(row.current<100?1:0)} ms`:state==='down'?'无响应':'暂无数据';
+  }
+}
+
+let miniRendered=false;
+async function loadMini(first){
+  if(first)setMiniStatus('loading');
+  try{
+    const data=await getJSON('/api/latency?range=6h&type=icmp');
+    renderMini(buildMiniSeries(data.samples));
+    miniRendered=true;
+    setMiniStatus('live');
+  }catch(error){
+    // 失败不回退假数据；已渲染过真实曲线时保留并标记过期，从未成功时显示诚实空态。
+    if(!miniRendered)renderMini(buildMiniSeries([]));
+    setMiniStatus('stale');
+  }
+}
+
+function initMini(){
+  loadMini(true);
+  setInterval(()=>{if(!document.hidden)loadMini(false)},15000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)loadMini(false)});
+}
+
 /* ===== 主题嵌入契约（只读接收，监控内不新增任何主题开关） =====
    监控主题只有两条来源：URL 的 ?theme= 初值（避免首屏闪烁），以及父页面经精确 origin
    校验后单向下发的版本化 postMessage。直接打开（无父 / 无 query）时保持既有默认深色。
@@ -648,9 +744,11 @@ async function init(){
 }
 if(typeof window!=='undefined'&&typeof document!=='undefined'){
   initThemeEmbed();
-  init();
+  // 紧凑侧栏视图只跑轻量 mini 逻辑，不加载完整仪表板与其多路轮询。
+  if(document.documentElement.dataset.view==='mini')initMini();
+  else init();
 }
 /* 供 node --test 校验纯逻辑；浏览器经典脚本里 module 未定义，短路跳过。 */
 if(typeof module!=='undefined'&&module.exports){
-  module.exports={THEME_MESSAGE_TYPE,normalizeTheme,isLoopbackOrigin,isTrustedThemeMessage,normalizeVpsCustomerState,vpsPickerMonitorState};
+  module.exports={THEME_MESSAGE_TYPE,normalizeTheme,isLoopbackOrigin,isTrustedThemeMessage,normalizeVpsCustomerState,vpsPickerMonitorState,buildMiniSeries,miniRowState,miniSparkPoints};
 }

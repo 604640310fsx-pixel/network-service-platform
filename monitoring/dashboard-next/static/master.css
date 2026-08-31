@@ -18,6 +18,44 @@ html[data-embedded="true"] .shell{
   background:var(--bg);box-shadow:none
 }
 
+/* ===== 侧栏紧凑三网视图（?view=mini）=====
+   与完整监控同源、同一 /api/latency 数据；仅换一套紧凑呈现，供官网侧栏 iframe 嵌入。
+   背景透明贴合父卡片；颜色沿用 --blue/--green/--red/--text/--muted，深浅主题自动适配。 */
+.mini-monitor{display:none}
+html[data-view="mini"]{background:transparent}
+html[data-view="mini"] body{min-width:0;min-height:0;background:transparent}
+html[data-view="mini"] .shell{display:none}
+html[data-view="mini"] .mini-monitor{
+  display:flex;flex-direction:column;gap:7px;height:100vh;padding:9px 11px;overflow:hidden;
+}
+.mini-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.mini-title{color:var(--muted);font-size:11.5px;font-weight:560;letter-spacing:.02em}
+.mini-live{display:inline-flex;align-items:center;gap:5px;color:var(--faint);font-size:10.5px}
+.mini-live i{width:6px;height:6px;border-radius:50%;background:var(--gray);flex:0 0 auto}
+.mini-live b{font-weight:500}
+html[data-mini-state="live"] .mini-live{color:var(--green)}
+html[data-mini-state="live"] .mini-live i{background:var(--green);animation:mini-pulse 2.4s ease-in-out infinite}
+html[data-mini-state="stale"] .mini-live{color:var(--orange)}
+html[data-mini-state="stale"] .mini-live i{background:var(--orange)}
+@keyframes mini-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.78)}}
+.mini-rows{flex:1 1 auto;display:flex;flex-direction:column;justify-content:space-between;min-height:0;gap:5px}
+.mini-row{--wan:var(--gray);display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:9px;min-height:0}
+.mini-row.telecom{--wan:var(--blue)}.mini-row.mobile{--wan:var(--green)}.mini-row.unicom{--wan:var(--red)}
+.mini-name{color:var(--text);font-size:12px;font-weight:560}
+.mini-spark{position:relative;height:26px;min-width:0}
+.mini-spark svg{display:block;width:100%;height:100%}
+.mini-spark polyline{fill:none;stroke:var(--wan);stroke-width:1.5px;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;opacity:0;transition:opacity .5s ease}
+.mini-spark.has-line polyline{opacity:.95}
+.mini-value{color:var(--wan);font-size:11.5px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.mini-row[data-state="down"]{--wan:var(--red)}
+.mini-row[data-state="down"] .mini-spark polyline{opacity:.4}
+.mini-row[data-state="empty"],.mini-row[data-state="loading"]{--wan:var(--gray)}
+.mini-row[data-state="empty"] .mini-value,.mini-row[data-state="loading"] .mini-value{color:var(--faint);font-weight:500}
+@media(prefers-reduced-motion:reduce){
+  html[data-mini-state="live"] .mini-live i{animation:none}
+  .mini-spark polyline{transition:none}
+}
+
 /* Header and retained VPS selector. */
 .topbar{height:115px;display:flex;align-items:center;justify-content:space-between;gap:30px;padding:0 18px}
 .brand-block{flex:0 0 auto}.title-row{display:flex;align-items:center;gap:18px}

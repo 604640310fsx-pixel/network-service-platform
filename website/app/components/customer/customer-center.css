@@ -107,12 +107,17 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
 }
 
 .cc-brand { display: flex; align-items: center; gap: 11px; padding: 21px 20px 18px; }
+/* 品牌图形本身可点击，作为返回官网首页的可访问链接（键盘可达、含无障碍名）。 */
+.cc-brand-link { display: inline-flex; align-items: center; border-radius: 8px; text-decoration: none; }
+.cc-brand-link:hover .cc-brand-mark { opacity: 1; }
 /* 与首页 Header/Footer 同一份品牌图形（.home-brand-mark，home.css），单色 CSS mask，
    跟随 --cc-accent 主题色，不为控制台单独引入第二套 Logo。 */
 .cc-brand-mark {
-  height: 30px; width: auto; aspect-ratio: 512 / 484; flex: 0 0 auto;
+  display: block;
+  height: 30px; width: 32px; aspect-ratio: 512 / 484; flex: 0 0 auto;
   background-color: var(--cc-accent);
   opacity: 0.86;
+  transition: opacity 0.14s;
   -webkit-mask-image: url("/brand-mark.png");
   mask-image: url("/brand-mark.png");
   -webkit-mask-repeat: no-repeat;
@@ -141,11 +146,14 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
 .cc-nav-group a.is-active svg { opacity: 1; }
 .cc-nav-group button.cc-nav-pending { cursor: not-allowed; color: var(--cc-text-3); opacity: 0.72; }
 
-.cc-monitor-card { margin: 13px; padding: 14px 15px; border: 1px solid var(--cc-line); border-radius: 12px; background: var(--cc-card); }
-.cc-monitor-card header { margin-bottom: 6px; }
+.cc-monitor-card { margin: 13px; padding: 12px 13px 13px; border: 1px solid var(--cc-line); border-radius: 12px; background: var(--cc-card); }
+.cc-monitor-card header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
 .cc-monitor-card header b { color: var(--cc-text-2); font-size: 12.5px; }
-.cc-monitor-card .cc-monitor-status { display: block; color: var(--cc-accent); font-size: 13.5px; }
-.cc-monitor-card p { margin: 4px 0 11px; color: var(--cc-text-3); font-size: 11.5px; line-height: 1.55; }
+.cc-monitor-tag { flex: 0 0 auto; color: var(--cc-text-4); font-size: 10.5px; letter-spacing: 0.06em; }
+/* 紧凑三网延迟预览：同源 view=mini iframe 透明贴合卡片，仅作为一览观测面。 */
+.cc-monitor-embed { height: 136px; margin-bottom: 10px; overflow: hidden; border-radius: 9px; background: var(--cc-inset); }
+.cc-monitor-frame { display: block; width: 100%; height: 100%; border: 0; background: transparent; color-scheme: normal; }
+.cc-monitor-unconfigured { margin: 2px 0 11px; color: var(--cc-text-3); font-size: 11.5px; line-height: 1.55; text-wrap: pretty; }
 .cc-monitor-card .cc-monitor-link { display: flex; min-height: 34px; align-items: center; justify-content: center; border: 1px solid var(--cc-accent-line); border-radius: 8px; background: var(--cc-accent-tint); color: var(--cc-accent); text-decoration: none; font-size: 12.5px; font-weight: 600; }
 .cc-monitor-card .cc-monitor-link:hover { background: var(--cc-accent-inset); }
 
