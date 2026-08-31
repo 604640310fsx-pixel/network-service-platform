@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useThemePreference } from "../../lib/theme";
-import { WorkbenchBanner } from "../WorkbenchBanner";
+import { WorkbenchBanner, workbenchBannerLayoutClass } from "../WorkbenchBanner";
 import { SiteHeader } from "../home/SiteHeader";
 import {
   buildMonitorEmbedUrl,
@@ -50,7 +50,7 @@ export function PublicMonitorPage() {
 
       <main className="pm-main">
         <section className="pm-head">
-          <div className="pm-head-layout">
+          <div className={workbenchBannerLayoutClass}>
             <WorkbenchBanner
               kicker="REAL-TIME OBSERVABILITY"
               title="实时网络监控"

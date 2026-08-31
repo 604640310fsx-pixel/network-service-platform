@@ -1,4 +1,11 @@
 /* Shared verbatim visual implementation of the subscription configurator banner. */
+.cc-workbench-layout {
+  width: 100%;
+  max-width: var(--home-max);
+  margin: 0 auto;
+  padding: 13px var(--home-gutter) 11px;
+}
+
 .cc-workbench {
   position: relative;
   overflow: hidden;
@@ -84,6 +91,10 @@
   font-weight: 700;
   letter-spacing: 0.13em;
   white-space: nowrap;
+}
+
+@media (max-width: 860px) {
+  .cc-workbench-layout { padding-top: 10px; padding-bottom: 9px; }
 }
 
 @media (max-width: 820px) {

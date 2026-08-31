@@ -264,8 +264,8 @@ export function CustomerCenterShell({
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
                 )}
               </button>
-              <span className="cc-balance-placeholder">余额 <b>—</b></span>
-              <span className="cc-user-placeholder" aria-label="用户中心尚未接入"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="3.4" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></svg><span>用户中心</span></span>
+              <span className="cc-balance-placeholder" aria-label="余额功能待接入" title="余额功能待接入">余额 <b>—</b></span>
+              <Link className="cc-user-link" to="/dashboard" aria-label="进入用户中心"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="3.4" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></svg><span>用户中心</span></Link>
             </div>
           </header>
           {children}

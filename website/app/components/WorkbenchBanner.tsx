@@ -9,6 +9,8 @@ type WorkbenchBannerProps = {
   className?: string;
 };
 
+export const workbenchBannerLayoutClass = "cc-workbench-layout";
+
 /**
  * Shared information band taken from the existing subscription configurator.
  * Keep the content page-specific while preserving one visual implementation.

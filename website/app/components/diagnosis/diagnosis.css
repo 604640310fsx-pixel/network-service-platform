@@ -2,7 +2,6 @@
 .diagnosis-main { flex: 1; background: var(--cc-bg); }
 
 .diagnosis-intro { background: var(--cc-bg); }
-.diagnosis-intro-layout { width: 100%; max-width: 1680px; margin: 0 auto; padding: 20px var(--cc-gutter) 18px; }
 
 .diagnosis-form-section { padding: 44px 0 80px; }
 .diagnosis-form { max-width: 960px; margin: 0 auto; border: 1px solid var(--cc-hairline); border-radius: 16px; background: var(--cc-panel); box-shadow: var(--cc-shadow); }
@@ -63,7 +62,6 @@
 .diagnosis-result .diagnosis-primary-button { margin-top: 0; }
 
 @media (max-width: 860px) {
-  .diagnosis-intro-layout { padding-top: 14px; padding-bottom: 14px; }
   .diagnosis-form-section { padding: 36px 0 60px; }
 }
 

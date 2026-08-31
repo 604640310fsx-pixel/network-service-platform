@@ -13,7 +13,7 @@ import {
   type ProblemType,
 } from "../../lib/diagnosis-api";
 import { useThemePreference } from "../../lib/theme";
-import { WorkbenchBanner } from "../WorkbenchBanner";
+import { WorkbenchBanner, workbenchBannerLayoutClass } from "../WorkbenchBanner";
 import "../home/home.css";
 import "./diagnosis.css";
 
@@ -194,7 +194,7 @@ export function DiagnosisPage() {
       <SiteHeader theme={theme} onToggleTheme={toggleTheme} />
       <main className="diagnosis-main">
         <section className="diagnosis-intro">
-          <div className="diagnosis-intro-layout">
+          <div className={workbenchBannerLayoutClass}>
             <WorkbenchBanner
               kicker="DIAGNOSIS INTAKE"
               title="先把网络问题说清楚"
