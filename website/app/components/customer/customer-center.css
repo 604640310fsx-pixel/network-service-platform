@@ -165,7 +165,7 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
 .cc-nav-group button.cc-nav-pending { cursor: not-allowed; color: var(--cc-text-3); opacity: 0.72; }
 
 /* 网络状态监控卡：移除设计预览用的「仪表板」外壳，只保留唯一内卡；250px 卡体居中。 */
-.cc-monitor-card { width: 250px; flex: 0 0 auto; margin: 8px auto; padding: 11px 11px 10px; border: 1px solid var(--cc-monitor-card-line); border-radius: 9px; background: var(--cc-monitor-card); }
+.cc-monitor-card { width: 250px; flex: 0 0 auto; margin: 12px auto; padding: 11px 11px 10px; border: 1px solid var(--cc-monitor-card-line); border-radius: 9px; background: var(--cc-monitor-card); }
 /* 84px = 13(标题) + 8 + 35(平均值与曲线) + 9 + 19(胶囊)，与 mini 视图一致。 */
 .cc-monitor-embed { height: 84px; margin-bottom: 9px; overflow: hidden; background: var(--cc-monitor-card); }
 .cc-monitor-frame { display: block; width: 100%; height: 100%; border: 0; background: var(--cc-monitor-card); color-scheme: normal; }
