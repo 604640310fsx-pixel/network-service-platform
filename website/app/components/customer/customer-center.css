@@ -114,10 +114,11 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
   z-index: 80;
   width: var(--cc-sidebar-width);
   height: 100vh;
+  height: 100dvh;
   flex: 0 0 var(--cc-sidebar-width);
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden;
   overscroll-behavior-y: contain;
   background: var(--cc-panel);
   border-right: 1px solid var(--cc-hairline);
@@ -147,7 +148,7 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
 .cc-sidebar-close { width: 28px; height: 28px; margin-left: auto; display: grid; place-items: center; border: 0; background: transparent; color: var(--cc-text-3); cursor: pointer; }
 .cc-sidebar-close svg { width: 16px; height: 16px; stroke-width: 1.8; }
 
-.cc-navigation { flex: 1; overflow-y: auto; padding: 2px 13px 14px; }
+.cc-navigation { min-height: 0; flex: 1; overflow-y: auto; padding: 2px 13px 14px; }
 .cc-navigation,
 .cc-sidebar { scrollbar-width: none; }
 .cc-navigation::-webkit-scrollbar,
@@ -206,11 +207,10 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
 }
 
 @media (max-width: 1024px) {
-  /* overscroll-behavy-y: contain 防止触屏滑到抽屉内容顶/底部后，滚动手势"漏"到背后页面，
-     造成"划一下导航栏和主内容一起动"的观感（抽屉本身用 fixed 定位并未真的跟着移动）。 */
-  .cc-sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: min(270px, calc(100vw - 24px)); height: 100%; transform: translateX(-101%); visibility: hidden; transition: transform 0.26s cubic-bezier(0.3, 0.8, 0.3, 1), visibility 0s 0.26s; overflow-y: auto; overscroll-behavior-y: contain; padding-bottom: env(safe-area-inset-bottom); }
+  /* 抽屉始终跟随动态视口高度；品牌和监控卡留在上下两端，只有中间导航滚动。 */
+  .cc-sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: min(270px, calc(100vw - 24px)); height: 100vh; height: 100dvh; transform: translateX(-101%); visibility: hidden; transition: transform 0.26s cubic-bezier(0.3, 0.8, 0.3, 1), visibility 0s 0.26s; overflow: hidden; overscroll-behavior-y: contain; padding-bottom: env(safe-area-inset-bottom); }
   .cc-sidebar.is-open { transform: none; visibility: visible; transition: transform 0.26s cubic-bezier(0.3, 0.8, 0.3, 1); }
-  .cc-navigation { flex: none; overflow: visible; }
+  .cc-navigation { min-height: 0; flex: 1; overflow-y: auto; }
   .cc-brand { position: sticky; top: 0; z-index: 1; background: var(--cc-panel); }
   .cc-menu-button { display: grid; }
 }
