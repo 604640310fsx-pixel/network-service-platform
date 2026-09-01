@@ -12,8 +12,11 @@ import argparse
 import html
 import json
 import os
+import signal
 import socket
 import ssl
+import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -65,6 +68,7 @@ PUBLIC_SUMMARY_PATH = "/api/summary"
 PRIVATE_SUMMARY_PATH = "/api/public-summary"
 HEALTH_PATH = "/healthz"
 READINESS_PATH = "/readyz"
+GRACEFUL_SHUTDOWN_SECONDS = 15.0
 STATIC_PATHS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/master.css": ("master.css", "text/css; charset=utf-8"),
@@ -247,17 +251,153 @@ def _json_bytes(payload: Any) -> bytes:
     )
 
 
+class _DrainableThreadingHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self._drain_condition = threading.Condition()
+        self._draining = False
+        self._active_requests = 0
+        self._shutdown_starts = 0
+        self._serving_started = threading.Event()
+        super().__init__(*args, **kwargs)
+
+    @property
+    def active_request_count(self) -> int:
+        with self._drain_condition:
+            return self._active_requests
+
+    @property
+    def shutdown_start_count(self) -> int:
+        with self._drain_condition:
+            return self._shutdown_starts
+
+    def begin_drain(self) -> bool:
+        with self._drain_condition:
+            if self._draining:
+                return False
+            self._draining = True
+            self._shutdown_starts += 1
+            self._drain_condition.notify_all()
+            return True
+
+    def wait_for_drain(self, timeout: float) -> bool:
+        deadline = time.monotonic() + max(0.0, timeout)
+        with self._drain_condition:
+            while self._active_requests:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._drain_condition.wait(remaining)
+            return True
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        with self._drain_condition:
+            if self._draining:
+                self.shutdown_request(request)
+                return
+            # Register before ThreadingMixIn starts the worker so drain cannot
+            # miss an accepted request in the thread-start race.
+            self._active_requests += 1
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._request_finished()
+            raise
+
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            # Covers normal completion, handler errors, and client disconnects.
+            self._request_finished()
+
+    def serve_forever(self, poll_interval: float = 0.5) -> None:
+        self._serving_started.set()
+        super().serve_forever(poll_interval=poll_interval)
+
+    def _request_finished(self) -> None:
+        with self._drain_condition:
+            self._active_requests -= 1
+            self._drain_condition.notify_all()
+
+
+class _IPv6DrainableThreadingHTTPServer(_DrainableThreadingHTTPServer):
+    address_family = socket.AF_INET6
+
+
 def _threading_server(
     host: str,
     port: int,
     handler: type[BaseHTTPRequestHandler],
-) -> ThreadingHTTPServer:
+) -> _DrainableThreadingHTTPServer:
     if host == "::1":
-        class _IPv6ThreadingHTTPServer(ThreadingHTTPServer):
-            address_family = socket.AF_INET6
+        return _IPv6DrainableThreadingHTTPServer((host, port), handler)
+    return _DrainableThreadingHTTPServer((host, port), handler)
 
-        return _IPv6ThreadingHTTPServer((host, port), handler)
-    return ThreadingHTTPServer((host, port), handler)
+
+def _serve_with_graceful_shutdown(
+    server: _DrainableThreadingHTTPServer,
+    *,
+    grace_seconds: float = GRACEFUL_SHUTDOWN_SECONDS,
+    started_event: Any | None = None,
+) -> int:
+    """Serve until SIGTERM/SIGINT, then drain bounded in-flight work."""
+
+    if grace_seconds < 0:
+        raise ValueError("grace_seconds must not be negative")
+
+    shutdown_requested = threading.Event()
+    serve_stopped = threading.Event()
+    serve_error: list[BaseException] = []
+    previous_handlers: dict[signal.Signals, Any] = {}
+
+    def request_shutdown(_signum: int, _frame: Any) -> None:
+        if server.begin_drain():
+            shutdown_requested.set()
+
+    def serve() -> None:
+        try:
+            server.serve_forever(poll_interval=0.05)
+        except BaseException as exc:
+            serve_error.append(exc)
+        finally:
+            serve_stopped.set()
+
+    serve_thread = threading.Thread(
+        target=serve,
+        name="monitor-gateway-listener",
+        daemon=True,
+    )
+    try:
+        for configured_signal in (signal.SIGTERM, signal.SIGINT):
+            previous_handlers[configured_signal] = signal.getsignal(configured_signal)
+            signal.signal(configured_signal, request_shutdown)
+
+        serve_thread.start()
+        if not server._serving_started.wait(timeout=1.0):
+            return 1
+        if started_event is not None:
+            started_event.set()
+
+        while not shutdown_requested.wait(timeout=0.05):
+            if serve_stopped.is_set():
+                return 1
+
+        # BaseServer.shutdown must run outside the serve_forever thread.
+        server.shutdown()
+        serve_thread.join(timeout=1.0)
+        if serve_thread.is_alive() or serve_error:
+            return 1
+        return 0 if server.wait_for_drain(grace_seconds) else 1
+    finally:
+        if serve_thread.is_alive():
+            server.begin_drain()
+            server.shutdown()
+            serve_thread.join(timeout=1.0)
+        server.server_close()
+        for configured_signal, previous_handler in previous_handlers.items():
+            signal.signal(configured_signal, previous_handler)
 
 
 class _SafeHandler(BaseHTTPRequestHandler):
@@ -908,7 +1048,7 @@ def _raw_client() -> tuple[RawMonitorClient, tuple[CertificateRequirement, ...]]
     return RawMonitorClient(FixedJsonClient(origin, tls_context=context)), requirements
 
 
-def run_public() -> None:
+def run_public() -> int:
     parent_origin = validate_public_parent_origin(
         _required("FINAL_CANONICAL_WEBSITE_ORIGIN")
     )
@@ -955,10 +1095,10 @@ def run_public() -> None:
         key_file=public_tls_key,
     )
     server.socket = tls_context.wrap_socket(server.socket, server_side=True)
-    server.serve_forever()
+    return _serve_with_graceful_shutdown(server)
 
 
-def run_private() -> None:
+def run_private() -> int:
     host = validate_loopback_bind_host(_required("PRIVATE_MONITOR_BIND_HOST"))
     raw_reader, raw_requirements = _raw_client()
     identity_files = _optional_identity_files()
@@ -993,18 +1133,17 @@ def run_private() -> None:
         key_file=private_tls_key,
     )
     server.socket = tls_context.wrap_socket(server.socket, server_side=True)
-    server.serve_forever()
+    return _serve_with_graceful_shutdown(server)
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description="sanitized monitor gateway")
     parser.add_argument("mode", choices=("public", "private"))
     args = parser.parse_args()
     if args.mode == "public":
-        run_public()
-    else:
-        run_private()
+        return run_public()
+    return run_private()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
