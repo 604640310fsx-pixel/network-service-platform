@@ -13,12 +13,14 @@ TLS processes:
 
 ```text
 anonymous browser
-  -> public TLS listener
+  -> Nginx public TLS and authoritative outer rate limit
+  -> HTTPS loopback proxy with one overwritten X-Monitor-Client-IP
+  -> public TLS listener on 127.0.0.1 or ::1
   -> GET /api/summary
   -> public-BFF mTLS client identity
-  -> private TLS listener
+  -> private mTLS listener on 127.0.0.1 or ::1
   -> GET /api/public-summary
-  -> fixed private raw reads
+  -> fixed private raw reads over the separately staged private path
   -> new allowlisted response
 ```
 
@@ -63,9 +65,21 @@ for the existing current window. Stale data keeps only its timestamp and state;
 current latency, loss, and trend are cleared. An upstream failure never returns
 an earlier successful response or fixture.
 
-The public API is limited to 30 requests per minute for each direct client IP,
-with a burst of ten. The server is TLS-only, so this per-client key is the actual
-socket peer rather than an untrusted forwarding header.
+Nginx is the future public first-layer rate-limit authority. It must overwrite
+the dedicated `X-Monitor-Client-IP` header with the browser socket address before
+proxying to the public gateway. Production public mode trusts that header only
+when the immediate TCP peer is exactly `127.0.0.1` or `::1`, it appears exactly
+once, and it contains one valid IP literal. `X-Forwarded-For`, `X-Real-IP`,
+`Forwarded`, lists, ports, brackets, hostnames, whitespace, and CR/LF are never
+trusted. A missing or malformed dedicated header is rejected before consuming a
+gateway rate-limit token and is never copied into logs.
+
+The gateway retains its second-layer limit of 30 requests per minute per
+normalized client identity, with a burst of ten. IPv6 addresses are compressed
+and IPv4-mapped IPv6 is normalized to IPv4. The same normalized identity feeds
+the rate limiter and the logger's one-way client hash. Offline preview and pure
+handler tests continue to use the direct loopback peer and do not require the
+proxy header.
 
 ## Runtime configuration boundaries
 
@@ -88,11 +102,50 @@ Private mode requires:
 - `RAW_MONITOR_API_ORIGIN` (loopback/private authority only);
 - `RAW_MONITOR_CA_FILE` only when that raw origin uses HTTPS.
 
-`AUTH_SERVICE_IDENTITY_CERT_FILE` and `OPERATOR_IDENTITY_CERT_FILE` are optional
-in this task, but if provided their certificate fingerprints must differ from
-every other identity. The private listener rejects wildcard/public bind
-addresses. `MONITOR_API_ORIGIN` accepts only a private HTTPS authority; neither
-private origin can contain credentials, a path, query, or fragment.
+Both `PUBLIC_MONITOR_BIND_HOST` and `PRIVATE_MONITOR_BIND_HOST` accept only the
+exact literals `127.0.0.1` and `::1`. Wildcards, LAN/WireGuard/public addresses,
+hostnames, and the string `localhost` fail closed.
+
+Each configured mTLS client role can overlap at most one current and one next
+certificate during rotation:
+
+- `PUBLIC_BFF_IDENTITY_CERT_FILE` and
+  `PUBLIC_BFF_IDENTITY_CERT_FILE_NEXT`;
+- `AUTH_SERVICE_IDENTITY_CERT_FILE` and
+  `AUTH_SERVICE_IDENTITY_CERT_FILE_NEXT`;
+- `OPERATOR_IDENTITY_CERT_FILE` and
+  `OPERATOR_IDENTITY_CERT_FILE_NEXT`.
+
+The public-BFF current certificate is required. Auth Service and operator roles
+remain optional, but a next certificate without its current certificate is
+invalid. Every fingerprint must be globally unique across roles. Missing,
+invalid, expired, duplicated, or over-wide rotation windows fail closed.
+`MONITOR_API_ORIGIN` accepts only a private HTTPS authority; neither private
+origin can contain credentials, a path, query, or fragment.
+
+## Runtime health and certificate readiness
+
+Both processes expose loopback-only `GET` and `HEAD` probes. They are runtime
+endpoints and must not be added to a public Nginx route:
+
+- `/healthz` proves only that the process handler is alive. It does not call an
+  upstream or read business data and returns `{"status":"ok"}`;
+- `/readyz` checks the current process certificates, the 24-hour minimum
+  validity margin, the appropriate upstream projection, the strict public
+  schema, all three WAN entries, and the frozen 180-second freshness boundary.
+
+Fresh `healthy`, `degraded`, and `unavailable` WAN states are ready. `no_data`,
+stale data, invalid/expiring certificates, and safe upstream failures return a
+503 response containing only a frozen safe error code. Probe responses are
+`no-store`, set no cookie or CORS header, consume no public rate-limit token,
+and appear as `404 not_found` to a simulated non-loopback peer.
+
+At startup, certificate parsing may emit one `certificate_status` event per
+required certificate. Its only metadata is logical role, SHA-256 DER
+fingerprint, canonical UTC expiry, remaining seconds, and the frozen status.
+Paths, subject/SAN data, serial numbers, PEM, keys, and raw CA content are never
+logged. Invalid or expired certificates prevent startup; a certificate with
+less than 24 hours remaining keeps readiness closed.
 
 The public CSP `frame-ancestors` value is generated from the required exact
 `FINAL_CANONICAL_WEBSITE_ORIGIN`. No `X-Frame-Options` is emitted on the public
@@ -143,5 +196,6 @@ Non-loopback parent origins are rejected by this preview helper. Production stil
 requires the separately supplied exact HTTPS `FINAL_CANONICAL_WEBSITE_ORIGIN`.
 
 Starting either listener requires separately supplied certificates and runtime
-values. This task does not authorize starting it against a real source or
-deploying either mode.
+values. These repository and CI checks do not connect to FNOS, prove WireGuard
+capability, stage real certificates, change Nginx, or authorize deploying or
+cutting over either mode.

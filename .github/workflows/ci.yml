@@ -15,6 +15,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  monitor-gateway:
+    name: Monitor gateway test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22.13.0"
+
+      - name: Report gateway CI runtimes
+        run: |
+          python3 --version
+          node --version
+
+      - name: Run gateway Python tests
+        run: python3 -m unittest discover -s monitoring/gateway/tests -v
+
+      - name: Compile gateway Python modules
+        run: python3 -m py_compile monitoring/gateway/*.py
+
+      - name: Run gateway static tests
+        run: node --test monitoring/gateway/tests/static-app.test.cjs
+
+      - name: Check gateway JavaScript syntax
+        run: node --check monitoring/gateway/static/app.js
+
   website:
     name: Website check and build
     runs-on: ubuntu-latest
