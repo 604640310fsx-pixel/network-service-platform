@@ -1,10 +1,10 @@
-/* 监控 iframe 嵌入契约（纯函数，无 React / DOM 依赖，便于 node --test 直接验证）。
+/* 公开监控 iframe 嵌入契约（纯函数，无 React / DOM 依赖，便于 node --test 直接验证）。
 
-   两条职责：
-   1. 由 VITE_MONITOR_URL 构造初始 iframe 地址，携带归一化后的 theme 与后端已校验的 vps
-      target key，避免首屏主题闪烁，并保留线路进入时的目标选择。
-   2. 提供运行时向 iframe 单向下发主题的窄类型消息与精确 targetOrigin，
-      父页面永不使用 "*"，也永不读取子页面 DOM / 状态。 */
+   VITE_MONITOR_URL 只能指向身份无关的公共三网摘要。本模块会清除已有查询参数，
+   只重新写入展示参数（本地 fixture 标记除外），避免客户、节点或目标身份进入
+   公共 iframe URL。
+   运行时主题只经精确 targetOrigin 单向下发；父页面永不使用 "*"，也不回读
+   子页面 DOM / 状态。登录用户的 VPS 状态属于独立 Auth 投影，不使用本模块。 */
 
 export type MonitorTheme = "dark" | "light";
 
@@ -16,35 +16,9 @@ export type MonitorThemeMessage = {
   theme: MonitorTheme;
 };
 
-const TARGET_MAX_LENGTH = 128;
-
-/** 是否含 C0 控制字符（0x00-0x1f）或 DEL（0x7f）。用字符码扫描，避免在源码里写入控制字节。 */
-function hasControlCharacter(value: string): boolean {
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code <= 0x1f || code === 0x7f) return true;
-  }
-  return false;
-}
-
 /** 归一化主题：只认 "light"，其余（含 null / 未知值）一律回落到 "dark"。 */
 export function normalizeMonitorTheme(value: unknown): MonitorTheme {
   return value === "light" ? "light" : "dark";
-}
-
-/** 线路进入 /status?vps= 时携带的 target key 校验，与既有 3002 精确匹配约束一致：
-    非 null、无首尾空白、长度 1..128、无控制字符。不合法返回 null（回落普通监控视图）。 */
-export function normalizeMonitorTarget(value: string | null): string | null {
-  if (
-    value === null ||
-    value.trim() !== value ||
-    value.length < 1 ||
-    value.length > TARGET_MAX_LENGTH ||
-    hasControlCharacter(value)
-  ) {
-    return null;
-  }
-  return value;
 }
 
 function toMonitorUrl(base: string | undefined, origin: string): URL | null {
@@ -65,20 +39,30 @@ function toMonitorUrl(base: string | undefined, origin: string): URL | null {
   }
 }
 
-/** 构造初始 iframe src：写入归一化 theme，并按需保留 / 清除 vps。
-    compact=true 时追加 view=mini，让同一 3002 页面渲染侧栏用的紧凑三网视图
-    （同源读取既有 /api/latency，不新增后端 / 不放宽安全头）；否则清除 view，
-    保持完整监控视图。base 非法或未配置时返回 null，交由调用方渲染真实空状态。 */
+/** 仅用于父页面标识本地 Fixture 预览。正式地址、其他 preview 值与非法配置
+    均返回 false，避免把非 Fixture 数据误标为演示数据。 */
+export function isMonitorFixturePreview(base: string | undefined, origin: string): boolean {
+  const url = toMonitorUrl(base, origin);
+  return url?.searchParams.get("preview") === "fixture";
+}
+
+/** 构造公共 iframe src：清除已有查询参数，只写入 theme 与受控 view；唯一保留项
+    是值精确等于 fixture 的 preview 标记，用于本地演示数据保持可见标识。
+    compact=true 使用侧栏 mini；embedded=true 使用去掉重复标题带的官网嵌入视图。
+    两种视图互斥，冲突时 fail closed。base 非法或未配置时返回 null，由调用方
+    渲染真实缺失态。 */
 export function buildMonitorEmbedUrl(
   base: string | undefined,
-  options: { target: string | null; theme: MonitorTheme; compact?: boolean },
+  options: { theme: MonitorTheme; compact?: boolean; embedded?: boolean },
   origin: string,
 ): string | null {
   const url = toMonitorUrl(base, origin);
-  if (!url) return null;
-  if (options.target === null) url.searchParams.delete("vps");
-  else url.searchParams.set("vps", options.target);
+  if (!url || (options.compact && options.embedded)) return null;
+  const fixturePreview = url.searchParams.get("preview") === "fixture";
+  url.search = "";
+  if (fixturePreview) url.searchParams.set("preview", "fixture");
   if (options.compact) url.searchParams.set("view", "mini");
+  else if (options.embedded) url.searchParams.set("view", "embed");
   else url.searchParams.delete("view");
   url.searchParams.set("theme", normalizeMonitorTheme(options.theme));
   return url.toString();

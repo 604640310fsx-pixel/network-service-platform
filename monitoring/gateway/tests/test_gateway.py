@@ -369,13 +369,14 @@ class _RawReader:
         return raw_overview(), raw_latency()
 
 
-def public_dependencies(reader=None, *, limiter=None, logs=None):
+def public_dependencies(reader=None, *, limiter=None, logs=None, static_root=STATIC_ROOT):
     lines = logs if logs is not None else []
     return PublicDependencies(
         summary_reader=reader or _SummaryReader(),
         parent_origin="https://website.example",
         limiter=limiter or TokenBucketLimiter(),
         logger=SafeEventLogger(lines.append),
+        static_root=static_root,
     )
 
 
@@ -404,6 +405,14 @@ class HttpBoundaryTests(unittest.TestCase):
             self.assertGreater(int(headers["Content-Length"]), 0)
             self.assertEqual(body, b"")
 
+            status, _, body = server.request("GET", "/")
+            self.assertEqual(status, 200)
+            self.assertIn(
+                b'<meta name="monitor-parent-origin" content="https://website.example">',
+                body,
+            )
+            self.assertNotIn(b"__MONITOR_PARENT_ORIGIN__", body)
+
             status, headers, body = server.request("POST", "/api/summary")
             self.assertEqual(status, 405)
             self.assertEqual(headers.get("Allow"), "GET")
@@ -417,6 +426,19 @@ class HttpBoundaryTests(unittest.TestCase):
             self.assertNotIn(b"TRACE", body)
         self.assertTrue(logs)
         self.assertTrue(all("hidden=value" not in line for line in logs))
+
+    def test_public_index_fails_closed_when_parent_origin_placeholder_is_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "index.html").write_text("<!doctype html><title>invalid</title>")
+            handler = make_public_handler(public_dependencies(static_root=root))
+            with _RunningServer(handler) as server:
+                status, _, body = server.request("GET", "/")
+            self.assertEqual(status, 503)
+            self.assertEqual(
+                json.loads(body),
+                {"error": {"code": "monitor_unavailable"}},
+            )
 
     def test_public_failure_mapping_never_returns_old_metrics(self):
         cases = (

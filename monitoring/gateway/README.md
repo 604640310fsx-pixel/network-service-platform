@@ -34,7 +34,7 @@ private-only boundary.
 
 The public origin preserves the existing root path semantics:
 
-- `/` — sanitized page (`?view=mini` and `?theme=light` are display-only);
+- `/` — sanitized page (`?view=mini|embed` and `?theme=light|dark` are display-only);
 - `/master.css` and `/app.js` — identity-free static assets;
 - `/api/summary` — the sanitized GET API.
 
@@ -96,8 +96,15 @@ private origin can contain credentials, a path, query, or fragment.
 
 The public CSP `frame-ancestors` value is generated from the required exact
 `FINAL_CANONICAL_WEBSITE_ORIGIN`. No `X-Frame-Options` is emitted on the public
-iframe response. All public content and API responses are `no-store`; private
+iframe response. The same exact origin is injected into a fixed HTML meta field;
+the client accepts the versioned theme message only from that origin and the
+immediate parent frame. It accepts no wildcard, customer value, target value, or
+message reply channel. All public content and API responses are `no-store`; private
 responses are `private, no-store`. Neither listener emits CORS or cookies.
+
+`view=mini` renders the identity-free sidebar summary. `view=embed` hides the
+gateway's duplicate banner so the website `/monitor` WorkbenchBanner remains the
+single page header. Neither view changes the data contract.
 
 ## Offline checks
 
@@ -124,6 +131,16 @@ python3 -m monitoring.gateway.offline_preview
 Open the printed `http://127.0.0.1:<port>/?preview=fixture` URL. Stop the process
 with `Ctrl+C`. This proves only the local rendering and public contract; it does
 not prove FNOS, connector, mTLS deployment, website iframe, or production data.
+
+For a local cross-origin iframe check only, the preview can allow one exact
+loopback website origin:
+
+```sh
+python3 -m monitoring.gateway.offline_preview --parent-origin http://127.0.0.1:4173
+```
+
+Non-loopback parent origins are rejected by this preview helper. Production still
+requires the separately supplied exact HTTPS `FINAL_CANONICAL_WEBSITE_ORIGIN`.
 
 Starting either listener requires separately supplied certificates and runtime
 values. This task does not authorize starting it against a real source or

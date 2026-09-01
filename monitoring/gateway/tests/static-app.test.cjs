@@ -3,7 +3,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { validate, trendPath, formatTime } = require('../static/app.js');
+const {
+  THEME_MESSAGE_TYPE,
+  acceptedThemeMessage,
+  formatTime,
+  normalizeParentOrigin,
+  trendPath,
+  validate,
+} = require('../static/app.js');
 
 function payload() {
   return {
@@ -58,9 +65,45 @@ test('runtime fetch is same-origin, credential-free, and clears values on failur
 
 test('static shell keeps styles and behavior when previewed from a local file', () => {
   const source = fs.readFileSync(path.join(__dirname, '../static/index.html'), 'utf8');
+  assert.match(source, /name="monitor-parent-origin" content="__MONITOR_PARENT_ORIGIN__"/);
   assert.match(source, /href="\.\/master\.css"/);
   assert.match(source, /src="\.\/app\.js"/);
   assert.doesNotMatch(source, /(?:href|src)="\/(?:master\.css|app\.js)"/);
+});
+
+test('parent theme messages require the exact injected origin, source, type, and fields', () => {
+  const parent = 'https://website.example';
+  assert.equal(normalizeParentOrigin(parent), parent);
+  for (const value of [
+    '',
+    ' https://website.example',
+    'https://website.example/',
+    'https://website.example/path',
+    'https://user:pass@website.example',
+    '__MONITOR_PARENT_ORIGIN__',
+    "'none'",
+  ]) {
+    assert.equal(normalizeParentOrigin(value), null);
+  }
+
+  const payload = { type: THEME_MESSAGE_TYPE, theme: 'light' };
+  assert.equal(acceptedThemeMessage(parent, parent, true, payload), 'light');
+  assert.equal(acceptedThemeMessage(parent, parent, true, { ...payload, theme: 'dark' }), 'dark');
+  assert.equal(acceptedThemeMessage(parent, 'https://other.example', true, payload), null);
+  assert.equal(acceptedThemeMessage(parent, parent, false, payload), null);
+  assert.equal(acceptedThemeMessage(parent, parent, true, { ...payload, extra: true }), null);
+  assert.equal(acceptedThemeMessage(parent, parent, true, { type: 'wrong', theme: 'light' }), null);
+  assert.equal(acceptedThemeMessage(parent, parent, true, { type: THEME_MESSAGE_TYPE, theme: 'system' }), null);
+});
+
+test('embed view is explicit and removes the duplicate gateway banner', () => {
+  const app = fs.readFileSync(path.join(__dirname, '../static/app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../static/master.css'), 'utf8');
+  assert.match(app, /requestedView === 'mini' \|\| requestedView === 'embed'/);
+  assert.match(css, /html\[data-view="embed"\] \.monitor-head/);
+  assert.match(css, /html\[data-view="embed"\] \.footnote/);
+  assert.match(css, /html\[data-view="embed"\]\[data-preview="fixture"\] \.monitor-head/);
+  assert.match(css, /data-preview="fixture"\]\s+\.monitor-head > div:first-child/);
 });
 
 test('offline fixture preview is visibly labeled and cannot become a silent fallback', () => {

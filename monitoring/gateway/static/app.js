@@ -15,6 +15,7 @@
     'wanId', 'displayName', 'status', 'packetLossSummary', 'updatedAt', 'stale', 'trend',
   ]);
   const ALLOWED = new Set([...REQUIRED, 'latestLatencyMs']);
+  const THEME_MESSAGE_TYPE = 'nsp-monitor-theme:v1';
 
   function finite(value, min, max) {
     return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
@@ -81,6 +82,38 @@
       : '—';
   }
 
+  function normalizeParentOrigin(value) {
+    if (typeof value !== 'string' || value.length < 1 || value.length > 512 || value.trim() !== value) {
+      return null;
+    }
+    try {
+      const parsed = new URL(value);
+      if (
+        (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
+        parsed.username !== '' ||
+        parsed.password !== '' ||
+        parsed.pathname !== '/' ||
+        parsed.search !== '' ||
+        parsed.hash !== '' ||
+        parsed.origin !== value
+      ) {
+        return null;
+      }
+      return parsed.origin;
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function acceptedThemeMessage(configuredOrigin, eventOrigin, fromParent, payload) {
+    if (!configuredOrigin || eventOrigin !== configuredOrigin || fromParent !== true) return null;
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+    const keys = Object.keys(payload).sort();
+    if (keys.length !== 2 || keys[0] !== 'theme' || keys[1] !== 'type') return null;
+    if (payload.type !== THEME_MESSAGE_TYPE) return null;
+    return payload.theme === 'light' || payload.theme === 'dark' ? payload.theme : null;
+  }
+
   function clearCard(card, label) {
     card.dataset.state = 'unavailable';
     card.querySelector('.latency').textContent = '—';
@@ -137,13 +170,35 @@
   }
 
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { validate, trendPath, formatTime };
+    module.exports = {
+      THEME_MESSAGE_TYPE,
+      acceptedThemeMessage,
+      formatTime,
+      normalizeParentOrigin,
+      trendPath,
+      validate,
+    };
   }
   if (typeof document === 'undefined') return;
 
   const parameters = new URLSearchParams(window.location.search);
   document.documentElement.dataset.theme = parameters.get('theme') === 'light' ? 'light' : 'dark';
-  if (parameters.get('view') === 'mini') document.documentElement.dataset.view = 'mini';
+  const requestedView = parameters.get('view');
+  if (requestedView === 'mini' || requestedView === 'embed') {
+    document.documentElement.dataset.view = requestedView;
+  }
+  const parentOrigin = normalizeParentOrigin(
+    document.querySelector('meta[name="monitor-parent-origin"]')?.getAttribute('content'),
+  );
+  window.addEventListener('message', (event) => {
+    const nextTheme = acceptedThemeMessage(
+      parentOrigin,
+      event.origin,
+      window.parent !== window && event.source === window.parent,
+      event.data,
+    );
+    if (nextTheme) document.documentElement.dataset.theme = nextTheme;
+  });
   if (parameters.get('preview') === 'fixture') {
     document.documentElement.dataset.preview = 'fixture';
     document.querySelector('#fixtureNote').hidden = false;

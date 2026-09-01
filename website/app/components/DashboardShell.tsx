@@ -20,7 +20,7 @@ export function DashboardShell() {
   const section = requestedSection as SectionKey;
   if (section === "status") {
     return (
-      <CustomerCenterShell fill title="服务器状态" description="查看服务器与三网线路的实时运行状态；从已交付线路进入时，将自动定位对应 VPS">
+      <CustomerCenterShell fill title="服务器状态" description="账户授权状态接入后，可在这里查看对应服务器的运行状态">
         <BuyerServerStatusPage />
       </CustomerCenterShell>
     );

@@ -9,6 +9,7 @@ fixed raw 3002 GET paths and constructs a new allowlisted response.
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import ssl
@@ -47,6 +48,7 @@ from .security import (
 
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
+INDEX_PARENT_ORIGIN_PLACEHOLDER = b"__MONITOR_PARENT_ORIGIN__"
 PUBLIC_SUMMARY_PATH = "/api/summary"
 PRIVATE_SUMMARY_PATH = "/api/public-summary"
 STATIC_PATHS = {
@@ -294,6 +296,22 @@ def make_public_handler(dependencies: PublicDependencies):
                     status=503,
                     event="upstream_unavailable",
                     head_only=head_only,
+                )
+            if name == "index.html":
+                if body.count(INDEX_PARENT_ORIGIN_PLACEHOLDER) != 1:
+                    return self._send_public_json(
+                        _safe_error("monitor_unavailable"),
+                        status=503,
+                        event="upstream_unavailable",
+                        head_only=head_only,
+                    )
+                escaped_parent = html.escape(
+                    dependencies.parent_origin,
+                    quote=True,
+                ).encode("utf-8")
+                body = body.replace(
+                    INDEX_PARENT_ORIGIN_PLACEHOLDER,
+                    escaped_parent,
                 )
             self._send_public_bytes(
                 body,

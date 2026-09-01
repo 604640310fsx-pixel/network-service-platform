@@ -1,9 +1,7 @@
-/* 登录后的服务器状态页只承载现有 3002 监控，不复制或伪造监控数据。
-   单层贴边：topbar 之下监控占满整个主面板；无外层内边距、无装饰面板、
-   无 iframe 边框 / 圆角 / 阴影 / 冗余背景；只有 iframe 自身一处滚动面。 */
+/* 登录后的服务器状态页等待独立 Auth 投影接入，不复用公开监控、不推测 VPS，
+   也不复制或伪造监控数据。 */
 
-/* fill 模式：整壳锁定到视口高度并关闭文档滚动，使 iframe 成为唯一滚动面，
-   避免"文档滚动 + iframe 短滚动条"的双层滚动。仅 /status 启用，不影响其它壳层页面。 */
+/* fill 模式：整壳锁定到视口高度，让缺失态稳定占满 topbar 以下区域。 */
 .cc-shell--fill {
   height: 100vh;
   height: 100dvh;
@@ -15,8 +13,7 @@
   overflow: hidden;
 }
 
-/* 归零 globals.css 裸 main 的 max-width:1440px / margin:0 auto / padding:32px 36px，
-   与 .cc-home main 既有做法一致，让监控真正贴边铺满。 */
+/* 归零 globals.css 裸 main 的 max-width / margin / padding。 */
 .cc-shell .cc-status-page {
   flex: 1 1 auto;
   min-width: 0;
@@ -30,17 +27,7 @@
   color: var(--cc-text);
 }
 
-.cc-status-frame {
-  flex: 1 1 auto;
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  min-height: 0;
-  border: 0;
-  background: var(--cc-bg);
-}
-
-/* 未配置监控地址：保留真实空状态，但简洁无外框（不再是"页面外套卡片"）。 */
+/* 未接入 Auth 投影：保留真实缺失态，简洁无外框。 */
 .cc-status-empty {
   flex: 1 1 auto;
   display: flex;

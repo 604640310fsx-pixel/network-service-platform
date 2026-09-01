@@ -15,7 +15,12 @@ from http.server import ThreadingHTTPServer
 from typing import Callable
 
 from .projection import validate_public_summary
-from .security import SafeEventLogger, TokenBucketLimiter
+from .security import (
+    SafeEventLogger,
+    SecurityBoundaryError,
+    TokenBucketLimiter,
+    validate_origin,
+)
 from .server import PublicDependencies, make_public_handler
 
 
@@ -69,12 +74,35 @@ class OfflineFixtureReader:
         return build_offline_fixture(now=self._clock())
 
 
-def build_preview_server(*, port: int = 0) -> ThreadingHTTPServer:
+def validate_preview_parent_origin(raw: str | None) -> str:
+    """Allow only an exact loopback parent for local iframe acceptance."""
+
+    if raw is None:
+        return "'none'"
+    scheme, host, port = validate_origin(
+        raw,
+        require_https=False,
+        private_only=True,
+    )
+    if host not in {"127.0.0.1", "::1", "localhost"}:
+        raise SecurityBoundaryError("preview parent origin must use loopback")
+    authority_host = f"[{host}]" if ":" in host else host
+    default_port = (scheme == "http" and port == 80) or (
+        scheme == "https" and port == 443
+    )
+    return f"{scheme}://{authority_host}" + ("" if default_port else f":{port}")
+
+
+def build_preview_server(
+    *,
+    port: int = 0,
+    parent_origin: str | None = None,
+) -> ThreadingHTTPServer:
     if not isinstance(port, int) or not 0 <= port <= 65_535:
         raise ValueError("preview port is invalid")
     dependencies = PublicDependencies(
         summary_reader=OfflineFixtureReader(),
-        parent_origin="'none'",
+        parent_origin=validate_preview_parent_origin(parent_origin),
         limiter=TokenBucketLimiter(requests_per_minute=30, burst=10),
         logger=SafeEventLogger(lambda _line: None),
     )
@@ -91,8 +119,15 @@ def main() -> None:
         description="loopback-only sanitized monitor fixture preview"
     )
     parser.add_argument("--port", type=int, default=0)
+    parser.add_argument(
+        "--parent-origin",
+        help="exact loopback website origin for local iframe acceptance",
+    )
     arguments = parser.parse_args()
-    server = build_preview_server(port=arguments.port)
+    server = build_preview_server(
+        port=arguments.port,
+        parent_origin=arguments.parent_origin,
+    )
     port = server.server_address[1]
     print(f"Offline fixture preview: http://127.0.0.1:{port}/?preview=fixture")
     print("演示数据 · 非报价；不会连接真实 FNOS。按 Ctrl+C 停止。")
