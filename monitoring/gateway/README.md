@@ -147,6 +147,22 @@ Paths, subject/SAN data, serial numbers, PEM, keys, and raw CA content are never
 logged. Invalid or expired certificates prevent startup; a certificate with
 less than 24 hours remaining keeps readiness closed.
 
+## Graceful process shutdown
+
+The formal public and private runtime entry points share one bounded shutdown
+lifecycle. The first `SIGTERM` or `SIGINT` stops new request workers, stops the
+listener loop, and gives requests that already started up to 15 seconds to
+finish. A completed drain exits with status 0; an expired drain exits nonzero,
+and request workers are daemonized so a stuck request cannot hold the process
+open past the bound. Repeated signals do not start a second shutdown or close
+the listener twice.
+
+This behavior adds no route, readiness state, environment variable, or public
+API. Importing the module, the offline preview, and direct handler tests do not
+install signal handlers. The 15-second value is fixed for the production entry
+points; tests may inject a shorter grace period only into the private lifecycle
+helper.
+
 The public CSP `frame-ancestors` value is generated from the required exact
 `FINAL_CANONICAL_WEBSITE_ORIGIN`. No `X-Frame-Options` is emitted on the public
 iframe response. The same exact origin is injected into a fixed HTML meta field;
