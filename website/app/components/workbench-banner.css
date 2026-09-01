@@ -81,6 +81,13 @@
   background: #3ecf8e;
   box-shadow: 0 0 0 4px rgba(62, 207, 142, 0.1);
 }
+.cc-workbench.is-fixture .cc-workbench-status span {
+  color: var(--cc-accent);
+}
+.cc-workbench.is-fixture .cc-workbench-status span i {
+  background: var(--cc-accent);
+  box-shadow: 0 0 0 4px var(--cc-accent-tint);
+}
 .cc-workbench-status small {
   padding: 4px 8px;
   border: 1px solid var(--cc-accent-line);
