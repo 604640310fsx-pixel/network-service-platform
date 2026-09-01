@@ -15,6 +15,10 @@ from typing import Any, Callable
 from urllib.parse import urlsplit
 
 
+MONITOR_CLIENT_IP_HEADER = "X-Monitor-Client-IP"
+LOOPBACK_ADDRESSES = frozenset(("127.0.0.1", "::1"))
+
+
 PROHIBITED_FIELD_NAMES = frozenset(
     (
         "source_ip",
@@ -165,6 +169,69 @@ def validate_private_bind_host(host: str) -> str:
     return host
 
 
+def normalize_ip_literal(raw: str) -> str:
+    """Return one canonical IP literal without accepting proxy-header syntax."""
+
+    if (
+        not isinstance(raw, str)
+        or not raw
+        or raw != raw.strip()
+        or any(character.isspace() for character in raw)
+        or "," in raw
+        or "[" in raw
+        or "]" in raw
+        or "\r" in raw
+        or "\n" in raw
+    ):
+        raise SecurityBoundaryError("client address is invalid")
+    try:
+        address = ipaddress.ip_address(raw)
+    except ValueError as exc:
+        raise SecurityBoundaryError("client address is invalid") from exc
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    return address.compressed
+
+
+def is_loopback_address(raw: str) -> bool:
+    try:
+        return normalize_ip_literal(raw) in LOOPBACK_ADDRESSES
+    except SecurityBoundaryError:
+        return False
+
+
+def validate_loopback_bind_host(host: str) -> str:
+    """Accept only the two exact loopback IP literals for runtime listeners."""
+
+    normalized = normalize_ip_literal(host)
+    if host != normalized or normalized not in LOOPBACK_ADDRESSES:
+        raise SecurityBoundaryError("listener must bind an exact loopback address")
+    return normalized
+
+
+def resolve_direct_client_identity(
+    peer_address: str,
+    _forwarded_values: tuple[str, ...] = (),
+) -> str:
+    """Resolve a direct socket peer for offline previews and focused tests."""
+
+    return normalize_ip_literal(peer_address)
+
+
+def resolve_trusted_proxy_client_identity(
+    peer_address: str,
+    forwarded_values: tuple[str, ...],
+) -> str:
+    """Trust exactly one overwritten client-IP value from an exact loopback peer."""
+
+    peer = normalize_ip_literal(peer_address)
+    if peer not in LOOPBACK_ADDRESSES:
+        return peer
+    if len(forwarded_values) != 1:
+        raise SecurityBoundaryError("trusted client identity is required")
+    return normalize_ip_literal(forwarded_values[0])
+
+
 def validate_public_parent_origin(raw: str) -> str:
     scheme, host, port = validate_origin(raw, require_https=True, private_only=False)
     default_port = port == 443
@@ -244,7 +311,12 @@ class SafeEventLogger:
             "upstream_timeout",
             "upstream_unavailable",
             "upstream_schema_invalid",
+            "health_request",
+            "readiness_request",
         )
+    )
+    _CERTIFICATE_STATUSES = frozenset(
+        ("valid", "expiring", "expired", "invalid")
     )
 
     def __init__(self, sink: Callable[[str], None] = print) -> None:
@@ -260,6 +332,47 @@ class SafeEventLogger:
         self._sink(
             json.dumps(
                 {"event": event, "status": status, "client": client_id},
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        )
+
+    def write_certificate_status(
+        self,
+        *,
+        role: str,
+        fingerprint_sha256: str | None,
+        not_after: str | None,
+        remaining_seconds: int,
+        status: str,
+    ) -> None:
+        """Emit only the frozen, non-identifying certificate diagnostics."""
+
+        if (
+            not isinstance(role, str)
+            or not re.fullmatch(r"[a-z0-9_]{1,64}", role)
+            or status not in self._CERTIFICATE_STATUSES
+            or not isinstance(remaining_seconds, int)
+            or (
+                fingerprint_sha256 is not None
+                and not re.fullmatch(r"[0-9a-f]{64}", fingerprint_sha256)
+            )
+            or (
+                not_after is not None
+                and not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", not_after)
+            )
+        ):
+            raise SecurityBoundaryError("unsafe certificate log event")
+        self._sink(
+            json.dumps(
+                {
+                    "event": "certificate_status",
+                    "fingerprintSha256": fingerprint_sha256,
+                    "notAfter": not_after,
+                    "remainingSeconds": remaining_seconds,
+                    "role": role,
+                    "status": status,
+                },
                 separators=(",", ":"),
                 sort_keys=True,
             )

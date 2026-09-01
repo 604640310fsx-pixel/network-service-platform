@@ -12,6 +12,7 @@ import argparse
 import html
 import json
 import os
+import socket
 import ssl
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -24,6 +25,7 @@ from .client import (
     AUTH_SERVICE_IDENTITY,
     OPERATOR_IDENTITY,
     PUBLIC_BFF_IDENTITY,
+    CertificateDiagnostic,
     FixedJsonClient,
     IdentityRegistry,
     Origin,
@@ -35,14 +37,24 @@ from .client import (
     build_mtls_client_context,
     build_mtls_server_context,
     build_public_tls_server_context,
+    certificate_diagnostic,
 )
-from .projection import ProjectionError, project_public_summary
+from .projection import (
+    STALE_AFTER_SECONDS,
+    ProjectionError,
+    project_public_summary,
+    validate_public_summary,
+)
 from .security import (
+    MONITOR_CLIENT_IP_HEADER,
     SafeEventLogger,
     SecurityBoundaryError,
     TokenBucketLimiter,
+    is_loopback_address,
+    resolve_direct_client_identity,
+    resolve_trusted_proxy_client_identity,
     scan_public_value,
-    validate_private_bind_host,
+    validate_loopback_bind_host,
     validate_public_parent_origin,
 )
 
@@ -51,6 +63,8 @@ STATIC_ROOT = Path(__file__).resolve().parent / "static"
 INDEX_PARENT_ORIGIN_PLACEHOLDER = b"__MONITOR_PARENT_ORIGIN__"
 PUBLIC_SUMMARY_PATH = "/api/summary"
 PRIVATE_SUMMARY_PATH = "/api/public-summary"
+HEALTH_PATH = "/healthz"
+READINESS_PATH = "/readyz"
 STATIC_PATHS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/master.css": ("master.css", "text/css; charset=utf-8"),
@@ -66,6 +80,45 @@ class RawProjectionReader(Protocol):
     def read_projection_inputs(self) -> tuple[Any, Any]: ...
 
 
+class ReadinessEvaluator(Protocol):
+    def evaluate(self) -> None: ...
+
+
+class ClientIdentityResolver(Protocol):
+    def __call__(
+        self,
+        peer_address: str,
+        forwarded_values: tuple[str, ...],
+    ) -> str: ...
+
+
+@dataclass(frozen=True)
+class CertificateRequirement:
+    role: str
+    path: Path
+
+
+class ReadinessFailure(RuntimeError):
+    SAFE_CODES = frozenset(
+        (
+            "certificate_invalid",
+            "certificate_expiring",
+            "identity_invalid",
+            "upstream_timeout",
+            "upstream_unavailable",
+            "upstream_schema_invalid",
+            "stale_data",
+            "no_data",
+        )
+    )
+
+    def __init__(self, code: str) -> None:
+        if code not in self.SAFE_CODES:
+            raise ValueError("unsafe readiness code")
+        super().__init__(code)
+        self.code = code
+
+
 @dataclass(frozen=True)
 class PublicDependencies:
     summary_reader: PublicSummaryReader
@@ -73,6 +126,8 @@ class PublicDependencies:
     limiter: TokenBucketLimiter
     logger: SafeEventLogger
     static_root: Path = STATIC_ROOT
+    client_identity_resolver: ClientIdentityResolver = resolve_direct_client_identity
+    readiness: ReadinessEvaluator | None = None
 
 
 @dataclass(frozen=True)
@@ -81,6 +136,105 @@ class PrivateDependencies:
     identities: IdentityRegistry
     logger: SafeEventLogger
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
+    readiness: ReadinessEvaluator | None = None
+
+
+def _certificate_diagnostics(
+    requirements: tuple[CertificateRequirement, ...],
+    *,
+    now: datetime,
+) -> tuple[CertificateDiagnostic, ...]:
+    return tuple(
+        certificate_diagnostic(requirement.path, role=requirement.role, now=now)
+        for requirement in requirements
+    )
+
+
+def _check_certificate_readiness(
+    requirements: tuple[CertificateRequirement, ...],
+    *,
+    now: datetime,
+) -> None:
+    if not requirements:
+        raise ReadinessFailure("identity_invalid")
+    for diagnostic in _certificate_diagnostics(requirements, now=now):
+        if diagnostic.status in {"invalid", "expired"}:
+            raise ReadinessFailure("certificate_invalid")
+        if diagnostic.status == "expiring":
+            raise ReadinessFailure("certificate_expiring")
+
+
+def _check_summary_freshness(payload: Any, *, now: datetime) -> None:
+    try:
+        summary = validate_public_summary(payload)
+    except ProjectionError as exc:
+        raise ReadinessFailure("upstream_schema_invalid") from exc
+    current = now.astimezone(timezone.utc)
+    for wan in summary["wans"]:
+        if wan["status"] == "no_data":
+            raise ReadinessFailure("no_data")
+        if wan["status"] == "stale" or wan["stale"]:
+            raise ReadinessFailure("stale_data")
+        updated_at = wan["updatedAt"]
+        assert isinstance(updated_at, str)
+        try:
+            updated = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ReadinessFailure("upstream_schema_invalid") from exc
+        age_seconds = (current - updated.astimezone(timezone.utc)).total_seconds()
+        if age_seconds < -300:
+            raise ReadinessFailure("upstream_schema_invalid")
+        if age_seconds > STALE_AFTER_SECONDS:
+            raise ReadinessFailure("stale_data")
+
+
+def _map_readiness_error(error: Exception) -> ReadinessFailure:
+    if isinstance(error, ReadinessFailure):
+        return error
+    if isinstance(error, UpstreamTimeout):
+        return ReadinessFailure("upstream_timeout")
+    if isinstance(error, UpstreamUnavailable):
+        return ReadinessFailure("upstream_unavailable")
+    if isinstance(error, (ProjectionError, UpstreamSchemaInvalid)):
+        return ReadinessFailure("upstream_schema_invalid")
+    return ReadinessFailure("upstream_unavailable")
+
+
+@dataclass(frozen=True)
+class PublicRuntimeReadiness:
+    summary_reader: PublicSummaryReader
+    certificate_requirements: tuple[CertificateRequirement, ...]
+    now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
+
+    def evaluate(self) -> None:
+        current = self.now().astimezone(timezone.utc)
+        _check_certificate_readiness(self.certificate_requirements, now=current)
+        try:
+            payload = self.summary_reader.read_public_summary()
+            _check_summary_freshness(payload, now=current)
+        except ReadinessFailure:
+            raise
+        except Exception as exc:
+            raise _map_readiness_error(exc) from exc
+
+
+@dataclass(frozen=True)
+class PrivateRuntimeReadiness:
+    raw_reader: RawProjectionReader
+    certificate_requirements: tuple[CertificateRequirement, ...]
+    now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
+
+    def evaluate(self) -> None:
+        current = self.now().astimezone(timezone.utc)
+        _check_certificate_readiness(self.certificate_requirements, now=current)
+        try:
+            overview, latency = self.raw_reader.read_projection_inputs()
+            payload = project_public_summary(overview, latency, now=current)
+            _check_summary_freshness(payload, now=current)
+        except ReadinessFailure:
+            raise
+        except Exception as exc:
+            raise _map_readiness_error(exc) from exc
 
 
 def _safe_error(code: str) -> dict[str, dict[str, str]]:
@@ -93,6 +247,19 @@ def _json_bytes(payload: Any) -> bytes:
     )
 
 
+def _threading_server(
+    host: str,
+    port: int,
+    handler: type[BaseHTTPRequestHandler],
+) -> ThreadingHTTPServer:
+    if host == "::1":
+        class _IPv6ThreadingHTTPServer(ThreadingHTTPServer):
+            address_family = socket.AF_INET6
+
+        return _IPv6ThreadingHTTPServer((host, port), handler)
+    return ThreadingHTTPServer((host, port), handler)
+
+
 class _SafeHandler(BaseHTTPRequestHandler):
     server_version = "NetworkMonitorGateway/1"
     sys_version = ""
@@ -102,10 +269,61 @@ class _SafeHandler(BaseHTTPRequestHandler):
         # accepted event is logged through SafeEventLogger instead.
         return
 
-    @property
-    def client_token(self) -> str:
+    def direct_client_identity(self) -> str:
+        return resolve_direct_client_identity(str(self.client_address[0]))
+
+    def client_token(self, client_identity: str | None = None) -> str:
         logger: SafeEventLogger = self.dependencies.logger  # type: ignore[attr-defined]
-        return logger.client_id(str(self.client_address[0]))
+        return logger.client_id(client_identity or self.direct_client_identity())
+
+    def _is_loopback_peer(self) -> bool:
+        return is_loopback_address(str(self.client_address[0]))
+
+    def _send_runtime_probe(
+        self,
+        path: str,
+        *,
+        query: str,
+        fragment: str,
+        head_only: bool,
+    ) -> bool:
+        if path not in {HEALTH_PATH, READINESS_PATH}:
+            return False
+        event = "health_request" if path == HEALTH_PATH else "readiness_request"
+        if query or fragment or not self._is_loopback_peer():
+            payload: Any = _safe_error("not_found")
+            status = 404
+        elif path == HEALTH_PATH:
+            payload = {"status": "ok"}
+            status = 200
+        else:
+            readiness: ReadinessEvaluator | None = self.dependencies.readiness  # type: ignore[attr-defined]
+            try:
+                if readiness is None:
+                    raise ReadinessFailure("identity_invalid")
+                readiness.evaluate()
+                payload = {"status": "ready"}
+                status = 200
+            except ReadinessFailure as exc:
+                payload = {"status": "not_ready", "code": exc.code}
+                status = 503
+            except Exception:
+                payload = {"status": "not_ready", "code": "upstream_unavailable"}
+                status = 503
+        body = _json_bytes(payload)
+        self._send_bytes(
+            body,
+            status=status,
+            content_type="application/json; charset=utf-8",
+            cache_control="no-store",
+            head_only=head_only,
+        )
+        self.dependencies.logger.write(  # type: ignore[attr-defined]
+            event,
+            status=status,
+            client_id=self.client_token(),
+        )
+        return True
 
     def _common_headers(self, *, cache_control: str) -> None:
         self.send_header("Cache-Control", cache_control)
@@ -142,6 +360,36 @@ def make_public_handler(dependencies: PublicDependencies):
 
     class PublicHandler(_SafeHandler):
         dependencies = bound_dependencies
+
+        def _forwarded_identity_values(self) -> tuple[str, ...]:
+            return tuple(
+                value
+                for name, value in self.headers.raw_items()
+                if name.casefold() == MONITOR_CLIENT_IP_HEADER.casefold()
+            )
+
+        def _request_client_identity(self) -> str:
+            cached = getattr(self, "_monitor_client_identity", None)
+            if cached is not None:
+                return cached
+            identity = dependencies.client_identity_resolver(
+                str(self.client_address[0]),
+                self._forwarded_identity_values(),
+            )
+            self._monitor_client_identity = identity
+            return identity
+
+        def _require_client_identity(self) -> str | None:
+            try:
+                return self._request_client_identity()
+            except SecurityBoundaryError:
+                self._send_public_json(
+                    _safe_error("bad_request"),
+                    status=400,
+                    event="public_rejected",
+                    client_identity=self.direct_client_identity(),
+                )
+                return None
 
         def send_error(
             self,
@@ -193,11 +441,18 @@ def make_public_handler(dependencies: PublicDependencies):
             event: str,
             allow: str | None = None,
             head_only: bool = False,
+            client_identity: str | None = None,
         ) -> None:
             if status < 400 and scan_public_value(payload):
                 payload = _safe_error("monitor_unavailable")
                 status = 502
                 event = "upstream_schema_invalid"
+            if client_identity is None:
+                client_identity = getattr(
+                    self,
+                    "_monitor_client_identity",
+                    self.direct_client_identity(),
+                )
             self._send_public_bytes(
                 _json_bytes(payload),
                 status=status,
@@ -205,10 +460,24 @@ def make_public_handler(dependencies: PublicDependencies):
                 allow=allow,
                 head_only=head_only,
             )
-            dependencies.logger.write(event, status=status, client_id=self.client_token)
+            dependencies.logger.write(
+                event,
+                status=status,
+                client_id=self.client_token(client_identity),
+            )
 
         def do_GET(self) -> None:
             parsed = urlsplit(self.path)
+            if self._send_runtime_probe(
+                parsed.path,
+                query=parsed.query,
+                fragment=parsed.fragment,
+                head_only=False,
+            ):
+                return
+            client_identity = self._require_client_identity()
+            if client_identity is None:
+                return
             if parsed.path == PUBLIC_SUMMARY_PATH:
                 if parsed.query or parsed.fragment:
                     return self._send_public_json(
@@ -216,7 +485,7 @@ def make_public_handler(dependencies: PublicDependencies):
                         status=404,
                         event="public_rejected",
                     )
-                if not dependencies.limiter.consume(str(self.client_address[0])):
+                if not dependencies.limiter.consume(client_identity):
                     return self._send_public_json(
                         _safe_error("rate_limited"),
                         status=429,
@@ -259,6 +528,15 @@ def make_public_handler(dependencies: PublicDependencies):
 
         def do_HEAD(self) -> None:
             parsed = urlsplit(self.path)
+            if self._send_runtime_probe(
+                parsed.path,
+                query=parsed.query,
+                fragment=parsed.fragment,
+                head_only=True,
+            ):
+                return
+            if self._require_client_identity() is None:
+                return
             if parsed.path == PUBLIC_SUMMARY_PATH:
                 return self._send_public_json(
                     _safe_error("method_not_allowed"),
@@ -320,11 +598,28 @@ def make_public_handler(dependencies: PublicDependencies):
                 head_only=head_only,
             )
             dependencies.logger.write(
-                "public_request", status=200, client_id=self.client_token
+                "public_request",
+                status=200,
+                client_id=self.client_token(self._request_client_identity()),
             )
 
         def _reject_write(self) -> None:
             parsed = urlsplit(self.path)
+            if parsed.path in {HEALTH_PATH, READINESS_PATH}:
+                hidden = (
+                    bool(parsed.query)
+                    or bool(parsed.fragment)
+                    or not self._is_loopback_peer()
+                )
+                return self._send_public_json(
+                    _safe_error("not_found" if hidden else "method_not_allowed"),
+                    status=404 if hidden else 405,
+                    event="public_rejected",
+                    allow=None if hidden else "GET, HEAD",
+                    client_identity=self.direct_client_identity(),
+                )
+            if self._require_client_identity() is None:
+                return
             allow = "GET" if parsed.path == PUBLIC_SUMMARY_PATH else "GET, HEAD"
             self._send_public_json(
                 _safe_error("method_not_allowed"),
@@ -383,7 +678,11 @@ def make_private_handler(dependencies: PrivateDependencies):
                 allow=allow,
                 head_only=head_only,
             )
-            dependencies.logger.write(event, status=status, client_id=self.client_token)
+            dependencies.logger.write(
+                event,
+                status=status,
+                client_id=self.client_token(),
+            )
 
         def _identity(self) -> str | None:
             if not isinstance(self.connection, ssl.SSLSocket):
@@ -393,6 +692,13 @@ def make_private_handler(dependencies: PrivateDependencies):
 
         def do_GET(self) -> None:
             parsed = urlsplit(self.path)
+            if self._send_runtime_probe(
+                parsed.path,
+                query=parsed.query,
+                fragment=parsed.fragment,
+                head_only=False,
+            ):
+                return
             if parsed.path != PRIVATE_SUMMARY_PATH or parsed.query or parsed.fragment:
                 return self._send_private_json(
                     _safe_error("not_found"),
@@ -443,6 +749,14 @@ def make_private_handler(dependencies: PrivateDependencies):
             )
 
         def do_HEAD(self) -> None:
+            parsed = urlsplit(self.path)
+            if self._send_runtime_probe(
+                parsed.path,
+                query=parsed.query,
+                fragment=parsed.fragment,
+                head_only=True,
+            ):
+                return
             self._send_private_json(
                 _safe_error("method_not_allowed"),
                 status=405,
@@ -452,6 +766,19 @@ def make_private_handler(dependencies: PrivateDependencies):
             )
 
         def _reject_method(self) -> None:
+            parsed = urlsplit(self.path)
+            if parsed.path in {HEALTH_PATH, READINESS_PATH}:
+                hidden = (
+                    bool(parsed.query)
+                    or bool(parsed.fragment)
+                    or not self._is_loopback_peer()
+                )
+                return self._send_private_json(
+                    _safe_error("not_found" if hidden else "method_not_allowed"),
+                    status=404 if hidden else 405,
+                    event="private_rejected",
+                    allow=None if hidden else "GET, HEAD",
+                )
             self._send_private_json(
                 _safe_error("method_not_allowed"),
                 status=405,
@@ -493,32 +820,92 @@ def _path(name: str) -> Path:
     return path
 
 
-def _optional_identity_files() -> dict[str, Path]:
-    files = {PUBLIC_BFF_IDENTITY: _path("PUBLIC_BFF_IDENTITY_CERT_FILE")}
-    optional = {
-        AUTH_SERVICE_IDENTITY: "AUTH_SERVICE_IDENTITY_CERT_FILE",
-        OPERATOR_IDENTITY: "OPERATOR_IDENTITY_CERT_FILE",
+def _optional_file(name: str) -> Path | None:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return None
+    path = Path(value.strip()).expanduser().resolve()
+    if not path.is_file():
+        raise SecurityBoundaryError(f"{name} is not a file")
+    return path
+
+
+def _optional_identity_files() -> dict[str, tuple[Path, ...]]:
+    configured: dict[str, tuple[Path, ...]] = {}
+    names = {
+        PUBLIC_BFF_IDENTITY: (
+            "PUBLIC_BFF_IDENTITY_CERT_FILE",
+            "PUBLIC_BFF_IDENTITY_CERT_FILE_NEXT",
+            True,
+        ),
+        AUTH_SERVICE_IDENTITY: (
+            "AUTH_SERVICE_IDENTITY_CERT_FILE",
+            "AUTH_SERVICE_IDENTITY_CERT_FILE_NEXT",
+            False,
+        ),
+        OPERATOR_IDENTITY: (
+            "OPERATOR_IDENTITY_CERT_FILE",
+            "OPERATOR_IDENTITY_CERT_FILE_NEXT",
+            False,
+        ),
     }
-    for role, name in optional.items():
-        value = os.environ.get(name)
-        if value and value.strip():
-            path = Path(value.strip()).expanduser().resolve()
-            if not path.is_file():
-                raise SecurityBoundaryError(f"{name} is not a file")
-            files[role] = path
-    return files
+    for role, (current_name, next_name, required) in names.items():
+        current = _path(current_name) if required else _optional_file(current_name)
+        next_path = _optional_file(next_name)
+        if next_path is not None and current is None:
+            raise SecurityBoundaryError(f"{next_name} requires {current_name}")
+        if current is not None:
+            configured[role] = (
+                (current, next_path) if next_path is not None else (current,)
+            )
+    return configured
 
 
-def _raw_client() -> RawMonitorClient:
+def _identity_certificate_requirements(
+    files: dict[str, tuple[Path, ...]],
+) -> tuple[CertificateRequirement, ...]:
+    requirements: list[CertificateRequirement] = []
+    for role, paths in files.items():
+        for index, path in enumerate(paths):
+            suffix = "current" if index == 0 else "next"
+            requirements.append(
+                CertificateRequirement(role=f"{role}_{suffix}", path=path)
+            )
+    return tuple(requirements)
+
+
+def _emit_and_validate_startup_certificates(
+    logger: SafeEventLogger,
+    requirements: tuple[CertificateRequirement, ...],
+) -> None:
+    now = datetime.now(timezone.utc)
+    for diagnostic in _certificate_diagnostics(requirements, now=now):
+        logger.write_certificate_status(
+            role=diagnostic.role,
+            fingerprint_sha256=diagnostic.fingerprint_sha256,
+            not_after=diagnostic.not_after,
+            remaining_seconds=diagnostic.remaining_seconds,
+            status=diagnostic.status,
+        )
+        if diagnostic.status in {"invalid", "expired"}:
+            raise SecurityBoundaryError("runtime certificate is invalid")
+
+
+def _raw_client() -> tuple[RawMonitorClient, tuple[CertificateRequirement, ...]]:
     origin = Origin.private(_required("RAW_MONITOR_API_ORIGIN"), require_https=False)
     context: ssl.SSLContext | None = None
+    requirements: tuple[CertificateRequirement, ...] = ()
     if origin.scheme == "https":
+        raw_ca_file = _path("RAW_MONITOR_CA_FILE")
         context = ssl.create_default_context(
             ssl.Purpose.SERVER_AUTH,
-            cafile=str(_path("RAW_MONITOR_CA_FILE")),
+            cafile=str(raw_ca_file),
         )
         context.minimum_version = ssl.TLSVersion.TLSv1_2
-    return RawMonitorClient(FixedJsonClient(origin, tls_context=context))
+        requirements = (
+            CertificateRequirement(role="raw_monitor_ca", path=raw_ca_file),
+        )
+    return RawMonitorClient(FixedJsonClient(origin, tls_context=context)), requirements
 
 
 def run_public() -> None:
@@ -526,46 +913,84 @@ def run_public() -> None:
         _required("FINAL_CANONICAL_WEBSITE_ORIGIN")
     )
     private_origin = Origin.private(_required("MONITOR_API_ORIGIN"), require_https=True)
+    bind_host = validate_loopback_bind_host(_required("PUBLIC_MONITOR_BIND_HOST"))
+    private_ca_file = _path("MONITOR_PRIVATE_CA_FILE")
+    public_bff_certificate = _path("MONITOR_PUBLIC_BFF_CLIENT_CERT_FILE")
+    public_bff_key = _path("MONITOR_PUBLIC_BFF_CLIENT_KEY_FILE")
+    public_tls_certificate = _path("PUBLIC_MONITOR_TLS_CERT_FILE")
+    public_tls_key = _path("PUBLIC_MONITOR_TLS_KEY_FILE")
     client_context = build_mtls_client_context(
-        ca_file=_path("MONITOR_PRIVATE_CA_FILE"),
-        certificate_file=_path("MONITOR_PUBLIC_BFF_CLIENT_CERT_FILE"),
-        key_file=_path("MONITOR_PUBLIC_BFF_CLIENT_KEY_FILE"),
+        ca_file=private_ca_file,
+        certificate_file=public_bff_certificate,
+        key_file=public_bff_key,
     )
+    summary_reader = PrivateProjectionClient(
+        FixedJsonClient(private_origin, tls_context=client_context)
+    )
+    certificate_requirements = (
+        CertificateRequirement(role="public_listener", path=public_tls_certificate),
+        CertificateRequirement(role="private_ca", path=private_ca_file),
+        CertificateRequirement(role="public_bff_current", path=public_bff_certificate),
+    )
+    logger = SafeEventLogger()
+    _emit_and_validate_startup_certificates(logger, certificate_requirements)
     dependencies = PublicDependencies(
-        summary_reader=PrivateProjectionClient(
-            FixedJsonClient(private_origin, tls_context=client_context)
-        ),
+        summary_reader=summary_reader,
         parent_origin=parent_origin,
         limiter=TokenBucketLimiter(requests_per_minute=30, burst=10),
-        logger=SafeEventLogger(),
+        logger=logger,
+        client_identity_resolver=resolve_trusted_proxy_client_identity,
+        readiness=PublicRuntimeReadiness(
+            summary_reader=summary_reader,
+            certificate_requirements=certificate_requirements,
+        ),
     )
-    server = ThreadingHTTPServer(
-        (_required("PUBLIC_MONITOR_BIND_HOST"), _required_port("PUBLIC_MONITOR_PORT")),
+    server = _threading_server(
+        bind_host,
+        _required_port("PUBLIC_MONITOR_PORT"),
         make_public_handler(dependencies),
     )
     tls_context = build_public_tls_server_context(
-        certificate_file=_path("PUBLIC_MONITOR_TLS_CERT_FILE"),
-        key_file=_path("PUBLIC_MONITOR_TLS_KEY_FILE"),
+        certificate_file=public_tls_certificate,
+        key_file=public_tls_key,
     )
     server.socket = tls_context.wrap_socket(server.socket, server_side=True)
     server.serve_forever()
 
 
 def run_private() -> None:
-    host = validate_private_bind_host(_required("PRIVATE_MONITOR_BIND_HOST"))
-    dependencies = PrivateDependencies(
-        raw_reader=_raw_client(),
-        identities=IdentityRegistry.from_certificate_files(_optional_identity_files()),
-        logger=SafeEventLogger(),
+    host = validate_loopback_bind_host(_required("PRIVATE_MONITOR_BIND_HOST"))
+    raw_reader, raw_requirements = _raw_client()
+    identity_files = _optional_identity_files()
+    private_tls_certificate = _path("PRIVATE_MONITOR_TLS_CERT_FILE")
+    private_tls_key = _path("PRIVATE_MONITOR_TLS_KEY_FILE")
+    private_client_ca = _path("PRIVATE_MONITOR_CLIENT_CA_FILE")
+    certificate_requirements = (
+        CertificateRequirement(role="private_listener", path=private_tls_certificate),
+        CertificateRequirement(role="private_client_ca", path=private_client_ca),
+        *_identity_certificate_requirements(identity_files),
+        *raw_requirements,
     )
-    server = ThreadingHTTPServer(
-        (host, _required_port("PRIVATE_MONITOR_PORT")),
+    logger = SafeEventLogger()
+    _emit_and_validate_startup_certificates(logger, certificate_requirements)
+    dependencies = PrivateDependencies(
+        raw_reader=raw_reader,
+        identities=IdentityRegistry.from_certificate_files(identity_files),
+        logger=logger,
+        readiness=PrivateRuntimeReadiness(
+            raw_reader=raw_reader,
+            certificate_requirements=certificate_requirements,
+        ),
+    )
+    server = _threading_server(
+        host,
+        _required_port("PRIVATE_MONITOR_PORT"),
         make_private_handler(dependencies),
     )
     tls_context = build_mtls_server_context(
-        ca_file=_path("PRIVATE_MONITOR_CLIENT_CA_FILE"),
-        certificate_file=_path("PRIVATE_MONITOR_TLS_CERT_FILE"),
-        key_file=_path("PRIVATE_MONITOR_TLS_KEY_FILE"),
+        ca_file=private_client_ca,
+        certificate_file=private_tls_certificate,
+        key_file=private_tls_key,
     )
     server.socket = tls_context.wrap_socket(server.socket, server_side=True)
     server.serve_forever()

@@ -8,8 +8,9 @@ import json
 import socket
 import ssl
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from .projection import ProjectionError, validate_public_summary
 from .security import SecurityBoundaryError, validate_origin
@@ -17,6 +18,7 @@ from .security import SecurityBoundaryError, validate_origin
 
 MAX_JSON_BYTES = 512 * 1024
 DEFAULT_TIMEOUT_SECONDS = 5.0
+CERTIFICATE_MINIMUM_VALIDITY_SECONDS = 24 * 60 * 60
 PUBLIC_BFF_IDENTITY = "public_bff"
 AUTH_SERVICE_IDENTITY = "auth_service"
 OPERATOR_IDENTITY = "operator"
@@ -39,6 +41,15 @@ class UpstreamUnavailable(MonitorGatewayError):
 
 class UpstreamSchemaInvalid(MonitorGatewayError):
     pass
+
+
+@dataclass(frozen=True)
+class CertificateDiagnostic:
+    role: str
+    fingerprint_sha256: str | None
+    not_after: str | None
+    remaining_seconds: int
+    status: str
 
 
 @dataclass(frozen=True)
@@ -219,25 +230,121 @@ def certificate_fingerprint(path: Path) -> str:
     return hashlib.sha256(der).hexdigest()
 
 
+def certificate_diagnostic(
+    path: Path,
+    *,
+    role: str,
+    now: datetime | None = None,
+    minimum_validity_seconds: int = CERTIFICATE_MINIMUM_VALIDITY_SECONDS,
+) -> CertificateDiagnostic:
+    """Return only safe certificate metadata needed by startup/readiness gates."""
+
+    if (
+        not isinstance(role, str)
+        or not role
+        or minimum_validity_seconds < 0
+    ):
+        raise SecurityBoundaryError("certificate diagnostic configuration is invalid")
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        raise SecurityBoundaryError("certificate diagnostic time is invalid")
+    current = current.astimezone(timezone.utc)
+    try:
+        fingerprint = certificate_fingerprint(path)
+        decoded = ssl._ssl._test_decode_cert(str(path))  # type: ignore[attr-defined]
+        raw_not_after = decoded.get("notAfter")
+        if not isinstance(raw_not_after, str) or not raw_not_after:
+            raise ValueError("missing expiry")
+        expires_at = datetime.fromtimestamp(
+            ssl.cert_time_to_seconds(raw_not_after),
+            tz=timezone.utc,
+        )
+    except (
+        AttributeError,
+        OSError,
+        OverflowError,
+        TypeError,
+        ValueError,
+        ssl.SSLError,
+        SecurityBoundaryError,
+    ):
+        return CertificateDiagnostic(
+            role=role,
+            fingerprint_sha256=None,
+            not_after=None,
+            remaining_seconds=0,
+            status="invalid",
+        )
+    remaining_seconds = int((expires_at - current).total_seconds())
+    if remaining_seconds <= 0:
+        status = "expired"
+    elif remaining_seconds < minimum_validity_seconds:
+        status = "expiring"
+    else:
+        status = "valid"
+    return CertificateDiagnostic(
+        role=role,
+        fingerprint_sha256=fingerprint,
+        not_after=expires_at.isoformat(timespec="seconds").replace("+00:00", "Z"),
+        remaining_seconds=remaining_seconds,
+        status=status,
+    )
+
+
 class IdentityRegistry:
     """Maps independently revocable client certificates to one exact role."""
 
-    def __init__(self, fingerprints: dict[str, str]) -> None:
+    def __init__(
+        self,
+        fingerprints: dict[str, str | Sequence[str]],
+    ) -> None:
         if not fingerprints or not set(fingerprints).issubset(IDENTITY_ROLES):
             raise SecurityBoundaryError("identity role is invalid")
         normalized: dict[str, str] = {}
-        for role, raw_fingerprint in fingerprints.items():
-            fingerprint = raw_fingerprint.casefold().replace(":", "")
-            if not re_full_sha256(fingerprint):
-                raise SecurityBoundaryError("identity fingerprint is invalid")
-            if fingerprint in normalized:
-                raise SecurityBoundaryError("service identities must be distinct")
-            normalized[fingerprint] = role
+        for role, raw_fingerprints in fingerprints.items():
+            values = (
+                (raw_fingerprints,)
+                if isinstance(raw_fingerprints, str)
+                else tuple(raw_fingerprints)
+            )
+            if not 1 <= len(values) <= 2:
+                raise SecurityBoundaryError("identity rotation window is invalid")
+            role_fingerprints: set[str] = set()
+            for raw_fingerprint in values:
+                if not isinstance(raw_fingerprint, str):
+                    raise SecurityBoundaryError("identity fingerprint is invalid")
+                fingerprint = raw_fingerprint.casefold().replace(":", "")
+                if not re_full_sha256(fingerprint):
+                    raise SecurityBoundaryError("identity fingerprint is invalid")
+                if fingerprint in role_fingerprints:
+                    raise SecurityBoundaryError("identity fingerprint is duplicated")
+                if fingerprint in normalized:
+                    raise SecurityBoundaryError("service identities must be distinct")
+                role_fingerprints.add(fingerprint)
+                normalized[fingerprint] = role
         self._by_fingerprint = normalized
 
     @classmethod
-    def from_certificate_files(cls, files: dict[str, Path]) -> "IdentityRegistry":
-        return cls({role: certificate_fingerprint(path) for role, path in files.items()})
+    def from_certificate_files(
+        cls,
+        files: dict[str, Path | Sequence[Path]],
+        *,
+        now: datetime | None = None,
+    ) -> "IdentityRegistry":
+        fingerprints: dict[str, tuple[str, ...]] = {}
+        for role, raw_paths in files.items():
+            paths = (raw_paths,) if isinstance(raw_paths, Path) else tuple(raw_paths)
+            if not 1 <= len(paths) <= 2:
+                raise SecurityBoundaryError("identity rotation window is invalid")
+            role_fingerprints: list[str] = []
+            for path in paths:
+                diagnostic = certificate_diagnostic(path, role=role, now=now)
+                if diagnostic.status in {"invalid", "expired"}:
+                    raise SecurityBoundaryError("identity certificate is invalid")
+                assert diagnostic.fingerprint_sha256 is not None
+                role_fingerprints.append(diagnostic.fingerprint_sha256)
+            fingerprints[role] = tuple(role_fingerprints)
+        return cls(fingerprints)
 
     def resolve_der_certificate(self, certificate: bytes | None) -> str | None:
         if not certificate:
