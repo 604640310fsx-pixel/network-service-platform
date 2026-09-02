@@ -316,10 +316,15 @@ class PreflightAndTemplateTests(unittest.TestCase):
                 preflight_module.socket,
                 "create_connection",
                 side_effect=exception,
-            ), self.assertRaises(preflight_module.PreflightError) as raised:
+            ) as create_connection, self.assertRaises(
+                preflight_module.PreflightError
+            ) as raised:
                 preflight_module._http_probe(*probe_arguments, **probe_keywords)
             self.assertEqual(raised.exception.code, expected_code)
             self.assertEqual(raised.exception.check, "private_postcheck")
+            create_connection.assert_called_once_with(
+                ("loopback-listener", 1), timeout=3
+            )
 
         context = mock.Mock()
         with mock.patch.object(
@@ -338,6 +343,7 @@ class PreflightAndTemplateTests(unittest.TestCase):
             )
         self.assertEqual(raised.exception.code, "private_readiness_rejected")
         self.assertEqual(raised.exception.check, "private_postcheck")
+        self.assertEqual(context.maximum_version, ssl.TLSVersion.TLSv1_2)
 
     def test_private_postcheck_retry_exit_codes_are_stable(self):
         manifest = sanitized_manifest(Path("/tmp/monitor-gateway-test-backup"))
@@ -595,8 +601,8 @@ class PreflightAndTemplateTests(unittest.TestCase):
 
             def run_gate(verify_mode: ssl.VerifyMode) -> tuple[str | None, bool]:
                 server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-                server_context.minimum_version = ssl.TLSVersion.TLSv1_3
-                server_context.maximum_version = ssl.TLSVersion.TLSv1_3
+                server_context.minimum_version = ssl.TLSVersion.TLSv1_2
+                server_context.maximum_version = ssl.TLSVersion.TLSv1_2
                 server_context.load_cert_chain(server_certificate, server_key)
                 server_context.verify_mode = verify_mode
                 if verify_mode == ssl.CERT_REQUIRED:
@@ -646,20 +652,11 @@ class PreflightAndTemplateTests(unittest.TestCase):
                 return error_code, certificate_rejected.is_set()
 
             error_code, certificate_rejected = run_gate(ssl.CERT_REQUIRED)
-            self.assertIn(
-                error_code,
-                {None, "private_mtls_negative_gate_inconclusive"},
-            )
+            self.assertIsNone(error_code)
             self.assertTrue(certificate_rejected)
 
             error_code, certificate_rejected = run_gate(ssl.CERT_NONE)
-            self.assertIn(
-                error_code,
-                {
-                    "private_mtls_negative_gate_failed",
-                    "private_mtls_negative_gate_inconclusive",
-                },
-            )
+            self.assertEqual(error_code, "private_mtls_negative_gate_failed")
             self.assertFalse(certificate_rejected)
 
     def test_leaf_rejects_extra_extended_key_usage(self):
@@ -1144,6 +1141,9 @@ class PreflightAndTemplateTests(unittest.TestCase):
         self.assertEqual(backup_function.count(' symlink "$backup_name"'), 1)
         self.assertIn("classify_service_state() {", rollback)
         self.assertIn("stop_service_if_active() {", rollback)
+        self.assertIn("remove_created_directory_if_present() {", rollback)
+        self.assertIn("classify_identity_state() {", rollback)
+        self.assertIn("remove_created_identity_if_present() {", rollback)
         self.assertIn('3) service_state="inactive"', rollback)
         self.assertIn('4) service_state="not-found"', rollback)
         self.assertLess(
@@ -1190,6 +1190,7 @@ class PreflightAndTemplateTests(unittest.TestCase):
                 "set -euo pipefail\n"
                 + functions
                 + "\nstop_service_if_active test.service 'service remains active'\n"
+                + "stop_service_if_active test.service 'service remains active'\n"
                 + "printf '%s\\n' SERVICE_GATE_PASS\n",
                 encoding="utf-8",
             )
@@ -1221,11 +1222,10 @@ class PreflightAndTemplateTests(unittest.TestCase):
 
     def test_rollback_identity_cleanup_restores_recorded_result(self):
         rollback = (DEPLOY_ROOT / "rollback-root.sh").read_text()
-        identity_start = rollback.index(
-            '  if [[ "$(record_boolean serviceUserExisted)" == "false" ]]'
-        )
-        identity_end = rollback.index('  printf \'%s\\n\' "ROLLBACK: PASS"', identity_start)
-        identity_cleanup = rollback[identity_start:identity_end]
+        identity_start = rollback.index("remove_created_identity_if_present() {")
+        identity_end = rollback.index("\n}\n", identity_start) + 3
+        state_start = rollback.index('identity_state=""')
+        identity_cleanup = rollback[state_start:identity_end]
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -1247,15 +1247,30 @@ class PreflightAndTemplateTests(unittest.TestCase):
                 "  esac\n"
                 "}\n"
                 + identity_cleanup
+                + "remove_created_identity_if_present\n"
+                + "remove_created_identity_if_present\n"
                 + "printf '%s\\n' IDENTITY_CLEANUP_PASS\n",
                 encoding="utf-8",
             )
             pgrep.write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
+            getent = root / "getent"
+            getent.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -eu\n"
+                "[[ \"${GETENT_FAILURE:-no}\" != yes ]] || exit 1\n"
+                "case \"$1\" in\n"
+                "  passwd) [[ -f \"$IDENTITY_STATE/user\" ]] || exit 2 ;;\n"
+                "  group) [[ -f \"$IDENTITY_STATE/group\" ]] || exit 2 ;;\n"
+                "  *) exit 2 ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
             userdel.write_text(
                 "#!/usr/bin/env bash\n"
                 "set -eu\n"
                 "[[ -f \"$IDENTITY_STATE/user\" ]] || exit 6\n"
-                "rm \"$IDENTITY_STATE/user\"\n",
+                "rm \"$IDENTITY_STATE/user\"\n"
+                "[[ \"$USERDEL_REMOVES_GROUP\" != yes ]] || rm \"$IDENTITY_STATE/group\"\n",
                 encoding="utf-8",
             )
             groupdel.write_text(
@@ -1266,16 +1281,23 @@ class PreflightAndTemplateTests(unittest.TestCase):
                 "rm \"$IDENTITY_STATE/group\"\n",
                 encoding="utf-8",
             )
-            for path in (harness, pgrep, userdel, groupdel):
+            for path in (harness, getent, pgrep, userdel, groupdel):
                 os.chmod(path, 0o755)
 
             environment = os.environ.copy()
             environment["PATH"] = str(root) + os.pathsep + environment["PATH"]
             cases = (
-                ("created-by-install", "false", "false", False),
-                ("preexisting", "true", "true", True),
+                ("created-autogroup", "false", "false", "yes", False),
+                ("created-separate-group", "false", "false", "no", False),
+                ("preexisting", "true", "true", "no", True),
             )
-            for scenario, user_preexisted, group_preexisted, should_remain in cases:
+            for (
+                scenario,
+                user_preexisted,
+                group_preexisted,
+                userdel_removes_group,
+                should_remain,
+            ) in cases:
                 with self.subTest(scenario=scenario):
                     state = root / scenario
                     state.mkdir()
@@ -1284,6 +1306,7 @@ class PreflightAndTemplateTests(unittest.TestCase):
                     environment["IDENTITY_STATE"] = str(state)
                     environment["USER_PREEXISTED"] = user_preexisted
                     environment["GROUP_PREEXISTED"] = group_preexisted
+                    environment["USERDEL_REMOVES_GROUP"] = userdel_removes_group
                     result = subprocess.run(
                         ["bash", str(harness)],
                         capture_output=True,
@@ -1296,6 +1319,74 @@ class PreflightAndTemplateTests(unittest.TestCase):
                     self.assertIn("IDENTITY_CLEANUP_PASS", output)
                     self.assertEqual((state / "user").exists(), should_remain)
                     self.assertEqual((state / "group").exists(), should_remain)
+
+            failure_state = root / "getent-failure"
+            failure_state.mkdir()
+            (failure_state / "user").touch()
+            (failure_state / "group").touch()
+            environment["IDENTITY_STATE"] = str(failure_state)
+            environment["USER_PREEXISTED"] = "false"
+            environment["GROUP_PREEXISTED"] = "false"
+            environment["USERDEL_REMOVES_GROUP"] = "no"
+            environment["GETENT_FAILURE"] = "yes"
+            result = subprocess.run(
+                ["bash", str(harness)],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=environment,
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(
+                "ROLLBACK_BLOCKED: identity state check failed",
+                result.stdout + result.stderr,
+            )
+
+    def test_rollback_created_directory_cleanup_is_repeatable(self):
+        rollback = (DEPLOY_ROOT / "rollback-root.sh").read_text()
+        cleanup_start = rollback.index("remove_created_directory_if_present() {")
+        cleanup_end = rollback.index("\n}\n", cleanup_start) + 3
+        cleanup = rollback[cleanup_start:cleanup_end]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            harness = root / "harness.sh"
+            created = root / "created"
+            created.mkdir()
+            harness.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                "fail() { printf '%s\\n' \"ROLLBACK_BLOCKED: $1\" >&2; exit 1; }\n"
+                + cleanup
+                + f"remove_created_directory_if_present '{created}' 'directory not empty'\n"
+                + f"remove_created_directory_if_present '{created}' 'directory not empty'\n"
+                + "printf '%s\\n' DIRECTORY_CLEANUP_PASS\n",
+                encoding="utf-8",
+            )
+            os.chmod(harness, 0o755)
+            result = subprocess.run(
+                ["bash", str(harness)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("DIRECTORY_CLEANUP_PASS", result.stdout)
+            self.assertFalse(created.exists())
+
+            created.mkdir()
+            (created / "unexpected-residue").touch()
+            result = subprocess.run(
+                ["bash", str(harness)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(
+                "ROLLBACK_BLOCKED: directory not empty",
+                result.stdout + result.stderr,
+            )
 
     def test_repository_assets_contain_no_generated_or_credential_material(self):
         excluded = {"test_deployment_assets.py", "README.md"}
