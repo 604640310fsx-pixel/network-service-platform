@@ -147,11 +147,34 @@ Paths, subject/SAN data, serial numbers, PEM, keys, and raw CA content are never
 logged. Invalid or expired certificates prevent startup; a certificate with
 less than 24 hours remaining keeps readiness closed.
 
+## Runtime timeout budget
+
+Every upstream operation uses one monotonic end-to-end deadline. Connecting is
+capped at 3 seconds, and waiting for headers plus every body read receives only
+the remaining time; a slow response cannot restart the budget per chunk. The
+JSON body limit remains 512 KiB. Requests are not retried and no earlier success
+is substituted after a timeout.
+
+The fixed runtime budgets are:
+
+- raw overview: 25 seconds, followed sequentially by raw latency: 8 seconds;
+- complete private projection: 36 seconds, including projection and validation;
+- public-to-private projection read: 40 seconds;
+- complete dynamic public `/api/summary`: 42 seconds, including validation,
+  public-value scanning, and serialization;
+- `/readyz`: 45 seconds. `/healthz` remains upstream-free and fast.
+
+Each caller supplies its budget explicitly; the fixed JSON client accepts no
+implicit production timeout and rejects values outside `(0, 45]`. Future Nginx
+configuration must use a 3-second connect timeout and a 50-second read timeout.
+Those Nginx values are documented here only; this repository task does not edit
+or deploy Nginx configuration.
+
 ## Graceful process shutdown
 
 The formal public and private runtime entry points share one bounded shutdown
 lifecycle. The first `SIGTERM` or `SIGINT` stops new request workers, stops the
-listener loop, and gives requests that already started up to 15 seconds to
+listener loop, and gives requests that already started up to 60 seconds to
 finish. A completed drain exits with status 0; an expired drain exits nonzero,
 and request workers are daemonized so a stuck request cannot hold the process
 open past the bound. Repeated signals do not start a second shutdown or close
@@ -159,7 +182,7 @@ the listener twice.
 
 This behavior adds no route, readiness state, environment variable, or public
 API. Importing the module, the offline preview, and direct handler tests do not
-install signal handlers. The 15-second value is fixed for the production entry
+install signal handlers. The 60-second value is fixed for the production entry
 points; tests may inject a shorter grace period only into the private lifecycle
 helper.
 

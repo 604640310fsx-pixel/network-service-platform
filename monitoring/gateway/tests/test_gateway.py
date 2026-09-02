@@ -555,12 +555,15 @@ class FixedClientTests(unittest.TestCase):
         with _RunningServer(_JsonHandler) as server:
             origin = Origin("http", "127.0.0.1", server.server.server_address[1])
             client = FixedJsonClient(origin, tls_context=None)
-            self.assertEqual(client.get("/fixed"), {"ok": True})
+            self.assertEqual(
+                client.get("/fixed", total_timeout_seconds=8.0),
+                {"ok": True},
+            )
 
             _JsonHandler.status = 302
             _JsonHandler.payload = b""
             with self.assertRaises(UpstreamSchemaInvalid):
-                client.get("/fixed")
+                client.get("/fixed", total_timeout_seconds=8.0)
             _JsonHandler.status = 200
             _JsonHandler.payload = b'{"ok":true}'
 
