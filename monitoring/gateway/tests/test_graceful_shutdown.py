@@ -207,7 +207,7 @@ class GracefulShutdownTests(unittest.TestCase):
         return thread
 
     def test_production_default_and_ipv4_ipv6_servers_share_lifecycle(self) -> None:
-        self.assertEqual(GRACEFUL_SHUTDOWN_SECONDS, 15.0)
+        self.assertEqual(GRACEFUL_SHUTDOWN_SECONDS, 60.0)
         self.assertTrue(_DrainableThreadingHTTPServer.daemon_threads)
         self.assertTrue(
             issubclass(

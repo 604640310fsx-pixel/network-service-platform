@@ -31,7 +31,12 @@ from .client import (
     CertificateDiagnostic,
     FixedJsonClient,
     IdentityRegistry,
+    MonotonicDeadline,
     Origin,
+    PRIVATE_PROJECTION_MAX_SECONDS,
+    PUBLIC_REQUEST_MAX_SECONDS,
+    PUBLIC_TO_PRIVATE_TIMEOUT_SECONDS,
+    READINESS_MAX_SECONDS,
     PrivateProjectionClient,
     RawMonitorClient,
     UpstreamSchemaInvalid,
@@ -68,7 +73,7 @@ PUBLIC_SUMMARY_PATH = "/api/summary"
 PRIVATE_SUMMARY_PATH = "/api/public-summary"
 HEALTH_PATH = "/healthz"
 READINESS_PATH = "/readyz"
-GRACEFUL_SHUTDOWN_SECONDS = 15.0
+GRACEFUL_SHUTDOWN_SECONDS = 60.0
 STATIC_PATHS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/master.css": ("master.css", "text/css; charset=utf-8"),
@@ -132,6 +137,7 @@ class PublicDependencies:
     static_root: Path = STATIC_ROOT
     client_identity_resolver: ClientIdentityResolver = resolve_direct_client_identity
     readiness: ReadinessEvaluator | None = None
+    monotonic_clock: Callable[[], float] = time.monotonic
 
 
 @dataclass(frozen=True)
@@ -141,6 +147,7 @@ class PrivateDependencies:
     logger: SafeEventLogger
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
     readiness: ReadinessEvaluator | None = None
+    monotonic_clock: Callable[[], float] = time.monotonic
 
 
 def _certificate_diagnostics(
@@ -204,18 +211,53 @@ def _map_readiness_error(error: Exception) -> ReadinessFailure:
     return ReadinessFailure("upstream_unavailable")
 
 
+def _read_public_summary(
+    reader: PublicSummaryReader,
+    deadline: MonotonicDeadline,
+) -> dict[str, Any]:
+    deadline_aware = getattr(reader, "read_public_summary_with_deadline", None)
+    if callable(deadline_aware):
+        payload = deadline_aware(deadline)
+    else:
+        payload = reader.read_public_summary()
+    deadline.ensure_remaining()
+    return payload
+
+
+def _read_projection_inputs(
+    reader: RawProjectionReader,
+    deadline: MonotonicDeadline,
+) -> tuple[Any, Any]:
+    deadline_aware = getattr(reader, "read_projection_inputs_with_deadline", None)
+    if callable(deadline_aware):
+        payloads = deadline_aware(deadline)
+    else:
+        payloads = reader.read_projection_inputs()
+    deadline.ensure_remaining()
+    return payloads
+
+
 @dataclass(frozen=True)
 class PublicRuntimeReadiness:
     summary_reader: PublicSummaryReader
     certificate_requirements: tuple[CertificateRequirement, ...]
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
+    monotonic_clock: Callable[[], float] = time.monotonic
 
     def evaluate(self) -> None:
+        deadline = MonotonicDeadline.start(
+            READINESS_MAX_SECONDS,
+            clock=self.monotonic_clock,
+        )
         current = self.now().astimezone(timezone.utc)
         _check_certificate_readiness(self.certificate_requirements, now=current)
         try:
-            payload = self.summary_reader.read_public_summary()
+            payload = _read_public_summary(
+                self.summary_reader,
+                deadline.child(PUBLIC_TO_PRIVATE_TIMEOUT_SECONDS),
+            )
             _check_summary_freshness(payload, now=current)
+            deadline.ensure_remaining()
         except ReadinessFailure:
             raise
         except Exception as exc:
@@ -227,14 +269,23 @@ class PrivateRuntimeReadiness:
     raw_reader: RawProjectionReader
     certificate_requirements: tuple[CertificateRequirement, ...]
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
+    monotonic_clock: Callable[[], float] = time.monotonic
 
     def evaluate(self) -> None:
+        deadline = MonotonicDeadline.start(
+            READINESS_MAX_SECONDS,
+            clock=self.monotonic_clock,
+        )
         current = self.now().astimezone(timezone.utc)
         _check_certificate_readiness(self.certificate_requirements, now=current)
         try:
-            overview, latency = self.raw_reader.read_projection_inputs()
+            overview, latency = _read_projection_inputs(
+                self.raw_reader,
+                deadline.child(PRIVATE_PROJECTION_MAX_SECONDS),
+            )
             payload = project_public_summary(overview, latency, now=current)
             _check_summary_freshness(payload, now=current)
+            deadline.ensure_remaining()
         except ReadinessFailure:
             raise
         except Exception as exc:
@@ -582,11 +633,20 @@ def make_public_handler(dependencies: PublicDependencies):
             allow: str | None = None,
             head_only: bool = False,
             client_identity: str | None = None,
+            deadline: MonotonicDeadline | None = None,
         ) -> None:
             if status < 400 and scan_public_value(payload):
                 payload = _safe_error("monitor_unavailable")
                 status = 502
                 event = "upstream_schema_invalid"
+            body = _json_bytes(payload)
+            if status < 400 and deadline is not None:
+                try:
+                    deadline.ensure_remaining()
+                except UpstreamTimeout:
+                    body = _json_bytes(_safe_error("monitor_unavailable"))
+                    status = 504
+                    event = "upstream_timeout"
             if client_identity is None:
                 client_identity = getattr(
                     self,
@@ -594,7 +654,7 @@ def make_public_handler(dependencies: PublicDependencies):
                     self.direct_client_identity(),
                 )
             self._send_public_bytes(
-                _json_bytes(payload),
+                body,
                 status=status,
                 content_type="application/json; charset=utf-8",
                 allow=allow,
@@ -631,15 +691,24 @@ def make_public_handler(dependencies: PublicDependencies):
                         status=429,
                         event="public_rejected",
                     )
+                deadline = MonotonicDeadline.start(
+                    PUBLIC_REQUEST_MAX_SECONDS,
+                    clock=dependencies.monotonic_clock,
+                )
                 try:
-                    payload = dependencies.summary_reader.read_public_summary()
+                    payload = _read_public_summary(
+                        dependencies.summary_reader,
+                        deadline.child(PUBLIC_TO_PRIVATE_TIMEOUT_SECONDS),
+                    )
+                    payload = validate_public_summary(payload)
+                    deadline.ensure_remaining()
                 except UpstreamTimeout:
                     return self._send_public_json(
                         _safe_error("monitor_unavailable"),
                         status=504,
                         event="upstream_timeout",
                     )
-                except UpstreamSchemaInvalid:
+                except (ProjectionError, UpstreamSchemaInvalid):
                     return self._send_public_json(
                         _safe_error("monitor_unavailable"),
                         status=502,
@@ -663,6 +732,7 @@ def make_public_handler(dependencies: PublicDependencies):
                     payload,
                     status=200,
                     event="public_request",
+                    deadline=deadline,
                 )
             return self._serve_static(parsed.path, head_only=False)
 
@@ -805,13 +875,22 @@ def make_private_handler(dependencies: PrivateDependencies):
             event: str,
             allow: str | None = None,
             head_only: bool = False,
+            deadline: MonotonicDeadline | None = None,
         ) -> None:
             if status < 400 and scan_public_value(payload):
                 payload = _safe_error("monitor_unavailable")
                 status = 502
                 event = "upstream_schema_invalid"
+            body = _json_bytes(payload)
+            if status < 400 and deadline is not None:
+                try:
+                    deadline.ensure_remaining()
+                except UpstreamTimeout:
+                    body = _json_bytes(_safe_error("monitor_unavailable"))
+                    status = 504
+                    event = "upstream_timeout"
             self._send_bytes(
-                _json_bytes(payload),
+                body,
                 status=status,
                 content_type="application/json; charset=utf-8",
                 cache_control="private, no-store",
@@ -851,8 +930,15 @@ def make_private_handler(dependencies: PrivateDependencies):
                     status=403,
                     event="private_rejected",
                 )
+            deadline = MonotonicDeadline.start(
+                PRIVATE_PROJECTION_MAX_SECONDS,
+                clock=dependencies.monotonic_clock,
+            )
             try:
-                overview, latency = dependencies.raw_reader.read_projection_inputs()
+                overview, latency = _read_projection_inputs(
+                    dependencies.raw_reader,
+                    deadline,
+                )
                 payload = project_public_summary(
                     overview,
                     latency,
@@ -886,6 +972,7 @@ def make_private_handler(dependencies: PrivateDependencies):
                 payload,
                 status=200,
                 event="private_request",
+                deadline=deadline,
             )
 
         def do_HEAD(self) -> None:
