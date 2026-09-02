@@ -181,15 +181,44 @@ interface_name="$(manifest_value network.wireguard.interfaceName)"
 wireguard_target="/etc/wireguard/$interface_name.conf"
 release_target="$RELEASE_ROOT/$release_sha"
 
+service_state=""
+classify_service_state() {
+  local service_name="$1"
+  local status
+  if systemctl is-active --quiet "$service_name"; then
+    status=0
+  else
+    status=$?
+  fi
+  case "$status" in
+    0) service_state="active" ;;
+    3) service_state="inactive" ;;
+    4) service_state="not-found" ;;
+    *) fail "service state check failed" ;;
+  esac
+}
+
 stop_service_if_active() {
   local service_name="$1"
   local failure_message="$2"
-  if systemctl is-active --quiet "$service_name"; then
-    systemctl stop "$service_name" || :
+  local stop_status=0
+  classify_service_state "$service_name"
+  if [[ "$service_state" == "active" ]]; then
+    if systemctl stop "$service_name"; then
+      stop_status=0
+    else
+      stop_status=$?
+    fi
   fi
-  if systemctl is-active --quiet "$service_name"; then
-    fail "$failure_message"
-  fi
+  classify_service_state "$service_name"
+  case "$service_state" in
+    inactive|not-found) return ;;
+    active)
+      [[ "$stop_status" -eq 0 ]] || fail "service stop command failed"
+      fail "$failure_message"
+      ;;
+    *) fail "service state classification failed" ;;
+  esac
 }
 
 if [[ "$phase" == "rollback" ]]; then

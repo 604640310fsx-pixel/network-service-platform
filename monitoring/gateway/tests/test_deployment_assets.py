@@ -17,6 +17,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -292,7 +293,7 @@ class ManifestAndRendererTests(unittest.TestCase):
 
 
 class PreflightAndTemplateTests(unittest.TestCase):
-    def test_private_negative_gate_rejects_successful_tls_handshake(self):
+    def test_private_negative_gate_distinguishes_required_cert_from_silent_close(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             ca_certificate = root / "private-ca.pem"
@@ -371,40 +372,74 @@ class PreflightAndTemplateTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
 
-            server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-            server_context.load_cert_chain(server_certificate, server_key)
-            self.assertEqual(server_context.verify_mode, ssl.CERT_NONE)
-            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            listener.bind(("127.0.0.1", 0))
-            listener.listen(1)
-            server_errors: list[BaseException] = []
-
-            def serve_once() -> None:
-                try:
-                    connection, _ = listener.accept()
-                    with server_context.wrap_socket(connection, server_side=True):
-                        pass
-                except Exception as error:  # pragma: no cover - assertion below
-                    server_errors.append(error)
-                finally:
-                    listener.close()
-
-            server_thread = threading.Thread(target=serve_once)
-            server_thread.start()
             manifest = sanitized_manifest(root / "backup")
-            manifest["network"]["privateListener"]["port"] = listener.getsockname()[1]
             manifest["pki"]["privateServer"]["expectedSan"] = "127.0.0.1"
 
-            with self.assertRaises(preflight_module.PreflightError) as raised:
-                preflight_module._validate_private_negative_gate(manifest, root)
-            server_thread.join(timeout=5)
-            self.assertFalse(server_thread.is_alive())
-            self.assertEqual(server_errors, [])
-            self.assertEqual(raised.exception.code, "private_mtls_negative_gate_failed")
-            self.assertEqual(
-                str(raised.exception),
-                "private_mtls_negative_gate_failed at runtime_postcheck",
+            def run_gate(verify_mode: ssl.VerifyMode) -> tuple[str | None, bool]:
+                server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                server_context.minimum_version = ssl.TLSVersion.TLSv1_3
+                server_context.maximum_version = ssl.TLSVersion.TLSv1_3
+                server_context.load_cert_chain(server_certificate, server_key)
+                server_context.verify_mode = verify_mode
+                if verify_mode == ssl.CERT_REQUIRED:
+                    server_context.load_verify_locations(cafile=ca_certificate)
+                listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                listener.settimeout(5)
+                listener.bind(("127.0.0.1", 0))
+                listener.listen(1)
+                port = listener.getsockname()[1]
+                server_errors: list[BaseException] = []
+                certificate_rejected = threading.Event()
+
+                def serve_once() -> None:
+                    try:
+                        connection, _ = listener.accept()
+                        connection.settimeout(5)
+                        with server_context.wrap_socket(connection, server_side=True):
+                            pass
+                    except ssl.SSLError as error:
+                        reason = str(getattr(error, "reason", "")).upper()
+                        if (
+                            verify_mode == ssl.CERT_REQUIRED
+                            and reason == "PEER_DID_NOT_RETURN_A_CERTIFICATE"
+                        ):
+                            certificate_rejected.set()
+                        else:
+                            server_errors.append(error)
+                    except Exception as error:  # pragma: no cover - assertion below
+                        server_errors.append(error)
+                    finally:
+                        listener.close()
+
+                server_thread = threading.Thread(target=serve_once, daemon=True)
+                server_thread.start()
+                manifest["network"]["privateListener"]["port"] = port
+                error_code = None
+                try:
+                    preflight_module._validate_private_negative_gate(manifest, root)
+                except preflight_module.PreflightError as error:
+                    error_code = error.code
+                    self.assertEqual(error.check, "runtime_postcheck")
+                finally:
+                    listener.close()
+                    server_thread.join(timeout=6)
+                self.assertFalse(server_thread.is_alive())
+                self.assertEqual(server_errors, [])
+                return error_code, certificate_rejected.is_set()
+
+            error_code, certificate_rejected = run_gate(ssl.CERT_REQUIRED)
+            self.assertIsNone(error_code)
+            self.assertTrue(certificate_rejected)
+
+            error_code, certificate_rejected = run_gate(ssl.CERT_NONE)
+            self.assertIn(
+                error_code,
+                {
+                    "private_mtls_negative_gate_failed",
+                    "private_mtls_negative_gate_inconclusive",
+                },
             )
+            self.assertFalse(certificate_rejected)
 
     def test_leaf_rejects_extra_extended_key_usage(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -710,15 +745,69 @@ class PreflightAndTemplateTests(unittest.TestCase):
             parent = Path(temporary)
             backup = parent / "backup"
             manifest = sanitized_manifest(backup)
+            manifest_path = parent / "manifest.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            operator_uid = 4242
+
+            def matching_owner(path: Path, check: str) -> int:
+                self.assertIn(path, {parent, manifest_path})
+                self.assertIn(check, {"backup_parent", "manifest"})
+                return operator_uid
 
             os.chmod(parent, 0o777)
-            with self.assertRaises(preflight_module.PreflightError) as raised:
-                preflight_module.validate_backup(backup, manifest, phase="precheck")
+            with mock.patch.object(
+                preflight_module, "_owner_uid", side_effect=matching_owner
+            ), mock.patch.object(
+                preflight_module.os, "geteuid", return_value=operator_uid
+            ), self.assertRaises(preflight_module.PreflightError) as raised:
+                preflight_module.validate_backup(
+                    backup,
+                    manifest,
+                    manifest_path=manifest_path,
+                    phase="precheck",
+                )
             self.assertEqual(raised.exception.code, "mode_mismatch")
             self.assertEqual(raised.exception.check, "backup_parent")
 
             os.chmod(parent, 0o700)
-            preflight_module.validate_backup(backup, manifest, phase="precheck")
+            with mock.patch.object(
+                preflight_module, "_owner_uid", side_effect=matching_owner
+            ), mock.patch.object(
+                preflight_module.os, "geteuid", return_value=operator_uid
+            ):
+                preflight_module.validate_backup(
+                    backup,
+                    manifest,
+                    manifest_path=manifest_path,
+                    phase="precheck",
+                )
+
+            with mock.patch.object(
+                preflight_module, "_owner_uid", side_effect=matching_owner
+            ), mock.patch.object(preflight_module.os, "geteuid", return_value=0):
+                preflight_module.validate_backup(
+                    backup,
+                    manifest,
+                    manifest_path=manifest_path,
+                    phase="precheck",
+                )
+
+            def mismatched_owner(path: Path, check: str) -> int:
+                return operator_uid + 1 if path == manifest_path else operator_uid
+
+            with mock.patch.object(
+                preflight_module, "_owner_uid", side_effect=mismatched_owner
+            ), mock.patch.object(
+                preflight_module.os, "geteuid", return_value=operator_uid
+            ), self.assertRaises(preflight_module.PreflightError) as raised:
+                preflight_module.validate_backup(
+                    backup,
+                    manifest,
+                    manifest_path=manifest_path,
+                    phase="precheck",
+                )
+            self.assertEqual(raised.exception.code, "backup_parent_owner_mismatch")
+            self.assertEqual(raised.exception.check, "backup_parent")
 
     def test_systemd_units_lock_order_identity_and_hardening(self):
         private = (DEPLOY_ROOT / "systemd" / "monitor-gateway-private.service").read_text()
@@ -824,11 +913,10 @@ class PreflightAndTemplateTests(unittest.TestCase):
             'if [[ "$target_id" == "current-link" ]]; then', backup_function
         )
         self.assertEqual(backup_function.count(' symlink "$backup_name"'), 1)
+        self.assertIn("classify_service_state() {", rollback)
         self.assertIn("stop_service_if_active() {", rollback)
-        self.assertIn('systemctl stop "$service_name" || :', rollback)
-        self.assertEqual(
-            rollback.count('systemctl is-active --quiet "$service_name"'), 2
-        )
+        self.assertIn('3) service_state="inactive"', rollback)
+        self.assertIn('4) service_state="not-found"', rollback)
         self.assertLess(
             rollback.index("stop_service_if_active monitor-gateway-public.service"),
             rollback.index("stop_service_if_active monitor-gateway-private.service"),
@@ -837,6 +925,70 @@ class PreflightAndTemplateTests(unittest.TestCase):
         self.assertNotIn("systemctl stop monitor-gateway-private.service", rollback)
         self.assertLess(rollback.index("restore_current_link"), rollback.index("wg-quick down"))
         self.assertIn("BACKUP_EVIDENCE_PRESERVED: YES", rollback)
+
+    def test_rollback_service_gate_classifies_systemctl_results(self):
+        rollback = (DEPLOY_ROOT / "rollback-root.sh").read_text()
+        fail_start = rollback.index("fail() {")
+        fail_end = rollback.index("\n}\n", fail_start) + 3
+        state_start = rollback.index('service_state=""')
+        state_end = rollback.index('\n\nif [[ "$phase" == "rollback" ]]', state_start)
+        functions = rollback[fail_start:fail_end] + "\n" + rollback[state_start:state_end]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            systemctl = root / "systemctl"
+            state_file = root / "state"
+            harness = root / "harness.sh"
+            systemctl.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -eu\n"
+                "case \"$1\" in\n"
+                "  is-active)\n"
+                "    case \"$SYSTEMCTL_SCENARIO\" in\n"
+                "      active) [[ \"$(<\"$SYSTEMCTL_STATE_FILE\")\" == active ]] && exit 0 || exit 3 ;;\n"
+                "      not-found) exit 4 ;;\n"
+                "      manager-error) exit 1 ;;\n"
+                "    esac\n"
+                "    ;;\n"
+                "  stop) printf inactive >\"$SYSTEMCTL_STATE_FILE\"; exit 0 ;;\n"
+                "esac\n"
+                "exit 1\n",
+                encoding="utf-8",
+            )
+            os.chmod(systemctl, 0o755)
+            harness.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                + functions
+                + "\nstop_service_if_active test.service 'service remains active'\n"
+                + "printf '%s\\n' SERVICE_GATE_PASS\n",
+                encoding="utf-8",
+            )
+            os.chmod(harness, 0o755)
+            environment = os.environ.copy()
+            environment["PATH"] = str(root) + os.pathsep + environment["PATH"]
+            environment["SYSTEMCTL_STATE_FILE"] = str(state_file)
+
+            cases = (
+                ("active", 0, "SERVICE_GATE_PASS"),
+                ("not-found", 0, "SERVICE_GATE_PASS"),
+                ("manager-error", 1, "ROLLBACK_BLOCKED: service state check failed"),
+            )
+            for scenario, expected_status, expected_output in cases:
+                with self.subTest(scenario=scenario):
+                    state_file.write_text("active", encoding="ascii")
+                    environment["SYSTEMCTL_SCENARIO"] = scenario
+                    result = subprocess.run(
+                        ["bash", str(harness)],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                        env=environment,
+                    )
+                    self.assertEqual(result.returncode, expected_status)
+                    self.assertIn(expected_output, result.stdout + result.stderr)
+                    if scenario == "active":
+                        self.assertEqual(state_file.read_text(encoding="ascii"), "inactive")
 
     def test_repository_assets_contain_no_generated_or_credential_material(self):
         excluded = {"test_deployment_assets.py", "README.md"}

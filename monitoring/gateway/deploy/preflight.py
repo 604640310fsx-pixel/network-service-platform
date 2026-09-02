@@ -84,6 +84,13 @@ def _mode(path: Path, expected: int, check: str) -> None:
         _fail("mode_mismatch", check)
 
 
+def _owner_uid(path: Path, check: str) -> int:
+    try:
+        return path.stat().st_uid
+    except OSError:
+        _fail("stat_failed", check)
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     try:
@@ -618,30 +625,28 @@ def validate_backup(
     backup_directory: Path,
     manifest: Mapping[str, Any],
     *,
+    manifest_path: Path,
     phase: str,
 ) -> None:
     expected = Path(manifest["backup"]["root"])
     if backup_directory != expected:
         _fail("backup_target_mismatch", "backup")
     if phase == "precheck":
+        manifest_file = _absolute_file(manifest_path, "manifest")
         parent = _absolute_directory(backup_directory.parent, "backup_parent")
         _mode(parent, 0o700, "backup_parent")
-        try:
-            parent_owner = parent.stat().st_uid
-        except OSError:
-            _fail("stat_failed", "backup_parent")
-        if parent_owner != os.geteuid():
+        parent_owner = _owner_uid(parent, "backup_parent")
+        manifest_owner = _owner_uid(manifest_file, "manifest")
+        if parent_owner != manifest_owner:
             _fail("backup_parent_owner_mismatch", "backup_parent")
+        if os.geteuid() != 0 and parent_owner != os.geteuid():
+            _fail("backup_parent_executor_mismatch", "backup_parent")
         if backup_directory.exists() or backup_directory.is_symlink():
             _fail("backup_target_not_unused", "backup")
         return
     backup = _absolute_directory(backup_directory, "backup")
     _mode(backup, 0o700, "backup")
-    try:
-        backup_owner = backup.stat().st_uid
-    except OSError:
-        _fail("stat_failed", "backup")
-    if backup_owner != 0:
+    if _owner_uid(backup, "backup") != 0:
         _fail("backup_owner_mismatch", "backup")
     record = _absolute_file(backup / "backup-record.json", "backup_record")
     _mode(record, 0o600, "backup_record")
@@ -915,14 +920,19 @@ def _validate_private_negative_gate(
         with socket.create_connection(
             (private["host"], private["port"]), timeout=3
         ) as raw:
-            with negative_context.wrap_socket(raw, server_hostname=private_name):
-                _fail("private_mtls_negative_gate_failed", "runtime_postcheck")
+            with negative_context.wrap_socket(raw, server_hostname=private_name) as tls:
+                tls.sendall(
+                    b"HEAD /healthz HTTP/1.1\r\nHost: private\r\nConnection: close\r\n\r\n"
+                )
+                tls.recv(1)
     except ssl.SSLError as error:
         reason = str(getattr(error, "reason", "")).upper()
         if "CERTIFICATE_REQUIRED" not in reason and reason != "PEER_DID_NOT_RETURN_A_CERTIFICATE":
             _fail("private_mtls_negative_gate_inconclusive", "runtime_postcheck")
     except (OSError, EOFError):
         _fail("private_mtls_negative_gate_inconclusive", "runtime_postcheck")
+    else:
+        _fail("private_mtls_negative_gate_failed", "runtime_postcheck")
 
 
 def validate_private_postcheck(
@@ -1033,7 +1043,12 @@ def main(argv: list[str] | None = None) -> int:
                 require_current=args.phase in {"private-postcheck", "postcheck"},
             )
         if args.backup_dir is not None:
-            validate_backup(args.backup_dir, manifest, phase=args.phase)
+            validate_backup(
+                args.backup_dir,
+                manifest,
+                manifest_path=args.manifest,
+                phase=args.phase,
+            )
         if args.phase == "private-postcheck":
             assert args.pki_dir is not None
             validate_private_postcheck(manifest, args.pki_dir)
