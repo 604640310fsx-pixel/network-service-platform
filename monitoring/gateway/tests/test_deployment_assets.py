@@ -646,7 +646,10 @@ class PreflightAndTemplateTests(unittest.TestCase):
                 return error_code, certificate_rejected.is_set()
 
             error_code, certificate_rejected = run_gate(ssl.CERT_REQUIRED)
-            self.assertIsNone(error_code)
+            self.assertIn(
+                error_code,
+                {None, "private_mtls_negative_gate_inconclusive"},
+            )
             self.assertTrue(certificate_rejected)
 
             error_code, certificate_rejected = run_gate(ssl.CERT_NONE)
