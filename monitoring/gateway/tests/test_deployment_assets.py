@@ -8,10 +8,13 @@ import importlib.util
 import json
 import os
 import re
+import socket
+import ssl
 import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -27,6 +30,14 @@ assert spec is not None and spec.loader is not None
 render_module = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = render_module
 spec.loader.exec_module(render_module)
+
+preflight_spec = importlib.util.spec_from_file_location(
+    "monitor_gateway_deploy_preflight", PREFLIGHT_PATH
+)
+assert preflight_spec is not None and preflight_spec.loader is not None
+preflight_module = importlib.util.module_from_spec(preflight_spec)
+sys.modules[preflight_spec.name] = preflight_module
+preflight_spec.loader.exec_module(preflight_module)
 
 
 def sanitized_manifest(backup_root: Path) -> dict:
@@ -281,6 +292,170 @@ class ManifestAndRendererTests(unittest.TestCase):
 
 
 class PreflightAndTemplateTests(unittest.TestCase):
+    def test_private_negative_gate_rejects_successful_tls_handshake(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            ca_certificate = root / "private-ca.pem"
+            ca_key = root / "private-ca.key"
+            server_certificate = root / "server.crt"
+            server_key = root / "server.key"
+            request = root / "server.csr"
+            extensions = root / "server.ext"
+            extensions.write_text(
+                "[leaf]\n"
+                "basicConstraints=critical,CA:FALSE\n"
+                "keyUsage=critical,digitalSignature,keyEncipherment\n"
+                "extendedKeyUsage=serverAuth\n"
+                "subjectAltName=IP:127.0.0.1\n",
+                encoding="ascii",
+            )
+            commands = (
+                [
+                    "req",
+                    "-x509",
+                    "-newkey",
+                    "rsa:2048",
+                    "-nodes",
+                    "-days",
+                    "30",
+                    "-subj",
+                    "/CN=private-ca",
+                    "-addext",
+                    "basicConstraints=critical,CA:TRUE",
+                    "-addext",
+                    "keyUsage=critical,keyCertSign,cRLSign",
+                    "-keyout",
+                    str(ca_key),
+                    "-out",
+                    str(ca_certificate),
+                ],
+                [
+                    "req",
+                    "-new",
+                    "-newkey",
+                    "rsa:2048",
+                    "-nodes",
+                    "-subj",
+                    "/CN=private-server",
+                    "-keyout",
+                    str(server_key),
+                    "-out",
+                    str(request),
+                ],
+                [
+                    "x509",
+                    "-req",
+                    "-in",
+                    str(request),
+                    "-CA",
+                    str(ca_certificate),
+                    "-CAkey",
+                    str(ca_key),
+                    "-CAcreateserial",
+                    "-days",
+                    "30",
+                    "-extfile",
+                    str(extensions),
+                    "-extensions",
+                    "leaf",
+                    "-out",
+                    str(server_certificate),
+                ],
+            )
+            for arguments in commands:
+                result = subprocess.run(
+                    ["openssl", *arguments],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+            server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            server_context.load_cert_chain(server_certificate, server_key)
+            self.assertEqual(server_context.verify_mode, ssl.CERT_NONE)
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(1)
+            server_errors: list[BaseException] = []
+
+            def serve_once() -> None:
+                try:
+                    connection, _ = listener.accept()
+                    with server_context.wrap_socket(connection, server_side=True):
+                        pass
+                except Exception as error:  # pragma: no cover - assertion below
+                    server_errors.append(error)
+                finally:
+                    listener.close()
+
+            server_thread = threading.Thread(target=serve_once)
+            server_thread.start()
+            manifest = sanitized_manifest(root / "backup")
+            manifest["network"]["privateListener"]["port"] = listener.getsockname()[1]
+            manifest["pki"]["privateServer"]["expectedSan"] = "127.0.0.1"
+
+            with self.assertRaises(preflight_module.PreflightError) as raised:
+                preflight_module._validate_private_negative_gate(manifest, root)
+            server_thread.join(timeout=5)
+            self.assertFalse(server_thread.is_alive())
+            self.assertEqual(server_errors, [])
+            self.assertEqual(raised.exception.code, "private_mtls_negative_gate_failed")
+            self.assertEqual(
+                str(raised.exception),
+                "private_mtls_negative_gate_failed at runtime_postcheck",
+            )
+
+    def test_leaf_rejects_extra_extended_key_usage(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            certificate = root / "server.crt"
+            key = root / "server.key"
+            result = subprocess.run(
+                [
+                    "openssl",
+                    "req",
+                    "-x509",
+                    "-newkey",
+                    "rsa:2048",
+                    "-nodes",
+                    "-days",
+                    "30",
+                    "-subj",
+                    "/CN=server-leaf",
+                    "-addext",
+                    "basicConstraints=critical,CA:FALSE",
+                    "-addext",
+                    "keyUsage=critical,digitalSignature,keyEncipherment",
+                    "-addext",
+                    "extendedKeyUsage=serverAuth,codeSigning",
+                    "-addext",
+                    "subjectAltName=DNS:server.example",
+                    "-keyout",
+                    str(key),
+                    "-out",
+                    str(certificate),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            with self.assertRaises(preflight_module.PreflightError) as raised:
+                preflight_module._validate_leaf(
+                    certificate,
+                    key,
+                    expected_eku="TLS Web Server Authentication",
+                    forbidden_eku="TLS Web Client Authentication",
+                    expected_san="server.example",
+                    check="server_leaf",
+                )
+            self.assertEqual(raised.exception.code, "certificate_eku_mismatch")
+            self.assertEqual(
+                str(raised.exception), "certificate_eku_mismatch at server_leaf"
+            )
+
     def test_complete_sanitized_precheck_validates_artifact_pki_render_and_network(self):
         def run_openssl(arguments: list[str]) -> None:
             result = subprocess.run(
@@ -530,6 +705,21 @@ class PreflightAndTemplateTests(unittest.TestCase):
             self.assertNotIn("website.example", result.stdout + result.stderr)
             self.assertEqual(manifest_path.read_bytes(), before)
 
+    def test_backup_precheck_requires_private_current_user_parent(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary)
+            backup = parent / "backup"
+            manifest = sanitized_manifest(backup)
+
+            os.chmod(parent, 0o777)
+            with self.assertRaises(preflight_module.PreflightError) as raised:
+                preflight_module.validate_backup(backup, manifest, phase="precheck")
+            self.assertEqual(raised.exception.code, "mode_mismatch")
+            self.assertEqual(raised.exception.check, "backup_parent")
+
+            os.chmod(parent, 0o700)
+            preflight_module.validate_backup(backup, manifest, phase="precheck")
+
     def test_systemd_units_lock_order_identity_and_hardening(self):
         private = (DEPLOY_ROOT / "systemd" / "monitor-gateway-private.service").read_text()
         public = (DEPLOY_ROOT / "systemd" / "monitor-gateway-public.service").read_text()
@@ -618,7 +808,33 @@ class PreflightAndTemplateTests(unittest.TestCase):
         self.assertIn("NGINX_ROUTE_ACTIVATED: NO", install)
         self.assertIn("nginx -t -c", install)
         self.assertNotIn("systemctl reload nginx", install)
-        self.assertLess(rollback.index("stop monitor-gateway-public"), rollback.index("stop monitor-gateway-private"))
+        validation = install.index("validate_managed_file_target() {")
+        backup_creation = install.index('install -d -m 0700 -- "$backup_dir"')
+        self.assertLess(validation, backup_creation)
+        self.assertIn(
+            '[[ ! -L "$target_path" ]] || fail "managed file target is a symlink"',
+            install,
+        )
+        backup_function_start = install.index("  backup_one() {")
+        backup_function_end = install.index(
+            "\n  }\n\n  backup_one current-link", backup_function_start
+        )
+        backup_function = install[backup_function_start:backup_function_end]
+        self.assertIn(
+            'if [[ "$target_id" == "current-link" ]]; then', backup_function
+        )
+        self.assertEqual(backup_function.count(' symlink "$backup_name"'), 1)
+        self.assertIn("stop_service_if_active() {", rollback)
+        self.assertIn('systemctl stop "$service_name" || :', rollback)
+        self.assertEqual(
+            rollback.count('systemctl is-active --quiet "$service_name"'), 2
+        )
+        self.assertLess(
+            rollback.index("stop_service_if_active monitor-gateway-public.service"),
+            rollback.index("stop_service_if_active monitor-gateway-private.service"),
+        )
+        self.assertNotIn("systemctl stop monitor-gateway-public.service", rollback)
+        self.assertNotIn("systemctl stop monitor-gateway-private.service", rollback)
         self.assertLess(rollback.index("restore_current_link"), rollback.index("wg-quick down"))
         self.assertIn("BACKUP_EVIDENCE_PRESERVED: YES", rollback)
 

@@ -181,11 +181,20 @@ interface_name="$(manifest_value network.wireguard.interfaceName)"
 wireguard_target="/etc/wireguard/$interface_name.conf"
 release_target="$RELEASE_ROOT/$release_sha"
 
+stop_service_if_active() {
+  local service_name="$1"
+  local failure_message="$2"
+  if systemctl is-active --quiet "$service_name"; then
+    systemctl stop "$service_name" || :
+  fi
+  if systemctl is-active --quiet "$service_name"; then
+    fail "$failure_message"
+  fi
+}
+
 if [[ "$phase" == "rollback" ]]; then
-  systemctl stop monitor-gateway-public.service || fail "public service did not stop"
-  systemctl is-active --quiet monitor-gateway-public.service && fail "public service remains active"
-  systemctl stop monitor-gateway-private.service || fail "private service did not stop"
-  systemctl is-active --quiet monitor-gateway-private.service && fail "private service remains active"
+  stop_service_if_active monitor-gateway-public.service "public service remains active"
+  stop_service_if_active monitor-gateway-private.service "private service remains active"
 
   restore_current_link
 

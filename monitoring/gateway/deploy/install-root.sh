@@ -181,6 +181,26 @@ if [[ "$phase" == "install" ]]; then
     fail "current release pointer is not a symlink"
   fi
 
+  validate_managed_file_target() {
+    local target_path="$1"
+    [[ ! -L "$target_path" ]] || fail "managed file target is a symlink"
+    if [[ -e "$target_path" ]]; then
+      [[ -f "$target_path" ]] || fail "managed file target is not a regular file"
+    fi
+  }
+
+  for managed_target in \
+    "$ENV_ROOT/private.env" "$ENV_ROOT/public.env" \
+    "$RUNTIME_PKI_ROOT/public-ca.pem" "$RUNTIME_PKI_ROOT/public-server.crt" \
+    "$RUNTIME_PKI_ROOT/public-server.key" "$RUNTIME_PKI_ROOT/private-ca.pem" \
+    "$RUNTIME_PKI_ROOT/private-server.crt" "$RUNTIME_PKI_ROOT/private-server.key" \
+    "$RUNTIME_PKI_ROOT/public-bff-client.crt" "$RUNTIME_PKI_ROOT/public-bff-client.key" \
+    "$RUNTIME_PKI_ROOT/public-bff-client-next.crt" "$RUNTIME_PKI_ROOT/public-bff-client-next.key" \
+    "$RUNTIME_PKI_ROOT/raw-monitor-ca.pem" "$wireguard_target" \
+    "$PRIVATE_UNIT" "$PUBLIC_UNIT"; do
+    validate_managed_file_target "$managed_target"
+  done
+
   install -d -m 0700 -- "$backup_dir"
   install -m 0600 -- "$manifest" "$backup_dir/execution-manifest.json"
   record_tsv="$backup_dir/backup-record.tsv"
@@ -204,11 +224,20 @@ PY
     local target_id="$1"
     local target_path="$2"
     local backup_name="$3"
-    if [[ -L "$target_path" ]]; then
-      readlink -- "$target_path" >"$backup_dir/$backup_name"
-      chmod 0600 "$backup_dir/$backup_name"
-      printf '%s\t%s\t%s\t%s\n' "$target_id" symlink "$backup_name" "$(file_sha256 "$backup_dir/$backup_name")" >>"$record_tsv"
-    elif [[ -f "$target_path" ]]; then
+    if [[ "$target_id" == "current-link" ]]; then
+      if [[ -L "$target_path" ]]; then
+        readlink -- "$target_path" >"$backup_dir/$backup_name"
+        chmod 0600 "$backup_dir/$backup_name"
+        printf '%s\t%s\t%s\t%s\n' "$target_id" symlink "$backup_name" "$(file_sha256 "$backup_dir/$backup_name")" >>"$record_tsv"
+      elif [[ ! -e "$target_path" ]]; then
+        printf '%s\t%s\t%s\t%s\n' "$target_id" absent - - >>"$record_tsv"
+      else
+        fail "current release pointer is not a symlink"
+      fi
+      return
+    fi
+    [[ ! -L "$target_path" ]] || fail "managed file target is a symlink"
+    if [[ -f "$target_path" ]]; then
       install -m 0600 -- "$target_path" "$backup_dir/$backup_name"
       printf '%s\t%s\t%s\t%s\n' "$target_id" file "$backup_name" "$(file_sha256 "$backup_dir/$backup_name")" >>"$record_tsv"
     elif [[ ! -e "$target_path" ]]; then
