@@ -936,6 +936,12 @@ def _validate_private_negative_gate(
     negative_context = ssl.create_default_context(
         ssl.Purpose.SERVER_AUTH, cafile=str(pki_directory / "private-ca.pem")
     )
+    # TLS 1.3 may report a missing client certificate only after the client-side
+    # handshake has returned.  The resulting EOF/reset is not distinguishable
+    # from an unrelated close.  The private listener's frozen minimum is TLS
+    # 1.2, whose handshake carries the rejection synchronously and therefore
+    # gives this negative gate an unambiguous result across supported runtimes.
+    negative_context.maximum_version = ssl.TLSVersion.TLSv1_2
     try:
         with socket.create_connection(
             (private["host"], private["port"]), timeout=3
@@ -947,7 +953,10 @@ def _validate_private_negative_gate(
                 tls.recv(1)
     except ssl.SSLError as error:
         reason = str(getattr(error, "reason", "")).upper()
-        if "CERTIFICATE_REQUIRED" not in reason and reason != "PEER_DID_NOT_RETURN_A_CERTIFICATE":
+        if reason not in {
+            "SSLV3_ALERT_HANDSHAKE_FAILURE",
+            "PEER_DID_NOT_RETURN_A_CERTIFICATE",
+        }:
             _fail("private_mtls_negative_gate_inconclusive", "runtime_postcheck")
     except (OSError, EOFError):
         _fail("private_mtls_negative_gate_inconclusive", "runtime_postcheck")
@@ -963,6 +972,10 @@ def validate_private_postcheck(
     context = ssl.create_default_context(
         ssl.Purpose.SERVER_AUTH, cafile=str(pki_directory / "private-ca.pem")
     )
+    # Keep the authenticated control and the missing-certificate negative gate
+    # on the same supported TLS version so the only handshake difference is
+    # the client identity.
+    context.maximum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(
         str(pki_directory / "public-bff-client.crt"),
         str(pki_directory / "public-bff-client.key"),

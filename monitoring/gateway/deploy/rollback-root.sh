@@ -221,6 +221,52 @@ stop_service_if_active() {
   esac
 }
 
+remove_created_directory_if_present() {
+  local directory="$1"
+  local failure_message="$2"
+  if [[ -e "$directory" || -L "$directory" ]]; then
+    [[ -d "$directory" && ! -L "$directory" ]] || fail "rollback directory type mismatch"
+    rmdir -- "$directory" || fail "$failure_message"
+  fi
+}
+
+identity_state=""
+classify_identity_state() {
+  local database="$1"
+  local name="$2"
+  local status
+  if getent "$database" "$name" >/dev/null; then
+    status=0
+  else
+    status=$?
+  fi
+  case "$status" in
+    0) identity_state="present" ;;
+    2) identity_state="absent" ;;
+    *) fail "identity state check failed" ;;
+  esac
+}
+
+remove_created_identity_if_present() {
+  if [[ "$(record_boolean serviceUserExisted)" == "false" ]]; then
+    classify_identity_state passwd "$SERVICE_USER"
+    if [[ "$identity_state" == "present" ]]; then
+      pgrep -u "$SERVICE_USER" >/dev/null 2>&1 && fail "service user still owns a process"
+      userdel "$SERVICE_USER"
+      classify_identity_state passwd "$SERVICE_USER"
+      [[ "$identity_state" == "absent" ]] || fail "service user remains"
+    fi
+  fi
+  if [[ "$(record_boolean serviceGroupExisted)" == "false" ]]; then
+    classify_identity_state group "$SERVICE_GROUP"
+    if [[ "$identity_state" == "present" ]]; then
+      groupdel "$SERVICE_GROUP"
+      classify_identity_state group "$SERVICE_GROUP"
+      [[ "$identity_state" == "absent" ]] || fail "service group remains"
+    fi
+  fi
+}
+
 if [[ "$phase" == "rollback" ]]; then
   stop_service_if_active monitor-gateway-public.service "public service remains active"
   stop_service_if_active monitor-gateway-private.service "private service remains active"
@@ -267,30 +313,24 @@ if [[ "$phase" == "rollback" ]]; then
   fi
 
   if [[ "$(record_boolean pkiRootExisted)" == "false" ]]; then
-    rmdir -- "$RUNTIME_PKI_ROOT" || fail "new PKI directory is not empty"
+    remove_created_directory_if_present "$RUNTIME_PKI_ROOT" "new PKI directory is not empty"
   fi
   if [[ "$(record_boolean envRootExisted)" == "false" ]]; then
-    rmdir -- "$ENV_ROOT" || fail "new environment directory is not empty"
+    remove_created_directory_if_present "$ENV_ROOT" "new environment directory is not empty"
   fi
   if [[ "$(record_boolean wireguardRootExisted)" == "false" ]]; then
-    rmdir -- "$WIREGUARD_ROOT" || fail "new WireGuard directory is not empty"
+    remove_created_directory_if_present "$WIREGUARD_ROOT" "new WireGuard directory is not empty"
   fi
   if [[ "$(record_boolean releaseRootExisted)" == "false" ]]; then
-    rmdir -- "$RELEASE_ROOT" || fail "new release root is not empty"
+    remove_created_directory_if_present "$RELEASE_ROOT" "new release root is not empty"
   fi
   if [[ "$(record_boolean gatewayRootExisted)" == "false" ]]; then
-    rmdir -- "$GATEWAY_ROOT" || fail "new gateway root is not empty"
+    remove_created_directory_if_present "$GATEWAY_ROOT" "new gateway root is not empty"
   fi
   if [[ "$(record_boolean platformRootExisted)" == "false" ]]; then
-    rmdir -- "$PLATFORM_ROOT" || fail "new platform root is not empty"
+    remove_created_directory_if_present "$PLATFORM_ROOT" "new platform root is not empty"
   fi
-  if [[ "$(record_boolean serviceUserExisted)" == "false" ]]; then
-    pgrep -u "$SERVICE_USER" >/dev/null 2>&1 && fail "service user still owns a process"
-    userdel "$SERVICE_USER"
-  fi
-  if [[ "$(record_boolean serviceGroupExisted)" == "false" ]]; then
-    groupdel "$SERVICE_GROUP"
-  fi
+  remove_created_identity_if_present
   printf '%s\n' "ROLLBACK: PASS"
   printf '%s\n' "BACKUP_EVIDENCE_PRESERVED: YES"
   printf '%s\n' "PUBLIC_CUTOVER: NOT_PERFORMED"
