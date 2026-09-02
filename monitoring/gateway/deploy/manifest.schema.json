@@ -1,0 +1,358 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:network-service-platform:monitor-gateway:private-staging-manifest:v1",
+  "title": "Monitor gateway private staging manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "authority",
+    "release",
+    "service",
+    "network",
+    "origins",
+    "pki",
+    "nginx",
+    "anchors",
+    "baselines",
+    "backup",
+    "residue"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "MGW-PRIVATE-STAGING-MANIFEST-V1"
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifestFingerprint",
+        "candidateSetFingerprint",
+        "collisionChecked"
+      ],
+      "properties": {
+        "manifestFingerprint": {
+          "const": "6894f212e2ddc4edfbee08f94fea1452771f6a054d9544b4a807fb70e96470b4"
+        },
+        "candidateSetFingerprint": {
+          "const": "8e54e9574717d882bfb9dc0ca56840bd63959ff20f70b463f230089d8973f0a5"
+        },
+        "collisionChecked": {
+          "const": true
+        }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha", "installDirectory"],
+      "properties": {
+        "sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "installDirectory": {
+          "type": "string",
+          "pattern": "^/opt/network-service-platform/monitor-gateway/releases/[0-9a-f]{40}$"
+        }
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "user",
+        "group",
+        "envDirectory",
+        "releaseRoot",
+        "currentLink",
+        "python"
+      ],
+      "properties": {
+        "user": {"const": "monitor-gateway"},
+        "group": {"const": "monitor-gateway"},
+        "envDirectory": {"const": "/etc/monitor-gateway"},
+        "releaseRoot": {
+          "const": "/opt/network-service-platform/monitor-gateway/releases"
+        },
+        "currentLink": {
+          "const": "/opt/network-service-platform/monitor-gateway/current"
+        },
+        "python": {"const": "/usr/bin/python3"}
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["privateListener", "publicListener", "wireguard"],
+      "properties": {
+        "privateListener": {
+          "$ref": "#/$defs/privateListener"
+        },
+        "publicListener": {
+          "$ref": "#/$defs/publicListener"
+        },
+        "wireguard": {
+          "$ref": "#/$defs/wireguard"
+        }
+      }
+    },
+    "origins": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rawMonitorApi", "privateMonitorApi", "canonicalWebsite"],
+      "properties": {
+        "rawMonitorApi": {
+          "$ref": "#/$defs/stableValue"
+        },
+        "privateMonitorApi": {
+          "$ref": "#/$defs/stableValue"
+        },
+        "canonicalWebsite": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stableId", "value"],
+          "properties": {
+            "stableId": {"const": "MGW-NGINX-CANONICAL-ORIGIN-V1"},
+            "value": {"type": "string", "minLength": 1, "maxLength": 512}
+          }
+        }
+      }
+    },
+    "pki": {
+      "$ref": "#/$defs/pki"
+    },
+    "nginx": {
+      "$ref": "#/$defs/nginx"
+    },
+    "anchors": {
+      "$ref": "#/$defs/anchors"
+    },
+    "baselines": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dns", "ntp", "time", "defaultRoute", "packageDatabase"],
+      "properties": {
+        "dns": {"$ref": "#/$defs/sha256"},
+        "ntp": {"$ref": "#/$defs/sha256"},
+        "time": {"$ref": "#/$defs/sha256"},
+        "defaultRoute": {"$ref": "#/$defs/sha256"},
+        "packageDatabase": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "backup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "destinationUnused", "rollbackReady"],
+      "properties": {
+        "root": {"$ref": "#/$defs/absolutePath"},
+        "destinationUnused": {"const": true},
+        "rollbackReady": {"const": true}
+      }
+    },
+    "residue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generatedConfigInRepository",
+        "issuerPrivateKeysOnRuntimeHosts",
+        "defaultRouteTakeover",
+        "subnetForwarding",
+        "homeInbound",
+        "persistentReverseSsh"
+      ],
+      "properties": {
+        "generatedConfigInRepository": {"const": false},
+        "issuerPrivateKeysOnRuntimeHosts": {"const": false},
+        "defaultRouteTakeover": {"const": false},
+        "subnetForwarding": {"const": false},
+        "homeInbound": {"const": false},
+        "persistentReverseSsh": {"const": false}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "absolutePath": {
+      "type": "string",
+      "pattern": "^/[^\\u0000\\r\\n]*$",
+      "minLength": 2,
+      "maxLength": 1024
+    },
+    "stableValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stableId", "value"],
+      "properties": {
+        "stableId": {
+          "type": "string",
+          "pattern": "^MGW-[A-Z0-9-]+-V1$"
+        },
+        "value": {"type": "string", "minLength": 1, "maxLength": 1024}
+      }
+    },
+    "privateListener": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stableId", "host", "port"],
+      "properties": {
+        "stableId": {"const": "MGW-PRIVATE-LOOPBACK-LISTENER-V1"},
+        "host": {"const": "127.0.0.1"},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+      }
+    },
+    "publicListener": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stableId", "host", "port"],
+      "properties": {
+        "stableId": {"const": "MGW-PUBLIC-LOOPBACK-LISTENER-V1"},
+        "host": {"const": "127.0.0.1"},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+      }
+    },
+    "wireguard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "interfaceStableId",
+        "interfaceName",
+        "prefixStableId",
+        "prefix",
+        "webAddressStableId",
+        "webAddress",
+        "fnosAddressStableId",
+        "fnosAddress",
+        "webEndpointStableId",
+        "webEndpointHost",
+        "webEndpointPort",
+        "webPrivateKeySourceId",
+        "fnosPublicKeySourceId",
+        "webPeerAllowedIp",
+        "fnosPeerAllowedIp",
+        "persistentKeepalive",
+        "webIsUdpReceiver",
+        "fnosInitiatesOutbound",
+        "fnosOutputChainDeltaRequired"
+      ],
+      "properties": {
+        "interfaceStableId": {"const": "MGW-WG-INTERFACE-V1"},
+        "interfaceName": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_=+.-]{1,15}$"
+        },
+        "prefixStableId": {"const": "MGW-WG-PREFIX-V1"},
+        "prefix": {"type": "string", "minLength": 1, "maxLength": 64},
+        "webAddressStableId": {"const": "MGW-WG-WEB-ADDRESS-V1"},
+        "webAddress": {"type": "string", "minLength": 1, "maxLength": 64},
+        "fnosAddressStableId": {"const": "MGW-WG-FNOS-ADDRESS-V1"},
+        "fnosAddress": {"type": "string", "minLength": 1, "maxLength": 64},
+        "webEndpointStableId": {"const": "MGW-WG-WEB-UDP-ENDPOINT-V1"},
+        "webEndpointHost": {"type": "string", "minLength": 1, "maxLength": 253},
+        "webEndpointPort": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "webPrivateKeySourceId": {
+          "const": "MGW-CREDENTIAL-WG-WEB-PRIVATE-V1"
+        },
+        "fnosPublicKeySourceId": {
+          "const": "MGW-CREDENTIAL-WG-FNOS-PUBLIC-V1"
+        },
+        "webPeerAllowedIp": {"type": "string", "minLength": 1, "maxLength": 64},
+        "fnosPeerAllowedIp": {"type": "string", "minLength": 1, "maxLength": 64},
+        "persistentKeepalive": {"const": 25},
+        "webIsUdpReceiver": {"const": true},
+        "fnosInitiatesOutbound": {"const": true},
+        "fnosOutputChainDeltaRequired": {"const": false}
+      }
+    },
+    "pkiItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["credentialSourceId", "targetFile"],
+      "properties": {
+        "credentialSourceId": {
+          "type": "string",
+          "pattern": "^MGW-CREDENTIAL-[A-Z0-9-]+-V1$"
+        },
+        "targetFile": {"$ref": "#/$defs/absolutePath"},
+        "targetKeyFile": {"$ref": "#/$defs/absolutePath"},
+        "expectedSan": {"type": "string", "minLength": 1, "maxLength": 253}
+      }
+    },
+    "pki": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtimeDirectory",
+        "leafValidityDays",
+        "rotationStartsDaysRemaining",
+        "readinessClosesHoursRemaining",
+        "publicCa",
+        "publicServer",
+        "privateCa",
+        "privateServer",
+        "publicBffClient"
+      ],
+      "properties": {
+        "runtimeDirectory": {"const": "/etc/monitor-gateway/pki"},
+        "leafValidityDays": {"const": 90},
+        "rotationStartsDaysRemaining": {"const": 30},
+        "readinessClosesHoursRemaining": {"const": 24},
+        "publicCa": {"$ref": "#/$defs/pkiItem"},
+        "publicServer": {"$ref": "#/$defs/pkiItem"},
+        "privateCa": {"$ref": "#/$defs/pkiItem"},
+        "privateServer": {"$ref": "#/$defs/pkiItem"},
+        "publicBffClient": {"$ref": "#/$defs/pkiItem"},
+        "publicBffClientNext": {"$ref": "#/$defs/pkiItem"},
+        "rawMonitorCa": {"$ref": "#/$defs/pkiItem"}
+      }
+    },
+    "nginx": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "listen",
+        "serverName",
+        "edgeCertificateFile",
+        "edgeKeyFile",
+        "publicGatewayTlsName",
+        "publicGatewayCaFile"
+      ],
+      "properties": {
+        "listen": {"type": "string", "minLength": 1, "maxLength": 128},
+        "serverName": {"type": "string", "minLength": 1, "maxLength": 253},
+        "edgeCertificateFile": {"$ref": "#/$defs/absolutePath"},
+        "edgeKeyFile": {"$ref": "#/$defs/absolutePath"},
+        "publicGatewayTlsName": {"type": "string", "minLength": 1, "maxLength": 253},
+        "publicGatewayCaFile": {
+          "const": "/etc/monitor-gateway/pki/public-ca.pem"
+        }
+      }
+    },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stableId", "value"],
+      "properties": {
+        "stableId": {
+          "type": "string",
+          "pattern": "^MGW-[A-Z0-9-]+-V1$"
+        },
+        "value": {"type": "string", "minLength": 1, "maxLength": 1024}
+      }
+    },
+    "anchors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nginxHttpInclude", "nginxVhost", "webFirewall", "fnosOutputChain"],
+      "properties": {
+        "nginxHttpInclude": {"$ref": "#/$defs/anchor"},
+        "nginxVhost": {"$ref": "#/$defs/anchor"},
+        "webFirewall": {"$ref": "#/$defs/anchor"},
+        "fnosOutputChain": {"$ref": "#/$defs/anchor"}
+      }
+    }
+  }
+}

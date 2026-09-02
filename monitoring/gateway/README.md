@@ -238,3 +238,79 @@ Starting either listener requires separately supplied certificates and runtime
 values. These repository and CI checks do not connect to FNOS, prove WireGuard
 capability, stage real certificates, change Nginx, or authorize deploying or
 cutting over either mode.
+
+## Private-staging deployment assets
+
+`deploy/` contains fail-closed repository templates for a separately authorized
+private-staging window. They are not generated production configuration and
+must never be applied from a repository checkout. The authority document is an
+operator-held `MGW-PRIVATE-STAGING-MANIFEST-V1`; raw network, origin, anchor and
+certificate values stay outside Git and must match both frozen collision
+fingerprints. The schema closes every object to unknown fields, and both the
+renderer and preflight report only safe check names and status.
+
+The stable credential-source identifiers are references, never credential
+bodies:
+
+| Stable source ID | Material | Runtime reader |
+| --- | --- | --- |
+| `MGW-CREDENTIAL-WG-WEB-PRIVATE-V1` | Web WireGuard private key | root network bootstrap only |
+| `MGW-CREDENTIAL-WG-FNOS-PUBLIC-V1` | FNOS peer public key | root network bootstrap only |
+| `MGW-CREDENTIAL-PUBLIC-CA-V1` | public-loopback CA certificate | Nginx verifier and public service |
+| `MGW-CREDENTIAL-PUBLIC-SERVER-LEAF-V1` | public-loopback server leaf/key | public service only |
+| `MGW-CREDENTIAL-PRIVATE-CA-V1` | private trust bundle | private service and public BFF client |
+| `MGW-CREDENTIAL-PRIVATE-SERVER-LEAF-V1` | private server leaf/key | private service only |
+| `MGW-CREDENTIAL-PUBLIC-BFF-CLIENT-LEAF-V1` | current public-BFF client leaf/key | public service; private verifier sees only its leaf |
+| `MGW-CREDENTIAL-PUBLIC-BFF-CLIENT-NEXT-LEAF-V1` | optional next public-BFF leaf/key | rotation overlap only |
+| `MGW-CREDENTIAL-RAW-MONITOR-CA-V1` | optional raw HTTPS CA certificate | private service only |
+
+Issuer private keys are never staging inputs and never remain on a runtime
+host. The dedicated `monitor-gateway` account has no created home and a
+`nologin` shell. It receives no sudo or Linux capabilities and can read only the
+root-managed immutable release, its mode-`0640` environment files, and the
+mode-`0640` PKI files through the `monitor-gateway` group.
+
+Render and manifest-only validation are local and non-mutating. Use a newly
+created private directory outside the repository and substitute an already
+frozen exact artifact SHA; do not place runtime values in shell history or task
+output:
+
+```sh
+python3 monitoring/gateway/deploy/render.py \
+  --manifest <ABSOLUTE_OPERATOR_MANIFEST> \
+  --expected-release-sha <EXACT_SHA> \
+  --output-dir <NEW_PRIVATE_OUTPUT_DIRECTORY>
+
+python3 monitoring/gateway/deploy/preflight.py \
+  --manifest <ABSOLUTE_OPERATOR_MANIFEST> \
+  --expected-release-sha <EXACT_SHA>
+```
+
+The renderer refuses repository output, unresolved template tokens, unexpected
+fields, collisions, non-IPv4-loopback listeners, broad WireGuard routes,
+credential bodies and unsafe origins. It produces private/public environment
+files, a rendered Nginx vhost, an isolated Nginx candidate root, and a safe hash
+report at mode `0600`; it never sources a repository secret.
+
+Future execution is split into explicit guarded phases: `precheck`, `install`,
+`network-up`, `activate-private`, `activate-public`, and `postcheck`. `install`
+backs up every affected file/symlink and its hash before creating the immutable
+release or runtime files; it does not switch `current` or start a process.
+Private mTLS gates pass before the public service can start. The public phase
+checks loopback contract/leakage and runs isolated `nginx -t` only. It never
+installs the candidate vhost, reloads Nginx, changes a firewall, or performs a
+public cutover. Rollback uses the independent rollback confirmation and restores
+the recorded state in reverse order.
+
+The exact future operator sequence, success matrix, rotation order, recovery
+rules and stop lines are in
+[`docs/ops/monitor-gateway-private-staging-runbook.md`](../../docs/ops/monitor-gateway-private-staging-runbook.md).
+
+Deployment-asset checks are included in the existing gateway CI command:
+
+```sh
+python3 -m unittest discover -s monitoring/gateway/tests -v
+python3 -m py_compile monitoring/gateway/*.py monitoring/gateway/deploy/*.py
+bash -n monitoring/gateway/deploy/install-root.sh monitoring/gateway/deploy/rollback-root.sh
+python3 -m json.tool monitoring/gateway/deploy/manifest.schema.json >/dev/null
+```
