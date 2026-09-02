@@ -1,0 +1,41 @@
+[Unit]
+Description=Monitor gateway public loopback projection
+Requires=monitor-gateway-private.service
+After=monitor-gateway-private.service
+StartLimitIntervalSec=300s
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=monitor-gateway
+Group=monitor-gateway
+WorkingDirectory=/opt/network-service-platform/monitor-gateway/current
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=/etc/monitor-gateway/public.env
+ExecStartPre=/usr/bin/test -L /opt/network-service-platform/monitor-gateway/current
+ExecStart=/usr/bin/python3 -m monitoring.gateway.server public
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGTERM
+TimeoutStartSec=75s
+TimeoutStopSec=65s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=monitor-gateway-public
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
