@@ -48,6 +48,11 @@ EXPECTED_RENDERED_FILES = {
     "nginx-candidate-root.conf",
     "render-report.json",
 }
+PRIVATE_POSTCHECK_RETRY_EXIT_CODES = {
+    "private_runtime_probe_refused": 10,
+    "private_runtime_probe_timeout": 11,
+    "private_readiness_rejected": 12,
+}
 
 
 class PreflightError(RuntimeError):
@@ -805,22 +810,37 @@ def _http_probe(
     path: str,
     *,
     headers: Mapping[str, str] | None = None,
+    failure_check: str = "runtime_postcheck",
+    refused_code: str = "loopback_probe_failed",
+    timeout_code: str = "loopback_probe_failed",
+    failure_code: str = "loopback_probe_failed",
+    timeout_seconds: int = 50,
 ) -> tuple[int, Mapping[str, str], bytes]:
+    connection: http.client.HTTPConnection | None = None
+    raw: socket.socket | None = None
     try:
-        raw = socket.create_connection((host, port), timeout=3)
+        raw = socket.create_connection((host, port), timeout=min(3, timeout_seconds))
         tls = context.wrap_socket(raw, server_hostname=server_name)
-        connection = http.client.HTTPConnection(host, port, timeout=50)
+        connection = http.client.HTTPConnection(host, port, timeout=timeout_seconds)
         connection.sock = tls
         connection.request("GET", path, headers=dict(headers or {}))
         response = connection.getresponse()
         body = response.read(512 * 1024 + 1)
         status_code = response.status
         response_headers = {name.casefold(): value for name, value in response.getheaders()}
-        connection.close()
+    except ConnectionRefusedError:
+        _fail(refused_code, failure_check)
+    except TimeoutError:
+        _fail(timeout_code, failure_check)
     except (OSError, ssl.SSLError, http.client.HTTPException):
-        _fail("loopback_probe_failed", "runtime_postcheck")
+        _fail(failure_code, failure_check)
+    finally:
+        if connection is not None:
+            connection.close()
+        elif raw is not None:
+            raw.close()
     if len(body) > 512 * 1024:
-        _fail("response_too_large", "runtime_postcheck")
+        _fail("response_too_large", failure_check)
     return status_code, response_headers, body
 
 
@@ -949,9 +969,22 @@ def validate_private_postcheck(
     )
     for path in ("/healthz", "/readyz"):
         status_code, headers, body = _http_probe(
-            private["host"], private["port"], context, private_name, path
+            private["host"],
+            private["port"],
+            context,
+            private_name,
+            path,
+            failure_check="private_postcheck",
+            refused_code="private_runtime_probe_refused",
+            timeout_code="private_runtime_probe_timeout",
+            failure_code="private_runtime_probe_failed",
+            timeout_seconds=3,
         )
-        if status_code != 200 or headers.get("cache-control") != "private, no-store":
+        if status_code != 200:
+            if path == "/readyz":
+                _fail("private_readiness_rejected", "private_postcheck")
+            _fail("private_runtime_probe_rejected", "private_postcheck")
+        if headers.get("cache-control") != "private, no-store":
             _fail("private_runtime_probe_rejected", "private_postcheck")
         if "set-cookie" in headers or "access-control-allow-origin" in headers:
             _fail("private_runtime_header_leakage", "private_postcheck")
@@ -1062,6 +1095,8 @@ def main(argv: list[str] | None = None) -> int:
     except PreflightError as error:
         print(f"PREFLIGHT_FAILED code={error.code} check={error.check}", file=sys.stderr)
         print("RESULT: BLOCKED")
+        if args.phase == "private-postcheck":
+            return PRIVATE_POSTCHECK_RETRY_EXIT_CODES.get(error.code, 1)
         return 1
     except (OSError, UnicodeError, ValueError):
         print("PREFLIGHT_FAILED code=unhandled_safe_failure check=runtime", file=sys.stderr)

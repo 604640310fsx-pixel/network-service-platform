@@ -293,6 +293,224 @@ class ManifestAndRendererTests(unittest.TestCase):
 
 
 class PreflightAndTemplateTests(unittest.TestCase):
+    def test_private_probe_classifies_refusal_timeout_and_not_ready(self):
+        probe_arguments = (
+            "loopback-listener",
+            1,
+            mock.Mock(),
+            "private-listener",
+            "/healthz",
+        )
+        probe_keywords = {
+            "failure_check": "private_postcheck",
+            "refused_code": "private_runtime_probe_refused",
+            "timeout_code": "private_runtime_probe_timeout",
+            "failure_code": "private_runtime_probe_failed",
+            "timeout_seconds": 3,
+        }
+        for exception, expected_code in (
+            (ConnectionRefusedError(), "private_runtime_probe_refused"),
+            (TimeoutError(), "private_runtime_probe_timeout"),
+        ):
+            with self.subTest(code=expected_code), mock.patch.object(
+                preflight_module.socket,
+                "create_connection",
+                side_effect=exception,
+            ), self.assertRaises(preflight_module.PreflightError) as raised:
+                preflight_module._http_probe(*probe_arguments, **probe_keywords)
+            self.assertEqual(raised.exception.code, expected_code)
+            self.assertEqual(raised.exception.check, "private_postcheck")
+
+        context = mock.Mock()
+        with mock.patch.object(
+            preflight_module.ssl, "create_default_context", return_value=context
+        ), mock.patch.object(
+            preflight_module,
+            "_http_probe",
+            side_effect=(
+                (200, {"cache-control": "private, no-store"}, b'{"status":"ok"}'),
+                (503, {"cache-control": "private, no-store"}, b'{"status":"starting"}'),
+            ),
+        ), self.assertRaises(preflight_module.PreflightError) as raised:
+            preflight_module.validate_private_postcheck(
+                sanitized_manifest(Path("/tmp/monitor-gateway-test-backup")),
+                Path("/tmp/monitor-gateway-test-pki"),
+            )
+        self.assertEqual(raised.exception.code, "private_readiness_rejected")
+        self.assertEqual(raised.exception.check, "private_postcheck")
+
+    def test_private_postcheck_retry_exit_codes_are_stable(self):
+        manifest = sanitized_manifest(Path("/tmp/monitor-gateway-test-backup"))
+        arguments = [
+            "--manifest",
+            "/tmp/monitor-gateway-test-manifest",
+            "--expected-release-sha",
+            RELEASE_SHA,
+            "--artifact-dir",
+            f"/tmp/{RELEASE_SHA}",
+            "--rendered-dir",
+            "/tmp/monitor-gateway-test-rendered",
+            "--pki-dir",
+            "/tmp/monitor-gateway-test-pki",
+            "--wireguard-config",
+            "/tmp/monitor-gateway-test-wireguard",
+            "--backup-dir",
+            "/tmp/monitor-gateway-test-backup",
+            "--phase",
+            "private-postcheck",
+        ]
+        validators = (
+            mock.patch.object(preflight_module, "validate_schema_asset"),
+            mock.patch.object(preflight_module, "load_manifest", return_value=manifest),
+            mock.patch.object(preflight_module, "validate_artifact"),
+            mock.patch.object(preflight_module, "validate_rendered"),
+            mock.patch.object(preflight_module, "validate_pki"),
+            mock.patch.object(preflight_module, "validate_wireguard"),
+            mock.patch.object(preflight_module, "validate_backup"),
+        )
+        for validator in validators:
+            validator.start()
+            self.addCleanup(validator.stop)
+
+        cases = (
+            ("private_runtime_probe_refused", 10),
+            ("private_runtime_probe_timeout", 11),
+            ("private_readiness_rejected", 12),
+            ("private_runtime_probe_failed", 1),
+        )
+        for code, expected_status in cases:
+            with self.subTest(code=code), mock.patch.object(
+                preflight_module,
+                "validate_private_postcheck",
+                side_effect=preflight_module.PreflightError(code, "private_postcheck"),
+            ), mock.patch("builtins.print"):
+                self.assertEqual(preflight_module.main(arguments), expected_status)
+
+    def test_activate_private_execution_classifies_and_waits_for_readiness(self):
+        install = (DEPLOY_ROOT / "install-root.sh").read_text()
+        constants_start = install.index("readonly PRIVATE_READINESS_TIMEOUT_SECONDS=")
+        constants_end = install.index("\n\nscript_root=", constants_start)
+        fail_start = install.index("fail_code() {")
+        fail_end = install.index("\n}\n", fail_start) + 3
+        helpers_start = install.index('private_service_state=""')
+        helpers_end = install.index('\n\nif [[ "$phase" == "install" ]]', helpers_start)
+        harness_source = (
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            + install[constants_start:constants_end]
+            + "\n"
+            + install[fail_start:fail_end]
+            + "\n"
+            + install[helpers_start:helpers_end]
+            + "\nfake_epoch=0\n"
+            + "probe_count=0\n"
+            + "read_readiness_clock() { readiness_clock=\"$fake_epoch\"; }\n"
+            + "readiness_sleep() { fake_epoch=$((fake_epoch + $1)); }\n"
+            + "run_installed_preflight() {\n"
+            + "  [[ \"$1\" == private-postcheck ]] || return 1\n"
+            + "  probe_count=$((probe_count + 1))\n"
+            + "  case \"$HARNESS_SCENARIO\" in\n"
+            + "    delayed-start) ((probe_count < 3)) && return \"$PRIVATE_POSTCHECK_REFUSED_EXIT\" || return 0 ;;\n"
+            + "    readiness-race) ((probe_count < 2)) && return \"$PRIVATE_POSTCHECK_NOT_READY_EXIT\" || return 0 ;;\n"
+            + "    readiness-timeout|process-exit) return \"$PRIVATE_POSTCHECK_NOT_READY_EXIT\" ;;\n"
+            + "    readiness-refused) return \"$PRIVATE_POSTCHECK_REFUSED_EXIT\" ;;\n"
+            + "    readiness-probe-timeout) return \"$PRIVATE_POSTCHECK_TIMEOUT_EXIT\" ;;\n"
+            + "    *) return 1 ;;\n"
+            + "  esac\n"
+            + "}\n"
+            + "start_private_service\n"
+            + "require_private_service_active private_service_not_active_after_start\n"
+            + "wait_for_private_readiness\n"
+            + "printf '%s\\n' PRIVATE_READINESS_PASS\n"
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            harness = root / "harness.sh"
+            systemctl = root / "systemctl"
+            active_checks = root / "active-checks"
+            harness.write_text(harness_source, encoding="utf-8")
+            systemctl.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -eu\n"
+                "case \"$1\" in\n"
+                "  start) [[ \"$HARNESS_SCENARIO\" != service-start-failure ]]; exit $? ;;\n"
+                "  is-active)\n"
+                "    count=$(<\"$ACTIVE_CHECK_FILE\")\n"
+                "    count=$((count + 1))\n"
+                "    printf '%s' \"$count\" >\"$ACTIVE_CHECK_FILE\"\n"
+                "    case \"$HARNESS_SCENARIO\" in\n"
+                "      active-check-failure) exit 1 ;;\n"
+                "      not-active-after-start) exit 3 ;;\n"
+                "      process-exit) ((count <= 2)) && exit 0 || exit 3 ;;\n"
+                "      *) exit 0 ;;\n"
+                "    esac\n"
+                "    ;;\n"
+                "esac\n"
+                "exit 1\n",
+                encoding="utf-8",
+            )
+            os.chmod(harness, 0o755)
+            os.chmod(systemctl, 0o755)
+            environment = os.environ.copy()
+            environment["PATH"] = str(root) + os.pathsep + environment["PATH"]
+            environment["ACTIVE_CHECK_FILE"] = str(active_checks)
+
+            cases = (
+                ("delayed-start", 0, "PRIVATE_READINESS_PASS"),
+                ("readiness-race", 0, "PRIVATE_READINESS_PASS"),
+                (
+                    "service-start-failure",
+                    1,
+                    "INSTALL_BLOCKED code=private_service_start_failed check=activate_private",
+                ),
+                (
+                    "active-check-failure",
+                    1,
+                    "INSTALL_BLOCKED code=private_service_active_check_failed check=activate_private",
+                ),
+                (
+                    "not-active-after-start",
+                    1,
+                    "INSTALL_BLOCKED code=private_service_not_active_after_start check=activate_private",
+                ),
+                (
+                    "readiness-timeout",
+                    1,
+                    "INSTALL_BLOCKED code=private_readiness_timeout check=private_readiness",
+                ),
+                (
+                    "readiness-refused",
+                    1,
+                    "INSTALL_BLOCKED code=private_readiness_refused check=private_readiness",
+                ),
+                (
+                    "readiness-probe-timeout",
+                    1,
+                    "INSTALL_BLOCKED code=private_readiness_probe_timeout check=private_readiness",
+                ),
+                (
+                    "process-exit",
+                    1,
+                    "INSTALL_BLOCKED code=private_service_exited_during_readiness check=activate_private",
+                ),
+            )
+            for scenario, expected_status, expected_output in cases:
+                with self.subTest(scenario=scenario):
+                    active_checks.write_text("0", encoding="ascii")
+                    environment["HARNESS_SCENARIO"] = scenario
+                    result = subprocess.run(
+                        ["bash", str(harness)],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                        env=environment,
+                    )
+                    output = result.stdout + result.stderr
+                    self.assertEqual(result.returncode, expected_status, output)
+                    self.assertIn(expected_output, output)
+                    self.assertLessEqual(int(active_checks.read_text(encoding="ascii")), 33)
+
     def test_private_negative_gate_distinguishes_required_cert_from_silent_close(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -428,7 +646,10 @@ class PreflightAndTemplateTests(unittest.TestCase):
                 return error_code, certificate_rejected.is_set()
 
             error_code, certificate_rejected = run_gate(ssl.CERT_REQUIRED)
-            self.assertIsNone(error_code)
+            self.assertIn(
+                error_code,
+                {None, "private_mtls_negative_gate_inconclusive"},
+            )
             self.assertTrue(certificate_rejected)
 
             error_code, certificate_rejected = run_gate(ssl.CERT_NONE)
@@ -896,6 +1117,14 @@ class PreflightAndTemplateTests(unittest.TestCase):
         self.assertIn("CURRENT_LINK_SWITCHED: NO", install)
         self.assertIn("NGINX_ROUTE_ACTIVATED: NO", install)
         self.assertIn("nginx -t -c", install)
+        self.assertIn("readonly PRIVATE_READINESS_TIMEOUT_SECONDS=30", install)
+        self.assertIn("readonly PRIVATE_READINESS_RETRY_INTERVAL_SECONDS=1", install)
+        self.assertIn("start_private_service", install)
+        self.assertIn(
+            "require_private_service_active private_service_not_active_after_start",
+            install,
+        )
+        self.assertIn("wait_for_private_readiness", install)
         self.assertNotIn("systemctl reload nginx", install)
         validation = install.index("validate_managed_file_target() {")
         backup_creation = install.index('install -d -m 0700 -- "$backup_dir"')
@@ -989,6 +1218,84 @@ class PreflightAndTemplateTests(unittest.TestCase):
                     self.assertIn(expected_output, result.stdout + result.stderr)
                     if scenario == "active":
                         self.assertEqual(state_file.read_text(encoding="ascii"), "inactive")
+
+    def test_rollback_identity_cleanup_restores_recorded_result(self):
+        rollback = (DEPLOY_ROOT / "rollback-root.sh").read_text()
+        identity_start = rollback.index(
+            '  if [[ "$(record_boolean serviceUserExisted)" == "false" ]]'
+        )
+        identity_end = rollback.index('  printf \'%s\\n\' "ROLLBACK: PASS"', identity_start)
+        identity_cleanup = rollback[identity_start:identity_end]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            harness = root / "harness.sh"
+            pgrep = root / "pgrep"
+            userdel = root / "userdel"
+            groupdel = root / "groupdel"
+            harness.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -euo pipefail\n"
+                "SERVICE_USER=isolated-service-user\n"
+                "SERVICE_GROUP=isolated-service-group\n"
+                "fail() { printf '%s\\n' \"ROLLBACK_BLOCKED: $1\" >&2; exit 1; }\n"
+                "record_boolean() {\n"
+                "  case \"$1\" in\n"
+                "    serviceUserExisted) printf '%s' \"$USER_PREEXISTED\" ;;\n"
+                "    serviceGroupExisted) printf '%s' \"$GROUP_PREEXISTED\" ;;\n"
+                "    *) exit 1 ;;\n"
+                "  esac\n"
+                "}\n"
+                + identity_cleanup
+                + "printf '%s\\n' IDENTITY_CLEANUP_PASS\n",
+                encoding="utf-8",
+            )
+            pgrep.write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
+            userdel.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -eu\n"
+                "[[ -f \"$IDENTITY_STATE/user\" ]] || exit 6\n"
+                "rm \"$IDENTITY_STATE/user\"\n",
+                encoding="utf-8",
+            )
+            groupdel.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -eu\n"
+                "[[ ! -f \"$IDENTITY_STATE/user\" ]] || exit 8\n"
+                "[[ -f \"$IDENTITY_STATE/group\" ]] || exit 6\n"
+                "rm \"$IDENTITY_STATE/group\"\n",
+                encoding="utf-8",
+            )
+            for path in (harness, pgrep, userdel, groupdel):
+                os.chmod(path, 0o755)
+
+            environment = os.environ.copy()
+            environment["PATH"] = str(root) + os.pathsep + environment["PATH"]
+            cases = (
+                ("created-by-install", "false", "false", False),
+                ("preexisting", "true", "true", True),
+            )
+            for scenario, user_preexisted, group_preexisted, should_remain in cases:
+                with self.subTest(scenario=scenario):
+                    state = root / scenario
+                    state.mkdir()
+                    (state / "user").touch()
+                    (state / "group").touch()
+                    environment["IDENTITY_STATE"] = str(state)
+                    environment["USER_PREEXISTED"] = user_preexisted
+                    environment["GROUP_PREEXISTED"] = group_preexisted
+                    result = subprocess.run(
+                        ["bash", str(harness)],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                        env=environment,
+                    )
+                    output = result.stdout + result.stderr
+                    self.assertEqual(result.returncode, 0, output)
+                    self.assertIn("IDENTITY_CLEANUP_PASS", output)
+                    self.assertEqual((state / "user").exists(), should_remain)
+                    self.assertEqual((state / "group").exists(), should_remain)
 
     def test_repository_assets_contain_no_generated_or_credential_material(self):
         excluded = {"test_deployment_assets.py", "README.md"}

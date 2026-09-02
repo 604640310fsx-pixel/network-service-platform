@@ -15,12 +15,24 @@ readonly RUNTIME_PKI_ROOT="/etc/monitor-gateway/pki"
 readonly WIREGUARD_ROOT="/etc/wireguard"
 readonly PRIVATE_UNIT="/etc/systemd/system/monitor-gateway-private.service"
 readonly PUBLIC_UNIT="/etc/systemd/system/monitor-gateway-public.service"
+readonly PRIVATE_READINESS_TIMEOUT_SECONDS=30
+readonly PRIVATE_READINESS_RETRY_INTERVAL_SECONDS=1
+readonly PRIVATE_POSTCHECK_REFUSED_EXIT=10
+readonly PRIVATE_POSTCHECK_TIMEOUT_EXIT=11
+readonly PRIVATE_POSTCHECK_NOT_READY_EXIT=12
 
 script_root="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 preflight="$script_root/preflight.py"
 
 fail() {
   printf '%s\n' "INSTALL_BLOCKED: $1" >&2
+  exit 1
+}
+
+fail_code() {
+  local code="$1"
+  local check="$2"
+  printf '%s\n' "INSTALL_BLOCKED code=$code check=$check" >&2
   exit 1
 }
 
@@ -128,6 +140,79 @@ run_installed_preflight() {
     --backup-dir "$backup_dir" \
     --require-runtime-ownership \
     --phase "$gate_phase"
+}
+
+private_service_state=""
+classify_private_service_state() {
+  local status
+  if systemctl is-active --quiet monitor-gateway-private.service >/dev/null 2>&1; then
+    status=0
+  else
+    status=$?
+  fi
+  case "$status" in
+    0) private_service_state="active" ;;
+    3|4) private_service_state="inactive" ;;
+    *) fail_code private_service_active_check_failed activate_private ;;
+  esac
+}
+
+start_private_service() {
+  if ! systemctl start monitor-gateway-private.service >/dev/null 2>&1; then
+    fail_code private_service_start_failed activate_private
+  fi
+}
+
+require_private_service_active() {
+  local inactive_code="$1"
+  classify_private_service_state
+  [[ "$private_service_state" == "active" ]] || fail_code "$inactive_code" activate_private
+}
+
+readiness_clock=""
+read_readiness_clock() {
+  readiness_clock="$SECONDS"
+}
+
+readiness_sleep() {
+  local seconds="$1"
+  sleep "$seconds" || fail_code private_readiness_wait_failed private_readiness
+}
+
+wait_for_private_readiness() {
+  local deadline
+  local last_failure="private_readiness_timeout"
+  local remaining
+  local status
+
+  read_readiness_clock
+  deadline=$((readiness_clock + PRIVATE_READINESS_TIMEOUT_SECONDS))
+  while :; do
+    require_private_service_active private_service_exited_during_readiness
+    if run_installed_preflight private-postcheck >/dev/null 2>&1; then
+      return 0
+    else
+      status=$?
+    fi
+    case "$status" in
+      "$PRIVATE_POSTCHECK_REFUSED_EXIT") last_failure="private_readiness_refused" ;;
+      "$PRIVATE_POSTCHECK_TIMEOUT_EXIT") last_failure="private_readiness_probe_timeout" ;;
+      "$PRIVATE_POSTCHECK_NOT_READY_EXIT") last_failure="private_readiness_timeout" ;;
+      *) fail_code private_readiness_check_failed private_postcheck ;;
+    esac
+
+    read_readiness_clock
+    ((readiness_clock < deadline)) || break
+    remaining=$((deadline - readiness_clock))
+    if ((remaining < PRIVATE_READINESS_RETRY_INTERVAL_SECONDS)); then
+      readiness_sleep "$remaining"
+    else
+      readiness_sleep "$PRIVATE_READINESS_RETRY_INTERVAL_SECONDS"
+    fi
+  done
+
+  require_private_service_active private_service_exited_during_readiness
+  fail_code "$last_failure" private_readiness
 }
 
 if [[ "$phase" == "install" ]]; then
@@ -423,9 +508,9 @@ if [[ "$phase" == "activate-private" ]]; then
   [[ ! -e "$link_temporary" && ! -L "$link_temporary" ]] || fail "temporary link exists"
   ln -s -- "$release_target" "$link_temporary"
   mv -Tf -- "$link_temporary" "$CURRENT_LINK"
-  systemctl start monitor-gateway-private.service
-  systemctl is-active --quiet monitor-gateway-private.service
-  run_installed_preflight private-postcheck
+  start_private_service
+  require_private_service_active private_service_not_active_after_start
+  wait_for_private_readiness
   printf '%s\n' "PRIVATE_GATE: PASS"
   exit 0
 fi
