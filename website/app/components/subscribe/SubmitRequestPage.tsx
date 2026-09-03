@@ -64,7 +64,7 @@ export function SubmitRequestPage() {
       <CustomerCenterShell title="服务状态" description="查看支付结果与服务开通进度">
         <main className="sub-page">
           <div className="sub-request-page">
-            <OrderStatusPanel orderRef={visibleOrderRef} initialResult={initialResult} />
+            <OrderStatusPanel key={visibleOrderRef} orderRef={visibleOrderRef} initialResult={initialResult} />
           </div>
         </main>
       </CustomerCenterShell>
