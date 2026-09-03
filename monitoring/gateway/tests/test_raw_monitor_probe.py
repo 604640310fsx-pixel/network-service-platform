@@ -509,7 +509,46 @@ class RawMonitorProbeContractTests(unittest.TestCase):
             (OVERVIEW_PATH, _Reply(body=b"not-json")),
         ]
         with _running_server(script) as (candidate, scenario):
-            summary = probe_candidates([candidate] * 6)
+            original_new_connection = raw_monitor_probe._new_connection
+            active_connections = 0
+            max_active_connections = 0
+            connection_lock = threading.Lock()
+
+            def tracked_new_connection(
+                tracked_candidate: ProbeCandidate,
+                *,
+                timeout: float,
+            ) -> object:
+                nonlocal active_connections, max_active_connections
+                connection = original_new_connection(
+                    tracked_candidate,
+                    timeout=timeout,
+                )
+                original_close = connection.close
+                closed = False
+                with connection_lock:
+                    active_connections += 1
+                    max_active_connections = max(
+                        max_active_connections, active_connections
+                    )
+
+                def tracked_close() -> None:
+                    nonlocal active_connections, closed
+                    if not closed:
+                        closed = True
+                        with connection_lock:
+                            active_connections -= 1
+                    original_close()
+
+                connection.close = tracked_close  # type: ignore[method-assign]
+                return connection
+
+            with patch.object(
+                raw_monitor_probe,
+                "_new_connection",
+                side_effect=tracked_new_connection,
+            ):
+                summary = probe_candidates([candidate] * 6)
 
         self.assertEqual(summary["candidateCount"], 6)
         self.assertEqual(summary["overviewHttp200MatchCount"], 5)
@@ -529,7 +568,8 @@ class RawMonitorProbeContractTests(unittest.TestCase):
                 "RESPONSE_INVALID_OR_OVERSIZED",
             ],
         )
-        self.assertEqual(scenario.max_active, 1)
+        self.assertEqual(max_active_connections, 1)
+        self.assertEqual(active_connections, 0)
         self.assertFalse(scenario.script)
 
     def test_maximum_candidate_bound_is_fail_closed_before_requests(self) -> None:
