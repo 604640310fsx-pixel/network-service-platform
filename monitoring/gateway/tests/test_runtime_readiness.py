@@ -341,15 +341,21 @@ class HealthEndpointTests(unittest.TestCase):
             self.assertEqual(headers.get("Cache-Control"), "no-store")
             self.assertNotIn("Access-Control-Allow-Origin", headers)
             self.assertNotIn("Set-Cookie", headers)
-            status, _, body = server.request("HEAD", "/healthz")
+            status, headers, body = server.request("HEAD", "/healthz")
             self.assertEqual(status, 200)
+            self.assertEqual(headers.get("Cache-Control"), "no-store")
             self.assertEqual(body, b"")
-            status, _, body = server.request("GET", "/readyz")
+            status, headers, body = server.request("GET", "/readyz")
             self.assertEqual(status, 200)
+            self.assertEqual(headers.get("Cache-Control"), "no-store")
             self.assertEqual(json.loads(body), {"status": "ready"})
+            status, headers, body = server.request("HEAD", "/readyz")
+            self.assertEqual(status, 200)
+            self.assertEqual(headers.get("Cache-Control"), "no-store")
+            self.assertEqual(body, b"")
         self.assertEqual(reader.calls, 0)
         self.assertEqual(limiter.keys, [])
-        self.assertEqual(readiness.calls, 1)
+        self.assertEqual(readiness.calls, 2)
 
     def test_readiness_failure_is_safe_and_non_loopback_probe_is_hidden(self):
         now = datetime.now(timezone.utc)
@@ -364,12 +370,17 @@ class HealthEndpointTests(unittest.TestCase):
             )
         )
         with _RunningServer(handler) as server:
-            status, _, body = server.request("GET", "/readyz")
+            status, headers, body = server.request("GET", "/readyz")
             self.assertEqual(status, 503)
+            self.assertEqual(headers.get("Cache-Control"), "no-store")
             self.assertEqual(
                 json.loads(body),
                 {"status": "not_ready", "code": "stale_data"},
             )
+            status, headers, body = server.request("HEAD", "/readyz")
+            self.assertEqual(status, 503)
+            self.assertEqual(headers.get("Cache-Control"), "no-store")
+            self.assertEqual(body, b"")
 
         hidden_handler = make_public_handler(
             PublicDependencies(
@@ -381,13 +392,15 @@ class HealthEndpointTests(unittest.TestCase):
         )
         hidden_handler._is_loopback_peer = lambda _self: False
         with _RunningServer(hidden_handler) as server:
-            status, _, body = server.request("GET", "/healthz")
+            status, headers, body = server.request("GET", "/healthz")
             write_status, write_headers, write_body = server.request(
                 "POST", "/readyz"
             )
         self.assertEqual(status, 404)
+        self.assertEqual(headers.get("Cache-Control"), "no-store")
         self.assertEqual(json.loads(body)["error"]["code"], "not_found")
         self.assertEqual(write_status, 404)
+        self.assertEqual(write_headers.get("Cache-Control"), "no-store")
         self.assertNotIn("Allow", write_headers)
         self.assertEqual(json.loads(write_body)["error"]["code"], "not_found")
 
@@ -405,14 +418,54 @@ class HealthEndpointTests(unittest.TestCase):
             status, headers, body = server.request("GET", "/healthz")
             self.assertEqual(status, 200)
             self.assertEqual(json.loads(body), {"status": "ok"})
-            self.assertEqual(headers.get("Cache-Control"), "no-store")
+            self.assertEqual(headers.get("Cache-Control"), "private, no-store")
+            status, headers, body = server.request("HEAD", "/healthz")
+            self.assertEqual(status, 200)
+            self.assertEqual(headers.get("Cache-Control"), "private, no-store")
+            self.assertEqual(body, b"")
+            status, headers, body = server.request("GET", "/readyz")
+            self.assertEqual(status, 200)
+            self.assertEqual(headers.get("Cache-Control"), "private, no-store")
+            self.assertEqual(json.loads(body), {"status": "ready"})
+            status, headers, body = server.request("HEAD", "/readyz")
+            self.assertEqual(status, 200)
+            self.assertEqual(headers.get("Cache-Control"), "private, no-store")
+            self.assertEqual(body, b"")
+            status, headers, body = server.request("GET", "/healthz?mode=public")
+            self.assertEqual(status, 404)
+            self.assertEqual(headers.get("Cache-Control"), "private, no-store")
+            self.assertEqual(json.loads(body)["error"]["code"], "not_found")
             status, headers, body = server.request("POST", "/readyz")
             self.assertEqual(status, 405)
+            self.assertEqual(headers.get("Cache-Control"), "private, no-store")
             self.assertEqual(headers.get("Allow"), "GET, HEAD")
             self.assertEqual(
                 json.loads(body)["error"]["code"], "method_not_allowed"
             )
-        self.assertEqual(readiness.calls, 0)
+        self.assertEqual(readiness.calls, 2)
+
+        not_ready = _FakeReadiness(ReadinessFailure("stale_data"))
+        not_ready_handler = make_private_handler(
+            PrivateDependencies(
+                raw_reader=_RawReader(({}, {})),
+                identities=IdentityRegistry({PUBLIC_BFF_IDENTITY: "0" * 64}),
+                logger=SafeEventLogger(lambda _line: None),
+                readiness=not_ready,
+            )
+        )
+        with _RunningServer(not_ready_handler) as server:
+            status, headers, body = server.request("GET", "/readyz")
+            self.assertEqual(status, 503)
+            self.assertEqual(headers.get("Cache-Control"), "private, no-store")
+            self.assertEqual(
+                json.loads(body),
+                {"status": "not_ready", "code": "stale_data"},
+            )
+            status, headers, body = server.request("HEAD", "/readyz")
+            self.assertEqual(status, 503)
+            self.assertEqual(headers.get("Cache-Control"), "private, no-store")
+            self.assertEqual(body, b"")
+        self.assertEqual(not_ready.calls, 2)
 
 
 @unittest.skipUnless(shutil.which("openssl"), "openssl is required")

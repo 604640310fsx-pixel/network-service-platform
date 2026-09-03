@@ -16,8 +16,20 @@ import sys
 import tempfile
 import threading
 import unittest
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
+
+from monitoring.gateway.client import (
+    PUBLIC_BFF_IDENTITY,
+    IdentityRegistry,
+    build_mtls_server_context,
+)
+from monitoring.gateway.security import SafeEventLogger
+from monitoring.gateway.server import (
+    PrivateDependencies,
+    make_private_handler,
+)
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -344,6 +356,152 @@ class PreflightAndTemplateTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "private_readiness_rejected")
         self.assertEqual(raised.exception.check, "private_postcheck")
         self.assertEqual(context.maximum_version, ssl.TLSVersion.TLSv1_2)
+
+    def test_private_postcheck_requires_exact_private_cache_control(self):
+        manifest = sanitized_manifest(Path("/tmp/monitor-gateway-test-backup"))
+        pki = Path("/tmp/monitor-gateway-test-pki")
+        success = (
+            (200, {"cache-control": "private, no-store"}, b'{"status":"ok"}'),
+            (200, {"cache-control": "private, no-store"}, b'{"status":"ready"}'),
+        )
+        with mock.patch.object(
+            preflight_module.ssl,
+            "create_default_context",
+            return_value=mock.Mock(),
+        ), mock.patch.object(
+            preflight_module,
+            "_http_probe",
+            side_effect=success,
+        ), mock.patch.object(
+            preflight_module,
+            "_validate_private_negative_gate",
+        ) as negative_gate:
+            preflight_module.validate_private_postcheck(manifest, pki)
+        negative_gate.assert_called_once_with(manifest, pki)
+
+        for cache_headers in (
+            {"cache-control": "no-store"},
+            {},
+            {"cache-control": "private, no-store, max-age=0"},
+        ):
+            with self.subTest(headers=cache_headers), mock.patch.object(
+                preflight_module.ssl,
+                "create_default_context",
+                return_value=mock.Mock(),
+            ), mock.patch.object(
+                preflight_module,
+                "_http_probe",
+                return_value=(200, cache_headers, b'{"status":"ok"}'),
+            ), mock.patch.object(
+                preflight_module,
+                "_validate_private_negative_gate",
+            ) as negative_gate, self.assertRaises(
+                preflight_module.PreflightError
+            ) as raised:
+                preflight_module.validate_private_postcheck(manifest, pki)
+            self.assertEqual(raised.exception.code, "private_runtime_probe_rejected")
+            self.assertEqual(raised.exception.check, "private_postcheck")
+            negative_gate.assert_not_called()
+
+    def test_real_private_gateway_passes_private_postcheck(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            pki = Path(temporary)
+            ca_key = pki / "private-ca.key"
+            ca_certificate = pki / "private-ca.pem"
+            server_key = pki / "private-server.key"
+            server_request = pki / "private-server.csr"
+            server_certificate = pki / "private-server.crt"
+            client_key = pki / "public-bff-client.key"
+            client_request = pki / "public-bff-client.csr"
+            client_certificate = pki / "public-bff-client.crt"
+            server_extensions = pki / "private-server.ext"
+            client_extensions = pki / "public-bff-client.ext"
+            server_extensions.write_text(
+                "basicConstraints=critical,CA:FALSE\n"
+                "keyUsage=critical,digitalSignature,keyEncipherment\n"
+                "extendedKeyUsage=serverAuth\n"
+                "subjectAltName=IP:127.0.0.1\n",
+                encoding="ascii",
+            )
+            client_extensions.write_text(
+                "basicConstraints=critical,CA:FALSE\n"
+                "keyUsage=critical,digitalSignature,keyEncipherment\n"
+                "extendedKeyUsage=clientAuth\n",
+                encoding="ascii",
+            )
+
+            commands = (
+                (
+                    "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-sha256",
+                    "-keyout", str(ca_key), "-out", str(ca_certificate), "-days", "2",
+                    "-subj", "/CN=private-cache-contract-test-ca",
+                    "-addext", "basicConstraints=critical,CA:TRUE",
+                    "-addext", "keyUsage=critical,keyCertSign,cRLSign",
+                ),
+                (
+                    "req", "-newkey", "rsa:2048", "-nodes", "-sha256",
+                    "-keyout", str(server_key), "-out", str(server_request),
+                    "-subj", "/CN=private-cache-contract-test-server",
+                ),
+                (
+                    "x509", "-req", "-in", str(server_request),
+                    "-CA", str(ca_certificate), "-CAkey", str(ca_key),
+                    "-CAcreateserial", "-out", str(server_certificate), "-days", "2",
+                    "-sha256", "-extfile", str(server_extensions),
+                ),
+                (
+                    "req", "-newkey", "rsa:2048", "-nodes", "-sha256",
+                    "-keyout", str(client_key), "-out", str(client_request),
+                    "-subj", "/CN=private-cache-contract-test-client",
+                ),
+                (
+                    "x509", "-req", "-in", str(client_request),
+                    "-CA", str(ca_certificate), "-CAkey", str(ca_key),
+                    "-CAcreateserial", "-out", str(client_certificate), "-days", "2",
+                    "-sha256", "-extfile", str(client_extensions),
+                ),
+            )
+            for command in commands:
+                result = subprocess.run(
+                    ["openssl", *command],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+            readiness = mock.Mock()
+            handler = make_private_handler(
+                PrivateDependencies(
+                    raw_reader=mock.Mock(),
+                    identities=IdentityRegistry(
+                        {PUBLIC_BFF_IDENTITY: "0" * 64}
+                    ),
+                    logger=SafeEventLogger(lambda _line: None),
+                    readiness=readiness,
+                )
+            )
+            server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            server_context = build_mtls_server_context(
+                ca_file=ca_certificate,
+                certificate_file=server_certificate,
+                key_file=server_key,
+            )
+            server_context.maximum_version = ssl.TLSVersion.TLSv1_2
+            server.socket = server_context.wrap_socket(server.socket, server_side=True)
+            server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+            server_thread.start()
+            manifest = sanitized_manifest(pki / "backup")
+            manifest["network"]["privateListener"]["port"] = server.server_address[1]
+            manifest["pki"]["privateServer"]["expectedSan"] = "127.0.0.1"
+            try:
+                preflight_module.validate_private_postcheck(manifest, pki)
+            finally:
+                server.shutdown()
+                server.server_close()
+                server_thread.join(timeout=3)
+            self.assertFalse(server_thread.is_alive())
+            readiness.evaluate.assert_called_once_with()
 
     def test_private_postcheck_retry_exit_codes_are_stable(self):
         manifest = sanitized_manifest(Path("/tmp/monitor-gateway-test-backup"))

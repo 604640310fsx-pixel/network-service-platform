@@ -454,6 +454,7 @@ def _serve_with_graceful_shutdown(
 class _SafeHandler(BaseHTTPRequestHandler):
     server_version = "NetworkMonitorGateway/1"
     sys_version = ""
+    runtime_probe_cache_control: str
 
     def log_message(self, _format: str, *_args: Any) -> None:
         # BaseHTTPRequestHandler includes the complete request target. Every
@@ -506,7 +507,7 @@ class _SafeHandler(BaseHTTPRequestHandler):
             body,
             status=status,
             content_type="application/json; charset=utf-8",
-            cache_control="no-store",
+            cache_control=self.runtime_probe_cache_control,
             head_only=head_only,
         )
         self.dependencies.logger.write(  # type: ignore[attr-defined]
@@ -551,6 +552,7 @@ def make_public_handler(dependencies: PublicDependencies):
 
     class PublicHandler(_SafeHandler):
         dependencies = bound_dependencies
+        runtime_probe_cache_control = "no-store"
 
         def _forwarded_identity_values(self) -> tuple[str, ...]:
             return tuple(
@@ -852,6 +854,7 @@ def make_private_handler(dependencies: PrivateDependencies):
 
     class PrivateHandler(_SafeHandler):
         dependencies = bound_dependencies
+        runtime_probe_cache_control = "private, no-store"
 
         def send_error(
             self,
