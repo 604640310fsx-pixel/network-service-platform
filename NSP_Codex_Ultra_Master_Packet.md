@@ -130,7 +130,9 @@ Allowed files:
 - 与上述代码直接对应的 `auth-service/test/**`
 - `website/app/lib/payment-api.ts`
 - `website/app/lib/planAvailability.ts`
+- `website/app/lib/resolveSelection.ts`
 - `website/app/components/subscribe/**`（仅既有支付、下单、订单状态与交付组件）
+- `website/app/components/dashboard/AdminPendingServices.tsx`（仅管理员支付订单交付闭环）
 
 Forbidden in this task:
 
@@ -288,7 +290,7 @@ WORKFLOW: STANDARD_SERIAL
 STATUS: BLOCKED_UNTIL_HANDOFFS
 ```
 
-Only this task may modify:
+After all pushed handoffs, only Task E may modify these integration files:
 
 - `website/src/App.tsx`
 - `website/app/lib/sections.ts`
