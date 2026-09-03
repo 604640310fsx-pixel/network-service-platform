@@ -23,7 +23,8 @@ CI_REQUIRED: YES
 - 从精确 `BASE_SHA` 创建下面列出的 task branch/worktree；
 - 在各任务白名单内编辑、运行本地验证、精确 stage、checkpoint commit、push 当前 task branch；
 - 创建或更新以 `integration/consolidate-project` 为 base 的 Draft PR；
-- 通过 Codex 应用向已绑定的 MAX/Ultra 任务发送下面的 Task Packet 并等待结果。
+- 通过 Codex 应用向已绑定的 MAX/Ultra 任务发送下面的 Task Packet 并等待结果；
+- 仅在业务、Auth、安全、产品事实裁决或最终验收确有需要时，向精确绑定的 PRO 对话发送脱敏问题，并只读取该对话最终可见的 assistant 回复。
 
 本 Packet 不授权：
 
@@ -45,6 +46,7 @@ CI_REQUIRED: YES
 - 不实现客户可控的“订阅加密”开关。现有服务端 at-rest 加密保持原样，不改变其安全契约。
 - API 失败不得回退演示数据；生产缺失态只显示明确的待配置/待接入状态。
 - 邀请奖励、返佣比例、资格、有效期、提现、归因和反作弊规则未冻结时，不得自行定义。
+- 六张用户参考图只冻结本 Packet 明确列出的页面结构、平台矩阵和推荐标记；图中的真实订阅地址、二维码、“订阅加密”和“重置主订阅”均不得复制、识别、存储或实现。
 
 ## 2. Operational model bindings
 
@@ -71,6 +73,15 @@ GPT_ULTRA_CODEX:
 ```
 
 对话标题只用于人类识别，实际调度使用精确 ID。仓库内不新建所谓 ChatGPT UI Bridge；现有 Codex 任务消息能力就是调度通道。
+
+PRO 裁决通道只允许：
+
+- 使用精确 `conversation_id`，并在发送前核对标题仍为 `GPT PRO模型`；
+- 发送单个 Task ID 下的脱敏事实、互斥问题或最终 handoff 证据；
+- 读取最终可见回复，不读取隐藏推理、不访问 cookie/token/私有接口；
+- 将回复视为裁决输入；任何新范围、外部动作、merge/deploy/production 权限仍须用户明确授权。
+
+`model_verification` 仍为 `UNAVAILABLE`，不得声称该 ChatGPT 对话当前模型已由 Codex 验证或切换。无待裁决事实时不得为了形式重复询问 PRO。
 
 ## 3. Parallel execution map
 
@@ -115,11 +126,11 @@ Allowed files:
 
 - `auth-service/src/payment/**`
 - `auth-service/src/http/payment-routes.ts`
+- `auth-service/src/http/admin-routes.ts`（仅支付订单与交付入口）
 - 与上述代码直接对应的 `auth-service/test/**`
 - `website/app/lib/payment-api.ts`
-- `website/app/components/subscribe/OrderStatusPanel.tsx`
-- `website/app/components/subscribe/SubmitRequestPage.tsx`
-- `website/app/components/subscribe/subscribe.css`
+- `website/app/lib/planAvailability.ts`
+- `website/app/components/subscribe/**`（仅既有支付、下单、订单状态与交付组件）
 
 Forbidden in this task:
 
@@ -131,7 +142,7 @@ Forbidden in this task:
 Required result fields:
 
 ```text
-SANDBOX_QR_RENDER: PASS | FAIL | UNVERIFIED
+SANDBOX_QR_RENDER: PASS | FAIL
 SANDBOX_QR_SCAN: PASS | FAIL | UNVERIFIED
 SANDBOX_PAYMENT_CONFIRMATION: PASS | FAIL | UNVERIFIED
 SIGNED_NOTIFY_OR_QUERY: PASS | FAIL | UNVERIFIED
@@ -158,9 +169,26 @@ Goal:
 
 - 新建可由现有真实交付数据驱动的订阅导入模块；
 - 支持 iOS、Android、macOS、Windows 切换；
-- 覆盖已核验客户端：Shadowrocket、SingBox、Loon、Quantumult X、Stash、Surge、Clash、Surfboard、FlClash、ClashX；
+- 按下方参考图矩阵展示客户端与“推荐”标记；这只冻结展示范围，不等于 deep-link 契约已核验；
 - 提供复制、安全打开、浏览器地址权限提醒、本地二维码、手动导入和“导入不了？”帮助；
 - 新建使用文档搜索、分类、列表和文章阅读模块；只展示仓库已有或 Packet 明确批准的正文，不编造正式教程。
+
+Reference-image matrix:
+
+| 平台 | 客户端（`*` 表示参考图标记“推荐”） |
+|---|---|
+| iOS | Shadowrocket*, SingBox*, Loon, Quantumult X, Stash, Surge |
+| Android | Clash*, SingBox*, Surfboard*, FlClash |
+| macOS | Clash*, SingBox*, ClashX, FlClash, Loon, Stash, Surge |
+| Windows | Clash*, SingBox*, FlClash |
+
+Reference-image content and visual boundary:
+
+- 地址权限提醒需覆盖桌面 Chrome 的 `chrome://settings/content/location`、网站位置权限/允许名单，以及 Android Chrome、Android 系统权限、iPhone/iPad Chrome 位置权限的关闭或每次询问路径；该内部地址只作为可复制文本，不伪装普通网页链接；
+- 页面结构保留“地址权限提醒 → 订阅地址/复制/安全打开 → 平台切换/客户端卡片 → 本地二维码手动导入 → 导入不了”层级；
+- 使用文档保留“搜索 → 分类 → 文章列表 → 阅读区”层级；参考图中的教程名称不是获准正文，缺少正式内容时显示真实空状态；
+- 色彩、字体和深浅主题继续消费当前客户中心 `--cc-*` 令牌；不得从参考图另建视觉体系；
+- 任何客户端“一键导入”只有在调用方提供逐客户端、逐平台已核验 deep link 时才显示；否则明确走复制/二维码/手动导入，不能展示会假成功的导入按钮。
 
 Allowed files:
 
@@ -173,6 +201,11 @@ Read-only dependencies:
 - `website/app/components/subscribe/**`
 - `website/app/components/customer/**`
 - `website/app/lib/payment-api.ts`
+
+Parallel contract pin:
+
+- 本任务按 `BASE_SHA` 上的 `PaymentOrderSnapshot.service.items`、`ServiceDeliveryItem` 与 `getPaymentOrder` 只读契约实现；
+- 支付任务若改变这些类型、字段或函数签名，本任务不追逐在途分支，交由 Task E 在串行集成时调和并重跑验证。
 
 Forbidden in this task:
 
@@ -192,22 +225,17 @@ TASK_ID: CUSTOMER-TICKETS-CORE-UI-01
 BASE_BRANCH: integration/consolidate-project
 BASE_SHA: 198f65e82ef493e0da9772e6be89ad92d78d3328
 TASK_BRANCH: task/CUSTOMER-TICKETS-CORE-UI-01
-CURRENT_WRITER: CODEX:ULTRA/TICKETS
+CURRENT_WRITER: NONE_AUDIT_ONLY
 MODEL: gpt-5.6-sol
 WORKFLOW: ULTRA_SUBTASK
-STATUS: READY
+STATUS: FACT_SOURCE_AUDIT_ONLY
 ```
 
 First gate:
 
 - 只读确认仓库是否已有冻结的工单 Schema、API、Auth、状态和权限契约。
 - 若不存在，返回 `FACT_SOURCE_MISSING` 和一份最小决策矩阵；不得创建 Migration/API/状态机，也不得做假成功 UI。
-- 若存在，只实现与现有契约精确匹配的模块。
-
-Allowed files after contract gate passes:
-
-- `website/app/components/tickets/**`（新目录）
-- 与既有工单契约直接对应、且无需 Migration 或公共契约变化的已有私有实现/测试文件；使用前必须在 checkpoint 中逐项列出。
+- 本 Packet 将 Task C 固定为 `AUDIT_ONLY`。即使发现部分既有能力，也只返回证据；完整契约经 PRO/用户冻结后另发精确文件白名单的实施 Packet。
 
 Always forbidden:
 
@@ -277,6 +305,13 @@ Entry gate:
 - controller 串行审计后才允许 cherry-pick/merge exact commits；
 - 文件冲突或公共契约缺口只阻断对应模块，不伪造完成。
 
+Frozen subscription entry:
+
+- `CustomerServicesPage` 既有“查看订阅信息”继续进入 `/subscribe/request?orderRef=...`；不在并行阶段另造第二入口；
+- Task E 仅在 `OrderStatusPanel` 已获得 `snapshot.service.status === "open"` 的授权交付项后渲染 `SubscriptionImportModule`；
+- 传入的订阅数据只来自 `snapshot.service.items`，不得写入日志、fixture、Packet 或 URL 查询参数；
+- 若支付 handoff 改变冻结的交付类型或查询签名，Task E 先完成类型调和与回归测试，再接入模块。
+
 ## 9. Verification matrix
 
 All write tasks:
@@ -292,6 +327,7 @@ Website changes:
 - use repository-supported Node >=22.13
 - `npm run check`
 - `npm run build`
+- 对 Task B 新增模型测试执行 `node --experimental-strip-types --test app/components/subscription-import/subscriptionImportModel.test.mjs app/components/docs/docsModel.test.mjs`（从 `website/` 运行）
 - browser acceptance at 1440, 1024 and 390 CSS-pixel widths
 - light/dark theme, keyboard operation, horizontal overflow and console errors
 
@@ -343,4 +379,36 @@ OPEN_RISKS:
   - payment sandbox buyer confirmation requires later human action
   - tickets and invite/referral contracts may be missing
 NEXT_ACTION: validate and checkpoint the master packet, then create task worktrees and dispatch MAX/Ultra
+```
+
+## 12. Controller checkpoint after dispatch and audit
+
+```yaml
+CHECKPOINT_ID: CP-01
+TASK_ID: NSP-CODEX-ULTRA-MASTER-01
+STATUS: IN_PROGRESS
+SOURCE_PACKET_SHA: ea4ccb4e32102abb2ac26c2729464d1b75f68c75
+REMOTE_BASE_SHA: 198f65e82ef493e0da9772e6be89ad92d78d3328
+BASE_SHA_MATCH: YES
+WORKTREES_CREATED:
+  - task/PAYMENT-FULL-CHAIN-SANDBOX-CLOSEOUT-01
+  - task/CUSTOMER-SUBSCRIPTION-IMPORT-DOCS-01
+  - task/CUSTOMER-TICKETS-CORE-UI-01
+  - task/CUSTOMER-PROFILE-INVITE-AUDIT-01
+DISPATCHED:
+  - GPT MAX: gpt-5.6-sol / max
+  - GPT Ultra: gpt-5.6-sol / ultra
+AUDIT_CORRECTIONS:
+  - real auth-service test path frozen
+  - payment implementation allowlist completed
+  - subscription entry point and parallel contract pin frozen
+  - tickets reduced to audit-only until contract decision
+  - PRO decision channel narrowly authorized
+  - sanitized platform/recommendation matrix frozen
+  - direct model-test command added
+  - local QR render made mandatory
+SENSITIVE_SCAN: PASS
+USER_MAIN_CHECKOUT: UNCHANGED
+CI_STATUS: DRAFT_PR_42_RUNNING
+NEXT_ACTION: collect pushed handoffs, request only necessary PRO decisions, then integrate serially
 ```
