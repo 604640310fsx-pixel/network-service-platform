@@ -7,22 +7,62 @@ export const SUBSCRIPTION_PLATFORMS = [
 
 export type SubscriptionPlatform = (typeof SUBSCRIPTION_PLATFORMS)[number]["id"];
 
-/* 客户端名称来自冻结 Task Packet。这里只表达平台筛选，不生成任何客户端 deep link。 */
+/* 客户端名称、逐平台顺序与推荐项来自用户最新冻结展示矩阵；
+   该矩阵不代表 deep link 或客户端兼容性已经逐项确认。 */
 export const SUBSCRIPTION_CLIENTS = [
-  { id: "shadowrocket", name: "Shadowrocket", platforms: ["ios"] },
-  { id: "sing-box", name: "SingBox", platforms: ["ios", "android", "macos", "windows"] },
-  { id: "loon", name: "Loon", platforms: ["ios"] },
-  { id: "quantumult-x", name: "Quantumult X", platforms: ["ios"] },
-  { id: "stash", name: "Stash", platforms: ["ios", "macos"] },
-  { id: "surge", name: "Surge", platforms: ["ios", "macos"] },
-  { id: "clash", name: "Clash", platforms: ["android", "macos", "windows"] },
-  { id: "surfboard", name: "Surfboard", platforms: ["android"] },
-  { id: "flclash", name: "FlClash", platforms: ["android", "macos", "windows"] },
-  { id: "clashx", name: "ClashX", platforms: ["macos"] },
+  { id: "shadowrocket", name: "Shadowrocket" },
+  { id: "sing-box", name: "SingBox" },
+  { id: "loon", name: "Loon" },
+  { id: "quantumult-x", name: "Quantumult X" },
+  { id: "stash", name: "Stash" },
+  { id: "surge", name: "Surge" },
+  { id: "clash", name: "Clash" },
+  { id: "surfboard", name: "Surfboard" },
+  { id: "flclash", name: "FlClash" },
+  { id: "clashx", name: "ClashX" },
 ] as const;
 
 export type SubscriptionClient = (typeof SUBSCRIPTION_CLIENTS)[number];
 export type SubscriptionClientId = SubscriptionClient["id"];
+export type PlatformClient = SubscriptionClient & { readonly recommended: boolean };
+
+type PlatformClientSetting = {
+  readonly id: SubscriptionClientId;
+  readonly recommended?: true;
+};
+
+export const SUBSCRIPTION_CLIENT_MATRIX: Readonly<
+  Record<SubscriptionPlatform, readonly PlatformClientSetting[]>
+> = {
+  ios: [
+    { id: "shadowrocket", recommended: true },
+    { id: "sing-box", recommended: true },
+    { id: "loon" },
+    { id: "quantumult-x" },
+    { id: "stash" },
+    { id: "surge" },
+  ],
+  android: [
+    { id: "clash", recommended: true },
+    { id: "sing-box", recommended: true },
+    { id: "surfboard", recommended: true },
+    { id: "flclash" },
+  ],
+  macos: [
+    { id: "clash", recommended: true },
+    { id: "sing-box", recommended: true },
+    { id: "clashx" },
+    { id: "flclash" },
+    { id: "loon" },
+    { id: "stash" },
+    { id: "surge" },
+  ],
+  windows: [
+    { id: "clash", recommended: true },
+    { id: "sing-box", recommended: true },
+    { id: "flclash" },
+  ],
+};
 
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
 const MAX_SUBSCRIPTION_URL_BYTES = 2048;
@@ -40,10 +80,12 @@ const BLOCKED_DEEP_LINK_PROTOCOLS = new Set([
   "vbscript:",
 ]);
 
-export function clientsForPlatform(platform: SubscriptionPlatform): readonly SubscriptionClient[] {
-  return SUBSCRIPTION_CLIENTS.filter((client) =>
-    (client.platforms as readonly SubscriptionPlatform[]).includes(platform),
-  );
+export function clientsForPlatform(platform: SubscriptionPlatform): readonly PlatformClient[] {
+  return SUBSCRIPTION_CLIENT_MATRIX[platform].map((setting) => {
+    const client = SUBSCRIPTION_CLIENTS.find((candidate) => candidate.id === setting.id);
+    if (client === undefined) throw new Error("invalid_subscription_client_matrix");
+    return { ...client, recommended: setting.recommended === true };
+  });
 }
 
 /**

@@ -16,7 +16,8 @@
   margin: 0 auto;
   padding: 20px var(--cc-gutter, 24px) 44px;
   display: grid;
-  grid-template-columns: minmax(0, 1.06fr) minmax(320px, 0.94fr);
+  /* 按组件真实容器宽度折叠；嵌入约 468px 的 .pay-stack 时自然成为单列。 */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
   gap: 14px;
 }
 
@@ -233,6 +234,12 @@
 }
 
 .cc-si-client-panel { margin-top: 13px; }
+.cc-si-client-caveat {
+  margin: 0 0 10px;
+  color: var(--cc-text-3, #979da7);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
 .cc-si-client-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
@@ -246,6 +253,18 @@
   background: var(--cc-card, #171b21);
   font-size: 12px;
   overflow-wrap: anywhere;
+}
+.cc-si-client-grid button > span { min-width: 0; }
+.cc-si-client-grid button > small {
+  display: inline-flex;
+  margin-left: 5px;
+  padding: 1px 5px;
+  border: 1px solid var(--cc-accent-line, rgba(245, 158, 11, 0.55));
+  border-radius: 4px;
+  color: var(--cc-accent, #f59e0b);
+  font-size: 9px;
+  font-weight: 650;
+  white-space: nowrap;
 }
 .cc-si-client-grid button:hover,
 .cc-si-client-grid button.is-active {
@@ -298,13 +317,39 @@
   line-height: 1.65;
 }
 
+.cc-si-location-note {
+  margin-top: 13px;
+  padding: 13px 14px;
+  border: 1px solid var(--cc-line, #2a2e34);
+  border-radius: 10px;
+  background: var(--cc-inset, #12161c);
+}
+.cc-si-location-note strong {
+  color: var(--cc-text-2, #d7dce4);
+  font-size: 12.5px;
+}
+.cc-si-location-note ul {
+  margin: 8px 0 0;
+  padding-left: 19px;
+  color: var(--cc-text-3, #979da7);
+  font-size: 11.5px;
+  line-height: 1.7;
+}
+.cc-si-location-note code {
+  overflow-wrap: anywhere;
+  color: var(--cc-text-2, #d7dce4);
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.cc-si-location-note p {
+  margin: 8px 0 0;
+  color: var(--cc-text-4, #68717e);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
 .cc-si-empty {
   max-width: 1680px;
   margin: 20px var(--cc-gutter, 24px) 44px;
-}
-
-@media (max-width: 980px) {
-  .cc-si-layout { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 620px) {
