@@ -119,6 +119,33 @@ bundle. Only `PUBLIC_BFF_IDENTITY` is required in this stage.
 | Nginx candidate | isolated `nginx -t`; public CA verification; logical SAN; overwritten client IP; forwarded headers cleared; 30r/m burst 10; 3s/50s/50s; safe 503 | keep route inactive; rollback services |
 | Residue | no unexpected runtime files, generated Git files, issuer keys, extra listener, route takeover, or partial backup | keep staging closed and recover |
 
+## Repository-only raw-monitor candidate diagnostic
+
+`monitoring/gateway/deploy/raw_monitor_probe.py` is an internal diagnostic aid;
+it is not staging, remote-host, or production authorization. It accepts an
+ordered private candidate set, rejects more than 64 candidates before any
+request, and probes sequentially with bounded `GET` requests to only
+`/api/overview` and
+`/api/latency?range=6h&type=icmp&target=AliDNS`. An overview failure skips the
+latency request, redirects are not followed, and non-200 error bodies are not
+read.
+
+The only safe rendered result is schema
+`MGW-RAW-MONITOR-PROBE-DIAGNOSTIC-V1`, with exact top-level fields
+`schemaVersion`, `candidateCount`, `overviewHttp200MatchCount`,
+`fullContractMatchCount`, and `records`. Each ordered record has only
+`attemptIndex`, `result`, `failureStage`, `reasonCode`, and `httpStatus`.
+`httpStatus` is `null` unless a real 100-599 HTTP response was received. Use
+the reason code and failure stage to distinguish transport, timeout, non-200,
+invalid/oversized response, and contract mismatch failures; do not infer a
+candidate identity from the attempt index.
+
+Never append or print candidate origins, hosts, addresses, ports, URLs, paths,
+headers, bodies, exception text, tracebacks, credentials, timings, process
+details, or configuration. A diagnostic result is evidence for a separately
+authorized read-only investigation only; it does not make private staging
+eligible and must not be used to retry activation.
+
 ## Future authorized phase sequence
 
 Bind the arguments once in a protected operator command record. Never enable
