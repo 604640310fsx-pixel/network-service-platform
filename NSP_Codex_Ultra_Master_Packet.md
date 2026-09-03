@@ -115,7 +115,7 @@ Allowed files:
 
 - `auth-service/src/payment/**`
 - `auth-service/src/http/payment-routes.ts`
-- 与上述代码直接对应的 `auth-service/src/test/**`
+- 与上述代码直接对应的 `auth-service/test/**`
 - `website/app/lib/payment-api.ts`
 - `website/app/components/subscribe/OrderStatusPanel.tsx`
 - `website/app/components/subscribe/SubmitRequestPage.tsx`
@@ -268,11 +268,12 @@ Only this task may modify:
 - `website/app/components/customer/CustomerCenterShell.tsx`
 - `website/app/components/customer/customer-center.css`
 - `website/app/globals.css`
+- `website/app/components/subscribe/OrderStatusPanel.tsx`（仅在支付任务 handoff 后接入订阅导入模块）
 - cross-module exports and final integration tests
 
 Entry gate:
 
-- 每个可实施模块提供 pushed `HANDOFF_SHA`、clean worktree、changed files、测试和风险；
+- 支付任务与每个可实施客户门户模块都提供 pushed `HANDOFF_SHA`、clean worktree、changed files、测试和风险；
 - controller 串行审计后才允许 cherry-pick/merge exact commits；
 - 文件冲突或公共契约缺口只阻断对应模块，不伪造完成。
 
