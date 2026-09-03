@@ -137,8 +137,9 @@ endpoints and must not be added to a public Nginx route:
 Fresh `healthy`, `degraded`, and `unavailable` WAN states are ready. `no_data`,
 stale data, invalid/expiring certificates, and safe upstream failures return a
 503 response containing only a frozen safe error code. Probe responses are
-`no-store`, set no cookie or CORS header, consume no public rate-limit token,
-and appear as `404 not_found` to a simulated non-loopback peer.
+`no-store` on the public process and `private, no-store` on the private process,
+set no cookie or CORS header, consume no public rate-limit token, and appear as
+`404 not_found` to a simulated non-loopback peer.
 
 At startup, certificate parsing may emit one `certificate_status` event per
 required certificate. Its only metadata is logical role, SHA-256 DER
