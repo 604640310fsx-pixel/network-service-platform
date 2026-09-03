@@ -301,6 +301,14 @@ Auth/payment changes:
 - `npm test`
 - direct payment tests and state-transition tests
 
+Validation dependency reuse:
+
+- 新 worktree 不执行 `npm install` 或 `npm ci`；
+- controller 已核验主检出与 `BASE_SHA` 的 website/auth-service lockfile 内容完全一致；
+- 可在验证期间创建指向主检出对应 `node_modules` 的临时未跟踪符号链接；
+- 该链接不得 stage/commit，handoff 前必须删除并以 clean `git status` 证明零残留；
+- Node 运行时固定使用本机现有 `/opt/homebrew/opt/node@22/bin`（核验版本 `v22.16.0`）。
+
 CI:
 
 - Draft PR checks must complete successfully before final handoff.
