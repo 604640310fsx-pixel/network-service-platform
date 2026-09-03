@@ -34,7 +34,7 @@ export type SubscriptionImportModuleProps = {
   readonly deliveryItems: readonly SubscriptionImportDelivery[];
   readonly initialPlatform?: SubscriptionPlatform;
   /**
-   * Optional integration hook for a separately verified client contract.
+   * Optional integration hook for a separately confirmed exact deep-link contract.
    * Returning null keeps that client on the manual-import path.
    */
   readonly getVerifiedDeepLink?: (request: VerifiedDeepLinkRequest) => string | null;
@@ -93,6 +93,8 @@ export function SubscriptionImportModule({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const clients = clientsForPlatform(platform);
+  const platformLabel =
+    SUBSCRIPTION_PLATFORMS.find((candidate) => candidate.id === platform)?.label ?? platform;
   const selectedClient = clients.find((client) => client.id === clientId) ?? clients[0];
   const activeItem =
     deliveryItems.find((item) => item.position === selectedPosition) ?? deliveryItems[0] ?? null;
@@ -158,25 +160,25 @@ export function SubscriptionImportModule({
 
   if (activeItem === null) {
     return (
-      <main className="cc-si-page">
+      <section className="cc-si-page" aria-labelledby={`${instanceId}-empty-title`}>
         <section className="cc-si-panel cc-si-empty" role="status">
           <span>SUBSCRIPTION</span>
-          <h2>订阅信息待接入</h2>
+          <h2 id={`${instanceId}-empty-title`}>订阅信息待接入</h2>
           <p>只有授权接口返回已开通服务的真实交付数据后，才会在这里显示导入工具。</p>
         </section>
-      </main>
+      </section>
     );
   }
 
   if (subscriptionUrl === null) {
     return (
-      <main className="cc-si-page">
+      <section className="cc-si-page" aria-labelledby={`${instanceId}-invalid-title`}>
         <section className="cc-si-panel cc-si-empty" role="alert">
           <span>SUBSCRIPTION</span>
-          <h2>订阅地址暂不可用</h2>
+          <h2 id={`${instanceId}-invalid-title`}>订阅地址暂不可用</h2>
           <p>交付数据未通过安全校验，本页不会复制、打开或生成二维码。</p>
         </section>
-      </main>
+      </section>
     );
   }
 
@@ -184,13 +186,13 @@ export function SubscriptionImportModule({
   const platformPanelId = `${instanceId}-client-panel`;
 
   return (
-    <main className="cc-si-page">
+    <section className="cc-si-page" aria-labelledby={`${instanceId}-title`}>
       <div className="cc-si-layout">
         <section className="cc-si-panel">
           <header className="cc-si-heading">
             <div>
               <span>SUBSCRIPTION</span>
-              <h2>导入订阅</h2>
+              <h2 id={`${instanceId}-title`}>导入订阅</h2>
               <p>选择当前设备和已安装客户端，再使用真实交付地址导入。</p>
             </div>
             <small>线路 {activeItem.position}</small>
@@ -283,7 +285,7 @@ export function SubscriptionImportModule({
             <div>
               <span>CLIENT</span>
               <h2>选择客户端</h2>
-              <p>未提供已核验的一键动作时，本页始终使用手动导入。</p>
+              <p>未提供逐项确认的一键导入动作时，本页始终使用手动导入。</p>
             </div>
           </header>
 
@@ -317,7 +319,10 @@ export function SubscriptionImportModule({
             aria-labelledby={platformTabId}
             className="cc-si-client-panel"
           >
-            <div className="cc-si-client-grid" aria-label="已核验客户端">
+            <p className="cc-si-client-caveat" role="note">
+              客户端清单仅按批准矩阵展示；一键导入和兼容性仍需逐项确认。
+            </p>
+            <div className="cc-si-client-grid" aria-label={`${platformLabel} 可选客户端`}>
               {clients.map((client) => (
                 <button
                   key={client.id}
@@ -329,7 +334,8 @@ export function SubscriptionImportModule({
                     setActionMessage(null);
                   }}
                 >
-                  {client.name}
+                  <span>{client.name}</span>
+                  {client.recommended && <small>推荐</small>}
                 </button>
               ))}
             </div>
@@ -368,8 +374,18 @@ export function SubscriptionImportModule({
             </ul>
             <p>仍无法导入时，只向现有支持渠道提供线路名称、设备系统和客户端名称；不要发送完整订阅地址。</p>
           </details>
+
+          <aside className="cc-si-location-note" aria-label="Chrome 位置权限提醒">
+            <strong>建议关闭或按次询问位置权限</strong>
+            <ul>
+              <li>桌面 Chrome：在地址栏手动输入 <code>chrome://settings/content/location</code>，建议关闭网站位置权限，或在每次询问时按需拒绝。</li>
+              <li>Android：同时检查 Chrome 的网站位置权限与系统中的 Chrome 位置权限，建议设为每次询问或拒绝。</li>
+              <li>iPhone / iPad：在系统设置的定位服务中检查 Chrome 位置权限，建议设为永不或下次询问，并按需拒绝。</li>
+            </ul>
+            <p>非必要时建议关闭；需要时改为每次询问。上面的桌面设置地址仅供复制或选中，本页不会尝试打开、修改或声称权限已变更。</p>
+          </aside>
         </section>
       </div>
-    </main>
+    </section>
   );
 }

@@ -1,6 +1,7 @@
 export { SubscriptionImportModule } from "./SubscriptionImportModule";
 export {
   SUBSCRIPTION_CLIENTS,
+  SUBSCRIPTION_CLIENT_MATRIX,
   SUBSCRIPTION_PLATFORMS,
   clientsForPlatform,
   safeSubscriptionHref,
@@ -14,5 +15,6 @@ export type {
 export type {
   SubscriptionClient,
   SubscriptionClientId,
+  PlatformClient,
   SubscriptionPlatform,
 } from "./subscriptionImportModel";
