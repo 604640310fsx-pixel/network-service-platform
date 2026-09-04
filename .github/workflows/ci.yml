@@ -98,7 +98,6 @@ jobs:
       EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       PROVENANCE_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'github-actions' || 'github-actions-test' }}
       VALIDATION_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'ci-build' || 'ci-test' }}
-      BUNDLE_PARENT: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout exact task head
         uses: actions/checkout@v6
@@ -146,6 +145,8 @@ jobs:
         run: node --test scripts/ops/consolidated-release-packet.test.mjs
 
       - name: Assemble twice and validate inventories
+        env:
+          BUNDLE_PARENT: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           test ! -e "$BUNDLE_PARENT"
           mkdir -p "$BUNDLE_PARENT"
@@ -191,7 +192,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: consolidated-release-${{ env.EXPECTED_SHA }}
-          path: ${{ env.BUNDLE_PARENT }}/first/
+          path: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}/first/
           if-no-files-found: error
           overwrite: false
           include-hidden-files: false
