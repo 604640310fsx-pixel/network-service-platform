@@ -13,17 +13,19 @@
 #import <time.h>
 
 #include "local_opaque_operation_broker_core.h"
+#include "local_opaque_operation_broker_native.h"
 
 static NSString *const MOBAdminRole = @"FNOS_PRODUCTION";
 static NSString *const MOBAdminOperation = @"RAW_MONITOR_OWNERSHIP_CORRELATION_READONLY_V1";
 static NSString *const MOBAdminService = @"com.network-service-platform.monitor-opaque-broker.role-record.v1";
-static NSString *const MOBAdminBrokerPath = @"/usr/local/libexec/network-service-platform/monitor-opaque-operation-broker-v1";
+static NSString *const MOBAdminClientPath = @"/usr/local/libexec/network-service-platform/monitor-opaque-operation-broker-v1";
+static NSString *const MOBAdminServicePath = @"/usr/local/libexec/network-service-platform/monitor-opaque-operation-broker-service-v1";
 static NSString *const MOBAdminExecutablePath = @"/usr/local/libexec/network-service-platform/monitor-opaque-operation-broker-admin-v1";
 static NSString *const MOBAdminKeyTag = @"com.network-service-platform.monitor-opaque-broker.identity.FNOS_PRODUCTION.v1";
+static NSString *const MOBAdminSystemKeychainPath = @"/Library/Keychains/System.keychain";
 
 typedef NS_ENUM(NSInteger, MOBAdminAction) {
     MOBAdminActionProvision = 0,
-    MOBAdminActionReplace = 1,
     MOBAdminActionRevoke = 2,
 };
 
@@ -175,7 +177,7 @@ static SecAccessRef MOBCreateExactAccess(void) {
     SecTrustedApplicationRef admin = NULL;
     SecAccessRef access = NULL;
     CFMutableArrayRef applications = NULL;
-    if (SecTrustedApplicationCreateFromPath(MOBAdminBrokerPath.fileSystemRepresentation, &broker) != errSecSuccess ||
+    if (SecTrustedApplicationCreateFromPath(MOBAdminServicePath.fileSystemRepresentation, &broker) != errSecSuccess ||
         broker == NULL ||
         SecTrustedApplicationCreateFromPath(MOBAdminExecutablePath.fileSystemRepresentation, &admin) != errSecSuccess ||
         admin == NULL) {
@@ -207,21 +209,40 @@ done:
 }
 #pragma clang diagnostic pop
 
-static NSDictionary *MOBExactRoleQuery(void) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+static SecKeychainRef MOBOpenSystemKeychain(void) {
+    SecKeychainRef keychain = NULL;
+    if (SecKeychainOpen(MOBAdminSystemKeychainPath.fileSystemRepresentation, &keychain) != errSecSuccess) {
+        return NULL;
+    }
+    return keychain;
+}
+#pragma clang diagnostic pop
+
+static NSDictionary *MOBExactRoleQuery(SecKeychainRef keychain) {
+    if (keychain == NULL) {
+        return @{};
+    }
     return @{
         (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
         (__bridge id)kSecAttrService: MOBAdminService,
         (__bridge id)kSecAttrAccount: MOBAdminRole,
         (__bridge id)kSecAttrSynchronizable: @NO,
+        (__bridge id)kSecMatchSearchList: @[(__bridge id)keychain],
     };
 }
 
-static NSDictionary *MOBExactKeyQuery(void) {
+static NSDictionary *MOBExactKeyQuery(SecKeychainRef keychain) {
+    if (keychain == NULL) {
+        return @{};
+    }
     return @{
         (__bridge id)kSecClass: (__bridge id)kSecClassKey,
         (__bridge id)kSecAttrApplicationTag: MOBKeyTagData(),
         (__bridge id)kSecAttrKeyType: (__bridge id)kSecAttrKeyTypeECSECPrimeRandom,
         (__bridge id)kSecAttrSynchronizable: @NO,
+        (__bridge id)kSecMatchSearchList: @[(__bridge id)keychain],
     };
 }
 
@@ -238,23 +259,62 @@ static BOOL MOBExactItemAbsent(NSDictionary *baseQuery) {
 }
 
 static BOOL MOBRevokeExactRole(void) {
-    OSStatus recordStatus = SecItemDelete((__bridge CFDictionaryRef)MOBExactRoleQuery());
-    OSStatus keyStatus = SecItemDelete((__bridge CFDictionaryRef)MOBExactKeyQuery());
+    SecKeychainRef keychain = MOBOpenSystemKeychain();
+    if (keychain == NULL) {
+        return NO;
+    }
+    NSDictionary *roleQuery = MOBExactRoleQuery(keychain);
+    NSDictionary *keyQuery = MOBExactKeyQuery(keychain);
+    OSStatus recordStatus = SecItemDelete((__bridge CFDictionaryRef)roleQuery);
+    OSStatus keyStatus = SecItemDelete((__bridge CFDictionaryRef)keyQuery);
     BOOL recordDeleted = recordStatus == errSecSuccess || recordStatus == errSecItemNotFound;
     BOOL keyDeleted = keyStatus == errSecSuccess || keyStatus == errSecItemNotFound;
-    return recordDeleted && keyDeleted && MOBExactItemAbsent(MOBExactRoleQuery()) && MOBExactItemAbsent(MOBExactKeyQuery());
+    BOOL absent = recordDeleted && keyDeleted && MOBExactItemAbsent(roleQuery) && MOBExactItemAbsent(keyQuery);
+    CFRelease(keychain);
+    return absent;
 }
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-static SecKeyRef MOBCreateIdentityKey(SecAccessRef access) {
+static BOOL MOBBooleanAttribute(CFDictionaryRef attributes, CFStringRef key, BOOL expected) {
+    CFTypeRef value = CFDictionaryGetValue(attributes, key);
+    return value != NULL && CFGetTypeID(value) == CFBooleanGetTypeID() &&
+           CFBooleanGetValue((CFBooleanRef)value) == expected;
+}
+
+static BOOL MOBKeyCapabilitiesExact(SecKeyRef key) {
+    CFDictionaryRef attributes = key == NULL ? NULL : SecKeyCopyAttributes(key);
+    BOOL valid = attributes != NULL &&
+        MOBBooleanAttribute(attributes, kSecAttrIsPermanent, YES) &&
+        MOBBooleanAttribute(attributes, kSecAttrIsExtractable, NO) &&
+        MOBBooleanAttribute(attributes, kSecAttrCanSign, YES) &&
+        MOBBooleanAttribute(attributes, kSecAttrCanDecrypt, NO) &&
+        MOBBooleanAttribute(attributes, kSecAttrCanDerive, NO) &&
+        MOBBooleanAttribute(attributes, kSecAttrCanEncrypt, NO) &&
+        MOBBooleanAttribute(attributes, kSecAttrCanUnwrap, NO) &&
+        MOBBooleanAttribute(attributes, kSecAttrCanWrap, NO) &&
+        MOBBooleanAttribute(attributes, kSecAttrCanVerify, NO);
+    if (attributes != NULL) {
+        CFRelease(attributes);
+    }
+    return valid;
+}
+
+static SecKeyRef MOBCreateIdentityKey(SecAccessRef access, SecKeychainRef keychain) {
     NSDictionary *privateAttributes = @{
         (__bridge id)kSecAttrIsPermanent: @YES,
         (__bridge id)kSecAttrIsExtractable: @NO,
         (__bridge id)kSecAttrCanSign: @YES,
+        (__bridge id)kSecAttrCanDecrypt: @NO,
+        (__bridge id)kSecAttrCanDerive: @NO,
+        (__bridge id)kSecAttrCanEncrypt: @NO,
+        (__bridge id)kSecAttrCanUnwrap: @NO,
+        (__bridge id)kSecAttrCanWrap: @NO,
+        (__bridge id)kSecAttrCanVerify: @NO,
         (__bridge id)kSecAttrApplicationTag: MOBKeyTagData(),
         (__bridge id)kSecAttrSynchronizable: @NO,
         (__bridge id)kSecAttrAccess: (__bridge id)access,
+        (__bridge id)kSecUseKeychain: (__bridge id)keychain,
     };
     NSDictionary *attributes = @{
         (__bridge id)kSecAttrKeyType: (__bridge id)kSecAttrKeyTypeECSECPrimeRandom,
@@ -266,14 +326,24 @@ static SecKeyRef MOBCreateIdentityKey(SecAccessRef access) {
     if (error != NULL) {
         CFRelease(error);
     }
+    if (key != NULL && !MOBKeyCapabilitiesExact(key)) {
+        NSDictionary *deleteQuery = @{
+            (__bridge id)kSecClass: (__bridge id)kSecClassKey,
+            (__bridge id)kSecValueRef: (__bridge id)key,
+        };
+        (void)SecItemDelete((__bridge CFDictionaryRef)deleteQuery);
+        CFRelease(key);
+        key = NULL;
+    }
     return key;
 }
 #pragma clang diagnostic pop
 
-static NSData *MOBPersistentReference(SecKeyRef key) {
+static NSData *MOBPersistentReference(SecKeyRef key, SecKeychainRef keychain) {
     NSDictionary *query = @{
         (__bridge id)kSecClass: (__bridge id)kSecClassKey,
         (__bridge id)kSecValueRef: (__bridge id)key,
+        (__bridge id)kSecMatchSearchList: @[(__bridge id)keychain],
         (__bridge id)kSecReturnPersistentRef: @YES,
         (__bridge id)kSecMatchLimit: (__bridge id)kSecMatchLimitOne,
     };
@@ -415,13 +485,66 @@ static BOOL MOBValidateBindingInputs(
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-static BOOL MOBAddRoleRecord(NSData *record, SecAccessRef access) {
-    NSMutableDictionary *query = [MOBExactRoleQuery() mutableCopy];
-    query[(__bridge id)kSecValueData] = record;
-    query[(__bridge id)kSecAttrAccess] = (__bridge id)access;
-    return SecItemAdd((__bridge CFDictionaryRef)query, NULL) == errSecSuccess;
+static NSData *MOBAddRoleRecord(
+    NSData *record,
+    SecAccessRef access,
+    SecKeychainRef keychain,
+    BOOL *created
+) {
+    NSDictionary *query = @{
+        (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+        (__bridge id)kSecAttrService: MOBAdminService,
+        (__bridge id)kSecAttrAccount: MOBAdminRole,
+        (__bridge id)kSecAttrSynchronizable: @NO,
+        (__bridge id)kSecValueData: record,
+        (__bridge id)kSecAttrAccess: (__bridge id)access,
+        (__bridge id)kSecUseKeychain: (__bridge id)keychain,
+        (__bridge id)kSecReturnPersistentRef: @YES,
+    };
+    CFTypeRef result = NULL;
+    if (created == NULL) {
+        return nil;
+    }
+    *created = NO;
+    if (SecItemAdd((__bridge CFDictionaryRef)query, &result) != errSecSuccess) {
+        if (result != NULL) {
+            CFRelease(result);
+        }
+        return nil;
+    }
+    *created = YES;
+    if (result == NULL || CFGetTypeID(result) != CFDataGetTypeID()) {
+        if (result != NULL) {
+            CFRelease(result);
+        }
+        return nil;
+    }
+    return CFBridgingRelease(result);
 }
 #pragma clang diagnostic pop
+
+static BOOL MOBDeleteCreatedRoleRecord(
+    NSData *roleReference,
+    NSData *record,
+    SecKeychainRef keychain
+) {
+    NSDictionary *query;
+    if (roleReference != nil) {
+        query = @{
+            (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+            (__bridge id)kSecValuePersistentRef: roleReference,
+        };
+    } else {
+        if (record == nil || keychain == NULL) {
+            return NO;
+        }
+        NSMutableDictionary *exactQuery = [MOBExactRoleQuery(keychain) mutableCopy];
+        exactQuery[(__bridge id)kSecValueData] = record;
+        query = exactQuery;
+    }
+    OSStatus status = SecItemDelete((__bridge CFDictionaryRef)query);
+    return status == errSecSuccess || status == errSecItemNotFound;
+}
 
 static void MOBDeleteCreatedIdentity(SecKeyRef privateKey) {
     if (privateKey == NULL) {
@@ -434,6 +557,24 @@ static void MOBDeleteCreatedIdentity(SecKeyRef privateKey) {
     (void)SecItemDelete((__bridge CFDictionaryRef)query);
 }
 
+static BOOL MOBDeleteProvisionedObjects(NSData *roleReference, NSData *keyReference) {
+    if (roleReference == nil || keyReference == nil) {
+        return NO;
+    }
+    NSDictionary *roleQuery = @{
+        (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+        (__bridge id)kSecValuePersistentRef: roleReference,
+    };
+    NSDictionary *keyQuery = @{
+        (__bridge id)kSecClass: (__bridge id)kSecClassKey,
+        (__bridge id)kSecValuePersistentRef: keyReference,
+    };
+    OSStatus roleStatus = SecItemDelete((__bridge CFDictionaryRef)roleQuery);
+    OSStatus keyStatus = SecItemDelete((__bridge CFDictionaryRef)keyQuery);
+    return (roleStatus == errSecSuccess || roleStatus == errSecItemNotFound) &&
+           (keyStatus == errSecSuccess || keyStatus == errSecItemNotFound);
+}
+
 static BOOL MOBProvision(
     MOBAdminAction action,
     NSString *target,
@@ -441,39 +582,53 @@ static BOOL MOBProvision(
     NSString *username,
     NSString *hostKeyText,
     unsigned long long expiration,
-    NSData **publicEnrollment
+    NSData **publicEnrollment,
+    NSData **newRoleReference,
+    NSData **newKeyReference
 ) {
+    SecKeychainRef keychain = NULL;
     SecAccessRef access = NULL;
     SecKeyRef privateKey = NULL;
     NSData *hostKey = MOBParseEd25519HostKey(hostKeyText);
     NSData *persistentReference = nil;
     NSData *publicIdentity = nil;
     NSData *record = nil;
+    NSData *roleReference = nil;
+    BOOL roleCreated = NO;
     BOOL success = NO;
-    if ((action != MOBAdminActionProvision && action != MOBAdminActionReplace) ||
+    if (publicEnrollment == NULL || newRoleReference == NULL || newKeyReference == NULL) {
+        return NO;
+    }
+    *publicEnrollment = nil;
+    *newRoleReference = nil;
+    *newKeyReference = nil;
+    if (!mob_native_admin_action_supported((uint32_t)action) ||
+        action != MOBAdminActionProvision ||
         hostKey == nil || !MOBValidateBindingInputs(target, port, username, expiration) ||
-        !MOBRootOwnedExecutable(MOBAdminBrokerPath) ||
-        !MOBStableSignedCode(MOBAdminBrokerPath) ||
+        !MOBRootOwnedExecutable(MOBAdminClientPath) ||
+        !MOBRootOwnedAncestors(MOBAdminClientPath) ||
+        !MOBStableSignedCode(MOBAdminClientPath) ||
+        !MOBRootOwnedExecutable(MOBAdminServicePath) ||
+        !MOBRootOwnedAncestors(MOBAdminServicePath) ||
+        !MOBStableSignedCode(MOBAdminServicePath) ||
         !MOBRootOwnedExecutable(MOBAdminExecutablePath) ||
         !MOBStableSignedCode(MOBAdminExecutablePath)) {
         return NO;
     }
-    if (action == MOBAdminActionReplace && !MOBRevokeExactRole()) {
-        return NO;
-    }
-    if (action == MOBAdminActionProvision &&
-        (!MOBExactItemAbsent(MOBExactRoleQuery()) || !MOBExactItemAbsent(MOBExactKeyQuery()))) {
-        return NO;
+    keychain = MOBOpenSystemKeychain();
+    if (keychain == NULL || !MOBExactItemAbsent(MOBExactRoleQuery(keychain)) ||
+        !MOBExactItemAbsent(MOBExactKeyQuery(keychain))) {
+        goto done;
     }
     access = MOBCreateExactAccess();
     if (access == NULL) {
         goto done;
     }
-    privateKey = MOBCreateIdentityKey(access);
+    privateKey = MOBCreateIdentityKey(access, keychain);
     if (privateKey == NULL) {
         goto done;
     }
-    persistentReference = MOBPersistentReference(privateKey);
+    persistentReference = MOBPersistentReference(privateKey, keychain);
     publicIdentity = MOBPublicIdentityBlob(privateKey);
     if (persistentReference == nil || publicIdentity == nil) {
         goto done;
@@ -487,15 +642,21 @@ static BOOL MOBProvision(
         publicIdentity,
         expiration
     );
-    if (record == nil || !MOBAddRoleRecord(record, access)) {
+    roleReference = record == nil
+        ? nil
+        : MOBAddRoleRecord(record, access, keychain, &roleCreated);
+    if (record == nil || roleReference == nil) {
         goto done;
     }
     success = YES;
-    if (publicEnrollment != NULL) {
-        *publicEnrollment = publicIdentity;
-    }
+    *publicEnrollment = publicIdentity;
+    *newRoleReference = roleReference;
+    *newKeyReference = persistentReference;
 done:
     if (!success) {
+        if (roleCreated) {
+            (void)MOBDeleteCreatedRoleRecord(roleReference, record, keychain);
+        }
         MOBDeleteCreatedIdentity(privateKey);
     }
     if (privateKey != NULL) {
@@ -503,6 +664,9 @@ done:
     }
     if (access != NULL) {
         CFRelease(access);
+    }
+    if (keychain != NULL) {
+        CFRelease(keychain);
     }
     return success;
 }
@@ -577,7 +741,7 @@ static NSView *MOBInputView(
     NSArray<NSString *> *labels = @[@"Action", @"Canonical target", @"SSH port", @"Non-root username", @"Pinned ssh-ed25519 public key", @"Expiration (Unix epoch)"];
     NSMutableArray<NSView *> *controls = [NSMutableArray array];
     NSPopUpButton *actionControl = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [actionControl addItemsWithTitles:@[@"Provision", @"Replace", @"Revoke"]];
+    [actionControl addItemsWithTitles:@[@"Provision", @"Revoke"]];
     [controls addObject:actionControl];
     NSTextField *targetControl = [[NSTextField alloc] initWithFrame:NSZeroRect];
     NSTextField *portControl = [[NSTextField alloc] initWithFrame:NSZeroRect];
@@ -627,9 +791,13 @@ int main(int argc, const char *argv[]) {
         if ([alert runModal] != NSAlertFirstButtonReturn) {
             return 0;
         }
-        MOBAdminAction selected = (MOBAdminAction)action.indexOfSelectedItem;
+        MOBAdminAction selected = action.indexOfSelectedItem == 0
+            ? MOBAdminActionProvision
+            : MOBAdminActionRevoke;
         BOOL success;
         NSData *publicEnrollment = nil;
+        NSData *newRoleReference = nil;
+        NSData *newKeyReference = nil;
         unsigned long long portValue = 0U;
         unsigned long long expirationValue = 0U;
         if (selected == MOBAdminActionRevoke) {
@@ -637,7 +805,6 @@ int main(int argc, const char *argv[]) {
         } else {
             success = MOBParseUnsignedDecimal(port.stringValue, 65535U, &portValue) &&
                 MOBParseUnsignedDecimal(expiration.stringValue, ULLONG_MAX, &expirationValue) &&
-                MOBRootOwnedAncestors(MOBAdminBrokerPath) &&
                 MOBProvision(
                     selected,
                     target.stringValue,
@@ -645,12 +812,14 @@ int main(int argc, const char *argv[]) {
                     username.stringValue,
                     hostKey.stringValue,
                     expirationValue,
-                    &publicEnrollment
+                    &publicEnrollment,
+                    &newRoleReference,
+                    &newKeyReference
                 );
             if (success) {
                 success = MOBSavePublicEnrollment(publicEnrollment);
                 if (!success) {
-                    (void)MOBRevokeExactRole();
+                    (void)MOBDeleteProvisionedObjects(newRoleReference, newKeyReference);
                 }
             }
         }
