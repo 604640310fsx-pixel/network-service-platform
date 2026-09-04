@@ -1,6 +1,5 @@
-import { Component, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { QRCodeSVG } from "qrcode.react";
 import { useAuth } from "../../lib/auth";
 import {
   PaymentApiError,
@@ -15,76 +14,9 @@ import {
   type OrderCredentials,
   type PaymentOrderResult,
   type PaymentOrderSnapshot,
-  type ServiceDeliveryItem,
 } from "../../lib/payment-api";
+import { SubscriptionImportModule } from "../subscription-import";
 import { AlipayQrPay, type AlipayQrPhase } from "./AlipayQrPay";
-
-class DeliveryQrBoundary extends Component<
-  { readonly children: ReactNode },
-  { readonly failed: boolean }
-> {
-  state = { failed: false };
-
-  static getDerivedStateFromError() {
-    return { failed: true };
-  }
-
-  componentDidCatch(_error: Error, _info: ErrorInfo) {
-    // 订阅链接属于敏感交付数据，不把异常对象或组件栈写入日志。
-  }
-
-  render() {
-    if (this.state.failed) {
-      return <p className="sub-delivery-qr-error" role="alert">二维码生成失败，请复制链接。</p>;
-    }
-    return this.props.children;
-  }
-}
-
-function DeliveryItemCard({ item }: { item: ServiceDeliveryItem }) {
-  const [qrOpen, setQrOpen] = useState(false);
-  const [copyMessage, setCopyMessage] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  async function copySubscriptionUrl() {
-    try {
-      await navigator.clipboard.writeText(item.subscriptionUrl);
-      setCopyMessage("已复制订阅链接");
-    } catch {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-      setCopyMessage("自动复制失败，请手动复制。");
-    }
-  }
-
-  return (
-    <article className="sub-delivery-item">
-      <div className="sub-delivery-head">
-        <div><small>线路 {item.position}</small><strong>{item.label}</strong></div>
-        <span>已交付</span>
-      </div>
-      <label className="sub-delivery-url">
-        <span>订阅链接</span>
-        <input ref={inputRef} type="text" value={item.subscriptionUrl} readOnly spellCheck={false} />
-      </label>
-      <div className="sub-delivery-actions">
-        <button type="button" onClick={() => void copySubscriptionUrl()}>复制链接</button>
-        <button type="button" aria-expanded={qrOpen} onClick={() => setQrOpen((current) => !current)}>
-          {qrOpen ? "收起二维码" : "显示二维码"}
-        </button>
-        <a href={`clash://install-config?url=${encodeURIComponent(item.subscriptionUrl)}`}>导入到 Clash Verge</a>
-      </div>
-      {copyMessage !== null && <p className="sub-delivery-message" role="status">{copyMessage}</p>}
-      {qrOpen && (
-        <div className="sub-delivery-qr">
-          <DeliveryQrBoundary>
-            <QRCodeSVG value={item.subscriptionUrl} size={184} level="M" marginSize={2} />
-          </DeliveryQrBoundary>
-        </div>
-      )}
-    </article>
-  );
-}
 
 function formatFen(amountFen: number) {
   const amount = amountFen / 100;
@@ -376,38 +308,33 @@ export function OrderStatusPanel({
     snapshot.service?.status === "open" ? snapshot.service.items : undefined;
 
   return (
-    <div className="pay-stack">
-      <AlipayQrPay
-        phase={phase}
-        orderRef={snapshot.orderRef}
-        amountFen={snapshot.amountFen}
-        payUrl={phase === "waiting" ? payUrl : null}
-        secondsLeft={phase === "waiting" ? secondsLeft : null}
-        onRefreshPayPage={() => void doRefreshPayPage(false)}
-        refreshing={refreshingPayPage}
-        onRetry={() => void retryPayment()}
-        retrying={retrying}
-        actionError={actionError}
-      />
+    <>
+      <div className="pay-stack">
+        <AlipayQrPay
+          phase={phase}
+          serviceOpen={snapshot.service?.status === "open"}
+          orderRef={snapshot.orderRef}
+          amountFen={snapshot.amountFen}
+          payUrl={phase === "waiting" ? payUrl : null}
+          secondsLeft={phase === "waiting" ? secondsLeft : null}
+          onRefreshPayPage={() => void doRefreshPayPage(false)}
+          refreshing={refreshingPayPage}
+          onRetry={() => void retryPayment()}
+          retrying={retrying}
+          actionError={actionError}
+        />
 
-      {snapshot.status !== "closed" && error !== null && queryRetryable && (
-        <div className="pay-requery" role="alert">
-          <p>{error}</p>
-          <button type="button" onClick={queryAgain}>重新查询</button>
-        </div>
-      )}
+        {snapshot.status !== "closed" && error !== null && queryRetryable && (
+          <div className="pay-requery" role="alert">
+            <p>{error}</p>
+            <button type="button" onClick={queryAgain}>重新查询</button>
+          </div>
+        )}
+      </div>
 
       {deliveryItems !== undefined && (
-        <section className="sub-section sub-delivery-panel" aria-labelledby="sub-delivery-title">
-          <div className="sub-delivery-title">
-            <div><small>DELIVERY</small><h2 id="sub-delivery-title">订阅信息</h2></div>
-            <p>请妥善保管订阅链接，不要转发给他人。</p>
-          </div>
-          <div className="sub-delivery-list">
-            {deliveryItems.map((item) => <DeliveryItemCard item={item} key={item.position} />)}
-          </div>
-        </section>
+        <SubscriptionImportModule deliveryItems={deliveryItems} />
       )}
-    </div>
+    </>
   );
 }

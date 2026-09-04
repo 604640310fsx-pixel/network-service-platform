@@ -26,7 +26,17 @@ type DrawerContextValue = {
 
 const CustomerDrawerContext = createContext<DrawerContextValue | null>(null);
 // 已迁移到客户中心视觉的路由；其余菜单继续走 disabled / 待接入策略。
-const migratedPaths = new Set<string>(["/status", "/subscribe", "/dashboard", "/services", "/network", "/monitor", "/orders"]);
+const migratedPaths = new Set<string>([
+  "/status",
+  "/subscribe",
+  "/dashboard",
+  "/services",
+  "/network",
+  "/monitor",
+  "/orders",
+  "/docs",
+  "/profile",
+]);
 
 export function useCustomerDrawer() {
   const value = useContext(CustomerDrawerContext);
@@ -246,7 +256,7 @@ export function CustomerCenterShell({
                 )}
               </button>
               <span className="cc-balance-placeholder" aria-label="余额功能待接入" title="余额功能待接入">余额 <b>—</b></span>
-              <Link className="cc-user-link" to="/dashboard" aria-label="进入用户中心"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="3.4" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></svg><span>用户中心</span></Link>
+              <Link className="cc-user-link" to="/profile" aria-label="进入个人中心"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="3.4" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></svg><span>个人中心</span></Link>
             </div>
           </header>
           {children}
