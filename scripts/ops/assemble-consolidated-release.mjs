@@ -50,6 +50,12 @@ export const RELEASE_MIGRATIONS = Object.freeze([
   "014_service_delivery_monitor_target.sql",
   "015_diagnosis_request_idempotency.sql",
 ]);
+export const RELEASE_HTTP_CONTRACT_PATHS = Object.freeze([
+  "ops/nginx/release-traffic-open.conf.example",
+  "ops/nginx/bare-domain-redirect.conf.example",
+  "ops/nginx/release-traffic-closed.conf.example",
+  "scripts/ops/validate-release-open-http-contract.mjs",
+]);
 
 const FILE_MAPPINGS = Object.freeze([
   ["auth-service/package.json", "auth-service/package.json"],
@@ -59,6 +65,22 @@ const FILE_MAPPINGS = Object.freeze([
   ["website/package.json", "website/package.json"],
   ["website/package-lock.json", "website/package-lock.json"],
   ["website/dist", "website/dist"],
+  [
+    "ops/nginx/release-traffic-open.conf.example",
+    "ops/nginx/release-traffic-open.conf.example",
+  ],
+  [
+    "ops/nginx/bare-domain-redirect.conf.example",
+    "ops/nginx/bare-domain-redirect.conf.example",
+  ],
+  [
+    "ops/nginx/release-traffic-closed.conf.example",
+    "ops/nginx/release-traffic-closed.conf.example",
+  ],
+  [
+    "scripts/ops/validate-release-open-http-contract.mjs",
+    "scripts/ops/validate-release-open-http-contract.mjs",
+  ],
 ]);
 
 const REQUIRED_PAYLOAD_PATHS = Object.freeze([
@@ -69,6 +91,7 @@ const REQUIRED_PAYLOAD_PATHS = Object.freeze([
   "website/dist/index.html",
   "website/package-lock.json",
   "website/package.json",
+  ...RELEASE_HTTP_CONTRACT_PATHS,
 ]);
 
 export class ReleaseAssemblyError extends Error {

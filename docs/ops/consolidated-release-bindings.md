@@ -80,6 +80,19 @@ previous release record or dashboard observation is not current proof.
 | `NGINX_ATOMIC_SWITCH_AND_ROLLBACK` | Closed/open roots are installed atomically with a pre-tested rollback command and exact active-root proof. |
 | `CLOSED_TRAFFIC_PROBE_PROOF` | Bare/www and every approved alternate ingress return only the expected 503 for safe representative methods. |
 | `OPEN_TRAFFIC_PROBE_PROOF` | Canonical site, bare redirect, API proxy, SPA fallback, headers, and absence of closed/bypass servers pass. |
+| `OPEN_CANONICAL_HOST` | Exact canonical host is bound externally and matches the rendered canonical HTTP and HTTPS ownership. |
+| `OPEN_BARE_HOST` | Exact bare host is bound externally and matches the rendered bare HTTP and HTTPS redirect ownership. |
+| `OPEN_CANDIDATE_WEBSITE_ROOT` | Exact candidate website root is bound externally and resolves to the verified website inventory. |
+| `OPEN_API_UPSTREAM` | Exact `/api` upstream is bound externally; scheme, address, port, and any path semantics are approved as one value. |
+| `OPEN_TLS_BINDING` | Existing TLS directive ownership for both HTTPS servers is identified and verified without recording certificate paths or material. |
+| `OPEN_CSP_CONNECT_ALLOWLIST` | Complete approved `connect-src` sources are bound explicitly; monitor and payment origins are never inferred. |
+| `OPEN_CSP_FRAME_ALLOWLIST` | Complete approved `frame-src` sources are bound explicitly and remain distinct from the embedding policy. |
+| `OPEN_FRAMING_POLICY` | Approved embedding policy, `frame-ancestors`, and X-Frame-Options directive are mutually consistent. |
+| `OPEN_HSTS_OWNER_AND_VALUE` | HTTPS-only HSTS owner and exact policy value are bound and validated after rendering. |
+| `OPEN_COMPRESSION_OWNER` | Exactly one compression owner, its target-bound module/algorithm, and its `Vary: Accept-Encoding` duty are recorded. |
+| `ALTERNATE_INGRESS_OWNER_INVENTORY` | Target-side owner inventory covers every alternate load balancer, listener, hostname, port, proxy, and redirect; repository absence is not proof. |
+| `RENDERED_OPEN_CONFIG_SHA256` | Hash of the isolated, fully rendered open root that passed rendered-contract validation and `nginx -t`. |
+| `RENDERED_CLOSED_CONFIG_SHA256` | Hash of the isolated closed root that passed the authoritative closed validator and `nginx -t`. |
 
 ## Conditional monitor projection
 

@@ -18,10 +18,12 @@ import {
   RELEASE_ARTIFACT_PREFIX,
   RELEASE_BUNDLE_FORMAT,
   RELEASE_INTEGRATION_REF,
+  RELEASE_HTTP_CONTRACT_PATHS,
   RELEASE_MIGRATIONS,
   RELEASE_REPOSITORY,
   RELEASE_WORKFLOW_JOB,
 } from "./assemble-consolidated-release.mjs";
+import { validateTemplateRoot } from "./validate-release-open-http-contract.mjs";
 
 const REQUIRED_BUNDLE_PATHS = Object.freeze([
   "auth-service/dist/src/db.js",
@@ -31,6 +33,15 @@ const REQUIRED_BUNDLE_PATHS = Object.freeze([
   "website/dist/index.html",
   "website/package-lock.json",
   "website/package.json",
+  ...RELEASE_HTTP_CONTRACT_PATHS,
+]);
+
+const REQUIRED_OPEN_VALIDATOR_FRAGMENTS = Object.freeze([
+  "OPEN_HTTP_PLACEHOLDERS",
+  "validateTemplateSources",
+  "validateRenderedSources",
+  "UNRESOLVED_PLACEHOLDER",
+  "OPEN_CLOSED_CONFLICT",
 ]);
 
 const RELEASE_SEQUENCE = Object.freeze([
@@ -62,6 +73,9 @@ const REQUIRED_RUNBOOK_FRAGMENTS = Object.freeze([
   "MONITOR_API_ORIGIN: OMITTED_IN_QUIESCENT_MODE",
   "LOCAL_BUNDLE_RELEASE_USE: FORBIDDEN",
   "GITHUB_ARTIFACT_PROVENANCE: REQUIRED",
+  "__OPEN_CANONICAL_HOST__",
+  "Exact `/api` and the `^~ /api/` prefix",
+  "The future target proof matrix is mandatory",
   "--hostname github.com",
 ]);
 
@@ -88,6 +102,19 @@ const REQUIRED_BINDING_NAMES = Object.freeze([
   "OPEN_NGINX_CONFIG_PROOF",
   "ALTERNATE_INGRESS_CLOSURE_PROOF",
   "MONITOR_AUTH_PROJECTION_ACCEPTANCE",
+  "OPEN_CANONICAL_HOST",
+  "OPEN_BARE_HOST",
+  "OPEN_CANDIDATE_WEBSITE_ROOT",
+  "OPEN_API_UPSTREAM",
+  "OPEN_TLS_BINDING",
+  "OPEN_CSP_CONNECT_ALLOWLIST",
+  "OPEN_CSP_FRAME_ALLOWLIST",
+  "OPEN_FRAMING_POLICY",
+  "OPEN_HSTS_OWNER_AND_VALUE",
+  "OPEN_COMPRESSION_OWNER",
+  "ALTERNATE_INGRESS_OWNER_INVENTORY",
+  "RENDERED_OPEN_CONFIG_SHA256",
+  "RENDERED_CLOSED_CONFIG_SHA256",
 ]);
 
 export class ReleaseValidationError extends Error {
@@ -358,6 +385,7 @@ export function validateRepository({ source, expectedSha }) {
     workflow,
     [
       "validate-consolidated-release-packet.mjs",
+      "validate-release-open-http-contract.mjs",
       "assemble-consolidated-release.mjs",
       "python3 -m unittest discover -s monitoring/gateway/tests -v",
       "node --test monitoring/gateway/tests/static-app.test.cjs",
@@ -379,7 +407,18 @@ export function validateRepository({ source, expectedSha }) {
     "CI workflow",
   );
 
+  const openValidator = readText(
+    join(sourceRoot, "scripts/ops/validate-release-open-http-contract.mjs"),
+    "open HTTP contract validator",
+  );
+  assertFragments(
+    openValidator,
+    REQUIRED_OPEN_VALIDATOR_FRAGMENTS,
+    "open HTTP contract validator",
+  );
+
   runTrafficGateValidation(sourceRoot);
+  validateTemplateRoot(sourceRoot);
   return Object.freeze({ status: "ok", sourceSha: sha, bundleValidated: false });
 }
 
@@ -906,6 +945,16 @@ export function validateBundle({
     join(bundleRoot, "auth-service/src/migrations"),
     "bundle",
   );
+  const bundledOpenValidator = readText(
+    join(bundleRoot, "scripts/ops/validate-release-open-http-contract.mjs"),
+    "bundled open HTTP contract validator",
+  );
+  assertFragments(
+    bundledOpenValidator,
+    REQUIRED_OPEN_VALIDATOR_FRAGMENTS,
+    "bundled open HTTP contract validator",
+  );
+  validateTemplateRoot(bundleRoot);
 
   const githubArtifactProof =
     validationMode === "candidate"

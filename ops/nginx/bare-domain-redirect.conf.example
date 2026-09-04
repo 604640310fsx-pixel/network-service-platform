@@ -5,9 +5,9 @@
 server {
     listen 80;
     listen [::]:80;
-    server_name siqiapparel.com;
+    server_name __OPEN_BARE_HOST__;
 
-    return 308 https://www.siqiapparel.com$request_uri;
+    return 308 https://__OPEN_CANONICAL_HOST__$request_uri;
 }
 
 # TLS bare-domain entry point. The authorized operator must assemble this block
@@ -16,7 +16,10 @@ server {
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
-    server_name siqiapparel.com;
+    server_name __OPEN_BARE_HOST__;
 
-    return 308 https://www.siqiapparel.com$request_uri;
+    __OPEN_EXISTING_TLS_DIRECTIVES__
+    __OPEN_HSTS_DIRECTIVE__
+
+    return 308 https://__OPEN_CANONICAL_HOST__$request_uri;
 }

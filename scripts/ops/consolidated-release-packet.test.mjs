@@ -21,9 +21,16 @@ import { fileURLToPath } from "node:url";
 import {
   assembleReleaseBundle,
   isForbiddenBundlePath,
+  RELEASE_HTTP_CONTRACT_PATHS,
   RELEASE_MIGRATIONS,
 } from "./assemble-consolidated-release.mjs";
 import { validateBundle } from "./validate-consolidated-release-packet.mjs";
+import {
+  createSanitizedSyntheticRender,
+  OPEN_HTTP_PLACEHOLDERS,
+  validateRenderedSources,
+  validateTemplateSources,
+} from "./validate-release-open-http-contract.mjs";
 
 const ASSEMBLER_PATH = fileURLToPath(
   new URL("./assemble-consolidated-release.mjs", import.meta.url),
@@ -31,6 +38,7 @@ const ASSEMBLER_PATH = fileURLToPath(
 const VALIDATOR_PATH = fileURLToPath(
   new URL("./validate-consolidated-release-packet.mjs", import.meta.url),
 );
+const REPOSITORY_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const RUNBOOK_PATH = fileURLToPath(
   new URL("../../docs/ops/consolidated-release-runbook.md", import.meta.url),
 );
@@ -126,6 +134,50 @@ function writeFixtureFile(root, path, content) {
   writeFileSync(target, content, "utf8");
 }
 
+function contractSources() {
+  return {
+    openTemplate: readFileSync(
+      join(REPOSITORY_ROOT, "ops/nginx/release-traffic-open.conf.example"),
+      "utf8",
+    ),
+    bareTemplate: readFileSync(
+      join(REPOSITORY_ROOT, "ops/nginx/bare-domain-redirect.conf.example"),
+      "utf8",
+    ),
+    closedCandidate: readFileSync(
+      join(REPOSITORY_ROOT, "ops/nginx/release-traffic-closed.conf.example"),
+      "utf8",
+    ),
+  };
+}
+
+function replaceTokens(source, replacements) {
+  let rendered = source;
+  for (const [token, value] of Object.entries(replacements)) {
+    rendered = rendered.split(token).join(value);
+  }
+  return rendered;
+}
+
+function renderedContract(websiteRoot) {
+  const sources = contractSources();
+  const synthetic = createSanitizedSyntheticRender({ websiteRoot });
+  return {
+    ...sources,
+    openConfig: replaceTokens(sources.openTemplate, synthetic.replacements),
+    bareConfig: replaceTokens(sources.bareTemplate, synthetic.replacements),
+    expected: synthetic.expected,
+  };
+}
+
+function expectContractFailure(callback, expectedCode) {
+  assert.throws(
+    callback,
+    (error) => error?.code === expectedCode,
+    `expected open HTTP contract failure ${expectedCode}`,
+  );
+}
+
 function runGit(root, ...arguments_) {
   const result = spawnSync(
     "git",
@@ -178,6 +230,13 @@ function createFixtureRepository(parent) {
   writeFixtureFile(root, "website/dist/assets/app.js", "export {};\n");
   writeFixtureFile(root, "website/package.json", '{"type":"module"}\n');
   writeFixtureFile(root, "website/package-lock.json", '{"lockfileVersion":3}\n');
+  for (const relativePath of RELEASE_HTTP_CONTRACT_PATHS) {
+    writeFixtureFile(
+      root,
+      relativePath,
+      readFileSync(join(REPOSITORY_ROOT, relativePath), "utf8"),
+    );
+  }
 
   // These user/runtime files are outside the explicit release mappings.
   writeFixtureFile(
@@ -228,6 +287,342 @@ test("release migrations independently pin the exact continuous 001-015 sequence
   );
 });
 
+test("open HTTP templates freeze the exact value-free placeholder inventory", () => {
+  const baseline = contractSources();
+  assert.equal(validateTemplateSources(baseline).status, "ok");
+
+  const missing = {
+    ...baseline,
+    openTemplate: baseline.openTemplate.replace(
+      OPEN_HTTP_PLACEHOLDERS.websiteRoot,
+      "",
+    ),
+  };
+  expectContractFailure(
+    () => validateTemplateSources(missing),
+    "TEMPLATE_PLACEHOLDER_INVALID",
+  );
+
+  const unknown = {
+    ...baseline,
+    openTemplate: `${baseline.openTemplate}\n# __OPEN_UNKNOWN_VALUE__\n`,
+  };
+  expectContractFailure(
+    () => validateTemplateSources(unknown),
+    "TEMPLATE_PLACEHOLDER_INVALID",
+  );
+
+  const excess = {
+    ...baseline,
+    bareTemplate: `${baseline.bareTemplate}\n# ${OPEN_HTTP_PLACEHOLDERS.bareHost}\n`,
+  };
+  expectContractFailure(
+    () => validateTemplateSources(excess),
+    "TEMPLATE_PLACEHOLDER_INVALID",
+  );
+});
+
+test("open HTTP templates reject concrete host, root, upstream, TLS, and certificate values", () => {
+  const baseline = contractSources();
+  const cases = [
+    {
+      token: OPEN_HTTP_PLACEHOLDERS.canonicalHost,
+      value: "canonical.example.invalid",
+    },
+    {
+      token: OPEN_HTTP_PLACEHOLDERS.websiteRoot,
+      value: "/srv/example-site",
+    },
+    {
+      token: OPEN_HTTP_PLACEHOLDERS.apiUpstream,
+      value: "http://127.0.0.1:18080",
+    },
+    {
+      token: OPEN_HTTP_PLACEHOLDERS.tlsDirectives,
+      value: "include /etc/nginx/example-tls.conf;",
+    },
+    {
+      token: OPEN_HTTP_PLACEHOLDERS.tlsDirectives,
+      value: "ssl_certificate /etc/nginx/example-cert.pem;",
+    },
+  ];
+  for (const scenario of cases) {
+    const mutated = {
+      ...baseline,
+      openTemplate:
+        baseline.openTemplate.replace(scenario.token, scenario.value) +
+        `\n# ${scenario.token}\n`,
+    };
+    expectContractFailure(
+      () => validateTemplateSources(mutated),
+      "TEMPLATE_VALUE_FORBIDDEN",
+    );
+  }
+});
+
+test("sanitized rendered validation rejects topology and routing isolation mutations", () => {
+  const parent = mkdtempSync(join(tmpdir(), "open-http-routing-"));
+  try {
+    const baseline = renderedContract(join(parent, "root"));
+    mkdirSync(baseline.expected.websiteRoot);
+    assert.equal(
+      validateRenderedSources({
+        openConfig: baseline.openConfig,
+        bareConfig: baseline.bareConfig,
+        closedCandidate: baseline.closedCandidate,
+        expected: baseline.expected,
+      }).status,
+      "ok",
+    );
+
+    const scenarios = [
+      {
+        code: "OPEN_TOPOLOGY_INVALID",
+        openConfig: baseline.openConfig,
+        bareConfig: baseline.bareConfig.replace(
+          `server_name ${baseline.expected.bareHost};`,
+          `server_name ${baseline.expected.canonicalHost};`,
+        ),
+        closedCandidate: baseline.closedCandidate,
+      },
+      {
+        code: "OPEN_ROUTING_INVALID",
+        openConfig: baseline.openConfig.replace(
+          `proxy_pass ${baseline.expected.apiUpstream};`,
+          `proxy_pass ${baseline.expected.apiUpstream};\n        try_files $uri /index.html;`,
+        ),
+        bareConfig: baseline.bareConfig,
+        closedCandidate: baseline.closedCandidate,
+      },
+      {
+        code: "OPEN_ROUTING_INVALID",
+        openConfig: baseline.openConfig.replace(
+          "try_files $uri $uri/ /index.html;",
+          `proxy_pass ${baseline.expected.apiUpstream};\n        try_files $uri $uri/ /index.html;`,
+        ),
+        bareConfig: baseline.bareConfig,
+        closedCandidate: baseline.closedCandidate,
+      },
+      {
+        code: "OPEN_ROUTING_INVALID",
+        openConfig: baseline.openConfig.replace(
+          "location /assets/ {\n        set $open_cache_control \"no-cache, must-revalidate\";\n        try_files $uri =404;",
+          "location /assets/ {\n        set $open_cache_control \"no-cache, must-revalidate\";\n        try_files $uri /index.html;",
+        ),
+        bareConfig: baseline.bareConfig,
+        closedCandidate: baseline.closedCandidate,
+      },
+      {
+        code: "OPEN_ROUTING_INVALID",
+        openConfig: baseline.openConfig.replace(
+          "location ~ \"^/(?!assets/)(?:.*/)?[^/]+\\.[^/]+$\" {\n        set $open_cache_control \"no-cache, must-revalidate\";\n        try_files $uri =404;",
+          "location ~ \"^/(?!assets/)(?:.*/)?[^/]+\\.[^/]+$\" {\n        set $open_cache_control \"no-cache, must-revalidate\";\n        try_files $uri /index.html;",
+        ),
+        bareConfig: baseline.bareConfig,
+        closedCandidate: baseline.closedCandidate,
+      },
+    ];
+    for (const scenario of scenarios) {
+      expectContractFailure(
+        () =>
+          validateRenderedSources({
+            ...scenario,
+            expected: baseline.expected,
+          }),
+        scenario.code,
+      );
+    }
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("sanitized rendered validation rejects HTML and asset cache mutations", () => {
+  const baseline = renderedContract("/tmp/open-http-cache-test/root");
+  const scenarios = [
+    baseline.openConfig.replace(
+      "location = /index.html {\n        set $open_cache_control \"no-cache, no-store, must-revalidate\";",
+      "location = /index.html {\n        set $open_cache_control \"max-age=60\";",
+    ),
+    baseline.openConfig.replace(
+      'set $open_cache_control "public, max-age=31536000, immutable";',
+      'set $open_cache_control "public, max-age=60";',
+    ),
+    baseline.openConfig.replace(
+      "location /assets/ {\n        set $open_cache_control \"no-cache, must-revalidate\";",
+      "location /assets/ {\n        set $open_cache_control \"public, max-age=31536000, immutable\";",
+    ),
+  ];
+  for (const openConfig of scenarios) {
+    expectContractFailure(
+      () =>
+        validateRenderedSources({
+          openConfig,
+          bareConfig: baseline.bareConfig,
+          closedCandidate: baseline.closedCandidate,
+          expected: baseline.expected,
+        }),
+      "OPEN_CACHE_INVALID",
+    );
+  }
+});
+
+test("sanitized rendered validation rejects missing MIME and security duties", () => {
+  const baseline = renderedContract("/tmp/open-http-security-test/root");
+  const missingLines = [
+    "    include mime.types;\n",
+    '    add_header X-Content-Type-Options "nosniff" always;\n',
+    '    add_header Referrer-Policy "strict-origin-when-cross-origin" always;\n',
+    '    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;\n',
+  ];
+  for (const line of missingLines) {
+    expectContractFailure(
+      () =>
+        validateRenderedSources({
+          openConfig: baseline.openConfig.replace(line, ""),
+          bareConfig: baseline.bareConfig,
+          closedCandidate: baseline.closedCandidate,
+          expected: baseline.expected,
+        }),
+      "OPEN_SECURITY_INVALID",
+    );
+  }
+
+  const cspWithoutBase = baseline.expected.cspPolicy.replace(
+    "base-uri 'self'; ",
+    "",
+  );
+  expectContractFailure(
+    () =>
+      validateRenderedSources({
+        openConfig: baseline.openConfig.replace(
+          baseline.expected.cspPolicy,
+          cspWithoutBase,
+        ),
+        bareConfig: baseline.bareConfig,
+        closedCandidate: baseline.closedCandidate,
+        expected: { ...baseline.expected, cspPolicy: cspWithoutBase },
+      }),
+    "OPEN_SECURITY_INVALID",
+  );
+});
+
+test("sanitized rendered validation rejects unsafe CSP and inconsistent framing", () => {
+  const baseline = renderedContract("/tmp/open-http-csp-test/root");
+  for (const scriptSources of ["*", "'self' 'unsafe-eval'", "'self' data:"]) {
+    const cspPolicy = baseline.expected.cspPolicy.replace(
+      "script-src 'self'",
+      `script-src ${scriptSources}`,
+    );
+    expectContractFailure(
+      () =>
+        validateRenderedSources({
+          openConfig: baseline.openConfig.replace(
+            baseline.expected.cspPolicy,
+            cspPolicy,
+          ),
+          bareConfig: baseline.bareConfig,
+          closedCandidate: baseline.closedCandidate,
+          expected: { ...baseline.expected, cspPolicy },
+        }),
+      "OPEN_SECURITY_INVALID",
+    );
+  }
+  expectContractFailure(
+    () =>
+      validateRenderedSources({
+        openConfig: baseline.openConfig.replace(
+          "# OPEN_FRAMING_POLICY: same-origin",
+          "# OPEN_FRAMING_POLICY: deny",
+        ),
+        bareConfig: baseline.bareConfig,
+        closedCandidate: baseline.closedCandidate,
+        expected: baseline.expected,
+      }),
+    "OPEN_SECURITY_INVALID",
+  );
+});
+
+test("sanitized rendered validation rejects HSTS and compression ownership drift", () => {
+  const baseline = renderedContract("/tmp/open-http-compression-test/root");
+  const scenarios = [
+    {
+      code: "OPEN_SECURITY_INVALID",
+      openConfig: baseline.openConfig.replace(
+        /^\s*# OPEN_HSTS_OWNER: https-server\s*$/m,
+        "",
+      ),
+    },
+    {
+      code: "OPEN_COMPRESSION_INVALID",
+      openConfig: baseline.openConfig.replace(
+        /^\s*# OPEN_COMPRESSION_OWNER: canonical-https\s*$/m,
+        "",
+      ),
+    },
+    {
+      code: "OPEN_COMPRESSION_INVALID",
+      openConfig: baseline.openConfig.replace("gzip on;", "gzip on;\nbrotli on;"),
+    },
+    {
+      code: "OPEN_COMPRESSION_INVALID",
+      openConfig: baseline.openConfig.replace("gzip_vary on;", "gzip_vary off;"),
+    },
+  ];
+  for (const scenario of scenarios) {
+    expectContractFailure(
+      () =>
+        validateRenderedSources({
+          openConfig: scenario.openConfig,
+          bareConfig: baseline.bareConfig,
+          closedCandidate: baseline.closedCandidate,
+          expected: baseline.expected,
+        }),
+      scenario.code,
+    );
+  }
+});
+
+test("open and closed states remain mutually exclusive and rendered tokens resolve", () => {
+  const baseline = renderedContract("/tmp/open-http-mutual-test/root");
+  expectContractFailure(
+    () =>
+      validateRenderedSources({
+        openConfig: baseline.openConfig.replace(
+          `return 308 https://${baseline.expected.canonicalHost}$request_uri;`,
+          "return 503;",
+        ),
+        bareConfig: baseline.bareConfig,
+        closedCandidate: baseline.closedCandidate,
+        expected: baseline.expected,
+      }),
+    "OPEN_CLOSED_CONFLICT",
+  );
+  expectContractFailure(
+    () =>
+      validateRenderedSources({
+        openConfig: baseline.openConfig,
+        bareConfig: baseline.bareConfig,
+        closedCandidate: baseline.closedCandidate.replace(
+          "server {",
+          "server {\n    root /tmp/open-http-mutual-test/root;",
+        ),
+        expected: baseline.expected,
+      }),
+    "OPEN_CLOSED_CONFLICT",
+  );
+  expectContractFailure(
+    () =>
+      validateRenderedSources({
+        openConfig: `${baseline.openConfig}\n# __OPEN_CANONICAL_HOST__\n`,
+        bareConfig: baseline.bareConfig,
+        closedCandidate: baseline.closedCandidate,
+        expected: baseline.expected,
+      }),
+    "UNRESOLVED_PLACEHOLDER",
+  );
+});
+
 test("two independent assemblies produce one deterministic, complete manifest", () => {
   const parent = mkdtempSync(join(tmpdir(), "consolidated-release-test-"));
   try {
@@ -260,6 +655,13 @@ test("two independent assemblies produce one deterministic, complete manifest", 
       rollback: 14,
       candidate: 15,
     });
+    for (const relativePath of RELEASE_HTTP_CONTRACT_PATHS) {
+      const entry = manifest.inventory.find(
+        (candidate) => candidate.path === relativePath,
+      );
+      assert.equal(Number.isSafeInteger(entry?.bytes), true, relativePath);
+      assert.match(entry?.sha256 ?? "", /^[a-f0-9]{64}$/, relativePath);
+    }
     assert.equal(
       validateBundle({
         bundle: first,
@@ -421,6 +823,64 @@ test("bundle validation rejects an artifact changed after assembly", () => {
       () =>
         validateBundle({
           bundle,
+          expectedSha: fixture.sha,
+          validationMode: "local-dry-run",
+        }),
+      (error) => error?.code === "BUNDLE_INTEGRITY_FAILED",
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("bundle validation rejects omitted, replaced, added, or symlinked HTTP contract inputs", () => {
+  const parent = mkdtempSync(join(tmpdir(), "consolidated-release-http-contract-"));
+  try {
+    const fixture = createFixtureRepository(parent);
+    const baseline = join(parent, "bundle-baseline");
+    assembleReleaseBundle({
+      source: fixture.root,
+      destination: baseline,
+      expectedSha: fixture.sha,
+      provenanceMode: LOCAL_PROVENANCE_MODE,
+    });
+
+    for (const [pathIndex, relativePath] of RELEASE_HTTP_CONTRACT_PATHS.entries()) {
+      for (const mutation of ["omitted", "replaced", "symlinked"]) {
+        const bundle = join(parent, `bundle-${pathIndex}-${mutation}`);
+        cpSync(baseline, bundle, { recursive: true });
+        const target = join(bundle, relativePath);
+        if (mutation === "omitted") {
+          rmSync(target);
+        } else if (mutation === "replaced") {
+          writeFileSync(target, "# replaced contract input\n", "utf8");
+        } else {
+          rmSync(target);
+          symlinkSync(join(bundle, "website/package.json"), target, "file");
+        }
+        assert.throws(
+          () =>
+            validateBundle({
+              bundle,
+              expectedSha: fixture.sha,
+              validationMode: "local-dry-run",
+            }),
+          (error) => error?.code === "BUNDLE_INTEGRITY_FAILED",
+        );
+      }
+    }
+
+    const added = join(parent, "bundle-added");
+    cpSync(baseline, added, { recursive: true });
+    writeFixtureFile(
+      added,
+      "ops/nginx/untracked-open-candidate.conf.example",
+      "# untracked candidate\n",
+    );
+    assert.throws(
+      () =>
+        validateBundle({
+          bundle: added,
           expectedSha: fixture.sha,
           validationMode: "local-dry-run",
         }),

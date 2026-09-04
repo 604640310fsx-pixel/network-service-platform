@@ -114,6 +114,37 @@ configuration test stops the release before traffic changes.
 
 ## Nginx invariants
 
+The repository carries three candidate fragments and one validator in the
+release inventory: the value-free open template, the value-free bare redirect
+template, the existing closed candidate, and
+`scripts/ops/validate-release-open-http-contract.mjs`. A repository template is
+not a target-rendered configuration. It cannot pass `nginx -t`, must not be
+installed, and contains no target hostname, website root, upstream, TLS path,
+CSP origin, framing choice, HSTS value, or compression choice. Rendering occurs
+only in a separately authorized target record. Every token must be resolved,
+the caller-provided non-secret metadata must match, and only then may the
+isolated rendered validator and later target gates run.
+
+The exact repository placeholder inventory is:
+
+| Placeholder | Open template | Bare template | Total |
+| --- | ---: | ---: | ---: |
+| `__OPEN_CANONICAL_HOST__` | 3 | 2 | 5 |
+| `__OPEN_BARE_HOST__` | 0 | 2 | 2 |
+| `__OPEN_CANDIDATE_WEBSITE_ROOT__` | 1 | 0 | 1 |
+| `__OPEN_API_UPSTREAM__` | 2 | 0 | 2 |
+| `__OPEN_EXISTING_TLS_DIRECTIVES__` | 1 | 1 | 2 |
+| `__OPEN_CSP_POLICY__` | 1 | 0 | 1 |
+| `__OPEN_X_FRAME_OPTIONS_DIRECTIVE__` | 1 | 0 | 1 |
+| `__OPEN_HSTS_DIRECTIVE__` | 1 | 1 | 2 |
+| `__OPEN_COMPRESSION_DIRECTIVES__` | 1 | 0 | 1 |
+
+An unknown, missing, excess, or unresolved token is a hard failure. A concrete
+host, root, upstream, TLS/certificate path, credential, wildcard origin, or
+unsafe CSP source in a repository template is also a hard failure. The bundle
+contains only the templates and validator, never a rendered configuration, TLS
+material, environment file, credential, or production path.
+
 `CLOSED_NGINX_INVARIANT` starts from
 `ops/nginx/release-traffic-closed.conf.example` and requires a complete
 replacement of every public and alternate ingress for both approved hostnames
@@ -124,14 +155,55 @@ redirect, application route, or second server that can accept the same names.
 The internal loopback health endpoint is outside this public gate.
 
 `OPEN_NGINX_INVARIANT` requires the approved website root from the same
-candidate bundle, BrowserRouter fallback to `index.html`, the exact approved
-`/api` upstream, existing TLS material, security headers, and the bare-domain
-308 redirect to the canonical www origin. It must contain no release-closed 503
-server and no alternate ingress that bypasses the approved application path.
+candidate bundle, extensionless BrowserRouter fallback to exact `index.html`,
+the exact approved `/api` upstream, existing TLS material, security headers,
+and the bare-domain 308 redirect to the canonical origin. The bare fragment is
+the sole owner of bare HTTP and HTTPS. The full open template is the sole owner
+of canonical HTTP-to-HTTPS redirect and canonical HTTPS application service;
+the two fragments may not duplicate host/listener ownership. The open root must
+contain no release-closed 503 or `Retry-After`, and it must have no alternate
+ingress that bypasses the approved application path. Alternate-ingress absence
+is target evidence, never a repository assumption.
+
+Exact `/api` and the `^~ /api/` prefix outrank every static and SPA location.
+They disable proxy caching and error interception and do not hide upstream
+`Content-Type`, `Content-Encoding`, `Vary`, or `Cache-Control`; an API status or
+body is never converted into SPA HTML. Existing static files resolve under the
+bound candidate root. Missing `/assets` files and missing file-like paths return
+404 and never reach `index.html`; only extensionless navigation may use the SPA
+fallback. Directory listing and `alias` are forbidden.
+
+Cache ownership is explicit: `index.html` and SPA fallback use fail-safe
+revalidation/no-store; only names matching the validator-frozen hashed
+`/assets` pattern receive exactly one immutable year; non-hashed assets
+revalidate; API cache headers remain upstream-owned. Security headers apply
+with `always` without location-level `add_header` inheritance loss. The rendered
+canonical HTTPS server must use production MIME mapping plus
+`application/octet-stream`, `nosniff`, strict-origin-when-cross-origin referrer
+policy, conservative camera/microphone/geolocation/payment/USB denial, and a
+complete CSP containing all frozen directives. CSP wildcard origins,
+`unsafe-eval`, script `data:`, and unbound monitor/payment origins are forbidden.
+The rendered framing marker, X-Frame-Options, and `frame-ancestors` must agree.
+HSTS is HTTPS-only and target-bound. Compression has one target-bound owner,
+never rewrites upstream content encoding, and owns `Vary: Accept-Encoding`.
 
 The active parsed topology, four host/scheme probes, representative safe
 methods, and configuration hash must prove the selected invariant. A listener
 alone is not proof.
+
+The future target proof matrix is mandatory and remains `UNVERIFIED` in this
+repository task:
+
+| Proof | Required result |
+| --- | --- |
+| Isolated rendered validator | Open, bare, and closed inputs match all externally bound metadata; no token remains. |
+| `nginx -t` | Complete isolated open and closed roots both pass on the bound target runtime. |
+| Four host/scheme probes | Bare HTTP, bare HTTPS, canonical HTTP, and canonical HTTPS each reach exactly their owned redirect or application behavior. |
+| Canonical deep link | An extensionless client route returns revalidating/no-store `index.html` with security headers. |
+| Missing static | Missing `/assets` and representative file-like requests return 404, never SPA HTML. |
+| API non-HTML error | Representative safe API failure preserves upstream status, body, MIME, encoding, Vary, and cache headers. |
+| Header matrix | HTML, hashed assets, non-hashed assets, API success/error, and static 404 responses satisfy cache, MIME, security, CSP, framing, HSTS, compression, and Vary ownership. |
+| Alternate-ingress bypass | Bound owner/inventory plus safe probes prove no second ingress bypasses the selected open or closed root. |
 
 ## Read-only execution preflight
 
