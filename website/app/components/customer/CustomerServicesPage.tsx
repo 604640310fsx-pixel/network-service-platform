@@ -85,8 +85,7 @@ export function CustomerServicesPage() {
     void getMyServices(controller.signal)
       .then((items) => {
         if (stopped) return;
-        const sorted = [...items].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-        setState({ kind: "ready", items: sorted });
+        setState({ kind: "ready", items });
       })
       .catch((error: unknown) => {
         if (stopped) return;
