@@ -51,8 +51,8 @@ const RELEASE_SEQUENCE = Object.freeze([
 const REQUIRED_RUNBOOK_FRAGMENTS = Object.freeze([
   "IMPLEMENTATION_BASE_SHA: 7b79139133fe912088bfe3ae9e1321bb8bc379de",
   "IMPLEMENTATION_BASE_IS_RELEASE_CANDIDATE: NO",
-  "PRE_RELEASE_SCHEMA_BOUNDARY: 13",
-  "CANDIDATE_SCHEMA_BOUNDARY: 14",
+  "PRE_RELEASE_SCHEMA_BOUNDARY: 14",
+  "CANDIDATE_SCHEMA_BOUNDARY: 15",
   "BACKGROUND_WRITERS: DISABLED",
   "ROLLBACK_ARTIFACT_COMPATIBILITY: MATCHED",
   "DATABASE_RESTORE_ELIGIBILITY: ENDED",
@@ -228,7 +228,7 @@ function assertExactMigrationFiles(directory, label) {
   ) {
     throw new ReleaseValidationError(
       "SCHEMA_BOUNDARY_MISMATCH",
-      `${label} migrations must be the exact frozen 001-014 sequence`,
+      `${label} migrations must be the exact frozen 001-015 sequence`,
     );
   }
 }
@@ -783,8 +783,8 @@ export function validateBundle({
     Array.isArray(manifest.schemaBoundary) ||
     Object.keys(manifest.schemaBoundary).sort().join(",") !==
       "candidate,rollback" ||
-    manifest.schemaBoundary?.rollback !== 13 ||
-    manifest.schemaBoundary?.candidate !== 14 ||
+    manifest.schemaBoundary?.rollback !== 14 ||
+    manifest.schemaBoundary?.candidate !== 15 ||
     !Array.isArray(manifest.migrations) ||
     manifest.migrations.length !== RELEASE_MIGRATIONS.length ||
     manifest.migrations.some(

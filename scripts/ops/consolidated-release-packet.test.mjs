@@ -31,6 +31,12 @@ const ASSEMBLER_PATH = fileURLToPath(
 const VALIDATOR_PATH = fileURLToPath(
   new URL("./validate-consolidated-release-packet.mjs", import.meta.url),
 );
+const RUNBOOK_PATH = fileURLToPath(
+  new URL("../../docs/ops/consolidated-release-runbook.md", import.meta.url),
+);
+const BINDINGS_PATH = fileURLToPath(
+  new URL("../../docs/ops/consolidated-release-bindings.md", import.meta.url),
+);
 const LOCAL_PROVENANCE_MODE = "local-dry-run";
 
 function githubEnvironment({ sha, candidate }) {
@@ -199,6 +205,25 @@ function allFiles(root, relative = "") {
   return entries.sort();
 }
 
+test("release migrations independently pin the exact continuous 001-015 sequence", () => {
+  assert.equal(RELEASE_MIGRATIONS.length, 15);
+  assert.equal(
+    RELEASE_MIGRATIONS.at(-1),
+    "015_diagnosis_request_idempotency.sql",
+  );
+  assert.deepEqual(
+    RELEASE_MIGRATIONS.map((migration, index) => {
+      const version = index + 1;
+      assert.equal(
+        migration.startsWith(`${String(version).padStart(3, "0")}_`),
+        true,
+      );
+      return version;
+    }),
+    Array.from({ length: 15 }, (_, index) => index + 1),
+  );
+});
+
 test("two independent assemblies produce one deterministic, complete manifest", () => {
   const parent = mkdtempSync(join(tmpdir(), "consolidated-release-test-"));
   try {
@@ -223,6 +248,14 @@ test("two independent assemblies produce one deterministic, complete manifest", 
       readFileSync(join(first, "release-manifest.json"), "utf8"),
       readFileSync(join(second, "release-manifest.json"), "utf8"),
     );
+    const manifest = JSON.parse(
+      readFileSync(join(first, "release-manifest.json"), "utf8"),
+    );
+    assert.deepEqual(manifest.migrations, RELEASE_MIGRATIONS);
+    assert.deepEqual(manifest.schemaBoundary, {
+      rollback: 14,
+      candidate: 15,
+    });
     assert.equal(
       validateBundle({
         bundle: first,
@@ -246,6 +279,75 @@ test("two independent assemblies produce one deterministic, complete manifest", 
     assert.ok(files.includes("release-manifest.json"));
     assert.equal(files.some((path) => isForbiddenBundlePath(path)), false);
     assert.equal(files.includes("customer-notes.txt"), false);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("assembler rejects missing, extra, or wrong Migration 015 inputs", () => {
+  const parent = mkdtempSync(join(tmpdir(), "consolidated-release-schema-"));
+  const cases = [
+    {
+      name: "missing",
+      mutate(root) {
+        rmSync(
+          join(
+            root,
+            "auth-service/src/migrations/015_diagnosis_request_idempotency.sql",
+          ),
+        );
+      },
+    },
+    {
+      name: "extra",
+      mutate(root) {
+        writeFixtureFile(
+          root,
+          "auth-service/src/migrations/016_unexpected.sql",
+          "-- unexpected migration\n",
+        );
+      },
+    },
+    {
+      name: "wrong",
+      mutate(root) {
+        rmSync(
+          join(
+            root,
+            "auth-service/src/migrations/015_diagnosis_request_idempotency.sql",
+          ),
+        );
+        writeFixtureFile(
+          root,
+          "auth-service/src/migrations/015_wrong.sql",
+          "-- wrong migration\n",
+        );
+      },
+    },
+  ];
+
+  try {
+    for (const scenario of cases) {
+      const scenarioParent = join(parent, scenario.name);
+      mkdirSync(scenarioParent);
+      const fixture = createFixtureRepository(scenarioParent);
+      scenario.mutate(fixture.root);
+      runGit(fixture.root, "add", "--all");
+      runGit(fixture.root, "commit", "-m", `${scenario.name} migration`);
+      const sha = runGit(fixture.root, "rev-parse", "HEAD");
+      const destination = join(scenarioParent, "bundle");
+      assert.throws(
+        () =>
+          assembleReleaseBundle({
+            source: fixture.root,
+            destination,
+            expectedSha: sha,
+            provenanceMode: LOCAL_PROVENANCE_MODE,
+          }),
+        (error) => error?.code === "SCHEMA_BOUNDARY_MISMATCH",
+      );
+      assert.equal(existsSync(destination), false);
+    }
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }
@@ -322,6 +424,115 @@ test("bundle validation rejects an artifact changed after assembly", () => {
     );
   } finally {
     rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("bundle validation rejects Migration 015 drift and every old 13/14 boundary", () => {
+  const parent = mkdtempSync(join(tmpdir(), "consolidated-release-bundle-schema-"));
+  try {
+    const fixture = createFixtureRepository(parent);
+    const baseline = join(parent, "bundle-baseline");
+    assembleReleaseBundle({
+      source: fixture.root,
+      destination: baseline,
+      expectedSha: fixture.sha,
+      provenanceMode: LOCAL_PROVENANCE_MODE,
+    });
+
+    const migrationRelative =
+      "auth-service/src/migrations/015_diagnosis_request_idempotency.sql";
+    const bundleCases = [
+      {
+        name: "missing",
+        mutate(bundle) {
+          rmSync(join(bundle, migrationRelative));
+        },
+      },
+      {
+        name: "extra",
+        mutate(bundle) {
+          writeFixtureFile(
+            bundle,
+            "auth-service/src/migrations/016_unexpected.sql",
+            "-- unexpected migration\n",
+          );
+        },
+      },
+      {
+        name: "wrong",
+        mutate(bundle) {
+          rmSync(join(bundle, migrationRelative));
+          writeFixtureFile(
+            bundle,
+            "auth-service/src/migrations/015_wrong.sql",
+            "-- wrong migration\n",
+          );
+        },
+      },
+    ];
+    for (const scenario of bundleCases) {
+      const bundle = join(parent, `bundle-${scenario.name}`);
+      cpSync(baseline, bundle, { recursive: true });
+      scenario.mutate(bundle);
+      assert.throws(
+        () =>
+          validateBundle({
+            bundle,
+            expectedSha: fixture.sha,
+            validationMode: "local-dry-run",
+          }),
+        (error) => error?.code === "BUNDLE_INTEGRITY_FAILED",
+      );
+    }
+
+    for (const [name, schemaBoundary] of [
+      ["wrong-rollback", { rollback: 13, candidate: 15 }],
+      ["wrong-candidate", { rollback: 14, candidate: 14 }],
+      ["old-shared-boundary", { rollback: 13, candidate: 14 }],
+    ]) {
+      const bundle = join(parent, `bundle-${name}`);
+      cpSync(baseline, bundle, { recursive: true });
+      const manifestPath = join(bundle, "release-manifest.json");
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      manifest.schemaBoundary = schemaBoundary;
+      writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+      assert.throws(
+        () =>
+          validateBundle({
+            bundle,
+            expectedSha: fixture.sha,
+            validationMode: "local-dry-run",
+          }),
+        (error) => error?.code === "BUNDLE_INTEGRITY_FAILED",
+      );
+    }
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("runbook and bindings describe rollback 014 and candidate 015 consistently", () => {
+  const runbook = readFileSync(RUNBOOK_PATH, "utf8");
+  for (const fragment of [
+    "PRE_RELEASE_SCHEMA_BOUNDARY: 14",
+    "CANDIDATE_SCHEMA_BOUNDARY: 15",
+    "migrations 001-015",
+    "continuous prefix 001-014",
+    "continuous migrations through 014",
+    "Startup may apply migration 015",
+    "migration prefix 001-015",
+    "Never open the old binary on a database containing migration 015",
+  ]) {
+    assert.equal(runbook.includes(fragment), true, fragment);
+  }
+
+  const bindings = readFileSync(BINDINGS_PATH, "utf8");
+  for (const fragment of [
+    "migrations 001-015 match inventory",
+    "compatible with continuous migrations 001-014",
+    "loopback health, schema 001-015",
+  ]) {
+    assert.equal(bindings.includes(fragment), true, fragment);
   }
 });
 

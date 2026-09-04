@@ -34,12 +34,12 @@ previous release record or dashboard observation is not current proof.
 | Binding name | Required proof |
 | --- | --- |
 | `CANDIDATE_BUNDLE_MANIFEST_SHA256` | Two independent assemblies have identical manifests; the retained manifest hash and inventory validate. |
-| `CANDIDATE_AUTH_BUNDLE_SHA256` | Compiled auth entrypoint, runtime files, package manifests, and migrations 001-014 match inventory. |
+| `CANDIDATE_AUTH_BUNDLE_SHA256` | Compiled auth entrypoint, runtime files, package manifests, and migrations 001-015 match inventory. |
 | `CANDIDATE_WEBSITE_BUNDLE_SHA256` | Website `dist` and entrypoint match the same candidate inventory. |
 | `AUTH_RUNTIME_DEPENDENCY_PROOF` | Prebuilt dependency layer matches the candidate lockfile, Node version, OS/architecture/libc, and native-module ABI; it is ready before the window and is not stored in the bundle. |
 | `ROLLBACK_AUTH_BUNDLE_SHA256` | Old auth artifact hash matches the old source SHA and accepts the rollback schema boundary. |
 | `ROLLBACK_WEBSITE_BUNDLE_SHA256` | Old website artifact hash belongs to the same rollback release as old auth. |
-| `ROLLBACK_SOURCE_SCHEMA_PROOF` | Old auth and the verified database snapshot are compatible with continuous migrations 001-013. |
+| `ROLLBACK_SOURCE_SCHEMA_PROOF` | Old auth and the verified database snapshot are compatible with continuous migrations 001-014. |
 | `CONSOLIDATED_RELEASE_ATOMIC_POINTER` | One versioned release root contains auth and website; one atomic pointer selects them together. |
 | `AUTH_ATOMIC_POINTER_SWITCH` | Auth resolves through the consolidated pointer and cannot independently select a mixed release. |
 | `WEBSITE_ATOMIC_POINTER_SWITCH` | Website resolves through the same consolidated pointer and cannot independently select a mixed release. |
@@ -62,7 +62,7 @@ previous release record or dashboard observation is not current proof.
 | Binding name | Required proof |
 | --- | --- |
 | `QUIESCENT_FEATURE_FLAG_PROOF` | Candidate starts with payment, mail dispatch, and registration disabled and monitor origin absent; values are checked without printing them. |
-| `QUIESCENT_HEALTH_PROOF` | Exact candidate, loopback health, schema 001-014, database integrity, static website, manifest, and closed ingress pass without business requests. |
+| `QUIESCENT_HEALTH_PROOF` | Exact candidate, loopback health, schema 001-015, database integrity, static website, manifest, and closed ingress pass without business requests. |
 | `NORMAL_FEATURE_FLAG_PROOF` | Included/excluded registration, payment, mail, public monitor, and monitor-linked fulfillment capabilities have separate acceptance. |
 | `NORMAL_WORKER_READINESS_PROOF` | Payment expiry and mail dispatch each have an approved readiness check beyond generic health; external side effects remain within release authority. |
 | `HEALTH_OBSERVATION_PROOF` | Exact loopback URL/body, candidate PID, observation interval, and failure threshold are frozen. |

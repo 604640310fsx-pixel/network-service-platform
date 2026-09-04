@@ -13,8 +13,8 @@ Frozen repository facts for `CONSOLIDATED-RELEASE-PACKET-HARDENING-01`:
 ```text
 IMPLEMENTATION_BASE_SHA: 7b79139133fe912088bfe3ae9e1321bb8bc379de
 IMPLEMENTATION_BASE_IS_RELEASE_CANDIDATE: NO
-PRE_RELEASE_SCHEMA_BOUNDARY: 13
-CANDIDATE_SCHEMA_BOUNDARY: 14
+PRE_RELEASE_SCHEMA_BOUNDARY: 14
+CANDIDATE_SCHEMA_BOUNDARY: 15
 ```
 
 The implementation base is only the starting point for this hardening change.
@@ -89,7 +89,7 @@ in a separate decision. Before requesting a release window:
    unavailable metadata, altered archive, PR merge ref, failed run, or
    environment-only provenance fails closed.
 4. The bundle retains the repository-relative auth runtime layout, including
-   compiled `auth-service/dist/src`, package manifests, migrations 001-014, and
+   compiled `auth-service/dist/src`, package manifests, migrations 001-015, and
    `website/dist`. It excludes dependency directories, environment files,
    credentials, private keys, databases, and files outside the explicit release
    inputs. Bind its verified manifest and auth/website inventory hashes.
@@ -144,7 +144,7 @@ following from the bound target:
   ABI without an install during the release switch;
 - the current auth/website artifacts and schema boundary match the rollback
   record;
-- `schema_migrations` is the continuous prefix 001-013, journal mode and
+- `schema_migrations` is the continuous prefix 001-014, journal mode and
   integrity checks pass, and the database owner/mode are the approved values;
 - the exact application PID, every background writer, alternate ingress, and
   active Nginx topology are discoverable without printing sensitive values;
@@ -155,7 +155,7 @@ following from the bound target:
 - the closed and open configurations still pass isolated validation;
 - feature inclusion and normal worker readiness checks are frozen.
 
-Unexpected SHA, schema other than 001-013, unknown writer, partial artifact,
+Unexpected SHA, schema other than 001-014, unknown writer, partial artifact,
 unresolved placeholder, missing proof, or changed binding is `DRIFT`. Stop
 before writes.
 
@@ -195,7 +195,7 @@ is still running.
 
 5. With ingress still closed and writers still zero, create the SQLite backup
    at a new destination. Verify owner-only mode, SHA-256, size, `quick_check`,
-   `foreign_key_check`, and continuous migrations through 013. Re-run the
+   `foreign_key_check`, and continuous migrations through 014. Re-run the
    source-independent verification using the recorded hash, then record:
 
    ```text
@@ -222,8 +222,8 @@ is still running.
    MONITOR_API_ORIGIN: OMITTED_IN_QUIESCENT_MODE
    ```
 
-   Startup may apply migration 014. Validate exact candidate identity, loopback
-   health, migration prefix 001-014, database integrity, static website files,
+   Startup may apply migration 015. Validate exact candidate identity, loopback
+   health, migration prefix 001-015, database integrity, static website files,
    the manifest inventory, and the still-closed ingress. Do not send a payment,
    email, order, registration, diagnosis, or other business request.
 
@@ -253,7 +253,7 @@ is still running.
    NORMAL_CANDIDATE: STARTED
    ```
 
-10. While ingress remains closed, validate health, schema 001-014, database
+10. While ingress remains closed, validate health, schema 001-015, database
     integrity, auth and website artifact hashes, worker-specific readiness, and
     all approved non-business probes. Payment expiry and mail dispatch are not
     considered ready merely because `/health` succeeds. Repeat closed topology
@@ -274,7 +274,7 @@ is still running.
 
 If normal startup or worker readiness fails after restore eligibility ended,
 keep ingress closed and use a separately approved forward fix. Do not restore
-the pre-014 database.
+the pre-015 database.
 
 ## Rollback while restore remains eligible
 
@@ -283,10 +283,10 @@ Rollback is a matched database-and-artifact operation:
 1. Keep every ingress closed; stop the quiescent candidate and prove its PID is
    absent and all database writers are zero.
 2. Reverify the backup mode, hash, size, integrity, foreign keys, and migration
-   boundary 001-013. Reprove that no post-snapshot write occurred and the
+   boundary 001-014. Reprove that no post-snapshot write occurred and the
    restore deadline has not passed.
-3. Restore the verified pre-014 snapshot using the separately authorized bound
-   command. Never open the old binary on a database containing migration 014.
+3. Restore the verified pre-015 snapshot using the separately authorized bound
+   command. Never open the old binary on a database containing migration 015.
 4. Atomically switch the single consolidated pointer to the matched rollback
    bundle containing both old auth and old website artifacts. Prove their hashes
    and old source SHA.
@@ -325,7 +325,7 @@ redacted evidence when any of these occurs:
 - quiescent payment/mail/registration unexpectedly enabled;
 - normal worker readiness not independently proven;
 - an open or closed ingress invariant fails on any path;
-- rollback artifacts do not match the pre-014 database;
+- rollback artifacts do not match the pre-015 database;
 - database restore is proposed after eligibility ended;
 - monitor-linked fulfillment is requested without the accepted private mTLS
   projection;
