@@ -158,12 +158,32 @@ test("applies Migration 014 to an existing 001-013 database without changing bus
          VALUES (?, 'pending_open', ?, ?)`,
       )
       .run(paymentId, NOW, NOW);
+    const serviceId = firstNumber(database, "SELECT id FROM services");
+    database
+      .prepare(
+        `INSERT INTO service_delivery_items (
+           service_id, position, label, key_version, nonce, ciphertext, tag,
+           created_at, updated_at
+         ) VALUES (?, 1, 'Primary subscription', 1, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        serviceId,
+        Buffer.from("nonce"),
+        Buffer.from("ciphertext"),
+        Buffer.from("tag"),
+        NOW,
+        NOW,
+      );
 
     const before = {
       users: firstNumber(database, "SELECT COUNT(*) FROM users"),
       orders: firstNumber(database, "SELECT COUNT(*) FROM orders"),
       payments: firstNumber(database, "SELECT COUNT(*) FROM payments"),
       services: firstNumber(database, "SELECT COUNT(*) FROM services"),
+      deliveryItems: firstNumber(
+        database,
+        "SELECT COUNT(*) FROM service_delivery_items",
+      ),
     };
     runMigrations(database);
     runMigrations(database);
@@ -173,6 +193,10 @@ test("applies Migration 014 to an existing 001-013 database without changing bus
         orders: firstNumber(database, "SELECT COUNT(*) FROM orders"),
         payments: firstNumber(database, "SELECT COUNT(*) FROM payments"),
         services: firstNumber(database, "SELECT COUNT(*) FROM services"),
+        deliveryItems: firstNumber(
+          database,
+          "SELECT COUNT(*) FROM service_delivery_items",
+        ),
       },
       before,
     );
@@ -185,6 +209,37 @@ test("applies Migration 014 to an existing 001-013 database without changing bus
         .map((row) => (row as { readonly name: string }).name)
         .includes("monitor_target_key"),
       true,
+    );
+    assert.deepEqual(
+      database
+        .prepare(
+          `SELECT service_id, position, label, key_version, monitor_target_key
+           FROM service_delivery_items`,
+        )
+        .all(),
+      [
+        {
+          service_id: serviceId,
+          position: 1,
+          label: "Primary subscription",
+          key_version: 1,
+          monitor_target_key: null,
+        },
+      ],
+    );
+    database
+      .prepare(
+        "UPDATE service_delivery_items SET monitor_target_key = ? WHERE service_id = ?",
+      )
+      .run("target-example-1", serviceId);
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            "UPDATE service_delivery_items SET monitor_target_key = ? WHERE service_id = ?",
+          )
+          .run(" invalid-target ", serviceId),
+      /CHECK constraint failed/,
     );
   } finally {
     database.close();

@@ -97,7 +97,31 @@ async function stopChild(child: ChildProcess): Promise<void> {
     return;
   }
   child.kill("SIGTERM");
-  await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  await waitForExit(child);
+}
+
+function waitForExit(
+  child: ChildProcess,
+  timeoutMs = 5_000,
+): Promise<{ readonly code: number | null; readonly signal: NodeJS.Signals | null }> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve({ code: child.exitCode, signal: child.signalCode });
+  }
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.removeListener("exit", onExit);
+      reject(new Error("auth-service did not exit after signal"));
+    }, timeoutMs);
+    const onExit = (
+      code: number | null,
+      signal: NodeJS.Signals | null,
+    ): void => {
+      clearTimeout(timer);
+      resolve({ code, signal });
+    };
+    child.once("exit", onExit);
+  });
 }
 
 function serverEnvironment(
@@ -172,6 +196,39 @@ test("server starts an explicitly configured idle mail runtime", async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+for (const signal of ["SIGTERM", "SIGINT"] as const) {
+  test(`server handles repeated ${signal} with one graceful close`, async () => {
+    const directory = await mkdtemp(join(tmpdir(), "signal-shutdown-server-"));
+    let child: ChildProcess | undefined;
+    try {
+      await createCredentialDirectory(directory, false);
+      const port = await reserveLoopbackPort();
+      child = spawn(process.execPath, ["dist/src/server.js"], {
+        cwd: process.cwd(),
+        env: serverEnvironment(directory, port, false),
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      const output = collectOutput(child);
+      await waitForHealth(port, child);
+
+      const exited = waitForExit(child);
+      assert.equal(child.kill(signal), true);
+      child.kill(signal);
+      assert.deepEqual(await exited, { code: 0, signal: null });
+      assert.equal(output.stdout(), "");
+      assert.equal(output.stderr(), "");
+    } finally {
+      if (child !== undefined && child.exitCode === null) {
+        child.kill("SIGKILL");
+        await new Promise<void>((resolve) => {
+          child?.once("exit", () => resolve());
+        });
+      }
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+}
 
 test("enabled mail fails before listening when its credential is absent", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mail-runtime-server-fail-"));

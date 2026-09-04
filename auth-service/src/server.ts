@@ -116,9 +116,36 @@ async function start(): Promise<void> {
 
   app.addHook("onClose", async () => {
     expirySweep?.stop();
-    await mailDispatcher?.stop();
-    closeDatabase();
+    try {
+      await mailDispatcher?.stop();
+    } finally {
+      closeDatabase();
+    }
   });
+
+  let shutdownPromise: Promise<void> | null = null;
+  let shutdownFailureReported = false;
+  const closeApp = (): Promise<void> => {
+    if (shutdownPromise === null) {
+      shutdownPromise = app.close();
+    }
+    return shutdownPromise;
+  };
+  const requestSignalShutdown = (): void => {
+    void closeApp().catch((error: unknown) => {
+      closeDatabase();
+      if (!shutdownFailureReported) {
+        shutdownFailureReported = true;
+        const message =
+          error instanceof Error ? error.message : "unknown shutdown error";
+        console.error(`auth-service failed to shut down: ${message}`);
+      }
+      process.exitCode = 1;
+    });
+  };
+
+  process.on("SIGTERM", requestSignalShutdown);
+  process.on("SIGINT", requestSignalShutdown);
 
   try {
     await app.listen({ host: config.host, port: config.port });
@@ -133,7 +160,7 @@ async function start(): Promise<void> {
       );
     }
   } catch (error) {
-    await app.close().catch(() => undefined);
+    await closeApp().catch(() => undefined);
     closeDatabase();
     throw error;
   }

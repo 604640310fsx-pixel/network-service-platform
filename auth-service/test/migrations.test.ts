@@ -132,6 +132,48 @@ test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", 
   });
 });
 
+test("rejects applied migration histories that are not a prefix starting at 001", async () => {
+  for (const history of [[1, 3], [2]]) {
+    const temporaryDirectory = await mkdtemp(
+      join(tmpdir(), "auth-service-migration-gap-"),
+    );
+    const database = openAndVerifyDatabase(
+      join(temporaryDirectory, "auth.sqlite"),
+    );
+
+    try {
+      database.exec(`
+        CREATE TABLE schema_migrations (
+          version INTEGER PRIMARY KEY,
+          applied_at TEXT NOT NULL
+        );
+      `);
+      const insertMigration = database.prepare(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+      );
+      for (const version of history) {
+        insertMigration.run(version, NOW);
+      }
+
+      assert.throws(
+        () => runMigrations(database),
+        /continuous prefix starting at version 1/,
+      );
+      assert.deepEqual(
+        (
+          database
+            .prepare("SELECT version FROM schema_migrations ORDER BY version")
+            .all() as Array<{ readonly version: number }>
+        ).map((row) => row.version),
+        history,
+      );
+    } finally {
+      database.close();
+      await rm(temporaryDirectory, { recursive: true, force: true });
+    }
+  }
+});
+
 test("creates every frozen table and named index", async () => {
   await withTemporaryDatabase((database) => {
     assert.deepEqual(objectNames(database, "table"), [

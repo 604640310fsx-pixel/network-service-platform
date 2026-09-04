@@ -89,3 +89,90 @@ jobs:
 
       - name: Verify auth service lockfile is unchanged
         run: git diff --exit-code -- auth-service/package-lock.json
+
+  consolidated-release-packet:
+    name: Consolidated release packet
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact task head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22.13.0"
+          cache: npm
+          cache-dependency-path: |
+            auth-service/package-lock.json
+            website/package-lock.json
+
+      - name: Validate release packet source
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          node scripts/ops/validate-consolidated-release-packet.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --expected-sha "$EXPECTED_SHA"
+
+      - name: Run monitor gateway offline tests
+        run: |
+          python3 -m unittest discover -s monitoring/gateway/tests -v
+          python3 -m py_compile monitoring/gateway/*.py
+          node --test monitoring/gateway/tests/static-app.test.cjs
+          node --check monitoring/gateway/static/app.js
+
+      - name: Install build dependencies
+        run: |
+          npm --prefix auth-service ci
+          npm --prefix website ci
+
+      - name: Validate and build candidate artifacts
+        run: |
+          npm --prefix auth-service test
+          node auth-service/dist/test/db.test.js
+          node auth-service/dist/test/diagnosis/migration.test.js
+          npm --prefix website test
+          npm --prefix website run check
+          npm --prefix website run build
+
+      - name: Test release tooling
+        run: node --test scripts/ops/consolidated-release-packet.test.mjs
+
+      - name: Assemble twice and validate inventories
+        run: |
+          bundle_parent="$(mktemp -d)"
+          node scripts/ops/assemble-consolidated-release.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --destination "$bundle_parent/first" \
+            --expected-sha "$EXPECTED_SHA"
+          node scripts/ops/assemble-consolidated-release.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --destination "$bundle_parent/second" \
+            --expected-sha "$EXPECTED_SHA"
+          cmp "$bundle_parent/first/release-manifest.json" \
+            "$bundle_parent/second/release-manifest.json"
+          node scripts/ops/validate-consolidated-release-packet.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --expected-sha "$EXPECTED_SHA" \
+            --bundle "$bundle_parent/first"
+          node scripts/ops/validate-consolidated-release-packet.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --expected-sha "$EXPECTED_SHA" \
+            --bundle "$bundle_parent/second"
+          if find "$bundle_parent/first" \
+            \( -type l -o -name node_modules -o -name '.env*' \
+               -o -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
+               -o -name '*.pem' -o -name '*.key' \) \
+            -print -quit | grep -q .; then
+            echo "forbidden release bundle entry detected" >&2
+            exit 1
+          fi
+
+      - name: Verify lockfiles are unchanged
+        run: |
+          git diff --exit-code -- auth-service/package-lock.json
+          git diff --exit-code -- website/package-lock.json
