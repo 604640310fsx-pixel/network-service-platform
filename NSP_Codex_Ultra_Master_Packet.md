@@ -526,3 +526,109 @@ PRODUCTION: NOT_ACCESSED
 NEXT_ACTION: successor Sol xhigh task waits for Draft PR 42 CI, updates final evidence, and performs serial acceptance only
 FORBIDDEN_ACTION: no MAX, no Ultra, no install, no lockfile change, no migration, no merge, no deploy, no production, no real payment
 ```
+
+## 15. GPT-5.6 Sol xhigh final serial acceptance
+
+```yaml
+CHECKPOINT_ID: CP-04
+TASK_ID: NSP-CODEX-ULTRA-MASTER-01
+ACCEPTED_SUBTASK: CUSTOMER-PORTAL-PARALLEL-INTEGRATION-01
+STATUS: DONE
+CURRENT_WRITER: NONE
+NEXT_WRITER: NONE
+MODEL_AND_WORKFLOW:
+  model: gpt-5.6-sol
+  effort: xhigh
+  workflow: STANDARD_SERIAL
+  max_used: NO
+  ultra_used: NO
+BASE_BRANCH: integration/consolidate-project
+BASE_SHA: 198f65e82ef493e0da9772e6be89ad92d78d3328
+TASK_BRANCH: task/NSP-CODEX-ULTRA-MASTER-01
+HANDOFF_INPUT_SHA: c1b1a9bd0c419e1e4024f6f55dec722acf129ed2
+INTEGRATION_CODE_SHA: b621827bd17a822a10ffe54ac60d283a37b6a386
+ACCEPTED_CODE_SHA: 63efa1b830a3531c9f4fbb6e639a8eb3c350f967
+REMOTE_CODE_SHA: 63efa1b830a3531c9f4fbb6e639a8eb3c350f967
+PREFLIGHT:
+  command: bash scripts/team/preflight-readonly.sh --base-branch integration/consolidate-project --expected-base-sha 198f65e82ef493e0da9772e6be89ad92d78d3328
+  result: PASS
+  handoff_sha_contained_at_start: YES
+  remote_base_sha_match: YES
+SERIAL_AUDIT:
+  cumulative_diff: 19_FILES_2446_INSERTIONS_104_DELETIONS
+  diff_check: PASS
+  conflict_marker_scan: PASS
+  sensitive_information_scan: PASS
+  lockfile_change: NONE
+  forbidden_feature_scan: PASS
+  user_changes_preserved: YES
+  scope_overreach: NONE
+SHOULD_FIX_CLOSED:
+  finding: paid card said pending activation even when service.status was open
+  resolution: paid card now derives activation copy from the frozen service status while pending_open keeps the existing progress copy
+  changed_files:
+    - website/app/components/subscribe/AlipayQrPay.tsx
+    - website/app/components/subscribe/OrderStatusPanel.tsx
+LOCAL_VALIDATION:
+  node: v22.16.0
+  dependency_source: EXISTING_LOCAL_DEPENDENCIES_WITH_MATCHING_LOCKFILE_HASHES
+  install_executed: NO
+  website_check: PASS
+  website_build: PASS_93_MODULES
+  subscription_and_docs_model_tests: PASS_11_OF_11
+  auth_service_build: PASS
+  sqlite_smoke_after_build: PASS_1_OF_1
+  auth_service_tests: PASS_214_OF_214
+  lint: NOT_DEFINED_AS_A_SEPARATE_REPOSITORY_SCRIPT
+  validation_order_note: ONE_SQLITE_SMOKE_ATTEMPT_HIT_MISSING_CLEANED_DIST_THEN_PASSED_AFTER_AUTH_BUILD
+BROWSER_ACCEPTANCE:
+  method: IN_APP_BROWSER_WITH_LOCAL_IN_MEMORY_SANITIZED_API_FIXTURE
+  external_or_production_access: NONE
+  prior_cumulative_viewports: [1440, 1024, 390]
+  exact_fix_viewports: [1440, 390]
+  themes: [light, dark]
+  horizontal_overflow: NONE
+  console_error: NONE
+  open_without_delivery_items: OPEN_COPY_PASS_AND_IMPORT_MODULE_ABSENT
+  open_with_delivery_items: OPEN_COPY_AND_IMPORT_MODULE_PASS
+  pending_open: EXISTING_PROGRESS_COPY_PASS_AND_IMPORT_MODULE_ABSENT
+  docs: TRUE_EMPTY_STATE_AND_ENABLED_ROUTE_PASS
+  profile: READ_ONLY_AUTH_DATA_AND_RESPONSIVE_LAYOUT_PASS
+CI_STATUS:
+  initial_handoff:
+    sha: c1b1a9bd0c419e1e4024f6f55dec722acf129ed2
+    run: 33866937713
+    website: PASS
+    auth: PASS
+  accepted_code:
+    sha: 63efa1b830a3531c9f4fbb6e639a8eb3c350f967
+    run: 33868263591
+    website: PASS_2M54S
+    auth: PASS_7M40S
+    lockfiles_unchanged: YES
+FACT_SOURCE_GATES:
+  tickets: FACT_SOURCE_MISSING_AUDIT_ONLY_DISABLED
+  invites_referrals: FACT_SOURCE_MISSING_DISABLED
+  docs_articles: FACT_SOURCE_MISSING_RENDER_TRUE_EMPTY_STATE
+HUMAN_ACTION_REQUIRED:
+  - SANDBOX_QR_SCAN
+  - SANDBOX_PAYMENT_CONFIRMATION
+UNVERIFIED:
+  - real-device QR scan
+  - sandbox buyer payment confirmation
+BLOCKER: NONE
+SHOULD_FIX: NONE_REMAINING_IN_AUTHORIZED_SCOPE
+DEFERRED:
+  - tickets until a separate public contract is frozen
+  - invites and referrals until separate public contracts are frozen
+  - docs articles until approved content exists
+INSTALL: NOT_EXECUTED
+LOCKFILE_CHANGE: NONE
+MIGRATION: NOT_EXECUTED
+MERGE: NOT_EXECUTED
+DEPLOY: NOT_EXECUTED
+PRODUCTION: NOT_ACCESSED
+REAL_PAYMENT: NOT_EXECUTED
+NEXT_ACTION: no required implementation action remains; user or GPT may review Draft PR 42, while merge, deployment, production, sandbox QR scan, and sandbox payment confirmation require separate authorization or human action
+FORBIDDEN_ACTION: no automatic next task, no merge, no deploy, no production, no real payment
+```
