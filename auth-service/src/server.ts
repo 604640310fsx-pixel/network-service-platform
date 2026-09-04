@@ -149,8 +149,13 @@ async function runRuntimeLifecycle(
     app.addHook("onClose", cleanupRuntime);
     expirySweep = runtime.startExpirySweep();
     mailDispatcher = runtime.startMailDispatcher();
-    signalTarget.on("SIGTERM", requestSignalShutdown);
-    signalTarget.on("SIGINT", requestSignalShutdown);
+    if (options.signalTarget === undefined) {
+      process.on("SIGTERM", requestSignalShutdown);
+      process.on("SIGINT", requestSignalShutdown);
+    } else {
+      signalTarget.on("SIGTERM", requestSignalShutdown);
+      signalTarget.on("SIGINT", requestSignalShutdown);
+    }
     await app.listen(options.listen);
   } catch (startupError) {
     const failures: unknown[] = [startupError];
