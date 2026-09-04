@@ -126,6 +126,27 @@ export class DiagnosisDomainError extends Error {
   }
 }
 
+export const DIAGNOSIS_IDEMPOTENCY_KEY_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+export class DiagnosisIdempotencyConflictError extends Error {
+  readonly code = "idempotency_key_conflict";
+
+  constructor() {
+    super("Diagnosis idempotency key conflicts with the stored submission");
+    this.name = "DiagnosisIdempotencyConflictError";
+  }
+}
+
+export function isCanonicalDiagnosisIdempotencyKey(
+  value: unknown,
+): value is string {
+  return (
+    typeof value === "string" &&
+    DIAGNOSIS_IDEMPOTENCY_KEY_PATTERN.test(value)
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -341,12 +362,11 @@ function requireCanonicalInstant(value: unknown): string {
   return value;
 }
 
-export function createDiagnosisRequest(
+function insertDiagnosisRequest(
   database: DatabaseConnection,
   submission: DiagnosisSubmission,
-  now: () => Date = () => new Date(),
-): void {
-  const timestamp = canonicalNow(now);
+  timestamp: string,
+): number {
   database
     .prepare(
       `INSERT INTO diagnosis_requests (
@@ -376,6 +396,23 @@ export function createDiagnosisRequest(
       timestamp,
       timestamp,
     );
+
+  const rows = database
+    .prepare("SELECT last_insert_rowid() AS id")
+    .all() as Array<{ readonly id: unknown }>;
+  const id = rows[0]?.id;
+  if (rows.length !== 1 || !Number.isSafeInteger(id) || (id as number) < 1) {
+    throw new Error("Diagnosis insertion failed");
+  }
+  return id as number;
+}
+
+export function createDiagnosisRequest(
+  database: DatabaseConnection,
+  submission: DiagnosisSubmission,
+  now: () => Date = () => new Date(),
+): void {
+  insertDiagnosisRequest(database, submission, canonicalNow(now));
 }
 
 interface DiagnosisRow {
@@ -491,6 +528,157 @@ function parseDiagnosisRow(value: unknown): AdminDiagnosisItem {
     handledAt:
       row.handled_at === null ? null : requireCanonicalInstant(row.handled_at),
   };
+}
+
+function sameDiagnosisSubmission(
+  left: DiagnosisSubmission,
+  right: DiagnosisSubmission,
+): boolean {
+  return (
+    left.contactType === right.contactType &&
+    left.contactValue === right.contactValue &&
+    left.businessScenario === right.businessScenario &&
+    left.targetRegion === right.targetRegion &&
+    left.problemTypes.length === right.problemTypes.length &&
+    left.problemTypes.every(
+      (problemType, index) => problemType === right.problemTypes[index],
+    ) &&
+    left.problemDescription === right.problemDescription &&
+    left.currentRegion === right.currentRegion &&
+    left.currentIsp === right.currentIsp &&
+    left.currentNetworkType === right.currentNetworkType &&
+    left.problemFrequency === right.problemFrequency &&
+    left.isExistingCustomer === right.isExistingCustomer &&
+    left.preferredContactWindow === right.preferredContactWindow &&
+    left.extraNotes === right.extraNotes
+  );
+}
+
+function normalizeStoredDiagnosisSubmission(
+  item: AdminDiagnosisItem,
+): DiagnosisSubmission {
+  const normalized = normalizeDiagnosisSubmission({
+    contactType: item.contactType,
+    contactValue: item.contactValue,
+    businessScenario: item.businessScenario,
+    targetRegion: item.targetRegion,
+    problemTypes: item.problemTypes,
+    problemDescription: item.problemDescription,
+    safetyAcknowledged: true,
+    currentRegion: item.currentRegion ?? undefined,
+    currentIsp: item.currentIsp ?? undefined,
+    currentNetworkType: item.currentNetworkType ?? undefined,
+    problemFrequency: item.problemFrequency ?? undefined,
+    isExistingCustomer: item.isExistingCustomer ?? undefined,
+    preferredContactWindow: item.preferredContactWindow ?? undefined,
+    extraNotes: item.extraNotes ?? undefined,
+  });
+  if (normalized === null || !sameDiagnosisSubmission(item, normalized)) {
+    throw new Error("Diagnosis database invariant failed");
+  }
+  return normalized;
+}
+
+function readIdempotentDiagnosisSubmission(
+  database: DatabaseConnection,
+  idempotencyKey: string,
+): DiagnosisSubmission | null {
+  const rows = database
+    .prepare(
+      `SELECT
+         mapping.diagnosis_request_id AS mapping_request_id,
+         mapping.created_at AS mapping_created_at,
+         request.id AS id,
+         request.contact_type AS contact_type,
+         request.contact_value AS contact_value,
+         request.business_scenario AS business_scenario,
+         request.target_region AS target_region,
+         request.problem_types AS problem_types,
+         request.problem_description AS problem_description,
+         request.safety_ack AS safety_ack,
+         request.current_region AS current_region,
+         request.current_isp AS current_isp,
+         request.current_network_type AS current_network_type,
+         request.problem_frequency AS problem_frequency,
+         request.is_existing_customer AS is_existing_customer,
+         request.preferred_contact_window AS preferred_contact_window,
+         request.extra_notes AS extra_notes,
+         request.status AS status,
+         request.classification AS classification,
+         request.admin_note AS admin_note,
+         request.created_at AS created_at,
+         request.updated_at AS request_updated_at,
+         request.handled_at AS handled_at
+       FROM diagnosis_request_idempotency AS mapping
+       LEFT JOIN diagnosis_requests AS request
+         ON request.id = mapping.diagnosis_request_id
+       WHERE mapping.idempotency_key = ?`,
+    )
+    .all(idempotencyKey) as Array<Record<string, unknown>>;
+  if (rows.length === 0) {
+    return null;
+  }
+  if (rows.length !== 1) {
+    throw new Error("Diagnosis database invariant failed");
+  }
+
+  const row = rows[0]!;
+  const mappingRequestId = row.mapping_request_id;
+  if (
+    !Number.isSafeInteger(mappingRequestId) ||
+    (mappingRequestId as number) < 1 ||
+    row.safety_ack !== 1
+  ) {
+    throw new Error("Diagnosis database invariant failed");
+  }
+  requireCanonicalInstant(row.mapping_created_at);
+  requireCanonicalInstant(row.request_updated_at);
+
+  const item = parseDiagnosisRow(row);
+  if (item.id !== mappingRequestId) {
+    throw new Error("Diagnosis database invariant failed");
+  }
+  if (row.problem_types !== serializeProblemTypes(item.problemTypes)) {
+    throw new Error("Diagnosis database invariant failed");
+  }
+  return normalizeStoredDiagnosisSubmission(item);
+}
+
+export type DiagnosisIdempotencyResult = "created" | "replayed";
+
+export function createIdempotentDiagnosisRequestInTransaction(
+  database: DatabaseConnection,
+  idempotencyKey: string,
+  submission: DiagnosisSubmission,
+  consumeRateLimit: () => void,
+  now: () => Date = () => new Date(),
+): DiagnosisIdempotencyResult {
+  if (!isCanonicalDiagnosisIdempotencyKey(idempotencyKey)) {
+    throw new Error("Diagnosis idempotency key is invalid");
+  }
+
+  const existing = readIdempotentDiagnosisSubmission(database, idempotencyKey);
+  if (existing !== null) {
+    if (sameDiagnosisSubmission(existing, submission)) {
+      return "replayed";
+    }
+    throw new DiagnosisIdempotencyConflictError();
+  }
+
+  consumeRateLimit();
+  const timestamp = canonicalNow(now);
+  const requestId = insertDiagnosisRequest(database, submission, timestamp);
+  const inserted = database
+    .prepare(
+      `INSERT INTO diagnosis_request_idempotency (
+         idempotency_key, diagnosis_request_id, created_at
+       ) VALUES (?, ?, ?)`,
+    )
+    .run(idempotencyKey, requestId, timestamp);
+  if (inserted.changes !== 1) {
+    throw new Error("Diagnosis idempotency mapping insertion failed");
+  }
+  return "created";
 }
 
 export function listDiagnosisRequests(

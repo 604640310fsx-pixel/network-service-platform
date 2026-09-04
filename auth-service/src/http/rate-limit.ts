@@ -390,7 +390,7 @@ export function withDiagnosisSubmitRateLimit<Result>(
   database: DatabaseConnection,
   keyring: RateLimitKeyring,
   ip: string,
-  operation: () => Result,
+  operation: (consumeRateLimit: () => void) => Result,
   dependencies: DiagnosisRateLimitDependencies = {},
 ): Result {
   const times = rateLimitTimes(dependencies.now ?? (() => new Date()));
@@ -403,8 +403,14 @@ export function withDiagnosisSubmitRateLimit<Result>(
     ),
   ];
   const transaction = database.transaction(() => {
-    consumeDimensionRows(database, dimensions, times);
-    return operation();
+    let consumed = false;
+    return operation(() => {
+      if (consumed) {
+        throw new Error("Diagnosis rate limit was consumed more than once");
+      }
+      consumed = true;
+      consumeDimensionRows(database, dimensions, times);
+    });
   });
   return transaction.immediate();
 }

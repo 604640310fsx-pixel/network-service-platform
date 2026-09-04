@@ -11,15 +11,18 @@ import {
   BUSINESS_SCENARIOS,
   classifyDiagnosisRequest,
   CONTACT_TYPES,
+  createIdempotentDiagnosisRequestInTransaction,
   CURRENT_NETWORK_TYPES,
+  DIAGNOSIS_IDEMPOTENCY_KEY_PATTERN,
   DIAGNOSIS_CLASSIFICATIONS,
   DiagnosisDomainError,
+  DiagnosisIdempotencyConflictError,
+  isCanonicalDiagnosisIdempotencyKey,
   listDiagnosisRequests,
   normalizeDiagnosisClassification,
   normalizeDiagnosisSubmission,
   PROBLEM_FREQUENCIES,
   PROBLEM_TYPES,
-  createDiagnosisRequest,
   type DiagnosisStatus,
 } from "../diagnosis/requests.js";
 import { readPaymentSession } from "../payment/http-auth.js";
@@ -75,10 +78,14 @@ const STATUS_RESPONSE_SCHEMA = {
 
 const MUTATION_HEADERS_SCHEMA = {
   type: "object",
-  required: ["content-type", "x-requested-with"],
+  required: ["content-type", "x-requested-with", "idempotency-key"],
   properties: {
     "content-type": { type: "string", const: "application/json" },
     "x-requested-with": { type: "string", const: "XMLHttpRequest" },
+    "idempotency-key": {
+      type: "string",
+      pattern: DIAGNOSIS_IDEMPOTENCY_KEY_PATTERN.source,
+    },
   },
 } as const;
 
@@ -223,6 +230,24 @@ async function requireDiagnosisOrigin(
   }
 }
 
+async function requireDiagnosisSubmissionHeaders(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  nodeEnv: RuntimeEnvironment,
+): Promise<void> {
+  await requireDiagnosisOrigin(request, reply, nodeEnv);
+  if (reply.sent) {
+    return;
+  }
+  if (
+    !isCanonicalDiagnosisIdempotencyKey(
+      request.headers["idempotency-key"],
+    )
+  ) {
+    await reply.code(400).send(errorBody("idempotency_key_required"));
+  }
+}
+
 async function diagnosisErrorHandler(
   error: FastifyError,
   _request: FastifyRequest,
@@ -319,7 +344,11 @@ export function registerDiagnosisHttpRoutes(
       bodyLimit: DIAGNOSIS_BODY_LIMIT_BYTES,
       onRequest: async (_request, reply) => setNoStore(reply),
       preValidation: async (request, reply) =>
-        requireDiagnosisOrigin(request, reply, dependencies.nodeEnv),
+        requireDiagnosisSubmissionHeaders(
+          request,
+          reply,
+          dependencies.nodeEnv,
+        ),
       errorHandler: diagnosisErrorHandler,
       schema: {
         headers: MUTATION_HEADERS_SCHEMA,
@@ -327,12 +356,19 @@ export function registerDiagnosisHttpRoutes(
         response: {
           200: STATUS_RESPONSE_SCHEMA,
           400: ERROR_RESPONSE_SCHEMA,
+          409: ERROR_RESPONSE_SCHEMA,
           429: ERROR_RESPONSE_SCHEMA,
           503: ERROR_RESPONSE_SCHEMA,
         },
       },
     },
     async (request, reply) => {
+      const idempotencyKey = request.headers["idempotency-key"];
+      if (!isCanonicalDiagnosisIdempotencyKey(idempotencyKey)) {
+        return reply
+          .code(400)
+          .send(errorBody("idempotency_key_required"));
+      }
       const submission = normalizeDiagnosisSubmission(request.body);
       if (submission === null) {
         return reply.code(400).send(errorBody("invalid_request"));
@@ -342,16 +378,23 @@ export function registerDiagnosisHttpRoutes(
           dependencies.database,
           dependencies.rateLimitKeyring,
           request.ip,
-          () =>
-            createDiagnosisRequest(
+          (consumeRateLimit) =>
+            createIdempotentDiagnosisRequestInTransaction(
               dependencies.database,
+              idempotencyKey,
               submission,
+              consumeRateLimit,
               dependencies.now ?? (() => new Date()),
             ),
           dependencies.now ? { now: dependencies.now } : {},
         );
         return reply.code(200).send({ status: "ok" });
       } catch (error) {
+        if (error instanceof DiagnosisIdempotencyConflictError) {
+          return reply
+            .code(409)
+            .send(errorBody("idempotency_key_conflict"));
+        }
         if (error instanceof RateLimitExceededError) {
           return reply.code(429).send(errorBody("rate_limited"));
         }

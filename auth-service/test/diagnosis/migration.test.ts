@@ -102,7 +102,105 @@ test("Migration 013 enforces frozen diagnosis checks, state combinations, and ad
   });
 });
 
-test("applies Migration 014 to an existing 001-013 database without changing business rows", async () => {
+test("Migration 015 enforces canonical UUID, unique mapping, and restrictive ownership", async () => {
+  await withAuthenticationDatabase((database) => {
+    for (let index = 0; index < 6; index += 1) {
+      validInsert(database);
+    }
+    const requestIds = (
+      database.prepare("SELECT id FROM diagnosis_requests ORDER BY id").all() as Array<{
+        readonly id: number;
+      }>
+    ).map((row) => row.id);
+    const key = (variant: "8" | "9" | "a" | "b", sequence: number) =>
+      `00000000-0000-4000-${variant}000-${sequence
+        .toString(16)
+        .padStart(12, "0")}`;
+
+    for (const [index, variant] of (["8", "9", "a", "b"] as const).entries()) {
+      database
+        .prepare(
+          `INSERT INTO diagnosis_request_idempotency (
+             idempotency_key, diagnosis_request_id, created_at
+           ) VALUES (?, ?, ?)`,
+        )
+        .run(key(variant, index + 1), requestIds[index], NOW);
+    }
+
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            `INSERT INTO diagnosis_request_idempotency (
+               idempotency_key, diagnosis_request_id, created_at
+             ) VALUES (?, ?, ?)`,
+          )
+          .run(key("8", 1), requestIds[4], NOW),
+      /UNIQUE constraint failed/,
+    );
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            `INSERT INTO diagnosis_request_idempotency (
+               idempotency_key, diagnosis_request_id, created_at
+             ) VALUES (?, ?, ?)`,
+          )
+          .run(key("8", 20), requestIds[0], NOW),
+      /UNIQUE constraint failed/,
+    );
+
+    for (const invalid of [
+      key("8", 30).toUpperCase(),
+      key("8", 31).replace("-4", "-5"),
+      key("8", 32).replace("-8000-", "-7000-"),
+      key("8", 33).replace("00000000-", "000000000"),
+      key("8", 34).replace(/.$/, "g"),
+      ` ${key("8", 35)}`,
+      `${key("8", 36)},${key("8", 37)}`,
+    ]) {
+      assert.throws(
+        () =>
+          database
+            .prepare(
+              `INSERT INTO diagnosis_request_idempotency (
+                 idempotency_key, diagnosis_request_id, created_at
+               ) VALUES (?, ?, ?)`,
+            )
+            .run(invalid, requestIds[4], NOW),
+        /CHECK constraint failed/,
+      );
+    }
+
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            `INSERT INTO diagnosis_request_idempotency (
+               idempotency_key, diagnosis_request_id, created_at
+             ) VALUES (?, 999999, ?)`,
+          )
+          .run(key("8", 40), NOW),
+      /FOREIGN KEY constraint failed/,
+    );
+    assert.throws(
+      () =>
+        database
+          .prepare("DELETE FROM diagnosis_requests WHERE id = ?")
+          .run(requestIds[0]),
+      /FOREIGN KEY constraint failed/,
+    );
+    assert.equal(
+      firstNumber(
+        database,
+        "SELECT COUNT(*) FROM diagnosis_request_idempotency",
+      ),
+      4,
+    );
+  });
+});
+
+test("applies Migration 015 to an existing 001-014 database without changing legacy rows", async () => {
   const directory = await mkdtemp(join(tmpdir(), "diagnosis-migration-compat-"));
   const database = openAndVerifyDatabase(join(directory, "auth.sqlite"));
   try {
@@ -174,6 +272,28 @@ test("applies Migration 014 to an existing 001-013 database without changing bus
         NOW,
         NOW,
       );
+    database
+      .prepare(
+        `INSERT INTO diagnosis_requests (
+           contact_type, contact_value, business_scenario, target_region,
+           problem_types, problem_description, safety_ack, current_region,
+           current_isp, current_network_type, problem_frequency,
+           is_existing_customer, preferred_contact_window, extra_notes,
+           status, classification, admin_note, handled_by_admin_id, handled_at,
+           created_at, updated_at
+         ) VALUES (
+           'email', 'legacy@example.test', 'ai_development', 'Example Region',
+           '["access_failure","performance_instability"]',
+           'legacy diagnosis details', 1, 'Example City', 'Example ISP',
+           'home_broadband', 'intermittent', 0, '09:00-12:00',
+           'legacy note', 'new', NULL, NULL, NULL, NULL, ?, ?
+         )`,
+      )
+      .run(NOW, NOW);
+
+    const legacyDiagnosisBefore = database
+      .prepare("SELECT * FROM diagnosis_requests")
+      .all();
 
     const before = {
       users: firstNumber(database, "SELECT COUNT(*) FROM users"),
@@ -200,8 +320,19 @@ test("applies Migration 014 to an existing 001-013 database without changing bus
       },
       before,
     );
-    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 14);
-    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM diagnosis_requests"), 0);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 15);
+    assert.deepEqual(
+      database.prepare("SELECT * FROM diagnosis_requests").all(),
+      legacyDiagnosisBefore,
+    );
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM diagnosis_requests"), 1);
+    assert.equal(
+      firstNumber(
+        database,
+        "SELECT COUNT(*) FROM diagnosis_request_idempotency",
+      ),
+      0,
+    );
     assert.deepEqual(
       database
         .prepare("PRAGMA table_info(service_delivery_items)")

@@ -1,9 +1,10 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { SiteFooter } from "../home/SiteFooter";
 import { SiteHeader } from "../home/SiteHeader";
 import {
   DiagnosisApiError,
+  DiagnosisSubmissionAttemptManager,
   submitDiagnosisRequest,
   type BusinessScenario,
   type ContactType,
@@ -136,6 +137,9 @@ function submissionErrorMessage(error: unknown): string {
       return "当前网络提交次数较多，请稍后再试。";
     case "origin_rejected":
       return "当前页面来源无法提交，请从官网重新打开诊断页面。";
+    case "idempotency_key_required":
+    case "idempotency_key_conflict":
+      return "本次提交凭证已失效，请重新点击提交。";
     case "network_error":
     case "diagnosis_unavailable":
       return "诊断服务暂时不可用，请稍后重试。";
@@ -150,6 +154,21 @@ export function DiagnosisPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const submittingRef = useRef(false);
+  const attemptManagerRef = useRef<DiagnosisSubmissionAttemptManager | null>(
+    null,
+  );
+  const attemptManager =
+    attemptManagerRef.current ?? new DiagnosisSubmissionAttemptManager();
+  attemptManagerRef.current = attemptManager;
+
+  useEffect(
+    () => () => {
+      submittingRef.current = false;
+      attemptManager.clear();
+    },
+    [],
+  );
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -166,7 +185,7 @@ export function DiagnosisPage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitting) return;
+    if (submittingRef.current || submitting) return;
     if (form.problemTypes.length === 0) {
       setError("请至少选择一个需要判断的问题。");
       return;
@@ -176,15 +195,24 @@ export function DiagnosisPage() {
       return;
     }
 
+    submittingRef.current = true;
     setSubmitting(true);
     setError(null);
     try {
-      await submitDiagnosisRequest(submissionFromState(form));
+      const submission = submissionFromState(form);
+      const idempotencyKey = attemptManager.prepare(
+        submission,
+        () => window.crypto.randomUUID(),
+      );
+      await submitDiagnosisRequest(submission, idempotencyKey);
+      attemptManager.clear();
       setSubmitted(true);
       window.scrollTo({ top: 0 });
     } catch (submitError) {
+      attemptManager.handleFailure(submitError);
       setError(submissionErrorMessage(submitError));
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
@@ -218,6 +246,7 @@ export function DiagnosisPage() {
                     type="button"
                     className="diagnosis-primary-button"
                     onClick={() => {
+                      attemptManager.clear();
                       setForm(initialForm);
                       setSubmitted(false);
                     }}
