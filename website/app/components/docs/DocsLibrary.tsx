@@ -96,7 +96,7 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
                   >
                     <span>{article.category}</span>
                     <strong>{article.title}</strong>
-                    <p>{article.summary}</p>
+                    <span className="cc-docs-list-summary">{article.summary}</span>
                   </button>
                 </li>
               ))}
