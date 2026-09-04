@@ -23,8 +23,11 @@ previous release record or dashboard observation is not current proof.
 | --- | --- |
 | `RELEASE_AUTHORIZATION` | Approved scope, operator, window, rollback owner, restore deadline, and evidence destination. |
 | `RELEASE_CANDIDATE_SHA_PROOF` | Full post-hardening integration SHA exists on the approved remote lineage and equals both bundle manifest and staged candidate. |
+| `CANDIDATE_GITHUB_WORKFLOW_RUN` | Live GitHub metadata proves a successful `.github/workflows/ci.yml` push run on `integration/consolidate-project`; run ID, attempt, head SHA, and manifest provenance all match. |
+| `CANDIDATE_GITHUB_ARTIFACT_ID` | Exact retained artifact ID belongs to that workflow run and has the name `consolidated-release-<RELEASE_CANDIDATE_SHA>`; PR, task-branch, and local results are ineligible. |
+| `CANDIDATE_GITHUB_ARTIFACT_DIGEST` | GitHub-reported `sha256:` digest matches the downloaded artifact archive; its manifest bytes, complete file set, source SHA, and inventory hashes match the extracted candidate. |
 | `CURRENT_RELEASE_SHA_PROOF` | Current auth and website artifacts resolve to the recorded rollback source before any switch. |
-| `REPOSITORY_CLEAN_BUILD_PROOF` | Candidate bundle was built from a clean exact checkout with Node/runtime and lockfile hashes recorded. |
+| `REPOSITORY_CLEAN_BUILD_PROOF` | Candidate bundle was built by the exact successful integration-push CI run with Node/runtime and lockfile hashes recorded; local ignored build output is not proof. |
 
 ## Candidate and rollback artifacts
 

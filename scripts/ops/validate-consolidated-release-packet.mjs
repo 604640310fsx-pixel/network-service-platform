@@ -10,12 +10,17 @@ import {
 } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join, resolve, sep } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 import {
+  createReleaseProvenance,
   isForbiddenBundlePath,
+  RELEASE_ARTIFACT_PREFIX,
   RELEASE_BUNDLE_FORMAT,
+  RELEASE_INTEGRATION_REF,
   RELEASE_MIGRATIONS,
+  RELEASE_REPOSITORY,
+  RELEASE_WORKFLOW_JOB,
 } from "./assemble-consolidated-release.mjs";
 
 const REQUIRED_BUNDLE_PATHS = Object.freeze([
@@ -55,12 +60,18 @@ const REQUIRED_RUNBOOK_FRAGMENTS = Object.freeze([
   "OPEN_NGINX_INVARIANT",
   "MONITOR_AUTH_PROJECTION_STATUS: CONDITIONAL_BLOCKER",
   "MONITOR_API_ORIGIN: OMITTED_IN_QUIESCENT_MODE",
+  "LOCAL_BUNDLE_RELEASE_USE: FORBIDDEN",
+  "GITHUB_ARTIFACT_PROVENANCE: REQUIRED",
+  "--hostname github.com",
 ]);
 
 const REQUIRED_BINDING_NAMES = Object.freeze([
   "RELEASE_CANDIDATE_SHA_PROOF",
   "CANDIDATE_AUTH_BUNDLE_SHA256",
   "CANDIDATE_WEBSITE_BUNDLE_SHA256",
+  "CANDIDATE_GITHUB_ARTIFACT_ID",
+  "CANDIDATE_GITHUB_ARTIFACT_DIGEST",
+  "CANDIDATE_GITHUB_WORKFLOW_RUN",
   "AUTH_RUNTIME_DEPENDENCY_PROOF",
   "ROLLBACK_AUTH_BUNDLE_SHA256",
   "ROLLBACK_WEBSITE_BUNDLE_SHA256",
@@ -355,6 +366,14 @@ export function validateRepository({ source, expectedSha }) {
       "npm --prefix website test",
       "npm --prefix website run check",
       "npm --prefix website run build",
+      'PROVENANCE_MODE: ${{ github.event_name == \'push\' && github.ref == \'refs/heads/integration/consolidate-project\' && \'github-actions\' || \'github-actions-test\' }}',
+      '--provenance-mode "$PROVENANCE_MODE"',
+      '--validation-mode "$VALIDATION_MODE"',
+      "actions/upload-artifact@v4",
+      "consolidated-release-${{ env.EXPECTED_SHA }}",
+      "github.sha == env.EXPECTED_SHA",
+      'test "$GITHUB_SHA" = "$EXPECTED_SHA"',
+      "artifact-digest",
     ],
     "CI workflow",
   );
@@ -393,7 +412,11 @@ function collectBundleFiles(root, relativeRoot = "") {
 }
 
 function sha256(path) {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
+  return sha256Bytes(readFileSync(path));
+}
+
+function sha256Bytes(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
 }
 
 function parsedManifest(bundleRoot) {
@@ -421,14 +444,338 @@ function parsedManifest(bundleRoot) {
   return manifest;
 }
 
-export function validateBundle({ bundle, expectedSha }) {
+function validateProvenance({
+  provenance,
+  expectedSha,
+  validationMode,
+  environment,
+}) {
+  const isObject =
+    typeof provenance === "object" &&
+    provenance !== null &&
+    !Array.isArray(provenance);
+  if (!isObject) {
+    throw new ReleaseValidationError(
+      "PROVENANCE_REQUIRED",
+      "release manifest is missing build provenance",
+    );
+  }
+
+  const localShape =
+    Object.keys(provenance).sort().join(",") === "kind,releaseUse" &&
+    provenance.kind === "local-dry-run" &&
+    provenance.releaseUse === "forbidden";
+  const githubTestShape =
+    Object.keys(provenance).sort().join(",") ===
+      "eventName,githubSha,job,kind,ref,releaseUse,repository,runAttempt,runId,workflowRef" &&
+    provenance.kind === "github-actions-test" &&
+    provenance.releaseUse === "forbidden" &&
+    provenance.repository === RELEASE_REPOSITORY &&
+    provenance.job === RELEASE_WORKFLOW_JOB &&
+    typeof provenance.eventName === "string" &&
+    typeof provenance.ref === "string" &&
+    typeof provenance.githubSha === "string" &&
+    /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(provenance.githubSha) &&
+    typeof provenance.runId === "string" &&
+    /^[1-9][0-9]*$/.test(provenance.runId) &&
+    typeof provenance.runAttempt === "string" &&
+    /^[1-9][0-9]*$/.test(provenance.runAttempt) &&
+    typeof provenance.workflowRef === "string" &&
+    provenance.workflowRef.startsWith(
+      `${RELEASE_REPOSITORY}/.github/workflows/ci.yml@`,
+    );
+  const githubShape =
+    Object.keys(provenance).sort().join(",") ===
+      "artifactName,eventName,githubSha,job,kind,ref,releaseUse,repository,runAttempt,runId,workflowRef" &&
+    provenance.kind === "github-actions" &&
+    provenance.releaseUse === "requires-github-artifact-verification" &&
+    provenance.repository === RELEASE_REPOSITORY &&
+    provenance.job === RELEASE_WORKFLOW_JOB &&
+    provenance.eventName === "push" &&
+    provenance.ref === RELEASE_INTEGRATION_REF &&
+    provenance.githubSha === expectedSha &&
+    provenance.artifactName === `${RELEASE_ARTIFACT_PREFIX}${expectedSha}` &&
+    typeof provenance.runId === "string" &&
+    /^[1-9][0-9]*$/.test(provenance.runId) &&
+    typeof provenance.runAttempt === "string" &&
+    /^[1-9][0-9]*$/.test(provenance.runAttempt) &&
+    typeof provenance.workflowRef === "string" &&
+    provenance.workflowRef.startsWith(
+      `${RELEASE_REPOSITORY}/.github/workflows/ci.yml@`,
+    );
+
+  if (validationMode === "local-dry-run") {
+    if (!localShape) {
+      throw new ReleaseValidationError(
+        "PROVENANCE_REQUIRED",
+        "local dry-run validation requires forbidden-for-release provenance",
+      );
+    }
+    return provenance;
+  }
+  if (validationMode === "ci-test") {
+    if (!githubTestShape) {
+      throw new ReleaseValidationError(
+        "PROVENANCE_REQUIRED",
+        "CI test validation requires forbidden-for-release Actions provenance",
+      );
+    }
+    let expectedProvenance;
+    try {
+      expectedProvenance = createReleaseProvenance({
+        mode: "github-actions-test",
+        expectedSha,
+        environment,
+      });
+    } catch {
+      throw new ReleaseValidationError(
+        "PROVENANCE_REQUIRED",
+        "CI test provenance could not be verified from the job environment",
+      );
+    }
+    for (const [name, value] of Object.entries(expectedProvenance)) {
+      if (provenance[name] !== value) {
+        throw new ReleaseValidationError(
+          "PROVENANCE_REQUIRED",
+          `CI test provenance mismatch at ${name}`,
+        );
+      }
+    }
+    return provenance;
+  }
+  if (validationMode !== "ci-build" && validationMode !== "candidate") {
+    throw new ReleaseValidationError(
+      "ARGUMENT_ERROR",
+      "--validation-mode must be local-dry-run, ci-test, ci-build, or candidate",
+    );
+  }
+  if (!githubShape) {
+    throw new ReleaseValidationError(
+      "PROVENANCE_REQUIRED",
+      "release candidates require GitHub Actions build provenance",
+    );
+  }
+  if (validationMode === "ci-build") {
+    let expectedProvenance;
+    try {
+      expectedProvenance = createReleaseProvenance({
+        mode: "github-actions",
+        expectedSha,
+        environment,
+      });
+    } catch {
+      throw new ReleaseValidationError(
+        "PROVENANCE_REQUIRED",
+        "CI build provenance could not be verified from the job environment",
+      );
+    }
+    for (const [name, value] of Object.entries(expectedProvenance)) {
+      if (provenance[name] !== value) {
+        throw new ReleaseValidationError(
+          "PROVENANCE_REQUIRED",
+          `CI build provenance mismatch at ${name}`,
+        );
+      }
+    }
+  }
+  return provenance;
+}
+
+function requiredArtifactId(value) {
+  if (typeof value !== "string" || !/^[1-9][0-9]*$/.test(value)) {
+    throw new ReleaseValidationError(
+      "PROVENANCE_REQUIRED",
+      "candidate validation requires a numeric GitHub artifact ID",
+    );
+  }
+  return value;
+}
+
+function existingArtifactArchive(input) {
+  if (typeof input !== "string" || input.trim() === "") {
+    throw new ReleaseValidationError(
+      "PROVENANCE_REQUIRED",
+      "candidate validation requires the downloaded artifact archive",
+    );
+  }
+  let path;
+  try {
+    path = realpathSync(resolve(input));
+    if (!statSync(path).isFile() || lstatSync(path).isSymbolicLink()) {
+      throw new Error("not a regular file");
+    }
+  } catch {
+    throw new ReleaseValidationError(
+      "PROVENANCE_REQUIRED",
+      "downloaded artifact archive must be an existing regular file",
+    );
+  }
+  return path;
+}
+
+function githubApiJson(endpoint) {
+  const result = spawnSync(
+    "gh",
+    ["api", "--hostname", "github.com", endpoint],
+    {
+      encoding: "utf8",
+      env: { ...process.env, GH_PROMPT_DISABLED: "1" },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  if (result.status !== 0) {
+    throw new ReleaseValidationError(
+      "PROVENANCE_REQUIRED",
+      "live GitHub artifact provenance could not be retrieved",
+    );
+  }
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    throw new ReleaseValidationError(
+      "PROVENANCE_REQUIRED",
+      "live GitHub artifact provenance was not valid JSON",
+    );
+  }
+}
+
+function archiveEntries(archive) {
+  const result = spawnSync("unzip", ["-Z1", archive], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.status !== 0) {
+    throw new ReleaseValidationError(
+      "PROVENANCE_REQUIRED",
+      "downloaded artifact archive could not be inspected",
+    );
+  }
+  const entries = result.stdout
+    .split(/\r?\n/)
+    .filter((entry) => entry !== "" && !entry.endsWith("/"));
+  const unique = new Set(entries);
+  if (
+    entries.length === 0 ||
+    unique.size !== entries.length ||
+    entries.some((entry) => {
+      const parts = entry.split("/");
+      return (
+        entry.startsWith("/") ||
+        entry.includes("\\") ||
+        parts.some((part) => part === "" || part === "." || part === "..")
+      );
+    })
+  ) {
+    throw new ReleaseValidationError(
+      "PROVENANCE_REQUIRED",
+      "downloaded artifact archive contains unsafe or duplicate entries",
+    );
+  }
+  return entries.sort();
+}
+
+function archiveFile(archive, path) {
+  const result = spawnSync("unzip", ["-p", archive, path], {
+    encoding: null,
+    maxBuffer: 512 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.status !== 0) {
+    throw new ReleaseValidationError(
+      "PROVENANCE_REQUIRED",
+      `downloaded artifact entry could not be read: ${path}`,
+    );
+  }
+  return result.stdout;
+}
+
+function validateGithubArtifactProof({
+  artifactId,
+  artifactArchive,
+  expectedSha,
+  expectedFiles,
+  inventory,
+  bundleRoot,
+  provenance,
+}) {
+  const id = requiredArtifactId(artifactId);
+  const archive = existingArtifactArchive(artifactArchive);
+  const artifact = githubApiJson(
+    `repos/${RELEASE_REPOSITORY}/actions/artifacts/${id}`,
+  );
+  const workflowRun = githubApiJson(
+    `repos/${RELEASE_REPOSITORY}/actions/runs/${provenance.runId}`,
+  );
+  const expectedDigest = `sha256:${sha256(archive)}`;
+  if (
+    String(artifact?.id) !== id ||
+    artifact?.name !== provenance.artifactName ||
+    artifact?.expired !== false ||
+    artifact?.digest !== expectedDigest ||
+    String(artifact?.workflow_run?.id) !== provenance.runId ||
+    artifact?.workflow_run?.head_sha !== expectedSha ||
+    String(workflowRun?.id) !== provenance.runId ||
+    workflowRun?.repository?.full_name !== RELEASE_REPOSITORY ||
+    workflowRun?.path !== ".github/workflows/ci.yml" ||
+    workflowRun?.event !== "push" ||
+    workflowRun?.head_branch !==
+      RELEASE_INTEGRATION_REF.slice("refs/heads/".length) ||
+    workflowRun?.head_sha !== expectedSha ||
+    workflowRun?.status !== "completed" ||
+    workflowRun?.conclusion !== "success" ||
+    String(workflowRun?.run_attempt) !== provenance.runAttempt
+  ) {
+    throw new ReleaseValidationError(
+      "PROVENANCE_REQUIRED",
+      "live GitHub artifact or workflow metadata does not match the candidate",
+    );
+  }
+
+  const archivedFiles = archiveEntries(archive);
+  if (
+    archivedFiles.length !== expectedFiles.length ||
+    archivedFiles.some((path, index) => path !== expectedFiles[index]) ||
+    !archiveFile(archive, "release-manifest.json").equals(
+      readFileSync(join(bundleRoot, "release-manifest.json")),
+    )
+  ) {
+    throw new ReleaseValidationError(
+      "PROVENANCE_REQUIRED",
+      "downloaded artifact archive does not match the validated bundle",
+    );
+  }
+  for (const entry of inventory) {
+    const bytes = archiveFile(archive, entry.path);
+    if (bytes.length !== entry.bytes || sha256Bytes(bytes) !== entry.sha256) {
+      throw new ReleaseValidationError(
+        "PROVENANCE_REQUIRED",
+        `downloaded artifact payload failed verification: ${entry.path}`,
+      );
+    }
+  }
+
+  return Object.freeze({
+    artifactId: id,
+    artifactDigest: expectedDigest,
+    workflowRunId: provenance.runId,
+  });
+}
+
+export function validateBundle({
+  bundle,
+  expectedSha,
+  validationMode,
+  githubArtifactId,
+  artifactArchive,
+  environment = process.env,
+}) {
   const bundleRoot = existingDirectory(bundle, "bundle");
   const sha = normalizedExpectedSha(expectedSha);
   const manifest = parsedManifest(bundleRoot);
 
   if (
     Object.keys(manifest).sort().join(",") !==
-      "entrypoints,format,inventory,migrations,schemaBoundary,sourceSha" ||
+      "entrypoints,format,inventory,migrations,provenance,schemaBoundary,sourceSha" ||
     manifest.format !== RELEASE_BUNDLE_FORMAT ||
     manifest.sourceSha !== sha ||
     typeof manifest.schemaBoundary !== "object" ||
@@ -456,6 +803,13 @@ export function validateBundle({ bundle, expectedSha }) {
       "release manifest does not match the frozen packet format",
     );
   }
+
+  const provenance = validateProvenance({
+    provenance: manifest.provenance,
+    expectedSha: sha,
+    validationMode,
+    environment,
+  });
 
   const inventoryPaths = [];
   let previousPath = "";
@@ -552,10 +906,30 @@ export function validateBundle({ bundle, expectedSha }) {
     "bundle",
   );
 
+  const githubArtifactProof =
+    validationMode === "candidate"
+      ? validateGithubArtifactProof({
+          artifactId: githubArtifactId,
+          artifactArchive,
+          expectedSha: sha,
+          expectedFiles,
+          inventory: manifest.inventory,
+          bundleRoot,
+          provenance,
+        })
+      : null;
+
   return Object.freeze({
     status: "ok",
     sourceSha: sha,
     bundleValidated: true,
+    candidateVerified: githubArtifactProof !== null,
+    provenanceKind: provenance.kind,
+    releaseUse: provenance.releaseUse,
+    artifactName: provenance.artifactName ?? null,
+    githubRunId: provenance.runId ?? null,
+    githubArtifactId: githubArtifactProof?.artifactId ?? null,
+    githubArtifactDigest: githubArtifactProof?.artifactDigest ?? null,
     files: inventoryPaths.length,
     manifestSha256: sha256(join(bundleRoot, "release-manifest.json")),
   });
@@ -564,7 +938,16 @@ export function validateBundle({ bundle, expectedSha }) {
 export function run(arguments_) {
   const options = parseOptions(arguments_);
   for (const name of options.keys()) {
-    if (!["--source", "--expected-sha", "--bundle"].includes(name)) {
+    if (
+      ![
+        "--source",
+        "--expected-sha",
+        "--bundle",
+        "--validation-mode",
+        "--github-artifact-id",
+        "--artifact-archive",
+      ].includes(name)
+    ) {
       throw new ReleaseValidationError(
         "ARGUMENT_ERROR",
         `unsupported option ${name}`,
@@ -576,9 +959,35 @@ export function run(arguments_) {
   const repositoryResult = validateRepository({ source, expectedSha });
   const bundle = options.get("--bundle");
   if (bundle === undefined) {
+    if (
+      options.has("--validation-mode") ||
+      options.has("--github-artifact-id") ||
+      options.has("--artifact-archive")
+    ) {
+      throw new ReleaseValidationError(
+        "ARGUMENT_ERROR",
+        "bundle validation options require --bundle",
+      );
+    }
     return repositoryResult;
   }
-  return validateBundle({ bundle, expectedSha });
+  const validationMode = requireOption(options, "--validation-mode");
+  if (
+    validationMode !== "candidate" &&
+    (options.has("--github-artifact-id") || options.has("--artifact-archive"))
+  ) {
+    throw new ReleaseValidationError(
+      "ARGUMENT_ERROR",
+      "GitHub artifact proof options are only valid in candidate mode",
+    );
+  }
+  return validateBundle({
+    bundle,
+    expectedSha,
+    validationMode,
+    githubArtifactId: options.get("--github-artifact-id"),
+    artifactArchive: options.get("--artifact-archive"),
+  });
 }
 
 function main() {
@@ -603,9 +1012,20 @@ function main() {
   }
 }
 
-if (
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
+function isDirectExecution(moduleUrl, argumentPath) {
+  if (argumentPath === undefined) {
+    return false;
+  }
+  try {
+    return (
+      realpathSync(fileURLToPath(moduleUrl)) ===
+      realpathSync(resolve(argumentPath))
+    );
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectExecution(import.meta.url, process.argv[1])) {
   main();
 }

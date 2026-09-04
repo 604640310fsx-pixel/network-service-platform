@@ -23,10 +23,16 @@ import {
   resolve,
   sep,
 } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 export const RELEASE_BUNDLE_FORMAT =
   "network-service-platform-consolidated-v1";
+export const RELEASE_REPOSITORY =
+  "604640310fsx-pixel/network-service-platform";
+export const RELEASE_WORKFLOW_JOB = "consolidated-release-packet";
+export const RELEASE_ARTIFACT_PREFIX = "consolidated-release-";
+export const RELEASE_INTEGRATION_REF =
+  "refs/heads/integration/consolidate-project";
 export const RELEASE_MIGRATIONS = Object.freeze([
   "001_users_and_invite_codes.sql",
   "002_invite_code_redemptions.sql",
@@ -190,6 +196,111 @@ function normalizedExpectedSha(value) {
     );
   }
   return sha;
+}
+
+function requiredEnvironment(environment, name) {
+  const value = environment[name];
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new ReleaseAssemblyError(
+      "PROVENANCE_REQUIRED",
+      `${name} is required for GitHub Actions provenance`,
+    );
+  }
+  return value;
+}
+
+export function createReleaseProvenance({
+  mode,
+  expectedSha,
+  environment = process.env,
+}) {
+  const sha = normalizedExpectedSha(expectedSha);
+  if (mode === "local-dry-run") {
+    return Object.freeze({
+      kind: "local-dry-run",
+      releaseUse: "forbidden",
+    });
+  }
+  if (mode !== "github-actions" && mode !== "github-actions-test") {
+    throw new ReleaseAssemblyError(
+      "ARGUMENT_ERROR",
+      "--provenance-mode must be local-dry-run, github-actions-test, or github-actions",
+    );
+  }
+  if (environment.GITHUB_ACTIONS !== "true") {
+    throw new ReleaseAssemblyError(
+      "PROVENANCE_REQUIRED",
+      "GitHub Actions provenance is unavailable outside GitHub Actions",
+    );
+  }
+
+  const repository = requiredEnvironment(environment, "GITHUB_REPOSITORY");
+  const runId = requiredEnvironment(environment, "GITHUB_RUN_ID");
+  const runAttempt = requiredEnvironment(environment, "GITHUB_RUN_ATTEMPT");
+  const workflowRef = requiredEnvironment(environment, "GITHUB_WORKFLOW_REF");
+  const job = requiredEnvironment(environment, "GITHUB_JOB");
+  const eventName = requiredEnvironment(environment, "GITHUB_EVENT_NAME");
+  const ref = requiredEnvironment(environment, "GITHUB_REF");
+  const githubSha = requiredEnvironment(environment, "GITHUB_SHA").toLowerCase();
+  if (
+    repository !== RELEASE_REPOSITORY ||
+    job !== RELEASE_WORKFLOW_JOB ||
+    !/^[1-9][0-9]*$/.test(runId) ||
+    !/^[1-9][0-9]*$/.test(runAttempt) ||
+    !workflowRef.startsWith(
+      `${RELEASE_REPOSITORY}/.github/workflows/ci.yml@`,
+    )
+  ) {
+    throw new ReleaseAssemblyError(
+      "PROVENANCE_REQUIRED",
+      "GitHub Actions provenance does not match the release workflow",
+    );
+  }
+
+  const isReleaseCandidateContext =
+    eventName === "push" &&
+    ref === RELEASE_INTEGRATION_REF &&
+    githubSha === sha;
+  if (mode === "github-actions-test") {
+    if (isReleaseCandidateContext) {
+      throw new ReleaseAssemblyError(
+        "PROVENANCE_REQUIRED",
+        "an integration push must use release-candidate provenance",
+      );
+    }
+    return Object.freeze({
+      kind: "github-actions-test",
+      releaseUse: "forbidden",
+      repository,
+      workflowRef,
+      runId,
+      runAttempt,
+      job,
+      eventName,
+      ref,
+      githubSha,
+    });
+  }
+  if (!isReleaseCandidateContext) {
+    throw new ReleaseAssemblyError(
+      "PROVENANCE_REQUIRED",
+      "release-candidate provenance requires an exact integration push SHA",
+    );
+  }
+
+  return Object.freeze({
+    kind: "github-actions",
+    releaseUse: "requires-github-artifact-verification",
+    repository,
+    workflowRef,
+    runId,
+    runAttempt,
+    job,
+    eventName,
+    ref,
+    githubSha,
+    artifactName: `${RELEASE_ARTIFACT_PREFIX}${sha}`,
+  });
 }
 
 function runGit(source, arguments_) {
@@ -389,9 +500,20 @@ function verifyMigrationInputs(source) {
   }
 }
 
-export function assembleReleaseBundle({ source, destination, expectedSha }) {
+export function assembleReleaseBundle({
+  source,
+  destination,
+  expectedSha,
+  provenanceMode,
+  environment = process.env,
+}) {
   const sourceRoot = existingDirectory(source, "source");
   const sha = normalizedExpectedSha(expectedSha);
+  const provenance = createReleaseProvenance({
+    mode: provenanceMode,
+    expectedSha: sha,
+    environment,
+  });
   const destinationRoot = newDestination(destination, sourceRoot);
   verifySourceRevision(sourceRoot, sha);
   verifyMigrationInputs(sourceRoot);
@@ -439,6 +561,7 @@ export function assembleReleaseBundle({ source, destination, expectedSha }) {
         auth: "auth-service/dist/src/server.js",
         website: "website/dist/index.html",
       },
+      provenance,
       inventory: buildInventory(destinationRoot, copiedPaths),
     };
     const manifestPath = join(destinationRoot, "release-manifest.json");
@@ -451,6 +574,8 @@ export function assembleReleaseBundle({ source, destination, expectedSha }) {
     return Object.freeze({
       status: "ok",
       sourceSha: sha,
+      provenanceKind: provenance.kind,
+      releaseUse: provenance.releaseUse,
       files: manifest.inventory.length,
       manifestSha256: sha256File(manifestPath),
     });
@@ -472,12 +597,18 @@ export function run(arguments_) {
   const options = parseOptions(arguments_);
   assertOnlyOptions(
     options,
-    new Set(["--source", "--destination", "--expected-sha"]),
+    new Set([
+      "--source",
+      "--destination",
+      "--expected-sha",
+      "--provenance-mode",
+    ]),
   );
   return assembleReleaseBundle({
     source: requireOption(options, "--source"),
     destination: requireOption(options, "--destination"),
     expectedSha: requireOption(options, "--expected-sha"),
+    provenanceMode: requireOption(options, "--provenance-mode"),
   });
 }
 
@@ -503,9 +634,20 @@ function main() {
   }
 }
 
-if (
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
+function isDirectExecution(moduleUrl, argumentPath) {
+  if (argumentPath === undefined) {
+    return false;
+  }
+  try {
+    return (
+      realpathSync(fileURLToPath(moduleUrl)) ===
+      realpathSync(resolve(argumentPath))
+    );
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectExecution(import.meta.url, process.argv[1])) {
   main();
 }

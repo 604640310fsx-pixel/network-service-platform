@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
+  chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -13,6 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   assembleReleaseBundle,
@@ -20,6 +24,91 @@ import {
   RELEASE_MIGRATIONS,
 } from "./assemble-consolidated-release.mjs";
 import { validateBundle } from "./validate-consolidated-release-packet.mjs";
+
+const ASSEMBLER_PATH = fileURLToPath(
+  new URL("./assemble-consolidated-release.mjs", import.meta.url),
+);
+const VALIDATOR_PATH = fileURLToPath(
+  new URL("./validate-consolidated-release-packet.mjs", import.meta.url),
+);
+const LOCAL_PROVENANCE_MODE = "local-dry-run";
+
+function githubEnvironment({ sha, candidate }) {
+  return {
+    GITHUB_ACTIONS: "true",
+    GITHUB_REPOSITORY: "604640310fsx-pixel/network-service-platform",
+    GITHUB_RUN_ID: "123456789",
+    GITHUB_RUN_ATTEMPT: "1",
+    GITHUB_WORKFLOW_REF:
+      "604640310fsx-pixel/network-service-platform/.github/workflows/ci.yml@refs/heads/integration/consolidate-project",
+    GITHUB_JOB: "consolidated-release-packet",
+    GITHUB_EVENT_NAME: candidate ? "push" : "pull_request",
+    GITHUB_REF: candidate
+      ? "refs/heads/integration/consolidate-project"
+      : "refs/pull/48/merge",
+    GITHUB_SHA: candidate ? sha : "a".repeat(40),
+  };
+}
+
+function sha256(path) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function createArtifactArchive(bundle, archive) {
+  const result = spawnSync("zip", ["-X", "-q", "-r", archive, "."], {
+    cwd: bundle,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  assert.equal(result.status, 0, result.stderr);
+}
+
+function installFakeGithub(parent, { artifact, workflowRun }) {
+  const bin = join(parent, "fake-bin");
+  const command = join(bin, "gh");
+  mkdirSync(bin);
+  writeFileSync(
+    command,
+    [
+      "#!/bin/sh",
+      '[ "$1" = "api" ] || exit 11',
+      '[ "$2" = "--hostname" ] || exit 12',
+      '[ "$3" = "github.com" ] || exit 13',
+      'case "$4" in',
+      '  */actions/artifacts/*) printf "%s" "$TEST_ARTIFACT_JSON" ;;',
+      '  */actions/runs/*) printf "%s" "$TEST_WORKFLOW_RUN_JSON" ;;',
+      "  *) exit 14 ;;",
+      "esac",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  chmodSync(command, 0o755);
+  const previous = {
+    path: process.env.PATH,
+    ghHost: process.env.GH_HOST,
+    artifact: process.env.TEST_ARTIFACT_JSON,
+    workflowRun: process.env.TEST_WORKFLOW_RUN_JSON,
+  };
+  process.env.PATH = `${bin}:${previous.path ?? ""}`;
+  process.env.GH_HOST = "untrusted.example.invalid";
+  process.env.TEST_ARTIFACT_JSON = JSON.stringify(artifact);
+  process.env.TEST_WORKFLOW_RUN_JSON = JSON.stringify(workflowRun);
+  return () => {
+    for (const [name, value] of [
+      ["PATH", previous.path],
+      ["GH_HOST", previous.ghHost],
+      ["TEST_ARTIFACT_JSON", previous.artifact],
+      ["TEST_WORKFLOW_RUN_JSON", previous.workflowRun],
+    ]) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+  };
+}
 
 function writeFixtureFile(root, path, content) {
   const target = join(root, path);
@@ -120,11 +209,13 @@ test("two independent assemblies produce one deterministic, complete manifest", 
       source: fixture.root,
       destination: first,
       expectedSha: fixture.sha,
+      provenanceMode: LOCAL_PROVENANCE_MODE,
     });
     const secondResult = assembleReleaseBundle({
       source: fixture.root,
       destination: second,
       expectedSha: fixture.sha,
+      provenanceMode: LOCAL_PROVENANCE_MODE,
     });
 
     assert.deepEqual(firstResult, secondResult);
@@ -133,11 +224,19 @@ test("two independent assemblies produce one deterministic, complete manifest", 
       readFileSync(join(second, "release-manifest.json"), "utf8"),
     );
     assert.equal(
-      validateBundle({ bundle: first, expectedSha: fixture.sha }).status,
+      validateBundle({
+        bundle: first,
+        expectedSha: fixture.sha,
+        validationMode: "local-dry-run",
+      }).status,
       "ok",
     );
     assert.equal(
-      validateBundle({ bundle: second, expectedSha: fixture.sha }).status,
+      validateBundle({
+        bundle: second,
+        expectedSha: fixture.sha,
+        validationMode: "local-dry-run",
+      }).status,
       "ok",
     );
 
@@ -164,6 +263,7 @@ test("assembler rejects an existing destination, a wrong SHA, and a dirty source
           source: fixture.root,
           destination: existing,
           expectedSha: fixture.sha,
+          provenanceMode: LOCAL_PROVENANCE_MODE,
         }),
       (error) => error?.code === "DESTINATION_EXISTS",
     );
@@ -175,6 +275,7 @@ test("assembler rejects an existing destination, a wrong SHA, and a dirty source
           source: fixture.root,
           destination: wrongShaDestination,
           expectedSha: "0".repeat(40),
+          provenanceMode: LOCAL_PROVENANCE_MODE,
         }),
       (error) => error?.code === "SHA_MISMATCH",
     );
@@ -188,6 +289,7 @@ test("assembler rejects an existing destination, a wrong SHA, and a dirty source
           source: fixture.root,
           destination: dirtyDestination,
           expectedSha: fixture.sha,
+          provenanceMode: LOCAL_PROVENANCE_MODE,
         }),
       (error) => error?.code === "SOURCE_DIRTY",
     );
@@ -206,10 +308,16 @@ test("bundle validation rejects an artifact changed after assembly", () => {
       source: fixture.root,
       destination: bundle,
       expectedSha: fixture.sha,
+      provenanceMode: LOCAL_PROVENANCE_MODE,
     });
     writeFileSync(join(bundle, "website/dist/index.html"), "tampered\n", "utf8");
     assert.throws(
-      () => validateBundle({ bundle, expectedSha: fixture.sha }),
+      () =>
+        validateBundle({
+          bundle,
+          expectedSha: fixture.sha,
+          validationMode: "local-dry-run",
+        }),
       (error) => error?.code === "BUNDLE_INTEGRITY_FAILED",
     );
   } finally {
@@ -235,9 +343,265 @@ test("assembler rejects a symbolic link in a mapped ignored artifact path", () =
           source: fixture.root,
           destination: join(parent, "bundle"),
           expectedSha: fixture.sha,
+          provenanceMode: LOCAL_PROVENANCE_MODE,
         }),
       (error) => error?.code === "SOURCE_INVALID",
     );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("ignored build replacement cannot pass candidate provenance", () => {
+  const parent = mkdtempSync(join(tmpdir(), "consolidated-release-origin-"));
+  let restoreEnvironment = () => {};
+  try {
+    const fixture = createFixtureRepository(parent);
+    const environment = githubEnvironment({ sha: fixture.sha, candidate: true });
+    const first = join(parent, "bundle-first");
+    const second = join(parent, "bundle-second");
+    assembleReleaseBundle({
+      source: fixture.root,
+      destination: first,
+      expectedSha: fixture.sha,
+      provenanceMode: "github-actions",
+      environment,
+    });
+    const archive = join(parent, "candidate.zip");
+    const artifactId = "777";
+    createArtifactArchive(first, archive);
+    restoreEnvironment = installFakeGithub(parent, {
+      artifact: {
+        id: Number(artifactId),
+        name: `consolidated-release-${fixture.sha}`,
+        expired: false,
+        digest: `sha256:${sha256(archive)}`,
+        workflow_run: { id: 123456789, head_sha: fixture.sha },
+      },
+      workflowRun: {
+        id: 123456789,
+        repository: {
+          full_name: "604640310fsx-pixel/network-service-platform",
+        },
+        path: ".github/workflows/ci.yml",
+        event: "push",
+        head_branch: "integration/consolidate-project",
+        head_sha: fixture.sha,
+        status: "completed",
+        conclusion: "success",
+        run_attempt: 1,
+      },
+    });
+    const verifiedCandidate = validateBundle({
+      bundle: first,
+      expectedSha: fixture.sha,
+      validationMode: "candidate",
+      githubArtifactId: artifactId,
+      artifactArchive: archive,
+    });
+    assert.equal(verifiedCandidate.status, "ok");
+    assert.equal(verifiedCandidate.candidateVerified, true);
+    writeFileSync(
+      join(fixture.root, "website/dist/index.html"),
+      "<!doctype html><title>replaced ignored build</title>\n",
+      "utf8",
+    );
+    assert.equal(
+      runGit(fixture.root, "status", "--porcelain=v1", "--untracked-files=all"),
+      "",
+    );
+    assembleReleaseBundle({
+      source: fixture.root,
+      destination: second,
+      expectedSha: fixture.sha,
+      provenanceMode: "github-actions",
+      environment,
+    });
+
+    const firstManifest = readFileSync(
+      join(first, "release-manifest.json"),
+      "utf8",
+    );
+    const secondManifest = readFileSync(
+      join(second, "release-manifest.json"),
+      "utf8",
+    );
+    assert.notEqual(firstManifest, secondManifest);
+    assert.deepEqual(
+      JSON.parse(firstManifest).provenance,
+      JSON.parse(secondManifest).provenance,
+    );
+    assert.throws(
+      () =>
+        validateBundle({
+          bundle: second,
+          expectedSha: fixture.sha,
+          validationMode: "candidate",
+          githubArtifactId: artifactId,
+          artifactArchive: archive,
+        }),
+      (error) => error?.code === "PROVENANCE_REQUIRED",
+    );
+  } finally {
+    restoreEnvironment();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("candidate validation rejects ZIP payload tampering under the same manifest", () => {
+  const parent = mkdtempSync(join(tmpdir(), "consolidated-release-zip-"));
+  let restoreEnvironment = () => {};
+  try {
+    const fixture = createFixtureRepository(parent);
+    const bundle = join(parent, "bundle");
+    assembleReleaseBundle({
+      source: fixture.root,
+      destination: bundle,
+      expectedSha: fixture.sha,
+      provenanceMode: "github-actions",
+      environment: githubEnvironment({ sha: fixture.sha, candidate: true }),
+    });
+    const tampered = join(parent, "tampered");
+    cpSync(bundle, tampered, { recursive: true });
+    writeFileSync(
+      join(tampered, "website/dist/index.html"),
+      "same manifest and paths, different payload\n",
+      "utf8",
+    );
+    const archive = join(parent, "tampered.zip");
+    createArtifactArchive(tampered, archive);
+    const artifactId = "778";
+    restoreEnvironment = installFakeGithub(parent, {
+      artifact: {
+        id: Number(artifactId),
+        name: `consolidated-release-${fixture.sha}`,
+        expired: false,
+        digest: `sha256:${sha256(archive)}`,
+        workflow_run: { id: 123456789, head_sha: fixture.sha },
+      },
+      workflowRun: {
+        id: 123456789,
+        repository: {
+          full_name: "604640310fsx-pixel/network-service-platform",
+        },
+        path: ".github/workflows/ci.yml",
+        event: "push",
+        head_branch: "integration/consolidate-project",
+        head_sha: fixture.sha,
+        status: "completed",
+        conclusion: "success",
+        run_attempt: 1,
+      },
+    });
+
+    assert.throws(
+      () =>
+        validateBundle({
+          bundle,
+          expectedSha: fixture.sha,
+          validationMode: "candidate",
+          githubArtifactId: artifactId,
+          artifactArchive: archive,
+        }),
+      (error) =>
+        error?.code === "PROVENANCE_REQUIRED" &&
+        /payload failed verification/.test(error.message),
+    );
+  } finally {
+    restoreEnvironment();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("PR and task contexts cannot claim release-candidate provenance", () => {
+  const parent = mkdtempSync(join(tmpdir(), "consolidated-release-pr-"));
+  try {
+    const fixture = createFixtureRepository(parent);
+    assert.throws(
+      () =>
+        assembleReleaseBundle({
+          source: fixture.root,
+          destination: join(parent, "bundle"),
+          expectedSha: fixture.sha,
+          provenanceMode: "github-actions",
+          environment: githubEnvironment({
+            sha: fixture.sha,
+            candidate: false,
+          }),
+        }),
+      (error) => error?.code === "PROVENANCE_REQUIRED",
+    );
+    const testEnvironment = githubEnvironment({
+      sha: fixture.sha,
+      candidate: false,
+    });
+    const testBundle = join(parent, "test-bundle");
+    assembleReleaseBundle({
+      source: fixture.root,
+      destination: testBundle,
+      expectedSha: fixture.sha,
+      provenanceMode: "github-actions-test",
+      environment: testEnvironment,
+    });
+    assert.equal(
+      validateBundle({
+        bundle: testBundle,
+        expectedSha: fixture.sha,
+        validationMode: "ci-test",
+        environment: testEnvironment,
+      }).releaseUse,
+      "forbidden",
+    );
+    assert.throws(
+      () =>
+        validateBundle({
+          bundle: testBundle,
+          expectedSha: fixture.sha,
+          validationMode: "candidate",
+        }),
+      (error) => error?.code === "PROVENANCE_REQUIRED",
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("CLI entrypoints execute through symbolic-link paths", () => {
+  const parent = mkdtempSync(join(tmpdir(), "consolidated-release-cli-link-"));
+  try {
+    const fixture = createFixtureRepository(parent);
+    const assemblerLink = join(parent, "assemble-release.mjs");
+    const validatorLink = join(parent, "validate-release.mjs");
+    const bundle = join(parent, "bundle");
+    symlinkSync(ASSEMBLER_PATH, assemblerLink, "file");
+    symlinkSync(VALIDATOR_PATH, validatorLink, "file");
+
+    const assembled = spawnSync(
+      process.execPath,
+      [
+        assemblerLink,
+        "--source",
+        fixture.root,
+        "--destination",
+        bundle,
+        "--expected-sha",
+        fixture.sha,
+        "--provenance-mode",
+        LOCAL_PROVENANCE_MODE,
+      ],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+    assert.equal(assembled.status, 0, assembled.stderr);
+    assert.equal(JSON.parse(assembled.stdout).status, "ok");
+    assert.equal(existsSync(join(bundle, "release-manifest.json")), true);
+
+    const rejected = spawnSync(process.execPath, [validatorLink], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    assert.equal(rejected.status, 1);
+    assert.equal(rejected.stdout, "");
+    assert.equal(JSON.parse(rejected.stderr).code, "ARGUMENT_ERROR");
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

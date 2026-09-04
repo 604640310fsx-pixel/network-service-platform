@@ -96,6 +96,9 @@ jobs:
     timeout-minutes: 30
     env:
       EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      PROVENANCE_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'github-actions' || 'github-actions-test' }}
+      VALIDATION_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'ci-build' || 'ci-test' }}
+      BUNDLE_PARENT: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout exact task head
         uses: actions/checkout@v6
@@ -144,26 +147,31 @@ jobs:
 
       - name: Assemble twice and validate inventories
         run: |
-          bundle_parent="$(mktemp -d)"
+          test ! -e "$BUNDLE_PARENT"
+          mkdir -p "$BUNDLE_PARENT"
           node scripts/ops/assemble-consolidated-release.mjs \
             --source "$GITHUB_WORKSPACE" \
-            --destination "$bundle_parent/first" \
-            --expected-sha "$EXPECTED_SHA"
+            --destination "$BUNDLE_PARENT/first" \
+            --expected-sha "$EXPECTED_SHA" \
+            --provenance-mode "$PROVENANCE_MODE"
           node scripts/ops/assemble-consolidated-release.mjs \
             --source "$GITHUB_WORKSPACE" \
-            --destination "$bundle_parent/second" \
-            --expected-sha "$EXPECTED_SHA"
-          cmp "$bundle_parent/first/release-manifest.json" \
-            "$bundle_parent/second/release-manifest.json"
+            --destination "$BUNDLE_PARENT/second" \
+            --expected-sha "$EXPECTED_SHA" \
+            --provenance-mode "$PROVENANCE_MODE"
+          cmp "$BUNDLE_PARENT/first/release-manifest.json" \
+            "$BUNDLE_PARENT/second/release-manifest.json"
           node scripts/ops/validate-consolidated-release-packet.mjs \
             --source "$GITHUB_WORKSPACE" \
             --expected-sha "$EXPECTED_SHA" \
-            --bundle "$bundle_parent/first"
+            --bundle "$BUNDLE_PARENT/first" \
+            --validation-mode "$VALIDATION_MODE"
           node scripts/ops/validate-consolidated-release-packet.mjs \
             --source "$GITHUB_WORKSPACE" \
             --expected-sha "$EXPECTED_SHA" \
-            --bundle "$bundle_parent/second"
-          if find "$bundle_parent/first" \
+            --bundle "$BUNDLE_PARENT/second" \
+            --validation-mode "$VALIDATION_MODE"
+          if find "$BUNDLE_PARENT/first" \
             \( -type l -o -name node_modules -o -name '.env*' \
                -o -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
                -o -name '*.pem' -o -name '*.key' \) \
@@ -176,3 +184,33 @@ jobs:
         run: |
           git diff --exit-code -- auth-service/package-lock.json
           git diff --exit-code -- website/package-lock.json
+
+      - name: Retain exact integration release candidate
+        id: upload-release-candidate
+        if: github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && github.sha == env.EXPECTED_SHA
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-release-${{ env.EXPECTED_SHA }}
+          path: ${{ env.BUNDLE_PARENT }}/first/
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Record candidate artifact proof
+        if: github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && github.sha == env.EXPECTED_SHA
+        env:
+          ARTIFACT_ID: ${{ steps.upload-release-candidate.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload-release-candidate.outputs.artifact-digest }}
+          ARTIFACT_URL: ${{ steps.upload-release-candidate.outputs.artifact-url }}
+        run: |
+          test "$GITHUB_SHA" = "$EXPECTED_SHA"
+          test -n "$ARTIFACT_ID"
+          test -n "$ARTIFACT_URL"
+          printf '%s\n' "$ARTIFACT_DIGEST" | grep -Eq '^sha256:[a-f0-9]{64}$'
+          {
+            printf 'Release candidate SHA: `%s`\n' "$EXPECTED_SHA"
+            printf 'Artifact name: `consolidated-release-%s`\n' "$EXPECTED_SHA"
+            printf 'Artifact ID: `%s`\n' "$ARTIFACT_ID"
+            printf 'Artifact digest: `%s`\n' "$ARTIFACT_DIGEST"
+            printf 'Workflow run: `%s`, attempt `%s`\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+          } >> "$GITHUB_STEP_SUMMARY"

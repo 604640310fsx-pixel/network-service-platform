@@ -32,51 +32,85 @@ private configuration bodies.
 
 ## Pre-window artifact gate
 
-Before requesting a release window:
+The ignored `auth-service/dist` and `website/dist` directories are not bound by
+Git cleanliness. A local assembly can therefore test layout and determinism but
+can never establish that those bytes were built from its `sourceSha`:
 
-1. Build auth-service and website from the exact clean candidate checkout with
-   the frozen Node runtime and exact lockfiles. Do not install dependencies on a
-   production host as part of the switch.
-2. Assemble the candidate with explicit values:
+```text
+LOCAL_BUNDLE_RELEASE_USE: FORBIDDEN
+GITHUB_ARTIFACT_PROVENANCE: REQUIRED
+```
+
+Pull-request merge refs, Draft PRs, task branches, non-integration branches, and
+local runs produce test-only provenance with `releaseUse: forbidden`. Their
+bundles must never be retained, frozen, staged, or relabelled as release
+candidates. Only the repository CI job triggered by a successful `push` to
+`refs/heads/integration/consolidate-project` may assemble and retain the exact
+candidate artifact. That job checks `GITHUB_SHA === expectedSha`, builds auth
+and website first, assembles twice, compares the manifests, validates both
+inventories, and uploads only the first bundle under the exact name
+`consolidated-release-<RELEASE_CANDIDATE_SHA>`.
+
+The upload alone does not authorize release. After the merge and integration
+push are separately authorized, the future candidate SHA must still be frozen
+in a separate decision. Before requesting a release window:
+
+1. Select the successful `CI` run whose event is `push`, workflow path is
+   `.github/workflows/ci.yml`, head branch is
+   `integration/consolidate-project`, head SHA equals the separately frozen
+   `RELEASE_CANDIDATE_SHA`, and run attempt matches the manifest provenance.
+   A job name or copied environment variables are not proof.
+2. Bind the run ID, attempt, exact artifact ID, exact artifact name, and the
+   GitHub-reported `sha256:` artifact digest without recording credentials.
+   Download that exact artifact through the GitHub Actions artifact API into a
+   new archive path. Do not rebuild or substitute local ignored output.
+3. Extract the archive into a new directory and validate it against a clean
+   checkout of the same candidate SHA:
 
    ```text
-   node scripts/ops/assemble-consolidated-release.mjs \
-     --source <CLEAN_CANDIDATE_CHECKOUT> \
-     --destination <NEW_BUNDLE_DIRECTORY> \
-     --expected-sha <RELEASE_CANDIDATE_SHA>
-   ```
-
-   The destination must not exist. The bundle retains the repository-relative
-   auth runtime layout, including compiled `auth-service/dist/src`, package
-   manifests, migrations 001-014, and `website/dist`. It excludes dependency
-   directories, environment files, credentials, private keys, databases, and
-   files outside the explicit release inputs.
-3. Assemble into a second new destination from the same checkout. Require the
-   two `release-manifest.json` files to be byte-for-byte identical.
-4. Validate both the repository packet and chosen bundle:
-
-   ```text
+   gh api \
+     --hostname github.com \
+     repos/604640310fsx-pixel/network-service-platform/actions/artifacts/<CANDIDATE_GITHUB_ARTIFACT_ID>/zip \
+     > <NEW_ARTIFACT_ARCHIVE>
+   unzip <NEW_ARTIFACT_ARCHIVE> -d <NEW_EXTRACTED_BUNDLE_DIRECTORY>
    node scripts/ops/validate-consolidated-release-packet.mjs \
      --source <CLEAN_CANDIDATE_CHECKOUT> \
      --expected-sha <RELEASE_CANDIDATE_SHA> \
-     --bundle <NEW_BUNDLE_DIRECTORY>
+     --bundle <NEW_EXTRACTED_BUNDLE_DIRECTORY> \
+     --validation-mode candidate \
+     --github-artifact-id <CANDIDATE_GITHUB_ARTIFACT_ID> \
+     --artifact-archive <NEW_ARTIFACT_ARCHIVE>
    ```
 
-5. Independently hash the retained candidate bundle and bind it to the future
-   release record. Also bind a previously validated rollback bundle containing
-   the matched old auth and website artifacts. The old auth binary must accept
-   exactly the pre-release migration boundary. Because dependency directories
-   are deliberately excluded, bind a prebuilt auth dependency layer to the
+   Candidate validation retrieves live artifact and workflow-run metadata. It
+   requires the artifact ID/name/digest, run ID/attempt, successful push event,
+   integration ref, run head SHA, manifest `sourceSha`, manifest bytes, archive
+   file set, and every inventoried file hash to agree. An expired artifact,
+   unavailable metadata, altered archive, PR merge ref, failed run, or
+   environment-only provenance fails closed.
+4. The bundle retains the repository-relative auth runtime layout, including
+   compiled `auth-service/dist/src`, package manifests, migrations 001-014, and
+   `website/dist`. It excludes dependency directories, environment files,
+   credentials, private keys, databases, and files outside the explicit release
+   inputs. Bind its verified manifest and auth/website inventory hashes.
+5. Bind a previously validated rollback bundle containing the matched old auth
+   and website artifacts. The old auth binary must accept exactly the
+   pre-release migration boundary. Because dependency directories are
+   deliberately excluded, bind a prebuilt auth dependency layer to the
    candidate lockfile, Node version, OS/architecture/libc, and native-module ABI.
 6. Assemble and test complete open and closed Nginx roots in an isolated
    location. Repository examples are incomplete candidates and must never be
    activated directly. Record configuration hashes and `nginx -t` pass/fail,
    never the configuration bodies or production paths.
 
-Any source SHA mismatch, dirty source, non-deterministic manifest, missing
-artifact, extra inventory file, hash mismatch, symlink, forbidden file,
-unmatched rollback artifact, or failed isolated configuration test stops the
-release before traffic changes.
+For local tooling tests only, use `--provenance-mode local-dry-run` during both
+assemblies and `--validation-mode local-dry-run` during validation. Such output
+remains forbidden for release even when both manifests are identical.
+
+Any source SHA mismatch, dirty source, non-deterministic manifest, missing or
+expired artifact, extra inventory file, hash mismatch, symlink, forbidden file,
+unmatched rollback artifact, unverifiable GitHub provenance, or failed isolated
+configuration test stops the release before traffic changes.
 
 ## Nginx invariants
 
