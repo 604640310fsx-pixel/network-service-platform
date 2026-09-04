@@ -281,13 +281,13 @@ Forbidden:
 ```text
 TASK_ID: CUSTOMER-PORTAL-PARALLEL-INTEGRATION-01
 BASE_BRANCH: task/NSP-CODEX-ULTRA-MASTER-01
-BASE_SHA: TO_BE_FROZEN_AFTER_MODULE_HANDOFFS
+BASE_SHA: c8f2fb74ff7ed7180df028994e0a17e5144da23a
 TASK_BRANCH: task/NSP-CODEX-ULTRA-MASTER-01
 CURRENT_WRITER: CODEX:/root
 MODEL: gpt-5.6-sol
 EFFORT: xhigh
 WORKFLOW: STANDARD_SERIAL
-STATUS: BLOCKED_UNTIL_HANDOFFS
+STATUS: READY
 ```
 
 After all pushed handoffs, only Task E may modify these integration files:
@@ -413,4 +413,46 @@ SENSITIVE_SCAN: PASS
 USER_MAIN_CHECKOUT: UNCHANGED
 CI_STATUS: DRAFT_PR_42_RUNNING
 NEXT_ACTION: collect pushed handoffs, request only necessary PRO decisions, then integrate serially
+```
+
+## 13. Frozen module handoffs and serial activation
+
+```yaml
+CHECKPOINT_ID: CP-02
+TASK_ID: NSP-CODEX-ULTRA-MASTER-01
+STATUS: IN_PROGRESS
+CURRENT_WRITER: CODEX:/root
+INTEGRATION_TASK: CUSTOMER-PORTAL-PARALLEL-INTEGRATION-01
+INTEGRATION_BASE_SHA: c8f2fb74ff7ed7180df028994e0a17e5144da23a
+INPUT_HANDOFFS:
+  - task: PAYMENT-FULL-CHAIN-SANDBOX-CLOSEOUT-01
+    handoff_sha: 5c629c873a273ef7e526fe31fb14b0111daeadf4
+    status: HANDOFF_READY
+    ci: PASS
+  - task: CUSTOMER-SUBSCRIPTION-IMPORT-DOCS-01
+    handoff_sha: a73efd6b83fc91c545cf075b0327a41b64f906e5
+    status: ACCEPTED_FOR_SERIAL_INTEGRATION
+    direct_tests: PASS_11_OF_11
+    ci: PASS
+  - task: CUSTOMER-PROFILE-INVITE-AUDIT-01
+    handoff_sha: 21a6c274a37d6a6e74d86e811ed3325efa9403a5
+    status: HANDOFF_READY
+    ci: PASS
+FACT_SOURCE_GATES:
+  tickets: FACT_SOURCE_MISSING_AUDIT_ONLY
+  invites_referrals: FACT_SOURCE_MISSING
+  docs_articles: FACT_SOURCE_MISSING_RENDER_TRUE_EMPTY_STATE
+FILE_OVERLAP: NONE
+SERIAL_CHERRY_PICK_ORDER:
+  - 5c629c873a273ef7e526fe31fb14b0111daeadf4
+  - b231c8b059737c5cf73342a27845419c5ac229fa
+  - bb6376c86ee180c38f342ae6fb8aea28f19e490e
+  - fac1ce45689ea806e1cd56fc3b861fad8581719f
+  - f8474cd0498f86cb1d48045936b33a02b8e71fb3
+  - a73efd6b83fc91c545cf075b0327a41b64f906e5
+  - 21a6c274a37d6a6e74d86e811ed3325efa9403a5
+OPEN_RISKS:
+  - SANDBOX_QR_SCAN and SANDBOX_PAYMENT_CONFIRMATION remain UNVERIFIED and HUMAN_ACTION_REQUIRED
+  - tickets and invite/referral remain disabled until separate public contracts are frozen
+NEXT_ACTION: checkpoint this activation record, then cherry-pick exact handoffs and wire only Task E integration files
 ```
