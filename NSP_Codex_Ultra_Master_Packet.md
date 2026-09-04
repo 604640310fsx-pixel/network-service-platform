@@ -456,3 +456,73 @@ OPEN_RISKS:
   - tickets and invite/referral remain disabled until separate public contracts are frozen
 NEXT_ACTION: checkpoint this activation record, then cherry-pick exact handoffs and wire only Task E integration files
 ```
+
+## 14. Serial integration checkpoint and Sol xhigh handoff
+
+```yaml
+CHECKPOINT_ID: CP-03
+TASK_ID: CUSTOMER-PORTAL-PARALLEL-INTEGRATION-01
+STATUS: HANDOFF_READY_FOR_SERIAL_ACCEPTANCE
+CURRENT_WRITER: CODEX:/root
+NEXT_WRITER: CODEX:NEW_GPT_5_6_SOL_XHIGH_TASK
+SUCCESSOR_TASK_TITLE: GPT-5.6 Sol · xhigh · NSP 串行验收收尾
+MODEL_POLICY:
+  current_window: USER_VISIBLE_ULTRA_ENDS_AFTER_THIS_HANDOFF
+  successor_model: gpt-5.6-sol
+  successor_effort: xhigh
+  successor_workflow: STANDARD_SERIAL
+  max_allowed: NO
+  ultra_allowed: NO
+INTEGRATION_CODE_SHA: b621827bd17a822a10ffe54ac60d283a37b6a386
+REMOTE_CODE_SHA: b621827bd17a822a10ffe54ac60d283a37b6a386
+SERIAL_INTEGRATION:
+  payment_source_sha: 5c629c873a273ef7e526fe31fb14b0111daeadf4
+  subscription_source_sha: a73efd6b83fc91c545cf075b0327a41b64f906e5
+  profile_source_sha: 21a6c274a37d6a6e74d86e811ed3325efa9403a5
+  integration_files:
+    - website/app/lib/sections.ts
+    - website/app/components/DashboardShell.tsx
+    - website/app/components/customer/CustomerCenterShell.tsx
+    - website/app/components/subscribe/OrderStatusPanel.tsx
+  overlap_or_conflict: NONE
+LOCAL_VALIDATION:
+  node: v22.16.0
+  website_check: PASS
+  website_build: PASS_93_MODULES
+  subscription_and_docs_model_tests: PASS_11_OF_11
+  auth_service_build: PASS
+  auth_service_tests: PASS_214_OF_214
+  diff_check: PASS
+  conflict_marker_scan: PASS
+  sensitive_information_scan: PASS
+BROWSER_ACCEPTANCE:
+  fixture: LOCAL_SANITIZED_AUTHORIZED_RESPONSES_ONLY
+  viewports: [1440, 1024, 390]
+  themes: [light, dark]
+  horizontal_overflow: NONE
+  console_warn_or_error: NONE
+  docs: TRUE_EMPTY_STATE_AND_ENABLED_ROUTE_PASS
+  profile: READ_ONLY_AUTH_DATA_AND_RESPONSIVE_LAYOUT_PASS
+  subscription_import: PLATFORM_CLIENT_COPY_LOCAL_QR_SAFE_OPEN_HELP_KEYBOARD_PASS
+  legacy_unverified_clash_deep_link_count: 0
+CI_STATUS: DRAFT_PR_42_PENDING
+FACT_SOURCE_GATES:
+  tickets: FACT_SOURCE_MISSING_AUDIT_ONLY
+  invites_referrals: FACT_SOURCE_MISSING
+  docs_articles: FACT_SOURCE_MISSING_RENDER_TRUE_EMPTY_STATE
+HUMAN_ACTION_REQUIRED:
+  - SANDBOX_QR_SCAN
+  - SANDBOX_PAYMENT_CONFIRMATION
+SHOULD_FIX:
+  - existing paid-state card copy may still say pending activation when service is already open
+UNVERIFIED:
+  - real-device QR scan and sandbox buyer confirmation
+INSTALL: NOT_EXECUTED
+LOCKFILE_CHANGE: NONE
+MIGRATION: NOT_EXECUTED
+MERGE: NOT_EXECUTED
+DEPLOY: NOT_EXECUTED
+PRODUCTION: NOT_ACCESSED
+NEXT_ACTION: successor Sol xhigh task waits for Draft PR 42 CI, updates final evidence, and performs serial acceptance only
+FORBIDDEN_ACTION: no MAX, no Ultra, no install, no lockfile change, no migration, no merge, no deploy, no production, no real payment
+```
