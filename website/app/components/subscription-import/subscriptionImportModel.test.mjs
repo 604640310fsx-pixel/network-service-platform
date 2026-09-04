@@ -74,6 +74,7 @@ test("only caller-supplied non-web deep links can reach the client action", () =
 
 test("location guidance covers frozen Chrome cases without a fake chrome settings link", () => {
   assert.match(COMPONENT_SOURCE, /chrome:\/\/settings\/content\/location/);
+  assert.match(COMPONENT_SOURCE, /检查并清理已允许查看位置的网站名单/);
   assert.match(COMPONENT_SOURCE, /Android：同时检查 Chrome 的网站位置权限与系统中的 Chrome 位置权限，建议设为每次询问或拒绝/);
   assert.match(COMPONENT_SOURCE, /iPhone \/ iPad：在系统设置的定位服务中检查 Chrome 位置权限，建议设为永不或下次询问，并按需拒绝/);
   assert.match(COMPONENT_SOURCE, /非必要时建议关闭；需要时改为每次询问/);
