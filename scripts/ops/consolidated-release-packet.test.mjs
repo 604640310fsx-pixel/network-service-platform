@@ -38,6 +38,10 @@ const BINDINGS_PATH = fileURLToPath(
   new URL("../../docs/ops/consolidated-release-bindings.md", import.meta.url),
 );
 const LOCAL_PROVENANCE_MODE = "local-dry-run";
+const SQLITE_BACKUP_SHA256_PROOF =
+  "Snapshot mode 0600, bytes, SHA-256, quick check, foreign keys, and boundary 001-014 independently verify.";
+const STALE_SQLITE_BACKUP_SHA256_PROOF =
+  "Snapshot mode 0600, bytes, SHA-256, quick check, foreign keys, and boundary 001-013 independently verify.";
 
 function githubEnvironment({ sha, candidate }) {
   return {
@@ -531,9 +535,22 @@ test("runbook and bindings describe rollback 014 and candidate 015 consistently"
     "migrations 001-015 match inventory",
     "compatible with continuous migrations 001-014",
     "loopback health, schema 001-015",
+    SQLITE_BACKUP_SHA256_PROOF,
   ]) {
     assert.equal(bindings.includes(fragment), true, fragment);
   }
+  assert.equal(
+    bindings.includes(STALE_SQLITE_BACKUP_SHA256_PROOF),
+    false,
+    "stale backup boundary must be absent",
+  );
+
+  const validatorSource = readFileSync(VALIDATOR_PATH, "utf8");
+  assert.equal(
+    validatorSource.includes(SQLITE_BACKUP_SHA256_PROOF),
+    true,
+    "repository validator must require the exact backup proof",
+  );
 });
 
 test("assembler rejects a symbolic link in a mapped ignored artifact path", () => {

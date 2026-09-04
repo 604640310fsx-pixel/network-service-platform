@@ -53,7 +53,7 @@ previous release record or dashboard observation is not current proof.
 | `DATABASE_WRITER_ZERO_PROOF` | After PID absence, a fail-closed inventory proves no request, payment, mail, maintenance, or writable-descriptor process can write the database. |
 | `DATABASE_SCHEMA_AND_INTEGRITY_PROOF` | Journal mode, quick check, foreign keys, owner/mode, capacity, and continuous applied prefix are observed read-only. |
 | `SQLITE_BACKUP_DESTINATION` | New non-existing destination, capacity, owner, retention, restore command, and cleanup owner are approved. |
-| `SQLITE_BACKUP_SHA256_PROOF` | Snapshot mode 0600, bytes, SHA-256, quick check, foreign keys, and boundary 001-013 independently verify. |
+| `SQLITE_BACKUP_SHA256_PROOF` | Snapshot mode 0600, bytes, SHA-256, quick check, foreign keys, and boundary 001-014 independently verify. |
 | `POST_SNAPSHOT_WRITE_PROOF` | Closed-ingress continuity and writer observations prove whether any post-snapshot write occurred. |
 | `DATABASE_RESTORE_DEADLINE` | Owner can determine before normal worker startup whether restore eligibility remains open. |
 

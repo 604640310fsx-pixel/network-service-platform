@@ -329,6 +329,7 @@ export function validateRepository({ source, expectedSha }) {
     [
       "BINDING_VALUES_IN_REPOSITORY: FORBIDDEN",
       "MONITOR_AUTH_PROJECTION_STATUS: CONDITIONAL_BLOCKER",
+      "Snapshot mode 0600, bytes, SHA-256, quick check, foreign keys, and boundary 001-014 independently verify.",
     ],
     "release bindings",
   );
