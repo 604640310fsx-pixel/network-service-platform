@@ -122,11 +122,11 @@ function resolveDefaultMigrationsDirectory(): string {
   return COMPILED_MIGRATIONS_DIRECTORY;
 }
 
-function readAppliedMigrationVersions(database: DatabaseConnection): Set<number> {
+function readAppliedMigrationVersions(database: DatabaseConnection): number[] {
   const rows = database
     .prepare("SELECT version FROM schema_migrations ORDER BY version")
     .all();
-  const versions = new Set<number>();
+  const versions: number[] = [];
 
   for (const row of rows) {
     if (
@@ -138,7 +138,7 @@ function readAppliedMigrationVersions(database: DatabaseConnection): Set<number>
       throw new Error("schema_migrations contains an invalid version");
     }
 
-    versions.add(row.version);
+    versions.push(row.version);
   }
 
   return versions;
@@ -173,15 +173,28 @@ export function runMigrations(
   `);
 
   const appliedVersions = readAppliedMigrationVersions(database);
-  const expectedVersions = new Set(
-    MIGRATION_FILES.map((file) => Number.parseInt(file.slice(0, 3), 10)),
+  const expectedVersions = MIGRATION_FILES.map((file) =>
+    Number.parseInt(file.slice(0, 3), 10),
   );
+  const expectedVersionSet = new Set(expectedVersions);
 
   for (const version of appliedVersions) {
-    if (!expectedVersions.has(version)) {
+    if (!expectedVersionSet.has(version)) {
       throw new Error(`database contains unknown migration version ${version}`);
     }
   }
+
+  if (
+    appliedVersions.some(
+      (version, index) => version !== expectedVersions[index],
+    )
+  ) {
+    throw new Error(
+      "database migration history must be a continuous prefix starting at version 1",
+    );
+  }
+
+  const appliedVersionSet = new Set(appliedVersions);
 
   const recordMigration = database.prepare(
     "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
@@ -190,7 +203,7 @@ export function runMigrations(
   for (const file of MIGRATION_FILES) {
     const version = Number.parseInt(file.slice(0, 3), 10);
 
-    if (appliedVersions.has(version)) {
+    if (appliedVersionSet.has(version)) {
       continue;
     }
 

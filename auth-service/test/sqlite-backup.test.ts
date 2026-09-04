@@ -21,6 +21,9 @@ import { fileURLToPath } from "node:url";
 
 import {
   initializeDatabase,
+  MIGRATION_FILES,
+  openAndVerifyDatabase,
+  runMigrations,
   type DatabaseConnection,
 } from "../src/db.js";
 
@@ -54,6 +57,7 @@ const Database = require("better-sqlite3") as DatabaseConstructor;
 const TEST_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const AUTH_SERVICE_DIRECTORY = resolve(TEST_DIRECTORY, "../..");
 const TOOL_PATH = join(AUTH_SERVICE_DIRECTORY, "scripts/sqlite-backup.mjs");
+const MIGRATIONS_DIRECTORY = join(AUTH_SERVICE_DIRECTORY, "src/migrations");
 
 function executeTool(arguments_: readonly string[]): Promise<{
   readonly exitCode: number;
@@ -113,6 +117,29 @@ function openFixture(path: string, migrations = [1]): DatabaseConnection {
   );
   for (const version of migrations) {
     insertMigration.run(version, "2026-08-28T00:00:00.000Z");
+  }
+  return database;
+}
+
+async function openMigration13Fixture(path: string): Promise<DatabaseConnection> {
+  const database = openAndVerifyDatabase(path);
+  database.exec(`
+    CREATE TABLE schema_migrations (
+      version INTEGER PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    );
+  `);
+  const recordMigration = database.prepare(
+    "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+  );
+  for (const file of MIGRATION_FILES.slice(0, -1)) {
+    const version = Number.parseInt(file.slice(0, 3), 10);
+    const sql = await readFile(join(MIGRATIONS_DIRECTORY, file), "utf8");
+    const applyMigration = database.transaction(() => {
+      database.exec(sql);
+      recordMigration.run(version, "2026-08-28T00:00:00.000Z");
+    });
+    applyMigration();
   }
   return database;
 }
@@ -298,16 +325,21 @@ test("rejects a corrupted backup during independent verification", async () => {
   }
 });
 
-test("verifies a pre-migration snapshot after the live source advances", async () => {
+test("keeps a verified 013 snapshot rollback-compatible after the live source advances to 014", async () => {
   const directory = await mkdtemp(join(tmpdir(), "sqlite-backup-rollback-"));
   const source = join(directory, "source.sqlite");
   const backup = join(directory, "backup.sqlite");
-  const database = openFixture(
-    source,
-    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-  );
+  const database = await openMigration13Fixture(source);
 
   try {
+    database.exec(`
+      CREATE TABLE backup_probe (
+        id INTEGER PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      INSERT INTO backup_probe (id, value)
+      VALUES (1, 'pre-014 rollback fixture');
+    `);
     const created = await executeTool([
       "create",
       "--source",
@@ -317,9 +349,20 @@ test("verifies a pre-migration snapshot after the live source advances", async (
     ]);
     assert.equal(created.exitCode, 0, created.stderr);
     const snapshot = parseSuccess(created.stdout);
-    database
-      .prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)")
-      .run(13, "2026-08-28T01:00:00.000Z");
+    assert.deepEqual(
+      snapshot.migrations,
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+    );
+
+    runMigrations(database);
+    assert.deepEqual(
+      (
+        database
+          .prepare("SELECT version FROM schema_migrations ORDER BY version")
+          .all() as Array<{ readonly version: number }>
+      ).map((row) => row.version),
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+    );
 
     const verified = await executeTool([
       "verify",
@@ -328,7 +371,7 @@ test("verifies a pre-migration snapshot after the live source advances", async (
       "--expected-sha256",
       snapshot.sha256,
       "--expected-last-migration",
-      "12",
+      "13",
     ]);
     assert.equal(verified.exitCode, 0, verified.stderr);
     assert.deepEqual(parseSuccess(verified.stdout), {
@@ -343,7 +386,7 @@ test("verifies a pre-migration snapshot after the live source advances", async (
       "--expected-sha256",
       "0".repeat(64),
       "--expected-last-migration",
-      "12",
+      "13",
     ]);
     assert.equal(wrongHash.exitCode, 1);
     assert.equal(parseFailure(wrongHash.stderr).code, "HASH_MISMATCH");
@@ -355,7 +398,7 @@ test("verifies a pre-migration snapshot after the live source advances", async (
       "--expected-sha256",
       snapshot.sha256,
       "--expected-last-migration",
-      "13",
+      "14",
     ]);
     assert.equal(wrongBoundary.exitCode, 1);
     assert.equal(parseFailure(wrongBoundary.stderr).code, "MIGRATION_MISMATCH");
@@ -369,10 +412,41 @@ test("verifies a pre-migration snapshot after the live source advances", async (
       "--expected-sha256",
       snapshot.sha256,
       "--expected-last-migration",
-      "12",
+      "13",
     ]);
     assert.equal(ambiguousLiveSource.exitCode, 1);
     assert.equal(parseFailure(ambiguousLiveSource.stderr).code, "ARGUMENT_ERROR");
+
+    const rollbackDatabase = new Database(backup, {
+      readonly: true,
+      fileMustExist: true,
+    });
+    try {
+      assert.deepEqual(
+        (
+          rollbackDatabase
+            .prepare("SELECT version FROM schema_migrations ORDER BY version")
+            .all() as Array<{ readonly version: number }>
+        ).map((row) => row.version),
+        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+      );
+      assert.equal(
+        rollbackDatabase
+          .prepare("PRAGMA table_info(service_delivery_items)")
+          .all()
+          .some(
+            (row) =>
+              (row as { readonly name: string }).name === "monitor_target_key",
+          ),
+        false,
+      );
+      assert.deepEqual(
+        rollbackDatabase.prepare("SELECT id, value FROM backup_probe").all(),
+        [{ id: 1, value: "pre-014 rollback fixture" }],
+      );
+    } finally {
+      rollbackDatabase.close();
+    }
   } finally {
     database.close();
     await rm(directory, { recursive: true, force: true });

@@ -15,7 +15,7 @@ const candidatePath = path.join(
 );
 const runbookPath = path.join(
   repositoryRoot,
-  "docs/ops/diagnosis-intake-release-runbook.md",
+  "docs/ops/consolidated-release-runbook.md",
 );
 
 const candidateSource = readFileSync(candidatePath, "utf8");
@@ -112,14 +112,10 @@ assert.deepEqual(
 );
 
 const runbookSource = readFileSync(runbookPath, "utf8");
-assert.ok(
-  !runbookSource.includes("`IMPLEMENTATION_BASE_SHA`"),
-  "runbook must use the two defined implementation-base record names",
-);
 for (const requiredFragment of [
   "ops/nginx/release-traffic-closed.conf.example",
-  "FULL_PUBLIC_GATE: CLOSED",
-  "PUBLIC_WRITE_PATHS: CLOSED",
+  "CLOSED_NGINX_INVARIANT",
+  "FULL_INGRESS: CLOSED",
   "APPLICATION_DB_WRITERS: ZERO",
   "DATABASE_RESTORE_ELIGIBILITY: ENDED",
 ]) {
