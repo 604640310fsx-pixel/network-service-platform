@@ -312,6 +312,7 @@ export function OrderStatusPanel({
       <div className="pay-stack">
         <AlipayQrPay
           phase={phase}
+          serviceOpen={snapshot.service?.status === "open"}
           orderRef={snapshot.orderRef}
           amountFen={snapshot.amountFen}
           payUrl={phase === "waiting" ? payUrl : null}

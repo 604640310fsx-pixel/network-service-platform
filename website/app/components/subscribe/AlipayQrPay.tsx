@@ -6,6 +6,7 @@ export type AlipayQrPhase = "waiting" | "confirming" | "paid" | "closed";
 
 type AlipayQrPayProps = {
   readonly phase: AlipayQrPhase;
+  readonly serviceOpen: boolean;
   readonly orderRef: string;
   readonly amountFen: number;
   readonly payUrl: string | null;
@@ -38,6 +39,7 @@ const STATUS_LABEL: Record<AlipayQrPhase, string> = {
 
 export function AlipayQrPay({
   phase,
+  serviceOpen,
   orderRef,
   amountFen,
   payUrl,
@@ -141,7 +143,11 @@ export function AlipayQrPay({
         <div className="pay-success">
           <div className="pay-success-badge" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 6 9 17l-5-5"/></svg></div>
           <h2>支付成功</h2>
-          <p>服务已进入待开通状态，请在用户中心查看进度。</p>
+          <p>
+            {serviceOpen
+              ? "服务已开通，可在下方查看订阅信息。"
+              : "服务已进入待开通状态，请在用户中心查看进度。"}
+          </p>
         </div>
       )}
 
