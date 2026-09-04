@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import { HomePage } from "../app/components/home/HomePage";
 import { LoginPage } from "../app/components/auth/LoginPage";
 import { RegisterPage } from "../app/components/auth/RegisterPage";
+import { AuthSessionChecking } from "../app/components/auth/AuthShell";
 import { DashboardShell } from "../app/components/DashboardShell";
 import { DiagnosisPage } from "../app/components/diagnosis/DiagnosisPage";
 import { SubmitRequestPage } from "../app/components/subscribe/SubmitRequestPage";
@@ -10,7 +11,7 @@ import { AuthProvider, useAuth } from "../app/lib/auth";
 function LoginRoute() {
   const { status } = useAuth();
 
-  if (status === "checking") return null;
+  if (status === "checking") return <AuthSessionChecking />;
   if (status === "authenticated") return <Navigate to="/dashboard" replace />;
   return <LoginPage />;
 }
@@ -20,7 +21,7 @@ function SectionRoute() {
   const { status } = useAuth();
 
   if (section === "subscribe" || section === "monitor") return <DashboardShell />;
-  if (status === "checking") return null;
+  if (status === "checking") return <AuthSessionChecking />;
   if (status === "unauthenticated") return <Navigate to="/login" replace />;
   return <DashboardShell />;
 }

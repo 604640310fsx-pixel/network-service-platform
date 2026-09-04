@@ -50,6 +50,7 @@ export function LoginPage() {
       return;
     }
 
+    setError(null);
     setStatus("submitting");
     try {
       await login(email, password);
