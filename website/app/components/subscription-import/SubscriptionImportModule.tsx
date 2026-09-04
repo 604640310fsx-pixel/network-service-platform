@@ -184,6 +184,7 @@ export function SubscriptionImportModule({
 
   const platformTabId = `${instanceId}-platform-${platform}`;
   const platformPanelId = `${instanceId}-client-panel`;
+  const qrPanelId = `${instanceId}-local-qr`;
 
   return (
     <section className="cc-si-page" aria-labelledby={`${instanceId}-title`}>
@@ -197,6 +198,16 @@ export function SubscriptionImportModule({
             </div>
             <small>线路 {activeItem.position}</small>
           </header>
+
+          <aside className="cc-si-location-note" aria-label="Chrome 位置权限提醒">
+            <strong>建议关闭或按次询问位置权限</strong>
+            <ul>
+              <li>桌面 Chrome：在地址栏手动输入 <code>chrome://settings/content/location</code>，建议关闭网站位置权限，或在每次询问时按需拒绝。</li>
+              <li>Android：同时检查 Chrome 的网站位置权限与系统中的 Chrome 位置权限，建议设为每次询问或拒绝。</li>
+              <li>iPhone / iPad：在系统设置的定位服务中检查 Chrome 位置权限，建议设为永不或下次询问，并按需拒绝。</li>
+            </ul>
+            <p>非必要时建议关闭；需要时改为每次询问。上面的桌面设置地址仅供复制或选中，本页不会尝试打开、修改或声称权限已变更。</p>
+          </aside>
 
           {deliveryItems.length > 1 && (
             <label className="cc-si-field">
@@ -246,6 +257,7 @@ export function SubscriptionImportModule({
               type="button"
               className="cc-si-secondary"
               aria-expanded={qrOpen}
+              aria-controls={qrPanelId}
               onClick={() => setQrOpen((open) => !open)}
             >
               {qrOpen ? "收起二维码" : "显示二维码"}
@@ -270,14 +282,6 @@ export function SubscriptionImportModule({
             </aside>
           )}
 
-          {qrOpen && (
-            <div className="cc-si-qr" aria-label="本地订阅二维码">
-              <LocalQrBoundary key={subscriptionUrl}>
-                <QRCodeSVG value={subscriptionUrl} size={184} level="M" marginSize={2} />
-              </LocalQrBoundary>
-              <p>二维码仅在当前浏览器本地生成，不调用第三方二维码服务。</p>
-            </div>
-          )}
         </section>
 
         <section className="cc-si-panel">
@@ -340,6 +344,15 @@ export function SubscriptionImportModule({
               ))}
             </div>
 
+            {qrOpen && (
+              <div id={qrPanelId} className="cc-si-qr" aria-label="本地订阅二维码">
+                <LocalQrBoundary key={subscriptionUrl}>
+                  <QRCodeSVG value={subscriptionUrl} size={184} level="M" marginSize={2} />
+                </LocalQrBoundary>
+                <p>二维码仅在当前浏览器本地生成，不调用第三方二维码服务。</p>
+              </div>
+            )}
+
             <div className="cc-si-manual">
               <h3>{selectedClient.name} · 手动导入</h3>
               <ol>
@@ -375,15 +388,6 @@ export function SubscriptionImportModule({
             <p>仍无法导入时，只向现有支持渠道提供线路名称、设备系统和客户端名称；不要发送完整订阅地址。</p>
           </details>
 
-          <aside className="cc-si-location-note" aria-label="Chrome 位置权限提醒">
-            <strong>建议关闭或按次询问位置权限</strong>
-            <ul>
-              <li>桌面 Chrome：在地址栏手动输入 <code>chrome://settings/content/location</code>，建议关闭网站位置权限，或在每次询问时按需拒绝。</li>
-              <li>Android：同时检查 Chrome 的网站位置权限与系统中的 Chrome 位置权限，建议设为每次询问或拒绝。</li>
-              <li>iPhone / iPad：在系统设置的定位服务中检查 Chrome 位置权限，建议设为永不或下次询问，并按需拒绝。</li>
-            </ul>
-            <p>非必要时建议关闭；需要时改为每次询问。上面的桌面设置地址仅供复制或选中，本页不会尝试打开、修改或声称权限已变更。</p>
-          </aside>
         </section>
       </div>
     </section>

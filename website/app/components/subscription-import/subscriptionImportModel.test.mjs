@@ -80,6 +80,26 @@ test("location guidance covers frozen Chrome cases without a fake chrome setting
   assert.doesNotMatch(COMPONENT_SOURCE, /href=[^>]*chrome:\/\//);
 });
 
+test("the frozen import hierarchy is preserved in DOM order", () => {
+  const orderedMarkers = [
+    'className="cc-si-location-note"',
+    "<span>当前订阅地址</span>",
+    'className="cc-si-platform-tabs"',
+    'className="cc-si-client-grid"',
+    'className="cc-si-qr"',
+    'className="cc-si-manual"',
+    'className="cc-si-help"',
+  ];
+  let previousIndex = -1;
+  for (const marker of orderedMarkers) {
+    const currentIndex = COMPONENT_SOURCE.indexOf(marker);
+    assert.ok(currentIndex > previousIndex, `${marker} must follow the previous frozen section`);
+    previousIndex = currentIndex;
+  }
+  assert.match(COMPONENT_SOURCE, /aria-controls=\{qrPanelId\}/);
+  assert.match(COMPONENT_SOURCE, /id=\{qrPanelId\} className="cc-si-qr"/);
+});
+
 test("client copy describes display choices without claiming verified compatibility", () => {
   assert.match(COMPONENT_SOURCE, /可选客户端/);
   assert.match(COMPONENT_SOURCE, /一键导入和兼容性仍需逐项确认/);
@@ -88,6 +108,21 @@ test("client copy describes display choices without claiming verified compatibil
 
 test("the module is embeddable and responds to its container instead of the viewport", () => {
   assert.doesNotMatch(COMPONENT_SOURCE, /<main\b/);
-  assert.match(COMPONENT_SOURCE, /<section className="cc-si-page" aria-labelledby=/);
+  assert.equal(
+    (COMPONENT_SOURCE.match(/<section className="cc-si-page" aria-labelledby=/g) ?? []).length,
+    3,
+  );
+  assert.match(
+    COMPONENT_SOURCE,
+    /aria-labelledby=\{`\$\{instanceId\}-empty-title`\}[\s\S]*?<h2 id=\{`\$\{instanceId\}-empty-title`\}>/,
+  );
+  assert.match(
+    COMPONENT_SOURCE,
+    /aria-labelledby=\{`\$\{instanceId\}-invalid-title`\}[\s\S]*?<h2 id=\{`\$\{instanceId\}-invalid-title`\}>/,
+  );
+  assert.match(
+    COMPONENT_SOURCE,
+    /aria-labelledby=\{`\$\{instanceId\}-title`\}[\s\S]*?<h2 id=\{`\$\{instanceId\}-title`\}>/,
+  );
   assert.match(COMPONENT_CSS, /repeat\(auto-fit, minmax\(min\(100%, 420px\), 1fr\)\)/);
 });
