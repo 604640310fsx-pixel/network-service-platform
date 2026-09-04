@@ -207,11 +207,11 @@ jobs:
           test "$GITHUB_SHA" = "$EXPECTED_SHA"
           test -n "$ARTIFACT_ID"
           test -n "$ARTIFACT_URL"
-          printf '%s\n' "$ARTIFACT_DIGEST" | grep -Eq '^sha256:[a-f0-9]{64}$'
+          printf '%s\n' "$ARTIFACT_DIGEST" | grep -Eq '^[a-f0-9]{64}$'
           {
             printf 'Release candidate SHA: `%s`\n' "$EXPECTED_SHA"
             printf 'Artifact name: `consolidated-release-%s`\n' "$EXPECTED_SHA"
             printf 'Artifact ID: `%s`\n' "$ARTIFACT_ID"
-            printf 'Artifact digest: `%s`\n' "$ARTIFACT_DIGEST"
+            printf 'Artifact digest: `sha256:%s`\n' "$ARTIFACT_DIGEST"
             printf 'Workflow run: `%s`, attempt `%s`\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
           } >> "$GITHUB_STEP_SUMMARY"
