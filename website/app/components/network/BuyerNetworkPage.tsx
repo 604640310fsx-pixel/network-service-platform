@@ -650,10 +650,10 @@ function TrafficPanel({
       <div className="cc-net-monitor-note">
         <span className="cc-net-monitor-icon"><MonitorIcon /></span>
         <div>
-          <strong>买家线路与服务器状态联动</strong>
-          <p>本入口优先打开当前账户首个已绑定 VPS；也可点击上方任一已交付线路查看其对应 VPS。</p>
+          <strong>服务器状态入口</strong>
+          <p>已交付线路可前往服务器状态页；账户授权状态投影尚未接入，页面不会推测具体 VPS 状态。</p>
         </div>
-        <Link className="cc-net-ghost" to={statusHref}>查看买家服务器状态</Link>
+        <Link className="cc-net-ghost" to={statusHref}>查看服务器状态接入说明</Link>
       </div>
     </section>
   );
