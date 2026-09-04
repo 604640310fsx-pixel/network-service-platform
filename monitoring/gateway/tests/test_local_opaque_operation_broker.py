@@ -22,8 +22,17 @@ REPOSITORY = Path(__file__).resolve().parents[3]
 DEPLOY = REPOSITORY / "monitoring/gateway/deploy"
 CORE_SOURCE = DEPLOY / "local_opaque_operation_broker_core.c"
 BROKER_SOURCE = DEPLOY / "local_opaque_operation_broker.c"
+CLIENT_SOURCE = DEPLOY / "local_opaque_operation_broker_client.c"
+IPC_HEADER = DEPLOY / "local_opaque_operation_broker_ipc.h"
+NATIVE_SOURCE = DEPLOY / "local_opaque_operation_broker_native.c"
+NATIVE_HEADER = DEPLOY / "local_opaque_operation_broker_native.h"
 ADMIN_SOURCE = DEPLOY / "local_opaque_operation_broker_admin.m"
 ENTITLEMENTS = DEPLOY / "local_opaque_operation_broker.entitlements"
+LAUNCHD_PLIST = DEPLOY / "com.network-service-platform.monitor-opaque-operation-broker.v1.plist.in"
+NATIVE_HARNESS = (
+    REPOSITORY / "monitoring/gateway/tests/fixtures/local_opaque_operation_broker_native_harness.c"
+)
+CONTRACT_DOCUMENT = REPOSITORY / "docs/ops/monitor-gateway-opaque-operation-broker-contract.md"
 
 ROLE = b"FNOS_PRODUCTION"
 OPERATION = b"RAW_MONITOR_OWNERSHIP_CORRELATION_READONLY_V1"
@@ -271,6 +280,10 @@ class LocalOpaqueBrokerCoreTests(unittest.TestCase):
             ctypes.POINTER(ctypes.c_size_t),
         ]
         cls.lib.mob_serialize_parent_json.restype = ctypes.c_bool
+        cls.lib.mob_validate_parent_json.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+        cls.lib.mob_validate_parent_json.restype = ctypes.c_bool
+        cls.lib.mob_native_admin_action_supported.argtypes = [ctypes.c_uint32]
+        cls.lib.mob_native_admin_action_supported.restype = ctypes.c_bool
         cls.lib.mob_render_ssh_config.argtypes = [
             ctypes.POINTER(RoleRecord),
             ctypes.c_char_p,
@@ -575,6 +588,9 @@ class LocalOpaqueBrokerCoreTests(unittest.TestCase):
             )
         )
         payload = json.loads(output.raw[: output_length.value])
+        exact_output = output.raw[: output_length.value]
+        exact_buffer = ctypes.create_string_buffer(exact_output)
+        self.assertTrue(self.lib.mob_validate_parent_json(exact_buffer, len(exact_output)))
         self.assertEqual(
             list(payload),
             [
@@ -602,6 +618,16 @@ class LocalOpaqueBrokerCoreTests(unittest.TestCase):
         self.assertEqual(payload["serviceActions"], 0)
         self.assertEqual(payload["permissionDelta"], "NONE")
         self.assertNotIn("caller-controlled-secret", output.value.decode("ascii"))
+        malformed = [
+            exact_output + b" ",
+            exact_output.replace(b'"serviceActions":0', b'"serviceActions":1'),
+            exact_output.replace(b'"permissionDelta":"NONE"', b'"permissionDelta":"CHANGED"'),
+            exact_output.replace(b'"reasonCode":"INVALID_INVOCATION"', b'"reasonCode":"SECRET"'),
+            exact_output.replace(b'"probeDiagnostic":null', b'"target":"synthetic.example.net","probeDiagnostic":null'),
+        ]
+        for candidate in malformed:
+            candidate_buffer = ctypes.create_string_buffer(candidate)
+            self.assertFalse(self.lib.mob_validate_parent_json(candidate_buffer, len(candidate)))
 
     def test_ssh_config_expands_to_the_closed_verified_profile(self) -> None:
         if sys.platform != "darwin" or not Path("/usr/bin/ssh").exists():
@@ -635,6 +661,16 @@ class LocalOpaqueBrokerCoreTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
         self.assertEqual(completed.stderr, b"")
+        expanded_lines = completed.stdout.splitlines()
+        for exact_line in (
+            b"nohostauthenticationforlocalhost no",
+            b"forkafterauthentication no",
+            b"enableescapecommandline no",
+            b"sessiontype default",
+            b"permitremoteopen none",
+        ):
+            self.assertEqual(expanded_lines.count(exact_line), 1, exact_line)
+        self.assertFalse(any(line.startswith((b"sendenv ", b"setenv ")) for line in expanded_lines))
         expanded = ctypes.create_string_buffer(completed.stdout)
         self.assertTrue(
             self.lib.mob_verify_ssh_effective_config(
@@ -648,6 +684,7 @@ class LocalOpaqueBrokerCoreTests(unittest.TestCase):
         )
         for injection in (
             b"sendenv SECRET\n",
+            b"setenv SECRET=value\n",
             b"localforward 10000 127.0.0.1:22\n",
             b"dynamicforward 1080\n",
             b"proxycommand /bin/false\n",
@@ -668,6 +705,50 @@ class LocalOpaqueBrokerCoreTests(unittest.TestCase):
                     known_hosts,
                 )
             )
+        for old, new in (
+            (b"nohostauthenticationforlocalhost no\n", b"nohostauthenticationforlocalhost yes\n"),
+            (b"forkafterauthentication no\n", b"forkafterauthentication yes\n"),
+            (b"enableescapecommandline no\n", b"enableescapecommandline yes\n"),
+            (b"sessiontype default\n", b"sessiontype none\n"),
+            (b"permitremoteopen none\n", b"permitremoteopen any\n"),
+        ):
+            self.assertIn(old, completed.stdout)
+            modified = completed.stdout.replace(old, new, 1)
+            source = ctypes.create_string_buffer(modified)
+            self.assertFalse(
+                self.lib.mob_verify_ssh_effective_config(
+                    source,
+                    len(modified),
+                    ctypes.byref(record),
+                    identity,
+                    agent,
+                    known_hosts,
+                )
+            )
+        duplicate = completed.stdout + expanded_lines[0] + b"\n"
+        duplicate_buffer = ctypes.create_string_buffer(duplicate)
+        self.assertFalse(
+            self.lib.mob_verify_ssh_effective_config(
+                duplicate_buffer,
+                len(duplicate),
+                ctypes.byref(record),
+                identity,
+                agent,
+                known_hosts,
+            )
+        )
+        missing = completed.stdout.replace(b"sessiontype default\n", b"", 1)
+        missing_buffer = ctypes.create_string_buffer(missing)
+        self.assertFalse(
+            self.lib.mob_verify_ssh_effective_config(
+                missing_buffer,
+                len(missing),
+                ctypes.byref(record),
+                identity,
+                agent,
+                known_hosts,
+            )
+        )
         self.assertNotIn(b"fnos.example.net", completed.args)
 
     def test_agent_parser_allows_only_identities_and_exact_bounded_sign(self) -> None:
@@ -771,11 +852,106 @@ class LocalOpaqueBrokerCoreTests(unittest.TestCase):
             base64.b64encode(expected_p256),
         )
 
-    def test_source_contract_has_no_runtime_bypass_or_forbidden_keychain_api(self) -> None:
-        broker = BROKER_SOURCE.read_text(encoding="utf-8")
-        admin = ADMIN_SOURCE.read_text(encoding="utf-8")
+    def test_public_message_bound_peer_trust_is_exact_and_precedes_resources(self) -> None:
+        service = BROKER_SOURCE.read_text(encoding="utf-8")
+        native = NATIVE_SOURCE.read_text(encoding="utf-8")
+        client = CLIENT_SOURCE.read_text(encoding="utf-8")
+        production = service + native + client + ADMIN_SOURCE.read_text(encoding="utf-8")
+        for forbidden in (
+            "xpc_connection_get_audit_token",
+            "xpc_connection_get_pid",
+            "SecTaskCreateWithAuditToken",
+            "SecCodeCopyGuestWithAttributes",
+            "proc_pidpath",
+            "dlsym(",
+            "dlopen(",
+            "kSecGuestAttributePid",
+        ):
+            self.assertNotIn(forbidden, production)
+        self.assertEqual(service.count("xpc_connection_get_euid("), 1)
+        self.assertIn("xpc_connection_get_euid(connection)", service)
+        self.assertIn("peer_euid != 0U", native)
+        self.assertIn("peer_euid == authorized_euid", native)
+        self.assertIn("peer_euid != service_euid", native)
+        self.assertIn("mob_attest_request_message(event, &evidence)", service)
+        self.assertIn("mob_native_peer_request_authorized(", service)
+        self.assertIn(
+            "failure_resource_accesses",
+            NATIVE_HARNESS.read_text(encoding="utf-8"),
+        )
+        self.assertIn("SecCodeCreateWithXPCMessage(\n            message,", service)
+        self.assertNotIn("xpc_dictionary_create(", service)
+        for public_api in (
+            "SecCodeCreateWithXPCMessage",
+            "SecRequirementCreateWithData",
+            "SecCodeCheckValidity",
+            "SecCodeCopyPath",
+            "SecCodeCopyDesignatedRequirement",
+            "SecRequirementCopyData",
+            "SecCodeCopySigningInformation",
+        ):
+            self.assertIn(public_api, service)
+        for evidence in (
+            "exact_path_passed",
+            "secure_path_passed",
+            "identifier_passed",
+            "team_identifier_passed",
+            "cdhash_passed",
+            "designated_requirement_passed",
+            "hardened_runtime_present",
+            "ad_hoc_absent",
+            "get_task_allow_safe",
+        ):
+            self.assertIn(evidence, service + NATIVE_HEADER.read_text(encoding="utf-8"))
+        self.assertIn("kSecCSDynamicInformation", service)
+        self.assertIn("kSecCodeInfoUnique", service)
+        self.assertIn("kSecCodeInfoCdHashes", service)
+        self.assertIn("kSecCodeInfoTeamIdentifier", service)
+        schema_gate = service.index("const bool schema_valid = mob_ipc_request_is_exact(event)")
+        attestation_gate = service.index("mob_attest_request_message(event, &evidence)")
+        rate_gate = service.index("!mob_rate_gate_accept()")
+        resource_entry = service.index("mob_native_execute_operation(")
+        self.assertLess(schema_gate, attestation_gate)
+        self.assertLess(attestation_gate, rate_gate)
+        self.assertLess(rate_gate, resource_entry)
+        self.assertNotIn("SecItem", service)
+        self.assertNotIn("SecKeyCreate", service)
+        self.assertNotIn("posix_spawn", service)
+        self.assertNotIn("socket(", service)
+
+    def test_client_and_service_trust_domains_have_disjoint_capabilities(self) -> None:
+        client = CLIENT_SOURCE.read_text(encoding="utf-8")
+        service = BROKER_SOURCE.read_text(encoding="utf-8")
+        ipc = IPC_HEADER.read_text(encoding="utf-8")
+        self.assertLess(client.index("mob_validate_invocation"), client.index("xpc_connection_create_mach_service"))
+        self.assertIn("mob_ipc_create_request()", client)
+        self.assertIn("mob_ipc_response_is_exact", client)
+        self.assertIn("mob_validate_parent_json", client)
+        for forbidden in (
+            "SecItem",
+            "SecKey",
+            "SecCode",
+            "SecRequirement",
+            "posix_spawn",
+            "socket(",
+            "open(",
+            "/usr/bin/ssh",
+            "MOB_SYSTEM_KEYCHAIN_PATH",
+            "LOCAL_PEERPID",
+        ):
+            self.assertNotIn(forbidden, client)
+        self.assertIn('MOB_SERVICE_ACCOUNT "_nsp_mob"', ipc)
+        self.assertIn('MOB_SERVICE_RUNTIME_ROOT "/private/var/run/network-service-platform/', ipc)
+        self.assertIn("mob_service_account_is_exact", service)
+        self.assertIn("group_count == 1", service)
+        self.assertIn("mob_native_request_once(&request_seen)", service)
+        self.assertIn("mob_native_rate_gate_accept", service)
+        self.assertLess(service.index("mob_native_execute_operation("), service.index("mob_ipc_create_response("))
+
+    def test_native_workspace_agent_spawn_signal_and_keychain_contract_is_closed(self) -> None:
+        native = NATIVE_SOURCE.read_text(encoding="utf-8")
         core = CORE_SOURCE.read_text(encoding="utf-8")
-        combined = broker + admin
+        production = native + BROKER_SOURCE.read_text(encoding="utf-8") + ADMIN_SOURCE.read_text(encoding="utf-8")
         for forbidden in (
             "kSecUseDataProtectionKeychain",
             "kSecAttrAccessGroup",
@@ -789,65 +965,119 @@ class LocalOpaqueBrokerCoreTests(unittest.TestCase):
             "system(",
             "/bin/sh",
             "TEST_ADAPTER",
-            "BYPASS",
+            "RUNTIME_BYPASS",
+            "mkdtemp(",
+            '"/private/tmp',
         ):
-            self.assertNotIn(forbidden, combined)
-        self.assertIn("kSecUseAuthenticationUIFail", broker)
-        self.assertIn("mob_protected_access_reason", broker)
-        self.assertIn("MOB_PROTECTED_ACCESS_INTERACTION_REQUIRED", broker)
-        self.assertIn("MOB_PROTECTED_ACCESS_DENIED", broker)
-        self.assertIn("kSecAttrSynchronizable", combined)
-        self.assertIn("kSecAttrAccess", combined)
-        self.assertIn("mob_access_is_exact(access, kSecACLAuthorizationDecrypt)", broker)
-        self.assertIn("mob_access_is_exact(access, kSecACLAuthorizationSign)", broker)
-        self.assertIn("CFArrayGetCount(acl_list) != 1", broker)
-        self.assertIn("SecTrustedApplicationCreateFromPath", admin)
-        self.assertIn("kSecPrivateKeyAttrs", admin)
-        self.assertIn("MOBValidateBindingInputs", admin)
-        self.assertIn("MOBParseUnsignedDecimal", admin)
-        self.assertNotIn("port.integerValue", admin)
-        self.assertIn("SecKeyCopyPublicKey", combined)
-        self.assertGreater(
-            combined.find("SecKeyCopyExternalRepresentation"),
-            combined.find("SecKeyCopyPublicKey"),
-        )
-        self.assertIn("LOCAL_PEERPID", broker)
-        self.assertIn("MOB_AGENT_REQUEST_LIMIT 16U", broker)
-        self.assertIn('return "IDENTITY_AGENT_FAILURE";', broker)
-        self.assertIn("result->agent_failed = true;", broker)
-        self.assertIn("MOB_TOTAL_TIMEOUT_SECONDS 300", broker)
-        self.assertIn('MOB_CONFIG_LINE("ConnectTimeout", "10")', core)
-        self.assertIn("MOB_STDOUT_LIMIT 32768U", broker)
-        self.assertIn("MOB_STDERR_LIMIT 8192U", broker)
-        self.assertIn("POSIX_SPAWN_SETPGROUP", broker)
-        self.assertIn("kSecCodeInfoPlatformIdentifier", broker)
-        self.assertIn("mob_signal_received", broker)
-        self.assertIn("kill(-runtime->child_pid, SIGTERM)", broker)
-        self.assertIn("kill(-runtime->child_pid, SIGKILL)", broker)
-        self.assertIn("unlink(runtime->agent_path)", broker)
-        self.assertIn("unlink(runtime->identity_path)", broker)
-        self.assertIn("unlink(runtime->known_hosts_path)", broker)
-        self.assertIn("rmdir(runtime->directory)", broker)
-        verify_argv = broker[broker.index("char *const verify_argv[]") : broker.index("char *const connect_argv[]")]
-        connect_argv = broker[broker.index("char *const connect_argv[]") : broker.index("char *const empty_environment[]")]
+            self.assertNotIn(forbidden, production)
+        self.assertIn("SecKeychainOpen(MOB_SYSTEM_KEYCHAIN_PATH", native)
+        self.assertIn("kSecMatchSearchList", native)
+        self.assertIn("kSecUseAuthenticationUIFail", native)
+        self.assertIn("mob_protected_access_reason", native)
+        self.assertIn("mob_access_is_exact(access, kSecACLAuthorizationDecrypt)", native)
+        self.assertIn("mob_access_is_exact(access, kSecACLAuthorizationSign)", native)
+        self.assertIn("CFArrayGetCount(acl_list) != 1", native)
+        for capability in (
+            "kSecAttrIsPermanent",
+            "kSecAttrIsExtractable",
+            "kSecAttrCanSign",
+            "kSecAttrCanDecrypt",
+            "kSecAttrCanDerive",
+            "kSecAttrCanEncrypt",
+            "kSecAttrCanUnwrap",
+            "kSecAttrCanWrap",
+            "kSecAttrCanVerify",
+        ):
+            self.assertIn(capability, native)
+        self.assertIn("O_NOFOLLOW | O_CLOEXEC", native)
+        self.assertIn("O_EXCL | O_NOFOLLOW | O_CLOEXEC", native)
+        self.assertIn("unlinkat(runtime->directory_fd", native)
+        self.assertIn("AT_REMOVEDIR", native)
+        self.assertIn("LOCAL_PEERPID", native)
+        self.assertIn("MOB_AGENT_REQUEST_LIMIT 16U", native)
+        self.assertIn("POSIX_SPAWN_SETPGROUP", native)
+        self.assertIn("char *const empty_environment[] = {NULL};", native)
+        self.assertIn("kill(-runtime->child_pid, SIGTERM)", native)
+        self.assertIn("kill(-runtime->child_pid, SIGKILL)", native)
+        verify_argv = native[native.index("char *verify_argv[]") : native.index("char *connect_argv[]")]
+        connect_argv = native[native.index("char *connect_argv[]") : native.index("char *const empty_environment[]")]
         for argv_source in (verify_argv, connect_argv):
-            self.assertIn("MOB_SSH_PATH", argv_source)
+            self.assertIn("child_path", argv_source)
             self.assertIn('"-F"', argv_source)
             self.assertIn('"/dev/stdin"', argv_source)
             self.assertIn('"broker-fnos-v1"', argv_source)
             self.assertNotIn("target", argv_source.casefold())
             self.assertNotIn("username", argv_source.casefold())
-        self.assertIn("char *const empty_environment[] = {NULL};", broker)
-        self.assertIn('MOB_CONFIG_LINE("ProxyCommand", "none")', core)
-        self.assertIn('MOB_CONFIG_LINE("ProxyJump", "none")', core)
-        self.assertIn('MOB_CONFIG_LINE("RemoteCommand", "none")', core)
-        self.assertIn('MOB_CONFIG_LINE("ControlMaster", "no")', core)
-        self.assertIn('MOB_CONFIG_LINE("SecurityKeyProvider", "none")', core)
-        self.assertIn('MOB_CONFIG_LINE("PKCS11Provider", "none")', core)
+        for directive, value in (
+            ("NoHostAuthenticationForLocalhost", "no"),
+            ("ForkAfterAuthentication", "no"),
+            ("EnableEscapeCommandline", "no"),
+            ("SessionType", "default"),
+            ("PermitRemoteOpen", "none"),
+        ):
+            self.assertIn(f'MOB_CONFIG_LINE("{directive}", "{value}")', core)
+
+    def test_replace_is_disabled_and_failed_provision_only_targets_new_objects(self) -> None:
+        admin = ADMIN_SOURCE.read_text(encoding="utf-8")
+        self.assertTrue(self.lib.mob_native_admin_action_supported(0))
+        self.assertFalse(self.lib.mob_native_admin_action_supported(1))
+        self.assertTrue(self.lib.mob_native_admin_action_supported(2))
+        self.assertFalse(self.lib.mob_native_admin_action_supported(3))
+        self.assertIn('@[@"Provision", @"Revoke"]', admin)
+        for forbidden in ("Replace", "Rotate", "Update Existing", "UPDATE_EXISTING"):
+            self.assertNotIn(forbidden, admin)
+        provision = admin[admin.index("static BOOL MOBProvision(") : admin.index("static void MOBShowResult")]
+        self.assertLess(provision.index("mob_native_admin_action_supported"), provision.index("MOBOpenSystemKeychain"))
+        self.assertLess(provision.index("MOBExactItemAbsent"), provision.index("MOBCreateIdentityKey"))
+        self.assertLess(provision.index("MOBCreateIdentityKey"), provision.index("MOBAddRoleRecord"))
+        self.assertNotIn("MOBRevokeExactRole", provision)
+        self.assertIn("MOBDeleteCreatedIdentity(privateKey)", provision)
+        self.assertIn("BOOL roleCreated = NO", provision)
+        self.assertIn("MOBDeleteCreatedRoleRecord(roleReference, record, keychain)", provision)
+        self.assertIn("kSecValuePersistentRef", admin)
+        self.assertIn("MOBDeleteProvisionedObjects(newRoleReference, newKeyReference)", admin)
+
+    def test_launchd_template_is_closed_and_contains_only_install_time_placeholders(self) -> None:
+        payload = plistlib.loads(LAUNCHD_PLIST.read_bytes())
+        self.assertEqual(
+            set(payload),
+            {"Label", "Program", "ProgramArguments", "UserName", "GroupName", "MachServices", "Umask"},
+        )
+        self.assertEqual(payload["UserName"], "_nsp_mob")
+        self.assertEqual(payload["GroupName"], "_nsp_mob")
+        self.assertEqual(payload["Umask"], 0o77)
+        self.assertEqual(payload["MachServices"], {payload["Label"]: True})
+        arguments = payload["ProgramArguments"]
+        self.assertEqual(payload["Program"], arguments[0])
+        self.assertEqual(len(arguments), 13)
+        self.assertEqual(
+            {value for value in arguments if value.startswith("@") and value.endswith("@")},
+            {
+                "@AUTHORIZED_CALLER_UID@",
+                "@CLIENT_IDENTIFIER@",
+                "@CLIENT_TEAM_ID@",
+                "@CLIENT_CDHASH_HEX@",
+                "@CLIENT_DESIGNATED_REQUIREMENT_B64@",
+            },
+        )
+        self.assertNotIn("EnvironmentVariables", payload)
+        self.assertNotIn("Sockets", payload)
         self.assertEqual(
             plistlib.loads(ENTITLEMENTS.read_bytes()),
             {"com.apple.security.get-task-allow": False},
         )
+
+    def test_documented_contract_freezes_the_public_message_bound_architecture(self) -> None:
+        contract = CONTRACT_DOCUMENT.read_text(encoding="utf-8")
+        self.assertIn("ARCHITECTURE_ID=SEPARATE_TRUST_DOMAIN_BROKER_V1", contract)
+        self.assertIn("PEER_TRUST=PUBLIC_API_MESSAGE_BOUND_PEER_TRUST_V1", contract)
+        self.assertIn("REPLACE=REPLACE_DISABLED_FAIL_CLOSED_V1", contract)
+        self.assertIn("passes that same\ninbound message object directly to `SecCodeCreateWithXPCMessage`", contract)
+        self.assertIn("It does not obtain, decode, or claim to verify real UID", contract)
+        self.assertIn("There is no caller-owned or", contract)
+        self.assertIn("`/private/tmp` fallback", contract)
+        self.assertIn("only `Provision` and `Revoke`", contract)
+        self.assertNotIn("ARCHITECTURE_ID=LOCAL_OPAQUE_OPERATION_BROKER_V1", contract)
 
 
 @unittest.skipUnless(sys.platform == "darwin", "native Security.framework test is macOS-only")
@@ -857,51 +1087,135 @@ class LocalOpaqueBrokerNativeTests(unittest.TestCase):
         cls._build = tempfile.TemporaryDirectory(prefix="mob-native-synthetic-")
         cls.build = Path(cls._build.name)
         os.chmod(cls.build, 0o700)
-        cls.broker = cls.build / "monitor-opaque-operation-broker-v1"
+        cls.client = cls.build / "monitor-opaque-operation-broker-v1"
+        cls.service = cls.build / "monitor-opaque-operation-broker-service-v1"
         cls.admin = cls.build / "monitor-opaque-operation-broker-admin-v1"
-        subprocess.run(
+        cls.harness = cls.build / "local-opaque-operation-broker-native-harness"
+        cls.acl_harness = cls.build / "local-opaque-operation-broker-acl-harness"
+        cls.compile_env = {"PATH": "/usr/bin:/bin", "LC_ALL": "C"}
+
+        def compile_target(arguments: list[str]) -> None:
+            subprocess.run(
+                arguments,
+                check=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=cls.compile_env,
+            )
+
+        c_flags = [
+            "/usr/bin/clang",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-Wimplicit-function-declaration",
+            "-fblocks",
+            f"-I{DEPLOY}",
+        ]
+        frameworks = ["-framework", "CoreFoundation", "-framework", "Security"]
+        compile_target(
             [
-                "/usr/bin/clang",
-                "-std=c11",
-                "-Wall",
-                "-Wextra",
-                "-Werror",
+                *c_flags,
+                str(CLIENT_SOURCE),
                 str(CORE_SOURCE),
-                str(BROKER_SOURCE),
-                "-framework",
-                "CoreFoundation",
-                "-framework",
-                "Security",
                 "-o",
-                str(cls.broker),
-            ],
-            check=True,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+                str(cls.client),
+            ]
         )
-        subprocess.run(
+        compile_target(
+            [
+                *c_flags,
+                str(BROKER_SOURCE),
+                str(NATIVE_SOURCE),
+                str(CORE_SOURCE),
+                *frameworks,
+                "-o",
+                str(cls.service),
+            ]
+        )
+        compile_target(
             [
                 "/usr/bin/clang",
                 "-fobjc-arc",
                 "-Wall",
                 "-Wextra",
                 "-Werror",
+                f"-I{DEPLOY}",
                 str(ADMIN_SOURCE),
                 str(CORE_SOURCE),
                 "-framework",
                 "AppKit",
-                "-framework",
-                "CoreFoundation",
-                "-framework",
-                "Security",
+                *frameworks,
                 "-o",
                 str(cls.admin),
-            ],
-            check=True,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            ]
+        )
+        compile_target(
+            [
+                *c_flags,
+                str(NATIVE_HARNESS),
+                str(NATIVE_SOURCE),
+                str(CORE_SOURCE),
+                *frameworks,
+                "-o",
+                str(cls.harness),
+            ]
+        )
+        acl_harness_source = cls.build / "acl-harness.c"
+        acl_harness_source.write_text(
+            "\n".join(
+                (
+                    "#define SecCodeCreateWithXPCMessage mob_test_SecCodeCreateWithXPCMessage",
+                    "#define main mob_service_main_for_acl_test",
+                    f'#include "{BROKER_SOURCE}"',
+                    "#undef main",
+                    "#undef SecCodeCreateWithXPCMessage",
+                    "static xpc_object_t mob_test_observed_message;",
+                    "OSStatus mob_test_SecCodeCreateWithXPCMessage(",
+                    "    xpc_object_t message, SecCSFlags flags, SecCodeRef *target",
+                    ") {",
+                    "    (void)flags;",
+                    "    mob_test_observed_message = message;",
+                    "    if (target != NULL) {",
+                    "        *target = NULL;",
+                    "    }",
+                    "    return (OSStatus)-1;",
+                    "}",
+                    "int main(int argc, char **argv) {",
+                    "    if (argc != 2 || argv == NULL || argv[1] == NULL) {",
+                    "        return 64;",
+                    "    }",
+                    "    if (strcmp(argv[1], \"--message\") == 0) {",
+                    "        xpc_object_t original = xpc_dictionary_create(NULL, NULL, 0U);",
+                    "        xpc_object_t rebuilt = xpc_dictionary_create(NULL, NULL, 0U);",
+                    "        mob_native_peer_evidence evidence;",
+                    "        bool accepted = original != NULL && rebuilt != NULL &&",
+                    "            mob_attest_request_message(original, &evidence);",
+                    "        bool valid = !accepted && mob_test_observed_message == original &&",
+                    "            mob_test_observed_message != rebuilt;",
+                    "        if (rebuilt != NULL) { xpc_release(rebuilt); }",
+                    "        if (original != NULL) { xpc_release(original); }",
+                    "        return valid ? 0 : 70;",
+                    "    }",
+                    "    return mob_extended_acl_is_absent(argv[1]) ? 0 : 70;",
+                    "}",
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
+        compile_target(
+            [
+                *c_flags,
+                str(acl_harness_source),
+                str(NATIVE_SOURCE),
+                str(CORE_SOURCE),
+                *frameworks,
+                "-o",
+                str(cls.acl_harness),
+            ]
         )
 
     @classmethod
@@ -911,7 +1225,7 @@ class LocalOpaqueBrokerNativeTests(unittest.TestCase):
     def test_invalid_invocation_returns_closed_json_without_keychain_or_prompt(self) -> None:
         canary = "synthetic-target-canary.example.net"
         completed = subprocess.run(
-            [str(self.broker), "run", "--role", canary, "--operation", OPERATION.decode()],
+            [str(self.client), "run", "--role", canary, "--operation", OPERATION.decode()],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -929,6 +1243,327 @@ class LocalOpaqueBrokerNativeTests(unittest.TestCase):
         self.assertEqual(payload["productionWrite"], "NONE")
         self.assertEqual(payload["serviceActions"], 0)
         self.assertEqual(payload["permissionDelta"], "NONE")
+
+    def test_client_binary_has_no_security_or_native_operation_link_capability(self) -> None:
+        dependencies = subprocess.run(
+            ["/usr/bin/otool", "-L", str(self.client)],
+            check=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=self.compile_env,
+        ).stdout.decode("ascii", errors="replace")
+        self.assertNotIn("Security.framework", dependencies)
+
+        symbols = subprocess.run(
+            ["/usr/bin/nm", "-u", str(self.client)],
+            check=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=self.compile_env,
+        ).stdout.decode("ascii", errors="replace")
+        undefined_symbols = {line.strip().split()[-1] for line in symbols.splitlines() if line.strip()}
+        self.assertFalse(any(symbol.startswith("_Sec") for symbol in undefined_symbols))
+        for forbidden in (
+            "_posix_spawn",
+            "_socket",
+            "_connect",
+            "_open",
+            "_unlink",
+            "_fork",
+        ):
+            self.assertNotIn(forbidden, undefined_symbols)
+
+    def test_service_invalid_bootstrap_fails_before_account_keychain_or_xpc(self) -> None:
+        completed = subprocess.run(
+            [str(self.service)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=2,
+            check=False,
+            env=self.compile_env,
+        )
+        self.assertEqual(completed.returncode, 70)
+        self.assertEqual(completed.stdout, b"")
+        self.assertEqual(completed.stderr, b"")
+
+    def test_public_sdk_peer_attestation_apis_compile_and_link_without_externs(self) -> None:
+        probe = r'''
+#include <CoreFoundation/CoreFoundation.h>
+#include <Security/SecCode.h>
+#include <Security/SecRequirement.h>
+#include <Security/Security.h>
+#include <sys/types.h>
+#include <xpc/xpc.h>
+
+static OSStatus probe_public_apis(
+    xpc_connection_t connection,
+    xpc_object_t message,
+    CFDataRef requirement_data,
+    SecCodeRef code,
+    SecRequirementRef requirement
+) {
+    SecCodeRef message_code = NULL;
+    SecRequirementRef parsed_requirement = NULL;
+    CFURLRef path = NULL;
+    SecRequirementRef designated = NULL;
+    CFDataRef designated_data = NULL;
+    CFDictionaryRef signing = NULL;
+    OSStatus status = (OSStatus)xpc_connection_get_euid(connection);
+    status |= SecCodeCreateWithXPCMessage(message, kSecCSDefaultFlags, &message_code);
+    status |= SecRequirementCreateWithData(requirement_data, kSecCSDefaultFlags, &parsed_requirement);
+    status |= SecCodeCheckValidity(code, kSecCSDefaultFlags, requirement);
+    status |= SecCodeCopyPath((SecStaticCodeRef)code, kSecCSDefaultFlags, &path);
+    status |= SecCodeCopyDesignatedRequirement(
+        (SecStaticCodeRef)code, kSecCSDefaultFlags, &designated);
+    status |= SecRequirementCopyData(requirement, kSecCSDefaultFlags, &designated_data);
+    status |= SecCodeCopySigningInformation(
+        (SecStaticCodeRef)code, kSecCSSigningInformation, &signing);
+    return status;
+}
+
+int main(void) {
+    return (int)probe_public_apis(NULL, NULL, NULL, NULL, NULL);
+}
+'''
+        output = self.build / "public-sdk-peer-attestation-probe"
+        completed = subprocess.run(
+            [
+                "/usr/bin/clang",
+                "-x",
+                "c",
+                "-std=c11",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-Wimplicit-function-declaration",
+                "-",
+                "-framework",
+                "CoreFoundation",
+                "-framework",
+                "Security",
+                "-o",
+                str(output),
+            ],
+            input=probe.encode("ascii"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            env=self.compile_env,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        symbols = subprocess.run(
+            ["/usr/bin/nm", "-u", str(output)],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=self.compile_env,
+        ).stdout.decode("ascii", errors="replace")
+        for symbol in (
+            "_xpc_connection_get_euid",
+            "_SecCodeCreateWithXPCMessage",
+            "_SecRequirementCreateWithData",
+            "_SecCodeCheckValidity",
+            "_SecCodeCopyPath",
+            "_SecCodeCopyDesignatedRequirement",
+            "_SecRequirementCopyData",
+            "_SecCodeCopySigningInformation",
+        ):
+            self.assertIn(symbol, symbols)
+
+        service_symbols = subprocess.run(
+            ["/usr/bin/nm", "-u", str(self.service)],
+            check=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=self.compile_env,
+        ).stdout.decode("ascii", errors="replace")
+        for symbol in (
+            "_xpc_connection_get_euid",
+            "_SecCodeCreateWithXPCMessage",
+            "_SecRequirementCreateWithData",
+            "_SecCodeCheckValidity",
+            "_SecCodeCopyPath",
+            "_SecCodeCopyDesignatedRequirement",
+            "_SecRequirementCopyData",
+            "_SecCodeCopySigningInformation",
+        ):
+            self.assertIn(symbol, service_symbols)
+        for forbidden in (
+            "_xpc_connection_get_audit_token",
+            "_xpc_connection_get_pid",
+            "_SecTaskCreateWithAuditToken",
+            "_SecCodeCopyGuestWithAttributes",
+            "_proc_pidpath",
+            "_dlsym",
+            "_dlopen",
+        ):
+            self.assertNotIn(forbidden, service_symbols)
+
+    def test_client_path_acl_absence_is_accepted_and_acl_or_lookup_error_fails_closed(self) -> None:
+        def acl_result(path: Path) -> subprocess.CompletedProcess[bytes]:
+            return subprocess.run(
+                [str(self.acl_harness), str(path)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=2,
+                check=False,
+                env=self.compile_env,
+            )
+
+        system_path = Path("/usr/bin/ssh")
+        self.assertTrue(system_path.is_file())
+        system_result = acl_result(system_path)
+        self.assertEqual(system_result.returncode, 0, system_result.stderr.decode(errors="replace"))
+        self.assertEqual(system_result.stdout, b"")
+        self.assertEqual(system_result.stderr, b"")
+
+        with tempfile.TemporaryDirectory(prefix="mob-acl-", dir="/private/tmp") as temporary:
+            temporary_path = Path(temporary)
+            plain_path = temporary_path / "plain"
+            plain_path.touch(mode=0o600)
+            self.assertEqual(acl_result(plain_path).returncode, 0)
+
+            subprocess.run(
+                ["/bin/chmod", "+a", "everyone deny write", str(plain_path)],
+                check=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=self.compile_env,
+            )
+            self.assertNotEqual(acl_result(plain_path).returncode, 0)
+            self.assertNotEqual(acl_result(temporary_path / "missing").returncode, 0)
+
+    def test_actual_inbound_message_object_is_passed_without_rebuild_to_code_creation(self) -> None:
+        completed = subprocess.run(
+            [str(self.acl_harness), "--message"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=2,
+            check=False,
+            env=self.compile_env,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(completed.stdout, b"")
+        self.assertEqual(completed.stderr, b"")
+
+    def test_peer_ipc_rate_replace_and_seckey_failure_matrix(self) -> None:
+        completed = subprocess.run(
+            [str(self.harness), "--matrix"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=4,
+            check=False,
+            env=self.compile_env,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+        self.assertEqual(completed.stdout, b"PASS\n")
+        self.assertEqual(completed.stderr, b"")
+
+    def test_actual_stub_spawn_agent_limits_timeout_signals_and_zero_residue(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="mob-runtime-", dir="/private/tmp") as temporary:
+            base = Path(temporary)
+            root = base / "service-runtime-root"
+            root.mkdir(mode=0o700)
+            os.chmod(root, 0o700)
+            if root.stat().st_gid != os.getegid():
+                os.chown(root, -1, os.getegid())
+            modes = (
+                "normal",
+                "wrong-peer",
+                "second-connection",
+                "request-limit",
+                "wrong-key",
+                "nonzero-flags",
+                "oversized-data",
+                "orphan",
+                "timeout",
+                "sigint",
+                "sigterm",
+                "sighup",
+                "same-service-uid",
+            )
+            for mode in modes:
+                with self.subTest(mode=mode):
+                    child = base / f"stub-{mode}"
+                    shutil.copy2(self.harness, child)
+                    completed = subprocess.run(
+                        [str(self.harness), "--run", mode, str(root), str(child)],
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        timeout=6,
+                        check=False,
+                        env=self.compile_env,
+                    )
+                    self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+                    self.assertEqual(completed.stdout, b"PASS\n")
+                    self.assertEqual(completed.stderr, b"")
+                    self.assertEqual(list(root.iterdir()), [])
+            os.chmod(root, 0o777)
+            insecure_child = base / "stub-insecure-root"
+            shutil.copy2(self.harness, insecure_child)
+            completed = subprocess.run(
+                [
+                    str(self.harness),
+                    "--run",
+                    "insecure-root",
+                    str(root),
+                    str(insecure_child),
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=4,
+                check=False,
+                env=self.compile_env,
+            )
+            os.chmod(root, 0o700)
+            self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+            self.assertEqual(completed.stdout, b"PASS\n")
+            self.assertEqual(completed.stderr, b"")
+            self.assertEqual(list(root.iterdir()), [])
+
+            subprocess.run(
+                ["/bin/chmod", "+a", "everyone deny write", str(root)],
+                check=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=self.compile_env,
+            )
+            acl_child = base / "stub-acl-root"
+            shutil.copy2(self.harness, acl_child)
+            try:
+                completed = subprocess.run(
+                    [str(self.harness), "--run", "acl-root", str(root), str(acl_child)],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=4,
+                    check=False,
+                    env=self.compile_env,
+                )
+            finally:
+                subprocess.run(
+                    ["/bin/chmod", "-N", str(root)],
+                    check=True,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env=self.compile_env,
+                )
+            self.assertEqual(completed.returncode, 0, completed.stderr.decode(errors="replace"))
+            self.assertEqual(completed.stdout, b"PASS\n")
+            self.assertEqual(completed.stderr, b"")
+            self.assertEqual(list(root.iterdir()), [])
 
 
 if __name__ == "__main__":

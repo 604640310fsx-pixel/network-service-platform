@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.network-service-platform.monitor-opaque-operation-broker.v1</string>
+    <key>Program</key>
+    <string>/usr/local/libexec/network-service-platform/monitor-opaque-operation-broker-service-v1</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/libexec/network-service-platform/monitor-opaque-operation-broker-service-v1</string>
+        <string>--authorized-caller-uid</string>
+        <string>@AUTHORIZED_CALLER_UID@</string>
+        <string>--client-path</string>
+        <string>/usr/local/libexec/network-service-platform/monitor-opaque-operation-broker-v1</string>
+        <string>--client-identifier</string>
+        <string>@CLIENT_IDENTIFIER@</string>
+        <string>--client-team-id</string>
+        <string>@CLIENT_TEAM_ID@</string>
+        <string>--client-cdhash</string>
+        <string>@CLIENT_CDHASH_HEX@</string>
+        <string>--client-requirement-b64</string>
+        <string>@CLIENT_DESIGNATED_REQUIREMENT_B64@</string>
+    </array>
+    <key>UserName</key>
+    <string>_nsp_mob</string>
+    <key>GroupName</key>
+    <string>_nsp_mob</string>
+    <key>MachServices</key>
+    <dict>
+        <key>com.network-service-platform.monitor-opaque-operation-broker.v1</key>
+        <true/>
+    </dict>
+    <key>Umask</key>
+    <integer>63</integer>
+</dict>
+</plist>

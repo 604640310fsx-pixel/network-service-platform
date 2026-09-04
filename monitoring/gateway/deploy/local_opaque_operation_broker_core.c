@@ -4,6 +4,9 @@
 #include <stdio.h>
 #include <string.h>
 
+bool mob_native_admin_action_supported(uint32_t action);
+bool mob_validate_parent_json(const char *input, size_t input_length);
+
 typedef struct {
     const uint8_t *data;
     size_t length;
@@ -114,6 +117,10 @@ const char *mob_validate_invocation(int argc, const char *const argv[]) {
         return "UNKNOWN_OPERATION";
     }
     return "SUCCESS";
+}
+
+bool mob_native_admin_action_supported(uint32_t action) {
+    return action == 0U || action == 2U;
 }
 
 const char *mob_protected_access_reason(
@@ -1103,6 +1110,98 @@ bool mob_serialize_parent_json(
     return true;
 }
 
+bool mob_validate_parent_json(const char *input, size_t input_length) {
+    mob_json_cursor cursor;
+    char connection[24];
+    char target_binding[16];
+    char host_key[16];
+    char identity[16];
+    char operation[24];
+    char ownership[24];
+    char classification[32];
+    char reason[48];
+    unsigned int service_actions;
+    bool accepted_invocation;
+    if (input == NULL || input_length == 0U || input_length > 65536U ||
+        memchr(input, '\0', input_length) != NULL) {
+        return false;
+    }
+    cursor.data = input;
+    cursor.length = input_length;
+    cursor.offset = 0U;
+    if (!mob_json_expect(&cursor, "{\"schemaVersion\":\"") ||
+        !mob_json_expect(&cursor, MOB_SCHEMA_VERSION) ||
+        !mob_json_expect(&cursor, "\",\"role\":")) {
+        return false;
+    }
+    if (mob_json_expect(&cursor, "null")) {
+        accepted_invocation = false;
+    } else {
+        accepted_invocation = mob_json_expect(&cursor, "\"") &&
+            mob_json_expect(&cursor, MOB_ROLE) && mob_json_expect(&cursor, "\"");
+        if (!accepted_invocation) {
+            return false;
+        }
+    }
+    if (!mob_json_expect(&cursor, ",\"operation\":")) {
+        return false;
+    }
+    if (accepted_invocation) {
+        if (!mob_json_expect(&cursor, "\"") ||
+            !mob_json_expect(&cursor, MOB_OPERATION) ||
+            !mob_json_expect(&cursor, "\"")) {
+            return false;
+        }
+    } else if (!mob_json_expect(&cursor, "null")) {
+        return false;
+    }
+    if (!mob_json_expect(&cursor, ",\"connectionResult\":") ||
+        !mob_json_string(&cursor, connection, sizeof(connection)) ||
+        !mob_json_expect(&cursor, ",\"targetBindingResult\":") ||
+        !mob_json_string(&cursor, target_binding, sizeof(target_binding)) ||
+        !mob_json_expect(&cursor, ",\"hostKeyResult\":") ||
+        !mob_json_string(&cursor, host_key, sizeof(host_key)) ||
+        !mob_json_expect(&cursor, ",\"identityResult\":") ||
+        !mob_json_string(&cursor, identity, sizeof(identity)) ||
+        !mob_json_expect(&cursor, ",\"operationResult\":") ||
+        !mob_json_string(&cursor, operation, sizeof(operation)) ||
+        !mob_json_expect(&cursor, ",\"ownershipCorrelationResult\":") ||
+        !mob_json_string(&cursor, ownership, sizeof(ownership)) ||
+        !mob_json_expect(&cursor, ",\"liveMatchClassification\":") ||
+        !mob_json_string(&cursor, classification, sizeof(classification)) ||
+        !mob_json_expect(&cursor, ",\"productionWrite\":\"NONE\"") ||
+        !mob_json_expect(&cursor, ",\"serviceActions\":") ||
+        !mob_json_uint(&cursor, &service_actions) || service_actions != 0U ||
+        !mob_json_expect(&cursor, ",\"permissionDelta\":\"NONE\"") ||
+        !mob_json_expect(&cursor, ",\"reasonCode\":") ||
+        !mob_json_string(&cursor, reason, sizeof(reason)) ||
+        !mob_json_expect(&cursor, ",\"probeDiagnostic\":")) {
+        return false;
+    }
+    if (!mob_parent_value_allowed("connection", connection) ||
+        !mob_parent_value_allowed("binding", target_binding) ||
+        !mob_parent_value_allowed("binding", host_key) ||
+        !mob_parent_value_allowed("binding", identity) ||
+        !mob_parent_value_allowed("operation", operation) ||
+        !mob_parent_value_allowed("ownership", ownership) ||
+        !mob_parent_value_allowed("classification", classification) ||
+        !mob_reason_allowed(reason)) {
+        return false;
+    }
+    if (mob_json_expect(&cursor, "null")) {
+        return mob_json_expect(&cursor, "}") && cursor.offset == cursor.length;
+    }
+    if (cursor.offset >= cursor.length || input[cursor.offset] != '{' ||
+        input[input_length - 1U] != '}' || input_length - cursor.offset < 3U ||
+        !mob_validate_probe_json(
+            input + cursor.offset,
+            input_length - cursor.offset - 1U)) {
+        return false;
+    }
+    cursor.offset = input_length;
+    return true;
+}
+
 bool mob_render_ssh_config(
     const mob_role_record *record,
     const char *identity_path,
@@ -1148,11 +1247,15 @@ bool mob_render_ssh_config(
     MOB_CONFIG_LINE("PreferredAuthentications", "publickey");
     MOB_CONFIG_LINE("PasswordAuthentication", "no");
     MOB_CONFIG_LINE("KbdInteractiveAuthentication", "no");
+    MOB_CONFIG_LINE("NoHostAuthenticationForLocalhost", "no");
     MOB_CONFIG_LINE("GSSAPIAuthentication", "no");
     MOB_CONFIG_LINE("HostbasedAuthentication", "no");
     MOB_CONFIG_LINE("NumberOfPasswordPrompts", "0");
     MOB_CONFIG_LINE("RequestTTY", "no");
     MOB_CONFIG_LINE("StdinNull", "yes");
+    MOB_CONFIG_LINE("ForkAfterAuthentication", "no");
+    MOB_CONFIG_LINE("EnableEscapeCommandline", "no");
+    MOB_CONFIG_LINE("SessionType", "default");
     MOB_CONFIG_LINE("IdentitiesOnly", "yes");
     MOB_CONFIG_LINE("IdentityFile", identity_path);
     MOB_CONFIG_LINE("IdentityAgent", agent_path);
@@ -1173,6 +1276,7 @@ bool mob_render_ssh_config(
     MOB_CONFIG_LINE("ForwardX11", "no");
     MOB_CONFIG_LINE("ForwardX11Trusted", "no");
     MOB_CONFIG_LINE("ClearAllForwardings", "yes");
+    MOB_CONFIG_LINE("PermitRemoteOpen", "none");
     MOB_CONFIG_LINE("ExitOnForwardFailure", "yes");
     MOB_CONFIG_LINE("Tunnel", "no");
     MOB_CONFIG_LINE("PermitLocalCommand", "no");
@@ -1205,11 +1309,15 @@ typedef enum {
     MOB_SSH_PREFERRED_AUTH,
     MOB_SSH_PASSWORD_AUTH,
     MOB_SSH_KBD_AUTH,
+    MOB_SSH_NO_HOST_AUTH_LOCALHOST,
     MOB_SSH_GSSAPI_AUTH,
     MOB_SSH_HOSTBASED_AUTH,
     MOB_SSH_PROMPTS,
     MOB_SSH_REQUEST_TTY,
     MOB_SSH_STDIN_NULL,
+    MOB_SSH_FORK_AFTER_AUTH,
+    MOB_SSH_ENABLE_ESCAPE_COMMANDLINE,
+    MOB_SSH_SESSION_TYPE,
     MOB_SSH_IDENTITIES_ONLY,
     MOB_SSH_IDENTITY_FILE,
     MOB_SSH_IDENTITY_AGENT,
@@ -1230,6 +1338,7 @@ typedef enum {
     MOB_SSH_FORWARD_X11,
     MOB_SSH_FORWARD_X11_TRUSTED,
     MOB_SSH_CLEAR_FORWARDINGS,
+    MOB_SSH_PERMIT_REMOTE_OPEN,
     MOB_SSH_EXIT_FORWARD_FAILURE,
     MOB_SSH_TUNNEL,
     MOB_SSH_PERMIT_LOCAL_COMMAND,
@@ -1286,16 +1395,16 @@ static bool mob_ssh_benign_key(const char *key) {
         "addressfamily", "authenticationmethods",
         "canonicaldomains", "canonicalizefallbacklocal", "canonicalizemaxdots",
         "canonicalizepermittedcnames", "casignaturealgorithms", "channeltimeout",
-        "ciphers", "compression", "enableescapecommandline", "enablesshkeysign",
-        "escapechar", "fingerprinthash", "forkafterauthentication",
+        "ciphers", "compression", "enablesshkeysign",
+        "escapechar", "fingerprinthash",
         "forwardx11timeout", "gatewayports", "gssapidelegatecredentials",
         "hashknownhosts", "hostbasedacceptedalgorithms", "hostkeyalias",
         "ipqos", "kbdinteractivedevices", "loglevel", "logverbose", "macs",
-        "applemultipath", "kexalgorithms", "nohostauthenticationforlocalhost",
+        "applemultipath", "kexalgorithms",
         "nohostauthenticationforproxycommand", "obscurekeystroketiming",
-        "permitremoteopen", "proxyusefdpass", "rekeylimit", "requiredrsasize",
+        "proxyusefdpass", "rekeylimit", "requiredrsasize",
         "serveralivecountmax", "serveraliveinterval",
-        "sessiontype", "streamlocalbindmask", "streamlocalbindunlink",
+        "streamlocalbindmask", "streamlocalbindunlink",
         "syslogfacility", "tcpkeepalive", "tunneldevice", "visualhostkey",
         "xauthlocation"
     };
@@ -1319,6 +1428,8 @@ bool mob_verify_ssh_effective_config(
 ) {
     size_t offset = 0U;
     bool seen[MOB_SSH_REQUIRED_COUNT] = {false};
+    char seen_keys[256][64];
+    size_t seen_key_count = 0U;
     char expected_port[8];
     int expected_port_length;
     if (expanded == NULL || record == NULL || identity_path == NULL || agent_path == NULL ||
@@ -1372,6 +1483,16 @@ bool mob_verify_ssh_effective_config(
             );
         }
         key[key_length] = '\0';
+        if (seen_key_count == sizeof(seen_keys) / sizeof(seen_keys[0])) {
+            return false;
+        }
+        for (index = 0U; index < seen_key_count; ++index) {
+            if (strcmp(seen_keys[index], key) == 0) {
+                return false;
+            }
+        }
+        memcpy(seen_keys[seen_key_count], key, key_length + 1U);
+        ++seen_key_count;
         memcpy(value, expanded + separator, value_length);
         value[value_length] = '\0';
 
@@ -1388,11 +1509,15 @@ bool mob_verify_ssh_effective_config(
         else MOB_SSH_TEXT("preferredauthentications", MOB_SSH_PREFERRED_AUTH, "publickey")
         else MOB_SSH_BOOL("passwordauthentication", MOB_SSH_PASSWORD_AUTH, false)
         else MOB_SSH_BOOL("kbdinteractiveauthentication", MOB_SSH_KBD_AUTH, false)
+        else MOB_SSH_BOOL("nohostauthenticationforlocalhost", MOB_SSH_NO_HOST_AUTH_LOCALHOST, false)
         else MOB_SSH_BOOL("gssapiauthentication", MOB_SSH_GSSAPI_AUTH, false)
         else MOB_SSH_BOOL("hostbasedauthentication", MOB_SSH_HOSTBASED_AUTH, false)
         else MOB_SSH_TEXT("numberofpasswordprompts", MOB_SSH_PROMPTS, "0")
         else MOB_SSH_TEXT("requesttty", MOB_SSH_REQUEST_TTY, "false")
         else MOB_SSH_BOOL("stdinnull", MOB_SSH_STDIN_NULL, true)
+        else MOB_SSH_BOOL("forkafterauthentication", MOB_SSH_FORK_AFTER_AUTH, false)
+        else MOB_SSH_BOOL("enableescapecommandline", MOB_SSH_ENABLE_ESCAPE_COMMANDLINE, false)
+        else MOB_SSH_TEXT("sessiontype", MOB_SSH_SESSION_TYPE, "default")
         else MOB_SSH_BOOL("identitiesonly", MOB_SSH_IDENTITIES_ONLY, true)
         else MOB_SSH_TEXT("identityfile", MOB_SSH_IDENTITY_FILE, identity_path)
         else MOB_SSH_TEXT("identityagent", MOB_SSH_IDENTITY_AGENT, agent_path)
@@ -1413,6 +1538,7 @@ bool mob_verify_ssh_effective_config(
         else MOB_SSH_BOOL("forwardx11", MOB_SSH_FORWARD_X11, false)
         else MOB_SSH_BOOL("forwardx11trusted", MOB_SSH_FORWARD_X11_TRUSTED, false)
         else MOB_SSH_BOOL("clearallforwardings", MOB_SSH_CLEAR_FORWARDINGS, true)
+        else MOB_SSH_TEXT("permitremoteopen", MOB_SSH_PERMIT_REMOTE_OPEN, "none")
         else MOB_SSH_BOOL("exitonforwardfailure", MOB_SSH_EXIT_FORWARD_FAILURE, true)
         else MOB_SSH_BOOL("tunnel", MOB_SSH_TUNNEL, false)
         else MOB_SSH_BOOL("permitlocalcommand", MOB_SSH_PERMIT_LOCAL_COMMAND, false)
