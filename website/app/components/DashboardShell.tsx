@@ -3,8 +3,10 @@ import { CustomerCenterShell } from "./customer/CustomerCenterShell";
 import { CustomerOrdersPage } from "./customer/CustomerOrdersPage";
 import { CustomerServicesPage } from "./customer/CustomerServicesPage";
 import { DashboardPage } from "./dashboard/DashboardPage";
+import { DocsLibrary } from "./docs/DocsLibrary";
 import { PublicMonitorPage } from "./monitor/PublicMonitorPage";
 import { BuyerNetworkPage } from "./network/BuyerNetworkPage";
+import { ProfilePage } from "./profile/ProfilePage";
 import { BuyerServerStatusPage } from "./status/BuyerServerStatusPage";
 import { SubscribePage } from "./subscribe/SubscribePage";
 import type { SectionKey } from "../lib/sections";
@@ -53,6 +55,20 @@ export function DashboardShell() {
     return (
       <CustomerCenterShell title="订单" description="查看你的订单、支付状态与开通进度">
         <CustomerOrdersPage />
+      </CustomerCenterShell>
+    );
+  }
+  if (section === "docs") {
+    return (
+      <CustomerCenterShell title="使用文档" description="搜索并阅读已批准的客户端与服务使用说明">
+        <DocsLibrary />
+      </CustomerCenterShell>
+    );
+  }
+  if (section === "profile") {
+    return (
+      <CustomerCenterShell title="个人中心" description="查看当前登录账户的只读资料">
+        <ProfilePage />
       </CustomerCenterShell>
     );
   }
