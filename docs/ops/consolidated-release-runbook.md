@@ -30,6 +30,41 @@ counts, timestamps, pass/fail results, and binding names. It must not contain
 secret values, customer rows, database contents, credential material, or
 private configuration bodies.
 
+## Runtime configuration inventory gate
+
+Before the pre-window artifact gate, an authorized operator uses only the
+separately authorized external binding record and credential source. Do not
+print, copy, or compare values. Record only redacted pass/fail results, counts,
+the accepted inventory fingerprint
+`bfc8fecc287438a3958f01cb6f7933697e59a8af713435a4f3f936cfcd464705`, and
+approved evidence references. The fingerprint represents 62 lexicographically
+sorted UTF-8 LF tuples with a final LF and contains no values.
+
+Compare names and classifications only, and keep these categories separate:
+
+- Auth runtime environment keys: required normal-runtime keys and conditional
+  payment/mail keys described in
+  [`consolidated-release-bindings.md`](consolidated-release-bindings.md).
+- Credential logical names: required and conditional names from the approved
+  credential source; source ownership, readability, and non-logging are proven
+  without emitting credential contents.
+- Public website build key: optional, conditional, browser-exposed
+  `VITE_MONITOR_URL`, which is distinct from the excluded
+  `MONITOR_API_ORIGIN` and has no literal default.
+
+In quiescent mode, require `PAYMENT_ENABLED`, `MAIL_DISPATCH_ENABLED`, and
+`REGISTRATION_ENABLED` to be explicitly disabled and require
+`MONITOR_API_ORIGIN` to be omitted. Normal-mode inclusions, values, and
+capabilities require their separately approved production binding record;
+required or conditional classification does not authorize supplying values,
+enabling features, contacting providers, or deploying. Also prove that
+server-only secrets are absent from the website bundle and any browser output.
+
+Stop the release on any missing, extra, unknown, or stale name; malformed
+required flag; unreadable credential; value leakage; classification or
+fingerprint mismatch; or any `MONITOR_API_ORIGIN` present in this release. Do
+not treat CI, tooling, or test keys as production runtime bindings.
+
 ## Pre-window artifact gate
 
 The ignored `auth-service/dist` and `website/dist` directories are not bound by

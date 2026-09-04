@@ -68,6 +68,82 @@ previous release record or dashboard observation is not current proof.
 | `HEALTH_OBSERVATION_PROOF` | Exact loopback URL/body, candidate PID, observation interval, and failure threshold are frozen. |
 | `CREDENTIAL_INJECTION_PROOF` | Credential source, ownership, readability, rotation owner, and non-logging behavior are validated without recording values. |
 
+## Runtime configuration key-name inventory
+
+This inventory records names and classifications only. Values, credential
+bodies, source locations, and production bindings are forbidden here and remain
+only in the separately authorized external release record and credential source.
+It records the accepted inventory of 62 unique tuples with fingerprint
+`bfc8fecc287438a3958f01cb6f7933697e59a8af713435a4f3f936cfcd464705`.
+That fingerprint is derived from lexicographically sorted UTF-8 LF tuples plus
+the final LF; every tuple contains only key, phase, exposure, requiredness, and
+relevance--never a value.
+
+### Required Auth runtime environment keys
+
+| Key name | Classification |
+| --- | --- |
+| `CREDENTIALS_DIRECTORY` | Required in normal runtime. |
+| `DB_PATH` | Required in normal runtime. |
+| `HOST` | Required in normal runtime. |
+| `MAIL_DISPATCH_ENABLED` | Required in normal runtime. |
+| `NODE_ENV` | Required in normal runtime. |
+| `PAYMENT_ENABLED` | Required in normal runtime. |
+| `PORT` | Required in normal runtime. |
+| `REGISTRATION_ENABLED` | Required in normal runtime. |
+
+### Conditional payment and mail environment keys
+
+| Key name | Classification |
+| --- | --- |
+| `ALIPAY_APP_ID` | Conditional payment runtime key. |
+| `ALIPAY_ENVIRONMENT` | Conditional payment runtime key. |
+| `ALIPAY_NOTIFY_URL` | Conditional payment runtime key. |
+| `ALIPAY_PRIVATE_KEY_FILE` | Conditional payment runtime key. |
+| `ALIPAY_PRIVATE_KEY_TYPE` | Conditional payment runtime key. |
+| `ALIPAY_PUBLIC_KEY_FILE` | Conditional payment runtime key. |
+| `ALIPAY_RETURN_URL` | Conditional payment runtime key. |
+| `ALIPAY_SELLER_ID` | Conditional payment runtime key. |
+| `MAIL_DISPATCH_INTERVAL_MS` | Conditional mail runtime key. |
+| `MAIL_DISPATCH_LEASE_MS` | Conditional mail runtime key. |
+| `MAIL_DISPATCH_MAX_ATTEMPTS` | Conditional mail runtime key. |
+| `MAIL_DISPATCH_RETRY_DELAYS_MS` | Conditional mail runtime key. |
+| `RESEND_FROM_EMAIL` | Conditional mail runtime key. |
+| `RESEND_REQUEST_TIMEOUT_MS` | Conditional mail runtime key. |
+
+`MONITOR_API_ORIGIN` is optional but excluded from this release. It must be
+omitted in quiescent mode and must not be introduced as a plain-origin bypass.
+Monitor Auth Projection remains excluded.
+
+### Credential logical filenames
+
+| Logical name | Classification |
+| --- | --- |
+| `csrf_signing_key` | Required credential logical name. |
+| `invite_hmac_keyring` | Required credential logical name. |
+| `mail_payload_enc_keyring` | Required credential logical name. |
+| `rate_limit_key` | Required credential logical name. |
+| `token_hmac_keyring` | Required credential logical name. |
+| `delivery_payload_enc_keyring` | Conditional credential logical name. |
+| `resend_api_key` | Conditional credential logical name. |
+
+### Public website build key
+
+`VITE_MONITOR_URL` is a website-build, browser-exposed, public, optional, and
+conditional key. It has no literal default. A missing or malformed key preserves
+the current unconfigured fail-closed display. It is distinct from
+`MONITOR_API_ORIGIN`; active website/README guidance may be referenced without
+changing either classification.
+
+Proof is valid only when the exact key set and classifications match the
+accepted inventory: required members are explicitly supplied and verified;
+conditional groups exist only for separately approved enabled features; and
+credential-source ownership, readability, and non-logging are proven without
+outputting values. Server-only secrets must not appear in any `VITE_` or browser
+output. CI, tooling, and test keys are not production runtime bindings. An
+unknown, stale, missing, or extra key, or any value disclosure, stops the
+release.
+
 ## Website and Nginx
 
 | Binding name | Required proof |
