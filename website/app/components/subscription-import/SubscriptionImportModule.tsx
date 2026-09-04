@@ -202,7 +202,7 @@ export function SubscriptionImportModule({
           <aside className="cc-si-location-note" aria-label="Chrome 位置权限提醒">
             <strong>建议关闭或按次询问位置权限</strong>
             <ul>
-              <li>桌面 Chrome：在地址栏手动输入 <code>chrome://settings/content/location</code>，建议关闭网站位置权限，或在每次询问时按需拒绝。</li>
+              <li>桌面 Chrome：在地址栏手动输入 <code>chrome://settings/content/location</code>，检查并清理已允许查看位置的网站名单；建议关闭网站位置权限，或在每次询问时按需拒绝。</li>
               <li>Android：同时检查 Chrome 的网站位置权限与系统中的 Chrome 位置权限，建议设为每次询问或拒绝。</li>
               <li>iPhone / iPad：在系统设置的定位服务中检查 Chrome 位置权限，建议设为永不或下次询问，并按需拒绝。</li>
             </ul>
