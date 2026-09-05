@@ -260,7 +260,8 @@ following from the bound target:
 - backup destination, capacity, owner, restore procedure, restore deadline,
   operator, rollback owner, and evidence destination are bound;
 - the closed and open configurations still pass isolated validation;
-- feature inclusion and normal worker readiness checks are frozen.
+- feature inclusion and the normal loopback `/ready` aggregate readiness check
+  are frozen.
 
 Unexpected SHA, schema other than 001-015, unknown writer, partial artifact,
 unresolved placeholder, missing proof, or changed binding is `DRIFT`. Stop
@@ -331,8 +332,10 @@ is still running.
 
    Startup may apply migration 016. Validate exact candidate identity, loopback
    health, migration prefix 001-016, database integrity, static website files,
-   the manifest inventory, and the still-closed ingress. Do not send a payment,
-   email, order, registration, diagnosis, or other business request.
+   the manifest inventory, and the still-closed ingress. The loopback
+   `GET /health` liveness response is exactly `200 {"status":"ok"}`; do not treat
+   it as traffic readiness or send a payment, email, order, registration,
+   diagnosis, or other business request.
 
 8. Decide while the candidate remains quiescent whether to roll back or commit
    to the forward path. Database restore is eligible only if the closed gate was
@@ -360,11 +363,17 @@ is still running.
    NORMAL_CANDIDATE: STARTED
    ```
 
-10. While ingress remains closed, validate health, schema 001-016, database
-    integrity, auth and website artifact hashes, worker-specific readiness, and
-    all approved non-business probes. Payment expiry and mail dispatch are not
-    considered ready merely because `/health` succeeds. Repeat closed topology
-    and ingress probes, then record:
+10. While ingress remains closed, validate `GET /health` exact
+    `200 {"status":"ok"}` as liveness, schema 001-016, database integrity, and
+    auth and website artifact hashes. Then require loopback `GET /ready` to
+    return exact `200 {"status":"ready"}` with `Cache-Control: no-store` as the
+    normal aggregate readiness proof for the serving phase, database migration
+    probe, and every enabled local payment-expiry or mail-dispatch handle.
+    Disabled payment or mail is an accepted configured state when its exclusion
+    is separately bound. `/ready` performs no live provider probe and neither
+    `/ready` nor payment enablement proves quiescent, closed, or open traffic
+    mode. Repeat the separately bound closed topology, ingress, and approved
+    non-business probes, then record:
 
     ```text
     CLOSED_TRAFFIC_ACCEPTANCE: PASS
@@ -430,7 +439,7 @@ redacted evidence when any of these occurs:
 - snapshot, hash, ownership, integrity, foreign-key, or restore-deadline failure;
 - independent auth/website switching that could expose a mixed release;
 - quiescent payment/mail/registration unexpectedly enabled;
-- normal worker readiness not independently proven;
+- normal aggregate loopback `/ready` proof not independently proven;
 - an open or closed ingress invariant fails on any path;
 - rollback artifacts do not match the pre-016 database;
 - database restore is proposed after eligibility ended;

@@ -2,7 +2,7 @@ import { pathToFileURL } from "node:url";
 
 import { AlipaySdk } from "alipay-sdk";
 
-import { buildApp } from "./app.js";
+import { buildApp, type ReadinessDependencies } from "./app.js";
 import {
   loadAlipayConfig,
   loadAuthCredentialConfig,
@@ -12,7 +12,11 @@ import {
   loadMonitorRuntimeConfig,
   loadResendCredentialConfig,
 } from "./config.js";
-import { initializeDatabase } from "./db.js";
+import {
+  initializeDatabase,
+  prepareDatabaseReadinessProbe,
+  type DatabaseReadinessProbe,
+} from "./db.js";
 import { createMonitorTargetCatalog } from "./monitor/target-catalog.js";
 import { startOrderExpirySweep } from "./payment/order-expiry.js";
 import { startRegistrationMailRuntime } from "./registration/mail-runtime.js";
@@ -33,8 +37,13 @@ interface RuntimeSignalTarget {
 }
 
 interface RuntimeLifecycleOptions {
-  readonly database: Pick<ReturnType<typeof initializeDatabase>, "close">;
-  readonly createRuntime: () => {
+  readonly database: Pick<
+    ReturnType<typeof initializeDatabase>,
+    "close" | "prepare"
+  >;
+  readonly paymentEnabled: boolean;
+  readonly mailEnabled: boolean;
+  readonly createRuntime: (readiness: ReadinessDependencies) => {
     readonly app: RuntimeLifecycleApp;
     readonly startExpirySweep: () =>
       | ReturnType<typeof startOrderExpirySweep>
@@ -78,11 +87,35 @@ async function runRuntimeLifecycle(
   let expirySweep: ReturnType<typeof startOrderExpirySweep> | null = null;
   let mailDispatcher: ReturnType<typeof startRegistrationMailRuntime> | null =
     null;
+  let databaseProbe: DatabaseReadinessProbe | null = null;
+  let phase: "non_serving" | "serving" = "non_serving";
+  let expiryHandleReady = false;
+  let mailHandleReady = false;
   let cleanupPromise: Promise<void> | null = null;
   let shutdownPromise: Promise<void> | null = null;
   let shutdownFailureReported = false;
 
+  const markNonServing = (): void => {
+    phase = "non_serving";
+    expiryHandleReady = false;
+    mailHandleReady = false;
+  };
+
+  const readiness = Object.freeze({
+    isReady: (): boolean => {
+      if (phase !== "serving" || databaseProbe === null) {
+        return false;
+      }
+      return (
+        databaseProbe.isReady() &&
+        (!options.paymentEnabled || expiryHandleReady) &&
+        (!options.mailEnabled || mailHandleReady)
+      );
+    },
+  });
+
   const cleanupRuntime = (): Promise<void> => {
+    markNonServing();
     if (cleanupPromise === null) {
       cleanupPromise = (async () => {
         const failures: unknown[] = [];
@@ -110,6 +143,7 @@ async function runRuntimeLifecycle(
   };
 
   const shutdown = (): Promise<void> => {
+    markNonServing();
     if (shutdownPromise === null) {
       shutdownPromise = (async () => {
         const failures: unknown[] = [];
@@ -144,11 +178,14 @@ async function runRuntimeLifecycle(
   };
 
   try {
-    const runtime = options.createRuntime();
+    const runtime = options.createRuntime(readiness);
     app = runtime.app;
     app.addHook("onClose", cleanupRuntime);
+    databaseProbe = prepareDatabaseReadinessProbe(options.database);
     expirySweep = runtime.startExpirySweep();
+    expiryHandleReady = expirySweep !== null;
     mailDispatcher = runtime.startMailDispatcher();
+    mailHandleReady = mailDispatcher !== null;
     if (options.signalTarget === undefined) {
       process.on("SIGTERM", requestSignalShutdown);
       process.on("SIGINT", requestSignalShutdown);
@@ -156,6 +193,7 @@ async function runRuntimeLifecycle(
       signalTarget.on("SIGTERM", requestSignalShutdown);
       signalTarget.on("SIGINT", requestSignalShutdown);
     }
+    phase = "serving";
     await app.listen(options.listen);
   } catch (startupError) {
     const failures: unknown[] = [startupError];
@@ -210,7 +248,9 @@ async function start(): Promise<void> {
   const database = initializeDatabase(config.dbPath);
   await runRuntimeLifecycle({
     database,
-    createRuntime: () => {
+    paymentEnabled: config.paymentEnabled,
+    mailEnabled: mailConfig.enabled,
+    createRuntime: (readiness) => {
       const payment =
         alipay === null || alipaySdk === null || delivery === null
           ? ({ enabled: false } as const)
@@ -262,6 +302,7 @@ async function start(): Promise<void> {
           csrfSigningKey: credentials.csrfSigningKey,
         },
         payment,
+        readiness,
       });
       return {
         app,

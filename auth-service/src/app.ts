@@ -26,6 +26,10 @@ interface HealthResponse {
   readonly status: "ok";
 }
 
+interface ReadinessResponse {
+  readonly status: "ready" | "not_ready";
+}
+
 const HEALTH_RESPONSE_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -35,12 +39,35 @@ const HEALTH_RESPONSE_SCHEMA = {
   },
 } as const;
 
+const READY_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["status"],
+  properties: {
+    status: { type: "string", const: "ready" },
+  },
+} as const;
+
+const NOT_READY_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["status"],
+  properties: {
+    status: { type: "string", const: "not_ready" },
+  },
+} as const;
+
+export interface ReadinessDependencies {
+  isReady(): boolean;
+}
+
 export interface BuildAppOptions {
   readonly auth?: AuthHttpDependencies;
   readonly registration?: RegistrationHttpDependencies;
   readonly inviteAdmin?: InviteAdminHttpDependencies;
   readonly diagnosis?: DiagnosisHttpDependencies;
   readonly payment?: PaymentHttpDependencies;
+  readonly readiness?: ReadinessDependencies;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -60,6 +87,30 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       },
     },
     async () => ({ status: "ok" }),
+  );
+
+  app.get<{ Reply: ReadinessResponse }>(
+    "/ready",
+    {
+      schema: {
+        response: {
+          200: READY_RESPONSE_SCHEMA,
+          503: NOT_READY_RESPONSE_SCHEMA,
+        },
+      },
+    },
+    (_request, reply) => {
+      let ready = false;
+      try {
+        ready = options.readiness?.isReady() === true;
+      } catch {
+        ready = false;
+      }
+      reply.header("Cache-Control", "no-store");
+      reply
+        .code(ready ? 200 : 503)
+        .send({ status: ready ? "ready" : "not_ready" });
+    },
   );
 
   if (options.auth !== undefined) {
