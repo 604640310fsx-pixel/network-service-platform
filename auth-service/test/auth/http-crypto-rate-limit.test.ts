@@ -9,7 +9,7 @@ import {
   computeRateLimitBucketKey,
   consumeLoginRateLimit,
   consumeRegistrationResendRateLimit,
-  consumeRegistrationStartRateLimit,
+  withRegistrationStartRateLimit,
   LOGIN_ACCOUNT_LIMIT,
   LOGIN_IP_LIMIT,
   REGISTRATION_RESEND_EMAIL_LIMIT,
@@ -46,37 +46,55 @@ test("matches frozen CSRF and rate-limit derivation vectors", () => {
   assert.equal(bucket.length, 43);
 });
 
-test("registration start checks and increments all dimensions atomically", async () => {
+test("registration start silently suppresses email excess and rolls back callback failures", async () => {
   await withAuthenticationDatabase((database) => {
     const dependencies = { now: () => new Date(NOW) };
     for (let count = 0; count < REGISTRATION_START_EMAIL_LIMIT; count += 1) {
-      consumeRegistrationStartRateLimit(
+      assert.deepEqual(
+        withRegistrationStartRateLimit(
+          database,
+          KEYRING,
+          {
+            ip: `192.0.2.${count + 1}`,
+            inviteHashIdentifiers: [`invite-${count}`],
+          },
+          (control) => control.consumeEmail("registration@example.com"),
+          dependencies,
+        ),
+        { emailSilenced: false },
+      );
+    }
+    assert.deepEqual(
+      withRegistrationStartRateLimit(
         database,
         KEYRING,
         {
-          ip: `192.0.2.${count + 1}`,
-          canonicalEmail: "registration@example.com",
-          inviteHashIdentifiers: [`invite-${count}`],
+          ip: "192.0.2.250",
+          inviteHashIdentifiers: ["unused-invite"],
         },
+        (control) => control.consumeEmail("registration@example.com"),
         dependencies,
-      );
-    }
+      ),
+      { emailSilenced: true },
+    );
     const rowsBefore = database
       .prepare("SELECT COUNT(*) AS total FROM rate_limit_buckets")
       .all()[0] as { readonly total: number };
     assert.throws(
       () =>
-        consumeRegistrationStartRateLimit(
+        withRegistrationStartRateLimit(
           database,
           KEYRING,
           {
-            ip: "192.0.2.250",
-            canonicalEmail: "registration@example.com",
-            inviteHashIdentifiers: ["unused-invite"],
+            ip: "192.0.2.251",
+            inviteHashIdentifiers: ["rollback-invite"],
+          },
+          () => {
+            throw new Error("rollback probe");
           },
           dependencies,
         ),
-      RateLimitExceededError,
+      /rollback probe/,
     );
     const rowsAfter = database
       .prepare("SELECT COUNT(*) AS total FROM rate_limit_buckets")

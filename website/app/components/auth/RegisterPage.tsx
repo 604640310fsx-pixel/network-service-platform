@@ -33,7 +33,7 @@ function registrationErrorMessage(error: unknown): string {
     case "password_policy_violation":
       return "密码不符合安全要求，请检查后重试。";
     case "invalid_or_expired":
-      return "验证码无效或已过期，请重新获取后再试。";
+      return "注册信息无效或已过期，请重新开始。";
     case "invalid_request":
       return "请检查填写内容后重试。";
     default:
@@ -115,7 +115,7 @@ export function RegisterPage() {
       setCountdown(VERIFICATION_COUNTDOWN_SECONDS);
       setNotice({
         tone: "neutral",
-        text: "如果邮箱和邀请码有效，验证码将发送到该邮箱，请注意查收。",
+        text: "如果邮箱与邀请码匹配，验证码将发送到该邮箱，请注意查收。",
       });
     } catch (error) {
       setNotice({ tone: "danger", text: registrationErrorMessage(error) });

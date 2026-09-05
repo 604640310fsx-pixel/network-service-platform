@@ -15,7 +15,10 @@ import {
   encryptRegistrationOtpPayload,
 } from "../../src/registration/mail-outbox.js";
 import type { TokenHmacKeyring } from "../../src/session/session-token.js";
-import { withAuthenticationDatabase } from "./helpers.js";
+import {
+  insertAuthenticationUser,
+  withAuthenticationDatabase,
+} from "./helpers.js";
 
 const NOW = new Date("2026-08-29T00:00:00.000Z");
 const MAIL_KEYS: TokenHmacKeyring = {
@@ -43,20 +46,31 @@ function insertMail(
   const id = options.id ?? 41;
   const generation = options.generation ?? 1;
   const email = options.email ?? "dispatcher.user@example.com";
+  const creatorRows = database
+    .prepare("SELECT id FROM users WHERE email = 'dispatcher-admin@example.com'")
+    .all() as Array<{ readonly id: number }>;
+  const creatorId =
+    creatorRows[0]?.id ??
+    insertAuthenticationUser(database, {
+      email: "dispatcher-admin@example.com",
+      passwordHash: "hash",
+      status: "active",
+      role: "admin",
+    });
   database
     .prepare(
       `INSERT OR IGNORE INTO invite_codes (
          code_hash, is_bootstrap, created_by_admin_id, max_uses, used_count,
-         expires_at, revoked_at, note, created_at
-       ) VALUES ('mail-dispatcher-test-invite', 1, NULL, 100, 0,
-                 '2026-08-30T00:00:00.000Z', NULL, NULL, ?)`,
+         expires_at, revoked_at, note, created_at, recipient_email
+       ) VALUES (?, 0, ?, 1, 0,
+                 '2026-08-30T00:00:00.000Z', NULL, NULL, ?, ?)`,
     )
-    .run(NOW.toISOString());
+    .run("M".repeat(43), creatorId, NOW.toISOString(), email);
   const invite = database
     .prepare(
-      "SELECT id FROM invite_codes WHERE code_hash = 'mail-dispatcher-test-invite'",
+      "SELECT id FROM invite_codes WHERE code_hash = ?",
     )
-    .all()[0] as { readonly id: number };
+    .all("M".repeat(43))[0] as { readonly id: number };
   database
     .prepare(
       `INSERT INTO pending_registrations (
@@ -193,6 +207,46 @@ test("dispatches one due message and records only a recipient HMAC", async () =>
   });
 });
 
+test("bound matching usable, revoked, expired, and exhausted invites dispatch identically", async () => {
+  const deliveries: MailDelivery[] = [];
+  for (const state of ["usable", "revoked", "expired", "exhausted"] as const) {
+    await withAuthenticationDatabase(async (database) => {
+      insertMail(database);
+      if (state === "revoked") {
+        database
+          .prepare(
+            "UPDATE invite_codes SET revoked_at = ? WHERE is_bootstrap = 0",
+          )
+          .run("2026-08-28T00:00:00.000Z");
+      } else if (state === "expired") {
+        database
+          .prepare(
+            "UPDATE invite_codes SET expires_at = ? WHERE is_bootstrap = 0",
+          )
+          .run("2026-08-28T00:00:00.000Z");
+      } else if (state === "exhausted") {
+        database
+          .prepare(
+            "UPDATE invite_codes SET used_count = 1 WHERE is_bootstrap = 0",
+          )
+          .run();
+      }
+      const result = await dispatchNextMail(
+        dependencies(database, {
+          async send(delivery) {
+            deliveries.push(delivery);
+          },
+        }),
+      );
+      assert.deepEqual(result, { outcome: "sent", attempts: 1 }, state);
+    });
+  }
+  assert.equal(deliveries.length, 4);
+  for (const delivery of deliveries.slice(1)) {
+    assert.deepEqual(delivery, deliveries[0]);
+  }
+});
+
 test("leaves messages that are not due untouched", async () => {
   await withAuthenticationDatabase(async (database) => {
     insertMail(database, { nextAttemptAt: "2026-08-29T00:00:01.000Z" });
@@ -273,6 +327,9 @@ test("never sends stale or non-current registration mail", async () => {
     {
       name: "recipient mismatch",
       mutate: (database) => {
+        database.exec(
+          "DROP TRIGGER trg_pending_registrations_binding_immutable",
+        );
         database
           .prepare(
             "UPDATE pending_registrations SET email = 'other@example.com'",
@@ -403,6 +460,35 @@ test("schedules a retry without exposing a transport failure", async () => {
       },
     );
     assert.equal(row(database, "SELECT * FROM mail_outbox_audit"), undefined);
+  });
+});
+
+test("provider response loss retries the exact same registration idempotency key", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    insertMail(database);
+    const deliveries: MailDelivery[] = [];
+    const transport: MailTransport = {
+      async send(delivery) {
+        deliveries.push(delivery);
+        if (deliveries.length === 1) {
+          throw new Error("provider response was lost");
+        }
+      },
+    };
+
+    const first = await dispatchNextMail(dependencies(database, transport));
+    assert.deepEqual(first, { outcome: "retry_scheduled", attempts: 1 });
+    const second = await dispatchNextMail(
+      dependencies(database, transport, {
+        now: () => new Date("2026-08-29T00:00:30.000Z"),
+      }),
+    );
+    assert.deepEqual(second, { outcome: "sent", attempts: 2 });
+    assert.deepEqual(
+      deliveries.map((delivery) => delivery.idempotencyKey),
+      ["register-otp-v1:41:1", "register-otp-v1:41:1"],
+    );
+    assert.deepEqual(deliveries[1], deliveries[0]);
   });
 });
 

@@ -1,10 +1,13 @@
 import { randomBytes } from "node:crypto";
 
+import { canonicalizeEmail } from "../auth/email.js";
 import type { DatabaseConnection } from "../db.js";
 import {
-  computeInviteCodeHash,
+  computeRetainedInviteCodeHashCandidates,
   type InviteHmacKeyring,
 } from "./invite-code.js";
+import { computeMailRecipientAuditHmac } from "./mail-outbox.js";
+import type { TokenHmacKeyring } from "../session/session-token.js";
 
 const INVITE_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const INVITE_CODE_CHARACTERS = 28;
@@ -26,6 +29,7 @@ export interface AdminInviteCodeItem {
   readonly expiresAt: string;
   readonly revokedAt: string | null;
   readonly createdAt: string;
+  readonly recipientEmailMasked: string | null;
 }
 
 export interface InviteAdminServiceDependencies {
@@ -35,14 +39,12 @@ export interface InviteAdminServiceDependencies {
 
 export interface CreateInviteCodeInput {
   readonly adminUserId: number;
-  readonly adminEmail: string;
-  readonly maxUses: number;
+  readonly recipientEmail: string;
   readonly expiresAt: string;
 }
 
 export interface RevokeInviteCodeInput {
   readonly adminUserId: number;
-  readonly adminEmail: string;
   readonly inviteCodeId: number;
 }
 
@@ -64,6 +66,7 @@ type InviteCodeRow = {
   readonly expires_at: unknown;
   readonly revoked_at: unknown;
   readonly created_at: unknown;
+  readonly recipient_email: unknown;
 };
 
 function timestamp(
@@ -91,6 +94,29 @@ function statusFor(
   return "usable";
 }
 
+function maskRecipientEmail(value: string | null): string | null {
+  if (value === null) return null;
+  let canonical: string;
+  try {
+    canonical = canonicalizeEmail(value);
+  } catch {
+    throw new InviteAdminDomainError(503, "invite_unavailable");
+  }
+  if (canonical !== value) {
+    throw new InviteAdminDomainError(503, "invite_unavailable");
+  }
+  const separator = canonical.indexOf("@");
+  const local = canonical.slice(0, separator);
+  const domain = canonical.slice(separator + 1);
+  const maskedLocal =
+    local.length === 1
+      ? "*"
+      : local.length === 2
+        ? `${local[0]}*`
+        : `${local[0]}***${local.at(-1)}`;
+  return `${maskedLocal}@${domain}`;
+}
+
 function mapInviteCodeRow(
   row: InviteCodeRow,
   now: string,
@@ -108,7 +134,8 @@ function mapInviteCodeRow(
     row.used_count < 0 ||
     typeof row.expires_at !== "string" ||
     (row.revoked_at !== null && typeof row.revoked_at !== "string") ||
-    typeof row.created_at !== "string"
+    typeof row.created_at !== "string" ||
+    (row.recipient_email !== null && typeof row.recipient_email !== "string")
   ) {
     throw new InviteAdminDomainError(503, "invite_unavailable");
   }
@@ -120,6 +147,7 @@ function mapInviteCodeRow(
     expiresAt: row.expires_at,
     revokedAt: row.revoked_at,
     createdAt: row.created_at,
+    recipientEmailMasked: maskRecipientEmail(row.recipient_email),
   };
   return { ...item, status: statusFor(item, now) };
 }
@@ -132,7 +160,7 @@ function readInviteCode(
   const rows = database
     .prepare(
       `SELECT id, is_bootstrap, max_uses, used_count, expires_at,
-              revoked_at, created_at
+              revoked_at, created_at, recipient_email
        FROM invite_codes
        WHERE id = ?`,
     )
@@ -165,31 +193,24 @@ function generateInviteCode(
   return groups.join("-");
 }
 
-function isInviteHashCollision(error: unknown): boolean {
-  if (typeof error !== "object" || error === null || !("code" in error)) {
-    return false;
-  }
-  return (
-    (error as { readonly code?: unknown }).code ===
-    "SQLITE_CONSTRAINT_UNIQUE"
-  );
-}
-
 function validateCreateInput(
   input: CreateInviteCodeInput,
   now: string,
-): void {
+): string {
   const parsedExpiry = new Date(input.expiresAt);
   if (
     !Number.isSafeInteger(input.adminUserId) ||
     input.adminUserId <= 0 ||
-    input.adminEmail === "" ||
-    !Number.isSafeInteger(input.maxUses) ||
-    input.maxUses < 1 ||
+    typeof input.recipientEmail !== "string" ||
     !Number.isFinite(parsedExpiry.getTime()) ||
     parsedExpiry.toISOString() !== input.expiresAt ||
     input.expiresAt <= now
   ) {
+    throw new InviteAdminDomainError(400, "invalid_request");
+  }
+  try {
+    return canonicalizeEmail(input.recipientEmail);
+  } catch {
     throw new InviteAdminDomainError(400, "invalid_request");
   }
 }
@@ -198,7 +219,6 @@ function validateRevokeInput(input: RevokeInviteCodeInput): void {
   if (
     !Number.isSafeInteger(input.adminUserId) ||
     input.adminUserId <= 0 ||
-    input.adminEmail === "" ||
     !Number.isSafeInteger(input.inviteCodeId) ||
     input.inviteCodeId <= 0
   ) {
@@ -214,7 +234,7 @@ export function listAdminInviteCodes(
   const rows = database
     .prepare(
       `SELECT id, is_bootstrap, max_uses, used_count, expires_at,
-              revoked_at, created_at
+              revoked_at, created_at, recipient_email
        FROM invite_codes
        ORDER BY id DESC
        LIMIT ?`,
@@ -240,7 +260,8 @@ export function listAdminInviteCodes(
 
 export function createAdminInviteCode(
   database: DatabaseConnection,
-  keyring: InviteHmacKeyring,
+  inviteHmacKeyring: InviteHmacKeyring,
+  recipientHmacKeyring: TokenHmacKeyring,
   input: CreateInviteCodeInput,
   dependencies: InviteAdminServiceDependencies = {},
 ): {
@@ -248,67 +269,140 @@ export function createAdminInviteCode(
   readonly inviteCode: string;
 } {
   const now = timestamp(dependencies);
-  validateCreateInput(input, now);
+  const recipientEmail = validateCreateInput(input, now);
   const randomSource = dependencies.randomBytes ?? randomBytes;
+  let recipientHmac: string;
+  try {
+    recipientHmac = computeMailRecipientAuditHmac(
+      recipientEmail,
+      recipientHmacKeyring,
+      recipientHmacKeyring.version,
+    );
+  } catch {
+    throw new InviteAdminDomainError(503, "invite_unavailable");
+  }
 
   for (let attempt = 0; attempt < INVITE_CREATE_ATTEMPTS; attempt += 1) {
     const inviteCode = generateInviteCode(randomSource);
-    const codeHash = computeInviteCodeHash(
-      inviteCode,
-      keyring,
-      keyring.version,
-    );
+    let candidates;
     try {
-      const operation = database.transaction(() => {
-        database
-          .prepare(
-            `INSERT INTO invite_codes (
-               code_hash, is_bootstrap, created_by_admin_id, max_uses,
-               used_count, expires_at, revoked_at, note, created_at
-             ) VALUES (?, 0, ?, ?, 0, ?, NULL, NULL, ?)`,
-          )
-          .run(
-            codeHash,
-            input.adminUserId,
-            input.maxUses,
-            input.expiresAt,
-            now,
-          );
-        const insertedRows = database
-          .prepare("SELECT id FROM invite_codes WHERE code_hash = ?")
-          .all(codeHash) as Array<{ readonly id: unknown }>;
-        const inviteCodeId = insertedRows[0]?.id;
+      candidates = computeRetainedInviteCodeHashCandidates(
+        inviteCode,
+        inviteHmacKeyring,
+      );
+    } catch {
+      throw new InviteAdminDomainError(503, "invite_unavailable");
+    }
+    const codeHash = candidates.find(
+      (candidate) => candidate.version === inviteHmacKeyring.version,
+    )?.codeHash;
+    if (codeHash === undefined) {
+      throw new InviteAdminDomainError(503, "invite_unavailable");
+    }
+    const operation = database.transaction(() => {
+      const placeholders = candidates.map(() => "?").join(",");
+      const collisions = database
+        .prepare(
+          `SELECT id FROM invite_codes
+           WHERE code_hash IN (${placeholders})`,
+        )
+        .all(...candidates.map((candidate) => candidate.codeHash));
+      if (collisions.length !== 0) {
+        return { collision: true } as const;
+      }
+      const oldRows = database
+        .prepare(
+          `SELECT id FROM invite_codes
+           WHERE recipient_email = ? AND revoked_at IS NULL AND used_count = 0
+           ORDER BY id`,
+        )
+        .all(recipientEmail) as Array<{ readonly id: unknown }>;
+      const oldIds = oldRows.map((row) => {
         if (
-          insertedRows.length !== 1 ||
-          typeof inviteCodeId !== "number" ||
-          !Number.isSafeInteger(inviteCodeId) ||
-          inviteCodeId <= 0
+          typeof row.id !== "number" ||
+          !Number.isSafeInteger(row.id) ||
+          row.id <= 0
         ) {
           throw new InviteAdminDomainError(503, "invite_unavailable");
         }
-        database
-          .prepare(
-            `INSERT INTO audit_log (actor, action, target_ref, created_at)
-             VALUES (?, 'invite_code.create', ?, ?)`,
-          )
-          .run(input.adminEmail, `invite_code:${inviteCodeId}`, now);
-        const item = readInviteCode(database, inviteCodeId, now);
-        if (item === null) {
-          throw new InviteAdminDomainError(503, "invite_unavailable");
-        }
-        return item;
+        return row.id;
       });
-      return { item: operation.immediate(), inviteCode };
-    } catch (error) {
-      if (isInviteHashCollision(error)) continue;
-      throw error;
+      const revoked = database
+        .prepare(
+          `UPDATE invite_codes SET revoked_at = ?
+           WHERE recipient_email = ? AND revoked_at IS NULL AND used_count = 0`,
+        )
+        .run(now, recipientEmail);
+      if (revoked.changes !== oldIds.length) {
+        throw new InviteAdminDomainError(503, "invite_unavailable");
+      }
+      database
+        .prepare(
+          `INSERT INTO invite_codes (
+             code_hash, is_bootstrap, created_by_admin_id, max_uses,
+             used_count, expires_at, revoked_at, note, created_at,
+             recipient_email
+           ) VALUES (?, 0, ?, 1, 0, ?, NULL, NULL, ?, ?)`,
+        )
+        .run(
+          codeHash,
+          input.adminUserId,
+          input.expiresAt,
+          now,
+          recipientEmail,
+        );
+      const insertedRows = database
+        .prepare("SELECT id FROM invite_codes WHERE code_hash = ?")
+        .all(codeHash) as Array<{ readonly id: unknown }>;
+      const inviteCodeId = insertedRows[0]?.id;
+      if (
+        insertedRows.length !== 1 ||
+        typeof inviteCodeId !== "number" ||
+        !Number.isSafeInteger(inviteCodeId) ||
+        inviteCodeId <= 0
+      ) {
+        throw new InviteAdminDomainError(503, "invite_unavailable");
+      }
+      const insertAudit = database.prepare(
+        `INSERT INTO audit_log (
+           actor, action, target_ref, created_at, invite_code_id,
+           result_class, recipient_hmac
+         ) VALUES ('system:invite', ?, NULL, ?, ?, ?, ?)`,
+      );
+      for (const oldId of oldIds) {
+        insertAudit.run(
+          "invite_code.revoke",
+          now,
+          oldId,
+          "reissued_revoked",
+          recipientHmac,
+        );
+      }
+      insertAudit.run(
+        "invite_code.create",
+        now,
+        inviteCodeId,
+        "issued",
+        recipientHmac,
+      );
+      const item = readInviteCode(database, inviteCodeId, now);
+      if (item === null) {
+        throw new InviteAdminDomainError(503, "invite_unavailable");
+      }
+      return { collision: false, item } as const;
+    });
+    const result = operation.immediate();
+    if (result.collision) {
+      continue;
     }
+    return { item: result.item, inviteCode };
   }
   throw new InviteAdminDomainError(503, "invite_unavailable");
 }
 
 export function revokeAdminInviteCode(
   database: DatabaseConnection,
+  recipientHmacKeyring: TokenHmacKeyring,
   input: RevokeInviteCodeInput,
   dependencies: InviteAdminServiceDependencies = {},
 ): AdminInviteCodeItem {
@@ -320,6 +414,28 @@ export function revokeAdminInviteCode(
       throw new InviteAdminDomainError(404, "not_found");
     }
     if (current.revokedAt === null) {
+      const recipientRows = database
+        .prepare("SELECT recipient_email FROM invite_codes WHERE id = ?")
+        .all(input.inviteCodeId) as Array<{
+          readonly recipient_email: unknown;
+        }>;
+      const recipientEmail = recipientRows[0]?.recipient_email;
+      if (
+        recipientRows.length !== 1 ||
+        typeof recipientEmail !== "string"
+      ) {
+        throw new InviteAdminDomainError(503, "invite_unavailable");
+      }
+      let recipientHmac: string;
+      try {
+        recipientHmac = computeMailRecipientAuditHmac(
+          recipientEmail,
+          recipientHmacKeyring,
+          recipientHmacKeyring.version,
+        );
+      } catch {
+        throw new InviteAdminDomainError(503, "invite_unavailable");
+      }
       const updated = database
         .prepare(
           "UPDATE invite_codes SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
@@ -330,14 +446,15 @@ export function revokeAdminInviteCode(
       }
       database
         .prepare(
-          `INSERT INTO audit_log (actor, action, target_ref, created_at)
-           VALUES (?, 'invite_code.revoke', ?, ?)`,
+          `INSERT INTO audit_log (
+             actor, action, target_ref, created_at, invite_code_id,
+             result_class, recipient_hmac
+           ) VALUES (
+             'system:invite', 'invite_code.revoke', NULL, ?, ?,
+             'admin_revoked', ?
+           )`,
         )
-        .run(
-          input.adminEmail,
-          `invite_code:${input.inviteCodeId}`,
-          now,
-        );
+        .run(now, input.inviteCodeId, recipientHmac);
     }
     const item = readInviteCode(database, input.inviteCodeId, now);
     if (item === null) {

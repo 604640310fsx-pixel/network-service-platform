@@ -13,6 +13,7 @@ export interface AdminInviteCodeItem {
   readonly expiresAt: string;
   readonly revokedAt: string | null;
   readonly createdAt: string;
+  readonly recipientEmailMasked: string | null;
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -27,12 +28,17 @@ const STATUSES: readonly AdminInviteCodeStatus[] = [
 ];
 
 export class InviteAdminApiError extends Error {
+  readonly code: string;
+  readonly status: number | null;
+
   constructor(
-    readonly code: string,
-    readonly status: number | null = null,
+    code: string,
+    status: number | null = null,
   ) {
     super(code);
     this.name = "InviteAdminApiError";
+    this.code = code;
+    this.status = status;
   }
 }
 
@@ -44,6 +50,14 @@ function isCanonicalInstant(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const parsed = new Date(value);
   return Number.isFinite(parsed.getTime()) && parsed.toISOString() === value;
+}
+
+function isRecipientEmailMask(value: unknown): value is string | null {
+  return (
+    value === null ||
+    (typeof value === "string" &&
+      /^(?:\*|[^@\s]\*|[^@\s]\*{3}[^@\s])@[^@\s]+$/.test(value))
+  );
 }
 
 function parseItem(value: unknown): AdminInviteCodeItem {
@@ -63,7 +77,8 @@ function parseItem(value: unknown): AdminInviteCodeItem {
     value.usedCount < 0 ||
     !isCanonicalInstant(value.expiresAt) ||
     (value.revokedAt !== null && !isCanonicalInstant(value.revokedAt)) ||
-    !isCanonicalInstant(value.createdAt)
+    !isCanonicalInstant(value.createdAt) ||
+    !isRecipientEmailMask(value.recipientEmailMasked)
   ) {
     throw new InviteAdminApiError("invalid_response");
   }
@@ -76,6 +91,7 @@ function parseItem(value: unknown): AdminInviteCodeItem {
     expiresAt: value.expiresAt,
     revokedAt: value.revokedAt as string | null,
     createdAt: value.createdAt,
+    recipientEmailMasked: value.recipientEmailMasked as string | null,
   };
 }
 
@@ -152,7 +168,7 @@ export async function getAdminInviteCodes(
 
 export async function createAdminInviteCode(
   csrfToken: string,
-  maxUses: number,
+  recipientEmail: string,
   expiresAt: string,
 ): Promise<{
   readonly item: AdminInviteCodeItem;
@@ -164,7 +180,7 @@ export async function createAdminInviteCode(
       "Content-Type": "application/json",
       "X-CSRF-Token": csrfToken,
     },
-    body: JSON.stringify({ maxUses, expiresAt }),
+    body: JSON.stringify({ recipientEmail, expiresAt }),
   });
   if (
     !isRecord(value) ||

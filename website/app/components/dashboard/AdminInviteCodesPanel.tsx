@@ -39,7 +39,7 @@ function errorMessage(error: unknown): string {
     case "csrf_invalid":
       return "安全校验已失效，请刷新页面后重试。";
     case "invalid_request":
-      return "请检查使用次数和到期时间。";
+      return "请检查收件邮箱和到期时间。";
     case "not_found":
       return "该邀请码记录不存在，请刷新列表。";
     default:
@@ -56,7 +56,7 @@ export function AdminInviteCodesPanel({
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [maxUses, setMaxUses] = useState("1");
+  const [recipientEmail, setRecipientEmail] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
   const [creating, setCreating] = useState(false);
   const [revokingId, setRevokingId] = useState<number | null>(null);
@@ -98,36 +98,43 @@ export function AdminInviteCodesPanel({
     event.preventDefault();
     setError(null);
     setCopyStatus(null);
+    setCreatedCode(null);
     if (csrfToken === null) {
       setError("安全校验尚未就绪，请刷新页面后重试。");
       return;
     }
-    const parsedMaxUses = Number(maxUses);
+    const canonicalRecipient = recipientEmail.trim();
     const parsedExpiry = new Date(expiresAt);
     if (
-      !Number.isSafeInteger(parsedMaxUses) ||
-      parsedMaxUses < 1 ||
+      canonicalRecipient === "" ||
       !Number.isFinite(parsedExpiry.getTime()) ||
       parsedExpiry.getTime() <= Date.now()
     ) {
-      setError("请填写有效的使用次数和未来到期时间。");
+      setError("请填写有效的收件邮箱和未来到期时间。");
       return;
     }
     setCreating(true);
     try {
       const created = await createAdminInviteCode(
         csrfToken,
-        parsedMaxUses,
+        canonicalRecipient,
         parsedExpiry.toISOString(),
       );
       setCreatedCode(created.inviteCode);
-      setItems((current) => [
-        created.item,
-        ...current.filter((item) => item.id !== created.item.id),
-      ]);
-      setTotal((current) => current + 1);
-      setMaxUses("1");
+      setRecipientEmail("");
       setExpiresAt("");
+      try {
+        const refreshed = await getAdminInviteCodes();
+        setItems(refreshed.items);
+        setTotal(refreshed.total);
+      } catch {
+        setItems((current) => [
+          created.item,
+          ...current.filter((item) => item.id !== created.item.id),
+        ]);
+        setTotal((current) => current + 1);
+        setError("邀请码已创建，请先保存明文；列表刷新失败，请稍后刷新页面。");
+      }
     } catch (createError) {
       setError(errorMessage(createError));
     } finally {
@@ -174,15 +181,17 @@ export function AdminInviteCodesPanel({
       <form className="dash-coupon-create" onSubmit={handleCreate}>
         <div className="dash-coupon-create-grid">
           <label>
-            可使用次数
+            收件邮箱
             <input
-              type="number"
-              min="1"
-              step="1"
-              inputMode="numeric"
-              value={maxUses}
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              autoCapitalize="none"
+              spellCheck={false}
+              maxLength={254}
+              value={recipientEmail}
               disabled={creating}
-              onChange={(event) => setMaxUses(event.target.value)}
+              onChange={(event) => setRecipientEmail(event.target.value)}
             />
           </label>
           <label>
@@ -253,6 +262,10 @@ export function AdminInviteCodesPanel({
               </span>
             </div>
             <dl className="dash-service-facts">
+              <div>
+                <dt>绑定邮箱</dt>
+                <dd>{item.recipientEmailMasked ?? "未绑定 · 已失效"}</dd>
+              </div>
               <div>
                 <dt>使用情况</dt>
                 <dd>{item.usedCount} / {item.maxUses}</dd>

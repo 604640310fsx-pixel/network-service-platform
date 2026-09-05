@@ -34,12 +34,12 @@ previous release record or dashboard observation is not current proof.
 | Binding name | Required proof |
 | --- | --- |
 | `CANDIDATE_BUNDLE_MANIFEST_SHA256` | Two independent assemblies have identical manifests; the retained manifest hash and inventory validate. |
-| `CANDIDATE_AUTH_BUNDLE_SHA256` | Compiled auth entrypoint, runtime files, package manifests, and migrations 001-015 match inventory. |
+| `CANDIDATE_AUTH_BUNDLE_SHA256` | Compiled auth entrypoint, runtime files, package manifests, and migrations 001-016 match inventory. |
 | `CANDIDATE_WEBSITE_BUNDLE_SHA256` | Website `dist` and entrypoint match the same candidate inventory. |
 | `AUTH_RUNTIME_DEPENDENCY_PROOF` | Prebuilt dependency layer matches the candidate lockfile, Node version, OS/architecture/libc, and native-module ABI; it is ready before the window and is not stored in the bundle. |
 | `ROLLBACK_AUTH_BUNDLE_SHA256` | Old auth artifact hash matches the old source SHA and accepts the rollback schema boundary. |
 | `ROLLBACK_WEBSITE_BUNDLE_SHA256` | Old website artifact hash belongs to the same rollback release as old auth. |
-| `ROLLBACK_SOURCE_SCHEMA_PROOF` | Old auth and the verified database snapshot are compatible with continuous migrations 001-014. |
+| `ROLLBACK_SOURCE_SCHEMA_PROOF` | Old auth and the verified database snapshot are compatible with continuous migrations 001-015. |
 | `CONSOLIDATED_RELEASE_ATOMIC_POINTER` | One versioned release root contains auth and website; one atomic pointer selects them together. |
 | `AUTH_ATOMIC_POINTER_SWITCH` | Auth resolves through the consolidated pointer and cannot independently select a mixed release. |
 | `WEBSITE_ATOMIC_POINTER_SWITCH` | Website resolves through the same consolidated pointer and cannot independently select a mixed release. |
@@ -53,7 +53,7 @@ previous release record or dashboard observation is not current proof.
 | `DATABASE_WRITER_ZERO_PROOF` | After PID absence, a fail-closed inventory proves no request, payment, mail, maintenance, or writable-descriptor process can write the database. |
 | `DATABASE_SCHEMA_AND_INTEGRITY_PROOF` | Journal mode, quick check, foreign keys, owner/mode, capacity, and continuous applied prefix are observed read-only. |
 | `SQLITE_BACKUP_DESTINATION` | New non-existing destination, capacity, owner, retention, restore command, and cleanup owner are approved. |
-| `SQLITE_BACKUP_SHA256_PROOF` | Snapshot mode 0600, bytes, SHA-256, quick check, foreign keys, and boundary 001-014 independently verify. |
+| `SQLITE_BACKUP_SHA256_PROOF` | Snapshot mode 0600, bytes, SHA-256, quick check, foreign keys, and boundary 001-015 independently verify. |
 | `POST_SNAPSHOT_WRITE_PROOF` | Closed-ingress continuity and writer observations prove whether any post-snapshot write occurred. |
 | `DATABASE_RESTORE_DEADLINE` | Owner can determine before normal worker startup whether restore eligibility remains open. |
 
@@ -62,7 +62,7 @@ previous release record or dashboard observation is not current proof.
 | Binding name | Required proof |
 | --- | --- |
 | `QUIESCENT_FEATURE_FLAG_PROOF` | Candidate starts with payment, mail dispatch, and registration disabled and monitor origin absent; values are checked without printing them. |
-| `QUIESCENT_HEALTH_PROOF` | Exact candidate, loopback health, schema 001-015, database integrity, static website, manifest, and closed ingress pass without business requests. |
+| `QUIESCENT_HEALTH_PROOF` | Exact candidate, loopback health, schema 001-016, database integrity, static website, manifest, and closed ingress pass without business requests. |
 | `NORMAL_FEATURE_FLAG_PROOF` | Included/excluded registration, payment, mail, public monitor, and monitor-linked fulfillment capabilities have separate acceptance. |
 | `NORMAL_WORKER_READINESS_PROOF` | Payment expiry and mail dispatch each have an approved readiness check beyond generic health; external side effects remain within release authority. |
 | `HEALTH_OBSERVATION_PROOF` | Exact loopback URL/body, candidate PID, observation interval, and failure threshold are frozen. |

@@ -163,8 +163,8 @@ export class ResendMailTransport implements MailTransport {
             to: [validated.toEmail],
             subject: "Network Service Platform 验证码",
             text:
-              `您的验证码是：${validated.verificationCode}\n\n` +
-              "此验证码仅用于完成注册，请勿转发。",
+              `您的邮箱验证码是：${validated.verificationCode}\n\n` +
+              "此验证码仅用于验证您对该邮箱的访问。收到并验证验证码不代表邀请码仍然有效，也不代表注册一定成功。请勿转发。",
           }),
           signal: abortController.signal,
         },

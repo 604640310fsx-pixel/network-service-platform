@@ -22,10 +22,12 @@ export interface InviteCodeHashCandidate {
 
 export interface InviteCodeRow {
   readonly id: number;
+  readonly is_bootstrap: number;
   readonly max_uses: number;
   readonly used_count: number;
   readonly revoked_at: string | null;
   readonly expires_at: string;
+  readonly recipient_email: string | null;
 }
 
 export class InvalidInviteCodeError extends Error {
@@ -59,12 +61,22 @@ function inviteKeyVersions(keyring: InviteHmacKeyring): readonly number[] {
     .map(Number)
     .filter((version) => version < keyring.version)
     .sort((left, right) => right - left)[0];
-
-  if (previous === undefined) {
-    return [keyring.version];
-  }
+  if (previous === undefined) return [keyring.version];
   decodeKey(keyring, previous);
   return [keyring.version, previous];
+}
+
+function retainedInviteKeyVersions(
+  keyring: InviteHmacKeyring,
+): readonly number[] {
+  decodeKey(keyring, keyring.version);
+  const versions = Object.keys(keyring.keys)
+    .filter((value) => /^(0|[1-9][0-9]*)$/.test(value))
+    .map(Number)
+    .filter((version) => version <= keyring.version)
+    .sort((left, right) => right - left);
+  for (const version of versions) decodeKey(keyring, version);
+  return versions;
 }
 
 export function validateInviteCodeExact(inviteCode: string): string {
@@ -112,6 +124,17 @@ export function computeInviteCodeHashCandidates(
   }));
 }
 
+export function computeRetainedInviteCodeHashCandidates(
+  rawInput: string,
+  keyring: InviteHmacKeyring,
+): readonly InviteCodeHashCandidate[] {
+  const inviteCode = validateInviteCodeExact(rawInput);
+  return retainedInviteKeyVersions(keyring).map((version) => ({
+    version,
+    codeHash: computeInviteCodeHash(inviteCode, keyring, version),
+  }));
+}
+
 export function lookupInviteCode(
   database: DatabaseConnection,
   rawInput: string,
@@ -121,7 +144,8 @@ export function lookupInviteCode(
   const placeholders = candidates.map(() => "?").join(",");
   const rows = database
     .prepare(
-      `SELECT id, max_uses, used_count, revoked_at, expires_at
+      `SELECT id, is_bootstrap, max_uses, used_count, revoked_at, expires_at,
+              recipient_email
        FROM invite_codes
        WHERE code_hash IN (${placeholders})`,
     )
