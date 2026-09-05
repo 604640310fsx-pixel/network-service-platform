@@ -59,6 +59,60 @@ export const MIGRATION_FILES = [
   "016_invite_codes_prebound_single_use.sql",
 ] as const;
 
+const DATABASE_READINESS_SQL =
+  "SELECT version FROM schema_migrations ORDER BY version LIMIT ?";
+const DATABASE_READINESS_ROW_LIMIT = 17;
+const EXPECTED_MIGRATION_VERSIONS = Object.freeze(
+  MIGRATION_FILES.map((file) => Number.parseInt(file.slice(0, 3), 10)),
+);
+
+export interface DatabaseReadinessProbe {
+  isReady(): boolean;
+}
+
+export function prepareDatabaseReadinessProbe(
+  database: Pick<DatabaseConnection, "prepare">,
+): DatabaseReadinessProbe {
+  let statement: DatabaseStatement | null = null;
+  try {
+    statement = database.prepare(DATABASE_READINESS_SQL);
+  } catch {
+    // Preparation is intentionally single-shot; a failed handle remains unready.
+  }
+
+  return Object.freeze({
+    isReady: (): boolean => {
+      if (statement === null) {
+        return false;
+      }
+      try {
+        const rows = statement.all(DATABASE_READINESS_ROW_LIMIT);
+        return (
+          rows.length === EXPECTED_MIGRATION_VERSIONS.length &&
+          rows.every((row, index) => {
+            if (
+              typeof row !== "object" ||
+              row === null ||
+              Array.isArray(row) ||
+              !Object.prototype.hasOwnProperty.call(row, "version")
+            ) {
+              return false;
+            }
+            const version = (row as { readonly version: unknown }).version;
+            return (
+              typeof version === "number" &&
+              Number.isSafeInteger(version) &&
+              version === EXPECTED_MIGRATION_VERSIONS[index]
+            );
+          })
+        );
+      } catch {
+        return false;
+      }
+    },
+  });
+}
+
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
 export const SQLITE_SYNCHRONOUS_NORMAL = 1;
 

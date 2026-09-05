@@ -1013,6 +1013,31 @@ test("runbook and bindings describe rollback 015 and candidate 016 consistently"
   );
 });
 
+test("runbook and bindings pin liveness, aggregate readiness, and traffic-mode ownership", () => {
+  const runbook = readFileSync(RUNBOOK_PATH, "utf8");
+  for (const fragment of [
+    'loopback\n   `GET /health` liveness response is exactly `200 {"status":"ok"}`',
+    'loopback `GET /ready` to\n    return exact `200 {"status":"ready"}` with `Cache-Control: no-store`',
+    "Disabled payment or mail is an accepted configured state",
+    "`/ready` performs no live provider probe",
+    "neither\n    `/ready` nor payment enablement proves quiescent, closed, or open traffic",
+  ]) {
+    assert.equal(runbook.includes(fragment), true, fragment);
+  }
+
+  const bindings = readFileSync(BINDINGS_PATH, "utf8");
+  for (const fragment of [
+    '`GET /health` liveness response `200 {"status":"ok"}`',
+    "Loopback `GET /ready` is the normal aggregate readiness proof",
+    '`200 {"status":"ready"}` with `Cache-Control: no-store`',
+    "It performs no provider reachability probe",
+    "Disabled payment or mail is an accepted configured readiness state",
+    "Release configuration, active\nNginx topology, and external binding evidence own that proof",
+  ]) {
+    assert.equal(bindings.includes(fragment), true, fragment);
+  }
+});
+
 test("assembler rejects a symbolic link in a mapped ignored artifact path", () => {
   const parent = mkdtempSync(join(tmpdir(), "consolidated-release-link-"));
   try {

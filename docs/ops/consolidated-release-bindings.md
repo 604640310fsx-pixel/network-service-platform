@@ -62,11 +62,16 @@ previous release record or dashboard observation is not current proof.
 | Binding name | Required proof |
 | --- | --- |
 | `QUIESCENT_FEATURE_FLAG_PROOF` | Candidate starts with payment, mail dispatch, and registration disabled and monitor origin absent; values are checked without printing them. |
-| `QUIESCENT_HEALTH_PROOF` | Exact candidate, loopback health, schema 001-016, database integrity, static website, manifest, and closed ingress pass without business requests. |
+| `QUIESCENT_HEALTH_PROOF` | Exact candidate, loopback health, schema 001-016, database integrity, static website, manifest, and closed ingress pass without business requests; loopback health is the exact `GET /health` liveness response `200 {"status":"ok"}` and is not traffic readiness. |
 | `NORMAL_FEATURE_FLAG_PROOF` | Included/excluded registration, payment, mail, public monitor, and monitor-linked fulfillment capabilities have separate acceptance. |
-| `NORMAL_WORKER_READINESS_PROOF` | Payment expiry and mail dispatch each have an approved readiness check beyond generic health; external side effects remain within release authority. |
-| `HEALTH_OBSERVATION_PROOF` | Exact loopback URL/body, candidate PID, observation interval, and failure threshold are frozen. |
+| `NORMAL_WORKER_READINESS_PROOF` | Loopback `GET /ready` is the normal aggregate readiness proof: exact `200 {"status":"ready"}` with `Cache-Control: no-store` proves the serving lifecycle phase, the schema 001-016 database probe, and every enabled local payment-expiry or mail-dispatch handle. It performs no provider reachability probe. |
+| `HEALTH_OBSERVATION_PROOF` | Exact loopback `GET /health` URL/body, candidate PID, observation interval, and failure threshold are frozen as liveness evidence. |
 | `CREDENTIAL_INJECTION_PROOF` | Credential source, ownership, readability, rotation owner, and non-logging behavior are validated without recording values. |
+
+Disabled payment or mail is an accepted configured readiness state; it does not
+authorize enabling either capability. Neither `/ready` nor payment enablement
+proves quiescent, closed, or open traffic mode. Release configuration, active
+Nginx topology, and external binding evidence own that proof.
 
 ## Runtime configuration key-name inventory
 
