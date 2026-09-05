@@ -51,7 +51,7 @@ export function insertAuthenticationUser(
     readonly role?: "user" | "admin";
   },
 ): number {
-  const inviteHash = `bootstrap-${options.email}`;
+  const inviteHash = "A".repeat(43);
   const existingBootstrap = database
     .prepare("SELECT id FROM invite_codes WHERE is_bootstrap = 1")
     .all()[0] as { readonly id: number } | undefined;
@@ -62,9 +62,9 @@ export function insertAuthenticationUser(
         `INSERT INTO invite_codes (
           code_hash, is_bootstrap, created_by_admin_id, max_uses, used_count,
           expires_at, revoked_at, note, created_at
-        ) VALUES (?, 1, NULL, 1, 0, ?, NULL, NULL, ?)`,
+        ) VALUES (?, 1, NULL, 1, 0, ?, ?, NULL, ?)`,
       )
-      .run(inviteHash, LATER, NOW);
+      .run(inviteHash, LATER, NOW, NOW);
     inviteCodeId = firstNumber(
       database,
       "SELECT id FROM invite_codes WHERE code_hash = ?",

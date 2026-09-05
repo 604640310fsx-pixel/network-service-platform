@@ -19,13 +19,25 @@ export interface LoginRateLimitDependencies {
 
 export interface RegistrationStartRateLimitInput {
   readonly ip: string;
-  readonly canonicalEmail: string;
   readonly inviteHashIdentifiers: readonly string[];
+}
+
+export interface RegistrationStartRateLimitControl {
+  readonly inviteSilenced: boolean;
+  consumeEmail(canonicalEmail: string): {
+    readonly emailSilenced: boolean;
+  };
 }
 
 export interface RegistrationResendRateLimitInput {
   readonly ip: string;
   readonly canonicalEmail: string;
+}
+
+export interface RegistrationResendRateLimitControl {
+  consumeEmail(canonicalEmail: string): {
+    readonly emailSilenced: boolean;
+  };
 }
 
 export type RegistrationIpRateLimitPurpose =
@@ -309,40 +321,80 @@ export function consumeLoginRateLimit(
   );
 }
 
-export function consumeRegistrationStartRateLimit(
+export function withRegistrationStartRateLimit<Result>(
   database: DatabaseConnection,
   keyring: RateLimitKeyring,
   input: RegistrationStartRateLimitInput,
+  operation: (control: RegistrationStartRateLimitControl) => Result,
   dependencies: RegistrationRateLimitDependencies = {},
-): void {
+): Result {
   if (input.inviteHashIdentifiers.length === 0) {
     throw new Error("Registration invite rate-limit identifiers are invalid");
   }
   const times = rateLimitTimes(dependencies.now ?? (() => new Date()));
-  consumeDimensions(
-    database,
-    [
-      dimension(
-        keyring,
-        "register:start:ip",
-        [canonicalizeIp(input.ip)],
-        REGISTRATION_START_IP_LIMIT,
-      ),
-      dimension(
-        keyring,
-        "register:start:email",
-        [input.canonicalEmail],
-        REGISTRATION_START_EMAIL_LIMIT,
-      ),
-      dimension(
-        keyring,
-        "register:start:invite",
-        input.inviteHashIdentifiers,
-        REGISTRATION_START_INVITE_LIMIT,
-      ),
-    ],
-    times,
+  const ipDimension = dimension(
+    keyring,
+    "register:start:ip",
+    [canonicalizeIp(input.ip)],
+    REGISTRATION_START_IP_LIMIT,
   );
+  const inviteDimension = dimension(
+    keyring,
+    "register:start:invite",
+    input.inviteHashIdentifiers,
+    REGISTRATION_START_INVITE_LIMIT,
+  );
+  const transaction = database.transaction(() => {
+    if (
+      countForKeys(database, ipDimension.readKeys, times.windowFloor) >=
+      ipDimension.limit
+    ) {
+      throw new RateLimitExceededError();
+    }
+    increment(database, ipDimension.writeKey, times.windowStart, times.now);
+
+    const inviteSilenced =
+      countForKeys(database, inviteDimension.readKeys, times.windowFloor) >=
+      inviteDimension.limit;
+    if (!inviteSilenced) {
+      increment(
+        database,
+        inviteDimension.writeKey,
+        times.windowStart,
+        times.now,
+      );
+    }
+
+    let emailConsumed = false;
+    return operation({
+      inviteSilenced,
+      consumeEmail(canonicalEmail) {
+        if (emailConsumed || inviteSilenced) {
+          throw new Error("Registration start email rate limit is invalid");
+        }
+        emailConsumed = true;
+        const emailDimension = dimension(
+          keyring,
+          "register:start:email",
+          [canonicalEmail],
+          REGISTRATION_START_EMAIL_LIMIT,
+        );
+        const emailSilenced =
+          countForKeys(database, emailDimension.readKeys, times.windowFloor) >=
+          emailDimension.limit;
+        if (!emailSilenced) {
+          increment(
+            database,
+            emailDimension.writeKey,
+            times.windowStart,
+            times.now,
+          );
+        }
+        return { emailSilenced };
+      },
+    });
+  });
+  return transaction.immediate();
 }
 
 export function consumeRegistrationIpRateLimit(
@@ -352,17 +404,38 @@ export function consumeRegistrationIpRateLimit(
   ip: string,
   dependencies: RegistrationRateLimitDependencies = {},
 ): void {
+  withRegistrationIpRateLimit(
+    database,
+    keyring,
+    purpose,
+    ip,
+    () => undefined,
+    dependencies,
+  );
+}
+
+export function withRegistrationIpRateLimit<Result>(
+  database: DatabaseConnection,
+  keyring: RateLimitKeyring,
+  purpose: RegistrationIpRateLimitPurpose,
+  ip: string,
+  operation: () => Result,
+  dependencies: RegistrationRateLimitDependencies = {},
+): Result {
   const limits: Record<RegistrationIpRateLimitPurpose, number> = {
     "register:resend:ip": REGISTRATION_RESEND_IP_LIMIT,
     "register:verify:ip": REGISTRATION_VERIFY_IP_LIMIT,
     "register:complete:ip": REGISTRATION_COMPLETE_IP_LIMIT,
   };
   const times = rateLimitTimes(dependencies.now ?? (() => new Date()));
-  consumeDimensions(
-    database,
-    [dimension(keyring, purpose, [canonicalizeIp(ip)], limits[purpose])],
-    times,
-  );
+  const dimensions = [
+    dimension(keyring, purpose, [canonicalizeIp(ip)], limits[purpose]),
+  ];
+  const transaction = database.transaction(() => {
+    consumeDimensionRows(database, dimensions, times);
+    return operation();
+  });
+  return transaction.immediate();
 }
 
 export function consumeDiagnosisSubmitRateLimit(
@@ -421,6 +494,22 @@ export function consumeRegistrationResendRateLimit(
   input: RegistrationResendRateLimitInput,
   dependencies: RegistrationRateLimitDependencies = {},
 ): { readonly emailSilenced: boolean } {
+  return withRegistrationResendRateLimit(
+    database,
+    keyring,
+    { ip: input.ip },
+    (control) => control.consumeEmail(input.canonicalEmail),
+    dependencies,
+  );
+}
+
+export function withRegistrationResendRateLimit<Result>(
+  database: DatabaseConnection,
+  keyring: RateLimitKeyring,
+  input: { readonly ip: string },
+  operation: (control: RegistrationResendRateLimitControl) => Result,
+  dependencies: RegistrationRateLimitDependencies = {},
+): Result {
   const times = rateLimitTimes(dependencies.now ?? (() => new Date()));
   const ipDimension = dimension(
     keyring,
@@ -428,45 +517,42 @@ export function consumeRegistrationResendRateLimit(
     [canonicalizeIp(input.ip)],
     REGISTRATION_RESEND_IP_LIMIT,
   );
-  const emailDimension = dimension(
-    keyring,
-    "register:resend:email",
-    [input.canonicalEmail],
-    REGISTRATION_RESEND_EMAIL_LIMIT,
-  );
-  const consume = database.transaction(() => {
+  const transaction = database.transaction(() => {
     if (
       countForKeys(database, ipDimension.readKeys, times.windowFloor) >=
       ipDimension.limit
     ) {
       throw new RateLimitExceededError();
     }
-    if (
-      countForKeys(database, emailDimension.readKeys, times.windowFloor) >=
-      emailDimension.limit
-    ) {
-      increment(
-        database,
-        ipDimension.writeKey,
-        times.windowStart,
-        times.now,
-      );
-      return { emailSilenced: true } as const;
-    }
-    increment(
-      database,
-      ipDimension.writeKey,
-      times.windowStart,
-      times.now,
-    );
-    increment(
-      database,
-      emailDimension.writeKey,
-      times.windowStart,
-      times.now,
-    );
-    return { emailSilenced: false } as const;
-  });
+    increment(database, ipDimension.writeKey, times.windowStart, times.now);
 
-  return consume.immediate();
+    let emailConsumed = false;
+    return operation({
+      consumeEmail(canonicalEmail) {
+        if (emailConsumed) {
+          throw new Error("Registration resend email rate limit is invalid");
+        }
+        emailConsumed = true;
+        const emailDimension = dimension(
+          keyring,
+          "register:resend:email",
+          [canonicalEmail],
+          REGISTRATION_RESEND_EMAIL_LIMIT,
+        );
+        const emailSilenced =
+          countForKeys(database, emailDimension.readKeys, times.windowFloor) >=
+          emailDimension.limit;
+        if (!emailSilenced) {
+          increment(
+            database,
+            emailDimension.writeKey,
+            times.windowStart,
+            times.now,
+          );
+        }
+        return { emailSilenced };
+      },
+    });
+  });
+  return transaction.immediate();
 }

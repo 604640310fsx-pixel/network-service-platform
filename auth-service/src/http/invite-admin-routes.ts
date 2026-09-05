@@ -23,7 +23,6 @@ interface ErrorBody {
 
 interface AdminIdentity {
   readonly userId: number;
-  readonly email: string;
   readonly sessionTokenHash: string;
 }
 
@@ -40,6 +39,7 @@ export interface InviteAdminHttpDependencies
   readonly database: DatabaseConnection;
   readonly tokenHmacKeyring: TokenHmacKeyring;
   readonly inviteHmacKeyring: InviteHmacKeyring;
+  readonly mailPayloadEncKeyring: TokenHmacKeyring;
   readonly csrfSigningKey: Buffer;
 }
 
@@ -75,7 +75,6 @@ function authorizeAdmin(
     ok: true,
     admin: {
       userId: session.principal.userId,
-      email: session.principal.email,
       sessionTokenHash: session.sessionTokenHash,
     },
   };
@@ -95,23 +94,24 @@ function verifyAdminCsrf(
 
 function parseCreateBody(
   body: unknown,
-): { readonly maxUses: number; readonly expiresAt: string } | null {
+): { readonly recipientEmail: string; readonly expiresAt: string } | null {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return null;
   }
   const value = body as Record<string, unknown>;
   if (
     Object.keys(value).some(
-      (key) => key !== "maxUses" && key !== "expiresAt",
+      (key) => key !== "recipientEmail" && key !== "expiresAt",
     ) ||
-    typeof value.maxUses !== "number" ||
-    !Number.isSafeInteger(value.maxUses) ||
-    value.maxUses < 1 ||
+    typeof value.recipientEmail !== "string" ||
     typeof value.expiresAt !== "string"
   ) {
     return null;
   }
-  return { maxUses: value.maxUses, expiresAt: value.expiresAt };
+  return {
+    recipientEmail: value.recipientEmail,
+    expiresAt: value.expiresAt,
+  };
 }
 
 function parseInviteCodeId(value: string): number | null {
@@ -174,9 +174,9 @@ export function registerInviteAdminHttpRoutes(
         const created = createAdminInviteCode(
           dependencies.database,
           dependencies.inviteHmacKeyring,
+          dependencies.mailPayloadEncKeyring,
           {
             adminUserId: auth.admin.userId,
-            adminEmail: auth.admin.email,
             ...input,
           },
           dependencies,
@@ -212,9 +212,9 @@ export function registerInviteAdminHttpRoutes(
       try {
         const item = revokeAdminInviteCode(
           dependencies.database,
+          dependencies.mailPayloadEncKeyring,
           {
             adminUserId: auth.admin.userId,
-            adminEmail: auth.admin.email,
             inviteCodeId,
           },
           dependencies,

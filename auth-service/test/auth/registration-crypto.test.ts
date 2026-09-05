@@ -4,6 +4,7 @@ import test from "node:test";
 import type { DatabaseConnection } from "../../src/db.js";
 import {
   computeInviteCodeHashCandidates,
+  computeRetainedInviteCodeHashCandidates,
   InvalidInviteCodeError,
   lookupInviteCode,
   validateInviteCodeExact,
@@ -111,7 +112,7 @@ test("preserves leading-zero OTPs and uses only the row key version", () => {
   assert.equal(generateRegistrationOtp(() => 7), "000007");
 });
 
-test("accepts exact invite input and reads current plus nearest previous", () => {
+test("public lookup reads current and nearest prior while collision checks every retained key", () => {
   const inviteCode = "ABCD-EFGH-JKMN-PQRS-TXYZ-WXYZ-2345";
   assert.equal(validateInviteCodeExact(inviteCode), inviteCode);
 
@@ -137,6 +138,13 @@ test("accepts exact invite input and reads current plus nearest previous", () =>
   assert.deepEqual(repeated, candidates);
   assert.equal(candidates.every((candidate) => candidate.codeHash.length === 43), true);
   assert.equal(requested.includes("0"), false);
+
+  const retained = computeRetainedInviteCodeHashCandidates(inviteCode, keyring);
+  assert.deepEqual(
+    retained.map((candidate) => candidate.version),
+    [2, 1, 0],
+  );
+  assert.equal(requested.includes("0"), true);
 
   const currentOnly = computeInviteCodeHashCandidates(inviteCode, {
     version: 2,

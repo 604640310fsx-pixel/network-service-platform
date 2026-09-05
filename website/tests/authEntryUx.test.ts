@@ -44,6 +44,17 @@ test("a verified registration locks the code while keeping completion retryable"
   assert.match(register, /name="confirmPassword"[\s\S]*?disabled=\{busy \|\| completed\}/);
 });
 
+test("registration copy keeps invite state indistinguishable until completion", () => {
+  const register = source("../app/components/auth/RegisterPage.tsx");
+
+  assert.match(
+    register,
+    /如果邮箱与邀请码匹配，验证码将发送到该邮箱，请注意查收。/,
+  );
+  assert.match(register, /注册信息无效或已过期，请重新开始。/);
+  assert.doesNotMatch(register, /邀请码已撤销|邀请码已过期|邀请码已耗尽/);
+});
+
 test("the shared auth shell provides an exact internal return-home link", () => {
   const shell = source("../app/components/auth/AuthShell.tsx");
   const login = source("../app/components/auth/LoginPage.tsx");

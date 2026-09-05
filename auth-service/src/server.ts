@@ -251,6 +251,7 @@ async function start(): Promise<void> {
           database,
           tokenHmacKeyring: credentials.tokenHmacKeyring,
           inviteHmacKeyring: credentials.inviteHmacKeyring,
+          mailPayloadEncKeyring: credentials.mailPayloadEncKeyring,
           csrfSigningKey: credentials.csrfSigningKey,
         },
         diagnosis: {

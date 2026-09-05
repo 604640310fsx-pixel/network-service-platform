@@ -6,8 +6,9 @@ import type { DatabaseConnection } from "../db.js";
 import {
   canonicalizeIp,
   consumeRegistrationIpRateLimit,
-  consumeRegistrationResendRateLimit,
-  consumeRegistrationStartRateLimit,
+  withRegistrationIpRateLimit,
+  withRegistrationResendRateLimit,
+  withRegistrationStartRateLimit,
   type RateLimitKeyring,
   type RegistrationRateLimitDependencies,
 } from "../http/rate-limit.js";
@@ -17,7 +18,10 @@ import {
   lookupInviteCode,
   type InviteHmacKeyring,
 } from "./invite-code.js";
-import { encryptRegistrationOtpPayload } from "./mail-outbox.js";
+import {
+  computeMailRecipientAuditHmac,
+  encryptRegistrationOtpPayload,
+} from "./mail-outbox.js";
 import {
   computeRegistrationOtpHash,
   computeRegistrationTokenHash,
@@ -32,6 +36,7 @@ export const REGISTRATION_TTL_MS = 10 * 60 * 1_000;
 export const REGISTRATION_RESEND_COOLDOWN_MS = 60 * 1_000;
 export const REGISTRATION_MAX_ATTEMPTS = 5;
 export const REGISTRATION_MAX_RESENDS = 5;
+const REGISTRATION_MAX_SEND_COUNT = 1 + REGISTRATION_MAX_RESENDS;
 
 interface PendingRegistrationRow {
   readonly id: number;
@@ -62,6 +67,7 @@ export interface RegistrationServiceDependencies
   readonly randomBytes?: RegistrationRandomBytesSource;
   readonly randomInt?: RegistrationRandomIntSource;
   readonly outboxRandomBytes?: RegistrationRandomBytesSource;
+  readonly hashPassword?: (password: string) => Promise<string>;
 }
 
 export interface RegistrationTokenResult {
@@ -175,20 +181,6 @@ export function startRegistration(
   );
   const nowSource = dependencies.now ?? (() => new Date());
   const times = registrationTimes(nowSource);
-
-  consumeRegistrationStartRateLimit(
-    database,
-    keyrings.rateLimitKeyring,
-    {
-      ip: input.ip,
-      canonicalEmail,
-      inviteHashIdentifiers: inviteCandidates.map(
-        (candidate) => candidate.codeHash,
-      ),
-    },
-    { now: () => times.date },
-  );
-
   const token = generateRegistrationToken(
     keyrings.tokenHmacKeyring,
     dependencies.randomBytes ?? randomBytes,
@@ -200,69 +192,113 @@ export function startRegistration(
     otpKeyVersion,
     keyrings.tokenHmacKeyring,
   );
-  const createPending = database.transaction((): boolean => {
-    const invite = lookupInviteCode(
-      database,
-      input.inviteCode,
-      keyrings.inviteHmacKeyring,
-    );
-    if (
-      invite === null ||
-      invite.revoked_at !== null ||
-      invite.expires_at <= times.now ||
-      invite.used_count >= invite.max_uses
-    ) {
-      return false;
-    }
-    database
-      .prepare(
-        `UPDATE pending_registrations
-         SET superseded_at = ?
-         WHERE email = ?
-           AND phase IN ('awaiting_verification', 'verified')
-           AND consumed_at IS NULL AND superseded_at IS NULL
-           AND expires_at > ?`,
-      )
-      .run(times.now, canonicalEmail, times.now);
 
-    database
-      .prepare(
-        `INSERT INTO pending_registrations (
-           email, registration_token_hash, registration_token_key_version,
-           invite_code_id, otp_hash, otp_key_version, otp_generation, phase,
-           attempts, resend_count, last_sent_at, expires_at, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, 1, 'awaiting_verification', 0, 1, ?, ?, ?)`,
-      )
-      .run(
-        canonicalEmail,
-        token.tokenHash,
-        token.hmacKeyVersion,
-        invite.id,
-        otpHash,
-        otpKeyVersion,
-        times.now,
-        times.expiresAt,
-        times.now,
+  withRegistrationStartRateLimit(
+    database,
+    keyrings.rateLimitKeyring,
+    {
+      ip: input.ip,
+      inviteHashIdentifiers: inviteCandidates.map(
+        (candidate) => candidate.codeHash,
+      ),
+    },
+    (rateLimit) => {
+      if (rateLimit.inviteSilenced) return false;
+      const invite = lookupInviteCode(
+        database,
+        input.inviteCode,
+        keyrings.inviteHmacKeyring,
       );
+      if (
+        invite === null ||
+        invite.is_bootstrap !== 0 ||
+        invite.recipient_email === null ||
+        invite.recipient_email !== canonicalEmail ||
+        invite.max_uses !== 1 ||
+        (invite.used_count !== 0 && invite.used_count !== 1)
+      ) {
+        return false;
+      }
+      const emailRateLimit = rateLimit.consumeEmail(invite.recipient_email);
+      if (emailRateLimit.emailSilenced) return false;
 
-    const pending = findPendingByHash(database, token.tokenHash);
-    if (pending === null) {
-      throw new Error("Registration pending row creation failed");
-    }
-    const encrypted = encryptRegistrationOtpPayload(
-      {
-        pendingRegistrationId: pending.id,
-        otpGeneration: 1,
-        toEmail: canonicalEmail,
-        otp,
-      },
-      keyrings.mailPayloadEncKeyring,
-      dependencies.outboxRandomBytes ?? randomBytes,
-    );
-    insertOutbox(database, encrypted, times.now);
-    return true;
-  });
-  createPending.immediate();
+      const recentRows = database
+        .prepare(
+          `SELECT last_sent_at FROM pending_registrations
+           WHERE email = ?
+             AND phase IN ('awaiting_verification', 'verified')
+             AND consumed_at IS NULL AND superseded_at IS NULL
+             AND expires_at > ?
+           ORDER BY last_sent_at DESC
+           LIMIT 1`,
+        )
+        .all(invite.recipient_email, times.now) as Array<{
+          readonly last_sent_at: unknown;
+        }>;
+      const recentSentAt = recentRows[0]?.last_sent_at;
+      if (
+        recentRows.length > 1 ||
+        (recentSentAt !== undefined && typeof recentSentAt !== "string")
+      ) {
+        throw new Error("Registration cooldown state is invalid");
+      }
+      if (
+        typeof recentSentAt === "string" &&
+        recentSentAt > times.resendCutoff
+      ) {
+        return false;
+      }
+
+      database
+        .prepare(
+          `UPDATE pending_registrations
+           SET superseded_at = ?
+           WHERE email = ?
+             AND phase IN ('awaiting_verification', 'verified')
+             AND consumed_at IS NULL AND superseded_at IS NULL
+             AND expires_at > ?`,
+        )
+        .run(times.now, invite.recipient_email, times.now);
+
+      database
+        .prepare(
+          `INSERT INTO pending_registrations (
+             email, registration_token_hash, registration_token_key_version,
+             invite_code_id, otp_hash, otp_key_version, otp_generation, phase,
+             attempts, resend_count, last_sent_at, expires_at, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, 1, 'awaiting_verification', 0, 1, ?, ?, ?)`,
+        )
+        .run(
+          invite.recipient_email,
+          token.tokenHash,
+          token.hmacKeyVersion,
+          invite.id,
+          otpHash,
+          otpKeyVersion,
+          times.now,
+          times.expiresAt,
+          times.now,
+        );
+
+      const pending = findPendingByHash(database, token.tokenHash);
+      if (pending === null) {
+        throw new Error("Registration pending row creation failed");
+      }
+      const encrypted = encryptRegistrationOtpPayload(
+        {
+          pendingRegistrationId: pending.id,
+          otpGeneration: 1,
+          toEmail: invite.recipient_email,
+          otp,
+        },
+        keyrings.mailPayloadEncKeyring,
+        dependencies.outboxRandomBytes ?? randomBytes,
+      );
+      insertOutbox(database, encrypted, times.now);
+      return true;
+    },
+    { now: () => times.date },
+  );
 
   return { registrationToken: token.rawToken };
 }
@@ -277,88 +313,74 @@ export function resendRegistrationCode(
     input.registrationToken,
     keyrings.tokenHmacKeyring,
   );
-  const pending = findPendingByHash(database, tokenHash);
   const nowSource = dependencies.now ?? (() => new Date());
   const times = registrationTimes(nowSource);
-  if (pending === null) {
-    consumeRegistrationIpRateLimit(
-      database,
-      keyrings.rateLimitKeyring,
-      "register:resend:ip",
-      input.ip,
-      { now: () => times.date },
-    );
-    throw new InvalidOrExpiredRegistrationError();
-  }
-
-  const rateLimit = consumeRegistrationResendRateLimit(
+  withRegistrationResendRateLimit(
     database,
     keyrings.rateLimitKeyring,
-    { ip: input.ip, canonicalEmail: pending.email },
+    { ip: input.ip },
+    (rateLimit) => {
+      const current = findPendingByHash(database, tokenHash);
+      if (current === null) return false;
+      const emailRateLimit = rateLimit.consumeEmail(current.email);
+      if (
+        emailRateLimit.emailSilenced ||
+        current.phase !== "awaiting_verification" ||
+        current.expires_at <= times.now ||
+        current.last_sent_at > times.resendCutoff ||
+        current.resend_count >= REGISTRATION_MAX_SEND_COUNT ||
+        current.superseded_at !== null ||
+        current.consumed_at !== null
+      ) {
+        return false;
+      }
+      const otp = generateRegistrationOtp(dependencies.randomInt ?? randomInt);
+      const otpKeyVersion = keyrings.tokenHmacKeyring.version;
+      const otpHash = computeRegistrationOtpHash(
+        otp,
+        otpKeyVersion,
+        keyrings.tokenHmacKeyring,
+      );
+      const nextGeneration = current.otp_generation + 1;
+      const result = database
+        .prepare(
+          `UPDATE pending_registrations
+           SET otp_hash = ?, otp_key_version = ?, otp_generation = otp_generation + 1,
+               attempts = 0, last_sent_at = ?, resend_count = resend_count + 1,
+               expires_at = ?
+           WHERE registration_token_hash = ? AND phase = 'awaiting_verification'
+             AND expires_at > ? AND resend_count < ?
+             AND superseded_at IS NULL AND consumed_at IS NULL
+             AND otp_generation = ?`,
+        )
+        .run(
+          otpHash,
+          otpKeyVersion,
+          times.now,
+          times.expiresAt,
+          tokenHash,
+          times.now,
+          REGISTRATION_MAX_SEND_COUNT,
+          current.otp_generation,
+        );
+      if (result.changes !== 1) {
+        throw new Error("Registration resend update failed");
+      }
+      const encrypted = encryptRegistrationOtpPayload(
+        {
+          pendingRegistrationId: current.id,
+          otpGeneration: nextGeneration,
+          toEmail: current.email,
+          otp,
+        },
+        keyrings.mailPayloadEncKeyring,
+        dependencies.outboxRandomBytes ?? randomBytes,
+      );
+      insertOutbox(database, encrypted, times.now);
+      return true;
+    },
     { now: () => times.date },
   );
-  if (rateLimit.emailSilenced) {
-    return;
-  }
-  const resend = database.transaction((): boolean => {
-    const current = findPendingByHash(database, tokenHash);
-    if (
-      current === null ||
-      current.phase !== "awaiting_verification" ||
-      current.expires_at <= times.now ||
-      current.last_sent_at >= times.resendCutoff ||
-      current.resend_count >= REGISTRATION_MAX_RESENDS ||
-      current.superseded_at !== null ||
-      current.consumed_at !== null
-    ) {
-      return false;
-    }
-    const otp = generateRegistrationOtp(dependencies.randomInt ?? randomInt);
-    const otpKeyVersion = keyrings.tokenHmacKeyring.version;
-    const otpHash = computeRegistrationOtpHash(
-      otp,
-      otpKeyVersion,
-      keyrings.tokenHmacKeyring,
-    );
-    const nextGeneration = current.otp_generation + 1;
-    const result = database
-      .prepare(
-        `UPDATE pending_registrations
-         SET otp_hash = ?, otp_key_version = ?, otp_generation = otp_generation + 1,
-             attempts = 0, last_sent_at = ?, resend_count = resend_count + 1,
-             expires_at = ?
-         WHERE registration_token_hash = ? AND phase = 'awaiting_verification'
-           AND expires_at > ? AND resend_count < ?
-           AND superseded_at IS NULL AND consumed_at IS NULL
-           AND otp_generation = ?`,
-      )
-      .run(
-        otpHash,
-        otpKeyVersion,
-        times.now,
-        times.expiresAt,
-        tokenHash,
-        times.now,
-        REGISTRATION_MAX_RESENDS,
-        current.otp_generation,
-      );
-    if (result.changes !== 1) {
-      throw new InvalidOrExpiredRegistrationError();
-    }
-    const encrypted = encryptRegistrationOtpPayload(
-      {
-        pendingRegistrationId: current.id,
-        otpGeneration: nextGeneration,
-        toEmail: current.email,
-        otp,
-      },
-      keyrings.mailPayloadEncKeyring,
-      dependencies.outboxRandomBytes ?? randomBytes,
-    );
-    insertOutbox(database, encrypted, times.now);
-    return true;
-  });
-  resend.immediate();
 }
 
 export function verifyRegistrationCode(
@@ -464,17 +486,22 @@ export async function completeRegistration(
 ): Promise<void> {
   const nowSource = dependencies.now ?? (() => new Date());
   const times = registrationTimes(nowSource);
-  consumeRegistrationIpRateLimit(
-    database,
-    keyrings.rateLimitKeyring,
-    "register:complete:ip",
-    input.ip,
-    { now: () => times.date },
-  );
-  const { tokenHash } = tokenHashOrInvalid(
-    input.registrationToken,
-    keyrings.tokenHmacKeyring,
-  );
+  let tokenHash: string;
+  try {
+    ({ tokenHash } = tokenHashOrInvalid(
+      input.registrationToken,
+      keyrings.tokenHmacKeyring,
+    ));
+  } catch (error) {
+    consumeRegistrationIpRateLimit(
+      database,
+      keyrings.rateLimitKeyring,
+      "register:complete:ip",
+      input.ip,
+      { now: () => times.date },
+    );
+    throw error;
+  }
   const initial = findPendingByHash(database, tokenHash);
   if (
     initial === null ||
@@ -483,83 +510,108 @@ export async function completeRegistration(
     initial.superseded_at !== null ||
     initial.consumed_at !== null
   ) {
+    consumeRegistrationIpRateLimit(
+      database,
+      keyrings.rateLimitKeyring,
+      "register:complete:ip",
+      input.ip,
+      { now: () => times.date },
+    );
     throw new InvalidOrExpiredRegistrationError();
   }
 
-  const passwordHash = await hashPassword(input.password);
+  const passwordHash = await (dependencies.hashPassword ?? hashPassword)(
+    input.password,
+  );
   const ipAddress = canonicalizeIp(input.ip);
-  const complete = database.transaction(() => {
-    const current = findPendingByHash(database, tokenHash);
-    if (
-      current === null ||
-      current.phase !== "verified" ||
-      current.expires_at <= times.now ||
-      current.superseded_at !== null ||
-      current.consumed_at !== null
-    ) {
-      throw new InvalidOrExpiredRegistrationError();
-    }
-    const existingUser = database
-      .prepare("SELECT id FROM users WHERE email = ?")
-      .all(current.email);
-    if (existingUser.length !== 0) {
-      throw new RegistrationEmailTakenError();
-    }
-    const inviteUpdate = database
-      .prepare(
-        `UPDATE invite_codes SET used_count = used_count + 1
-         WHERE id = ? AND used_count < max_uses
-           AND revoked_at IS NULL AND expires_at > ?`,
-      )
-      .run(current.invite_code_id, times.now);
-    if (inviteUpdate.changes !== 1) {
-      throw new InvalidOrExpiredRegistrationError();
-    }
+  const recipientHmac = computeMailRecipientAuditHmac(
+    initial.email,
+    keyrings.mailPayloadEncKeyring,
+    keyrings.mailPayloadEncKeyring.version,
+  );
+  withRegistrationIpRateLimit(
+    database,
+    keyrings.rateLimitKeyring,
+    "register:complete:ip",
+    input.ip,
+    () => {
+      const current = findPendingByHash(database, tokenHash);
+      if (
+        current === null ||
+        current.phase !== "verified" ||
+        current.expires_at <= times.now ||
+        current.superseded_at !== null ||
+        current.consumed_at !== null
+      ) {
+        throw new InvalidOrExpiredRegistrationError();
+      }
+      const inviteUpdate = database
+        .prepare(
+          `UPDATE invite_codes SET used_count = 1
+           WHERE id = ? AND recipient_email = ?
+             AND is_bootstrap = 0 AND max_uses = 1 AND used_count = 0
+             AND revoked_at IS NULL AND expires_at > ?`,
+        )
+        .run(current.invite_code_id, current.email, times.now);
+      if (inviteUpdate.changes !== 1) {
+        throw new InvalidOrExpiredRegistrationError();
+      }
+      const existingUser = database
+        .prepare("SELECT id FROM users WHERE email = ?")
+        .all(current.email);
+      if (existingUser.length !== 0) {
+        throw new RegistrationEmailTakenError();
+      }
 
-    database
-      .prepare(
-        `INSERT INTO users (
-           email, password_hash, role, status, invited_by_code_id,
-           created_at, updated_at
-         ) VALUES (?, ?, 'user', 'active', ?, ?, ?)`,
-      )
-      .run(
-        current.email,
-        passwordHash,
-        current.invite_code_id,
-        times.now,
-        times.now,
-      );
-    const userRows = database
-      .prepare("SELECT id FROM users WHERE email = ?")
-      .all(current.email) as Array<{ readonly id: number }>;
-    const userId = userRows[0]?.id;
-    if (typeof userId !== "number") {
-      throw new Error("Registration user creation failed");
-    }
-    database
-      .prepare(
-        `INSERT INTO invite_code_redemptions (
-           invite_code_id, user_id, redeemed_at, ip_address
-         ) VALUES (?, ?, ?, ?)`,
-      )
-      .run(current.invite_code_id, userId, times.now, ipAddress);
-    const pendingUpdate = database
-      .prepare(
-        `UPDATE pending_registrations SET phase = 'completed', consumed_at = ?
-         WHERE registration_token_hash = ? AND phase = 'verified'
-           AND consumed_at IS NULL AND superseded_at IS NULL`,
-      )
-      .run(times.now, tokenHash);
-    if (pendingUpdate.changes !== 1) {
-      throw new InvalidOrExpiredRegistrationError();
-    }
-    database
-      .prepare(
-        `INSERT INTO audit_log (actor, action, target_ref, created_at)
-         VALUES ('system:register', 'user_created', ?, ?)`,
-      )
-      .run(String(userId), times.now);
-  });
-  complete.immediate();
+      database
+        .prepare(
+          `INSERT INTO users (
+             email, password_hash, role, status, invited_by_code_id,
+             created_at, updated_at
+           ) VALUES (?, ?, 'user', 'active', ?, ?, ?)`,
+        )
+        .run(
+          current.email,
+          passwordHash,
+          current.invite_code_id,
+          times.now,
+          times.now,
+        );
+      const userRows = database
+        .prepare("SELECT id FROM users WHERE email = ?")
+        .all(current.email) as Array<{ readonly id: number }>;
+      const userId = userRows[0]?.id;
+      if (typeof userId !== "number") {
+        throw new Error("Registration user creation failed");
+      }
+      database
+        .prepare(
+          `INSERT INTO invite_code_redemptions (
+             invite_code_id, user_id, redeemed_at, ip_address
+           ) VALUES (?, ?, ?, ?)`,
+        )
+        .run(current.invite_code_id, userId, times.now, ipAddress);
+      database
+        .prepare(
+          `INSERT INTO audit_log (
+             actor, action, target_ref, created_at, invite_code_id,
+             result_class, recipient_hmac
+           ) VALUES (
+             'system:invite', 'invite_code.redeem', NULL, ?, ?, 'redeemed', ?
+           )`,
+        )
+        .run(times.now, current.invite_code_id, recipientHmac);
+      const pendingUpdate = database
+        .prepare(
+          `UPDATE pending_registrations SET phase = 'completed', consumed_at = ?
+           WHERE registration_token_hash = ? AND phase = 'verified'
+             AND consumed_at IS NULL AND superseded_at IS NULL`,
+        )
+        .run(times.now, tokenHash);
+      if (pendingUpdate.changes !== 1) {
+        throw new InvalidOrExpiredRegistrationError();
+      }
+    },
+    { now: () => times.date },
+  );
 }

@@ -121,7 +121,7 @@ function openFixture(path: string, migrations = [1]): DatabaseConnection {
   return database;
 }
 
-async function openMigration14Fixture(path: string): Promise<DatabaseConnection> {
+async function openMigration15Fixture(path: string): Promise<DatabaseConnection> {
   const database = openAndVerifyDatabase(path);
   database.exec(`
     CREATE TABLE schema_migrations (
@@ -182,7 +182,7 @@ test("creates and independently verifies a single-file backup from a live WAL da
       operation: "create",
       quickCheck: "ok",
       foreignKeyFailures: 0,
-      migrations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+      migrations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
       sha256: result.sha256,
       bytes: result.bytes,
       fileMode: "0600",
@@ -208,7 +208,7 @@ test("creates and independently verifies a single-file backup from a live WAL da
         backupDatabase
           .prepare("SELECT version FROM schema_migrations ORDER BY version")
           .all(),
-        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map(
+        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map(
           (version) => ({ version }),
         ),
       );
@@ -229,7 +229,7 @@ test("creates and independently verifies a single-file backup from a live WAL da
       "--expected-sha256",
       result.sha256,
       "--expected-last-migration",
-      "15",
+      "16",
     ]);
     assert.equal(verified.exitCode, 0, verified.stderr);
     assert.deepEqual(parseSuccess(verified.stdout), {
@@ -325,11 +325,11 @@ test("rejects a corrupted backup during independent verification", async () => {
   }
 });
 
-test("keeps a verified 014 snapshot rollback-compatible after the live source advances to 015", async () => {
+test("keeps a verified 015 snapshot rollback-compatible after the live source advances to 016", async () => {
   const directory = await mkdtemp(join(tmpdir(), "sqlite-backup-rollback-"));
   const source = join(directory, "source.sqlite");
   const backup = join(directory, "backup.sqlite");
-  const database = await openMigration14Fixture(source);
+  const database = await openMigration15Fixture(source);
 
   try {
     database.exec(`
@@ -338,7 +338,7 @@ test("keeps a verified 014 snapshot rollback-compatible after the live source ad
         value TEXT NOT NULL
       );
       INSERT INTO backup_probe (id, value)
-      VALUES (1, 'pre-015 rollback fixture');
+      VALUES (1, 'pre-016 rollback fixture');
     `);
     const created = await executeTool([
       "create",
@@ -351,7 +351,7 @@ test("keeps a verified 014 snapshot rollback-compatible after the live source ad
     const snapshot = parseSuccess(created.stdout);
     assert.deepEqual(
       snapshot.migrations,
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
     );
 
     runMigrations(database);
@@ -361,7 +361,7 @@ test("keeps a verified 014 snapshot rollback-compatible after the live source ad
           .prepare("SELECT version FROM schema_migrations ORDER BY version")
           .all() as Array<{ readonly version: number }>
       ).map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
     );
 
     const verified = await executeTool([
@@ -371,7 +371,7 @@ test("keeps a verified 014 snapshot rollback-compatible after the live source ad
       "--expected-sha256",
       snapshot.sha256,
       "--expected-last-migration",
-      "14",
+      "15",
     ]);
     assert.equal(verified.exitCode, 0, verified.stderr);
     assert.deepEqual(parseSuccess(verified.stdout), {
@@ -386,7 +386,7 @@ test("keeps a verified 014 snapshot rollback-compatible after the live source ad
       "--expected-sha256",
       "0".repeat(64),
       "--expected-last-migration",
-      "14",
+      "15",
     ]);
     assert.equal(wrongHash.exitCode, 1);
     assert.equal(parseFailure(wrongHash.stderr).code, "HASH_MISMATCH");
@@ -398,7 +398,7 @@ test("keeps a verified 014 snapshot rollback-compatible after the live source ad
       "--expected-sha256",
       snapshot.sha256,
       "--expected-last-migration",
-      "15",
+      "16",
     ]);
     assert.equal(wrongBoundary.exitCode, 1);
     assert.equal(parseFailure(wrongBoundary.stderr).code, "MIGRATION_MISMATCH");
@@ -412,7 +412,7 @@ test("keeps a verified 014 snapshot rollback-compatible after the live source ad
       "--expected-sha256",
       snapshot.sha256,
       "--expected-last-migration",
-      "14",
+      "15",
     ]);
     assert.equal(ambiguousLiveSource.exitCode, 1);
     assert.equal(parseFailure(ambiguousLiveSource.stderr).code, "ARGUMENT_ERROR");
@@ -428,7 +428,7 @@ test("keeps a verified 014 snapshot rollback-compatible after the live source ad
             .prepare("SELECT version FROM schema_migrations ORDER BY version")
             .all() as Array<{ readonly version: number }>
         ).map((row) => row.version),
-        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
       );
       assert.equal(
         rollbackDatabase
@@ -446,11 +446,21 @@ test("keeps a verified 014 snapshot rollback-compatible after the live source ad
             "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'diagnosis_request_idempotency'",
           )
           .all(),
-        [{ count: 0 }],
+        [{ count: 1 }],
+      );
+      assert.equal(
+        rollbackDatabase
+          .prepare("PRAGMA table_info(invite_codes)")
+          .all()
+          .some(
+            (row) =>
+              (row as { readonly name: string }).name === "recipient_email",
+          ),
+        false,
       );
       assert.deepEqual(
         rollbackDatabase.prepare("SELECT id, value FROM backup_probe").all(),
-        [{ id: 1, value: "pre-015 rollback fixture" }],
+        [{ id: 1, value: "pre-016 rollback fixture" }],
       );
     } finally {
       rollbackDatabase.close();
