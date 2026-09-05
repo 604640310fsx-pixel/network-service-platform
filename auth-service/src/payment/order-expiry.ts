@@ -63,33 +63,39 @@ export async function sweepExpiredPendingPayments(
 }
 
 export interface OrderExpiryScheduler {
-  readonly stop: () => void;
+  readonly stop: () => Promise<void>;
 }
 
 /* 进程内 setInterval 调度器（不依赖 cron/systemd）。running 标记禁止任务
    重叠：若上一轮 sweep 尚未完成，下一次 tick 直接跳过，不并发触发第二轮。
-   timer.unref() 避免这个定时器单独维持进程存活（与测试套件无关——测试
-   从不调用这个函数，只有 server.ts 的真实启动路径会）。 */
+   timer.unref() 避免这个定时器单独维持进程存活。 */
 export function startOrderExpirySweep(
   dependencies: OrderExpirySweepDependencies,
   intervalMs: number = ORDER_EXPIRY_SWEEP_INTERVAL_MS,
 ): OrderExpiryScheduler {
-  let running = false;
+  let stopped = false;
+  let currentRun: Promise<void> | null = null;
+  let stopPromise: Promise<void> | null = null;
   const timer = setInterval(() => {
-    if (running) {
+    if (stopped || currentRun !== null) {
       return;
     }
-    running = true;
-    sweepExpiredPendingPayments(dependencies)
+    currentRun = sweepExpiredPendingPayments(dependencies)
+      .then(() => undefined)
       .catch(() => undefined)
       .finally(() => {
-        running = false;
+        currentRun = null;
       });
   }, intervalMs);
   timer.unref();
   return {
-    stop: () => {
-      clearInterval(timer);
+    stop: (): Promise<void> => {
+      if (stopPromise === null) {
+        stopped = true;
+        clearInterval(timer);
+        stopPromise = currentRun ?? Promise.resolve();
+      }
+      return stopPromise;
     },
   };
 }

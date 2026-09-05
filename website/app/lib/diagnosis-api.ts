@@ -131,16 +131,99 @@ const DIAGNOSIS_CLASSIFICATIONS: readonly DiagnosisClassification[] = [
   "network_plan",
   "out_of_scope",
 ];
+const DIAGNOSIS_IDEMPOTENCY_KEY_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 type JsonRecord = Record<string, unknown>;
 
 export class DiagnosisApiError extends Error {
+  readonly code: string;
+  readonly status: number | null;
+
   constructor(
-    readonly code: string,
-    readonly status: number | null = null,
+    code: string,
+    status: number | null = null,
   ) {
     super(code);
     this.name = "DiagnosisApiError";
+    this.code = code;
+    this.status = status;
+  }
+}
+
+export function isCanonicalDiagnosisIdempotencyKey(
+  value: unknown,
+): value is string {
+  return (
+    typeof value === "string" &&
+    DIAGNOSIS_IDEMPOTENCY_KEY_PATTERN.test(value)
+  );
+}
+
+function diagnosisSubmissionComparisonMaterial(
+  submission: DiagnosisSubmission,
+): string {
+  return JSON.stringify([
+    submission.contactType,
+    submission.contactValue,
+    submission.businessScenario,
+    submission.targetRegion,
+    submission.problemTypes,
+    submission.problemDescription,
+    submission.safetyAcknowledged,
+    submission.currentRegion ?? null,
+    submission.currentIsp ?? null,
+    submission.currentNetworkType ?? null,
+    submission.problemFrequency ?? null,
+    submission.isExistingCustomer ?? null,
+    submission.preferredContactWindow ?? null,
+    submission.extraNotes ?? null,
+  ]);
+}
+
+interface DiagnosisSubmissionAttempt {
+  readonly comparisonMaterial: string;
+  readonly idempotencyKey: string;
+}
+
+export class DiagnosisSubmissionAttemptManager {
+  #attempt: DiagnosisSubmissionAttempt | null = null;
+
+  prepare(
+    submission: DiagnosisSubmission,
+    generateUuid: () => string,
+  ): string {
+    const comparisonMaterial =
+      diagnosisSubmissionComparisonMaterial(submission);
+    if (this.#attempt?.comparisonMaterial === comparisonMaterial) {
+      return this.#attempt.idempotencyKey;
+    }
+
+    const idempotencyKey = generateUuid();
+    if (!isCanonicalDiagnosisIdempotencyKey(idempotencyKey)) {
+      this.#attempt = null;
+      throw new DiagnosisApiError("idempotency_key_required");
+    }
+    this.#attempt = { comparisonMaterial, idempotencyKey };
+    return idempotencyKey;
+  }
+
+  handleFailure(error: unknown): void {
+    if (
+      error instanceof DiagnosisApiError &&
+      (error.code === "idempotency_key_required" ||
+        error.code === "idempotency_key_conflict")
+    ) {
+      this.clear();
+    }
+  }
+
+  clear(): void {
+    this.#attempt = null;
+  }
+
+  hasPendingAttempt(): boolean {
+    return this.#attempt !== null;
   }
 }
 
@@ -278,13 +361,18 @@ function parseAdminDiagnosisItem(raw: unknown): AdminDiagnosisItem {
 
 export async function submitDiagnosisRequest(
   submission: DiagnosisSubmission,
+  idempotencyKey: string,
 ): Promise<void> {
+  if (!isCanonicalDiagnosisIdempotencyKey(idempotencyKey)) {
+    throw new DiagnosisApiError("idempotency_key_required");
+  }
   const body = await requestJson("/api/diagnosis/requests", {
     method: "POST",
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
       "X-Requested-With": "XMLHttpRequest",
+      "Idempotency-Key": idempotencyKey,
     },
     body: JSON.stringify(submission),
   });

@@ -8,7 +8,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Link, NavLink } from "react-router-dom";
+import { Link, NavLink, useNavigate } from "react-router-dom";
+import { useAuth } from "../../lib/auth";
 import { useThemePreference, type ThemePreference } from "../../lib/theme";
 import {
   buildMonitorEmbedUrl,
@@ -140,10 +141,15 @@ export function CustomerCenterShell({
   fill?: boolean;
 }) {
   const { theme, toggleTheme } = useThemePreference();
+  const { status: authStatus, logout } = useAuth();
+  const navigate = useNavigate();
   const [activeDrawer, setActiveDrawer] = useState<DrawerKind | null>(null);
+  const [logoutPending, setLogoutPending] = useState(false);
+  const [logoutFailed, setLogoutFailed] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const topbarRef = useRef<HTMLElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  const logoutPendingRef = useRef(false);
 
   function openDrawer(kind: DrawerKind, trigger: HTMLElement) {
     returnFocusRef.current = trigger;
@@ -152,6 +158,23 @@ export function CustomerCenterShell({
 
   function closeDrawer() {
     setActiveDrawer(null);
+  }
+
+  async function handleLogout(): Promise<void> {
+    if (logoutPendingRef.current) return;
+
+    logoutPendingRef.current = true;
+    setLogoutPending(true);
+    setLogoutFailed(false);
+    try {
+      await logout();
+      navigate("/login", { replace: true });
+    } catch {
+      setLogoutFailed(true);
+    } finally {
+      logoutPendingRef.current = false;
+      setLogoutPending(false);
+    }
   }
 
   useEffect(() => {
@@ -257,7 +280,23 @@ export function CustomerCenterShell({
               </button>
               <span className="cc-balance-placeholder" aria-label="余额功能待接入" title="余额功能待接入">余额 <b>—</b></span>
               <Link className="cc-user-link" to="/profile" aria-label="进入个人中心"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="3.4" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></svg><span>个人中心</span></Link>
+              {authStatus === "authenticated" && (
+                <button
+                  type="button"
+                  className={`cc-logout-button${logoutPending ? " is-pending" : ""}`}
+                  aria-label="退出登录"
+                  aria-busy={logoutPending}
+                  disabled={logoutPending}
+                  onClick={() => void handleLogout()}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+                    <path d="M10 5H5v14h5M14 8l4 4-4 4M8 12h10" />
+                  </svg>
+                  <span>{logoutPending ? "退出中…" : "退出登录"}</span>
+                </button>
+              )}
             </div>
+            {logoutFailed && <span className="cc-logout-error" role="alert">退出失败，请重试</span>}
           </header>
           {children}
         </div>

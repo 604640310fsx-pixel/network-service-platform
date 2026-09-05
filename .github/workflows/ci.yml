@@ -116,6 +116,8 @@ jobs:
       - name: Validate release packet source
         run: |
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          node scripts/ops/validate-release-open-http-contract.mjs \
+            --source "$GITHUB_WORKSPACE"
           node scripts/ops/validate-consolidated-release-packet.mjs \
             --source "$GITHUB_WORKSPACE" \
             --expected-sha "$EXPECTED_SHA"
@@ -162,6 +164,10 @@ jobs:
             --provenance-mode "$PROVENANCE_MODE"
           cmp "$BUNDLE_PARENT/first/release-manifest.json" \
             "$BUNDLE_PARENT/second/release-manifest.json"
+          node scripts/ops/validate-release-open-http-contract.mjs \
+            --source "$BUNDLE_PARENT/first"
+          node scripts/ops/validate-release-open-http-contract.mjs \
+            --source "$BUNDLE_PARENT/second"
           node scripts/ops/validate-consolidated-release-packet.mjs \
             --source "$GITHUB_WORKSPACE" \
             --expected-sha "$EXPECTED_SHA" \

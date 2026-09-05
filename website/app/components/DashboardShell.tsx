@@ -1,4 +1,4 @@
-import { Navigate, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { CustomerCenterShell } from "./customer/CustomerCenterShell";
 import { CustomerOrdersPage } from "./customer/CustomerOrdersPage";
 import { CustomerServicesPage } from "./customer/CustomerServicesPage";
@@ -6,6 +6,7 @@ import { DashboardPage } from "./dashboard/DashboardPage";
 import { DocsLibrary } from "./docs/DocsLibrary";
 import { PublicMonitorPage } from "./monitor/PublicMonitorPage";
 import { BuyerNetworkPage } from "./network/BuyerNetworkPage";
+import { NotFoundPage } from "./not-found/NotFoundPage";
 import { ProfilePage } from "./profile/ProfilePage";
 import { BuyerServerStatusPage } from "./status/BuyerServerStatusPage";
 import { SubscribePage } from "./subscribe/SubscribePage";
@@ -16,7 +17,7 @@ export function DashboardShell() {
   const { section: requestedSection = "dashboard" } = useParams();
 
   if (!sectionKeys.includes(requestedSection as SectionKey)) {
-    return <Navigate to="/dashboard" replace />;
+    return <NotFoundPage />;
   }
 
   const section = requestedSection as SectionKey;
@@ -84,5 +85,5 @@ export function DashboardShell() {
     return <PublicMonitorPage />;
   }
 
-  return <Navigate to="/dashboard" replace />;
+  return <NotFoundPage />;
 }

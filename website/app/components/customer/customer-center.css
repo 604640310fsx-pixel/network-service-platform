@@ -185,18 +185,27 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
 .cc-top-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .cc-icon-button,
 .cc-balance-placeholder,
-.cc-user-link { height: 36px; border: 1px solid var(--cc-line); border-radius: 9px; background: var(--cc-inset); color: var(--cc-text-2); }
+.cc-user-link,
+.cc-logout-button { height: 36px; border: 1px solid var(--cc-line); border-radius: 9px; background: var(--cc-inset); color: var(--cc-text-2); }
 .cc-icon-button { width: 36px; display: grid; place-items: center; cursor: pointer; }
 .cc-icon-button:hover { border-color: var(--cc-text-4); color: var(--cc-text); }
 .cc-icon-button svg { width: 15px; height: 15px; stroke-width: 1.8; }
 .cc-menu-button { width: 34px; height: 34px; flex: 0 0 34px; display: none; background: var(--cc-panel); }
 .cc-menu-button svg { width: 16px; height: 16px; stroke-width: 1.8; }
 .cc-balance-placeholder,
-.cc-user-link { display: flex; align-items: center; gap: 7px; padding: 0 13px; font-size: 13.5px; white-space: nowrap; }
+.cc-user-link,
+.cc-logout-button { display: flex; align-items: center; gap: 7px; padding: 0 13px; font-size: 13.5px; white-space: nowrap; }
 .cc-balance-placeholder b { color: var(--cc-text); font-variant-numeric: tabular-nums; }
 .cc-user-link { text-decoration: none; cursor: pointer; transition: border-color 0.14s, color 0.14s, background 0.14s; }
 .cc-user-link:hover { border-color: var(--cc-text-4); background: var(--cc-soft); color: var(--cc-text); }
 .cc-user-link svg { width: 14px; height: 14px; stroke-width: 1.7; }
+.cc-logout-button { cursor: pointer; transition: border-color 0.14s, color 0.14s, background 0.14s, opacity 0.14s; }
+.cc-logout-button:hover:not(:disabled) { border-color: var(--cc-text-4); background: var(--cc-soft); color: var(--cc-text); }
+.cc-logout-button:disabled { cursor: wait; opacity: 0.68; }
+.cc-logout-button svg { width: 14px; height: 14px; stroke-width: 1.7; }
+.cc-logout-button.is-pending svg { animation: cc-logout-pulse 0.8s ease-in-out infinite alternate; }
+.cc-logout-error { position: absolute; top: calc(100% + 8px); right: var(--cc-gutter); z-index: 2; padding: 7px 10px; border: 1px solid #b91c1c; border-radius: 8px; background: #7f1d1d; color: #fff; box-shadow: var(--cc-shadow-raised); font-size: 12px; line-height: 1.4; }
+@keyframes cc-logout-pulse { to { opacity: 0.35; } }
 .cc-scrim { position: fixed; inset: 0; z-index: 65; border: 0; background: var(--cc-scrim); cursor: default; }
 .cc-scrim.is-navigation { z-index: 75; }
 
@@ -232,4 +241,11 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
   .cc-balance-placeholder,
   .cc-user-link span { display: none; }
   .cc-user-link { width: 36px; justify-content: center; padding: 0; }
+}
+
+@media (max-width: 430px) {
+  .cc-topbar { gap: 8px; }
+  .cc-top-actions { gap: 6px; }
+  .cc-logout-button { width: 36px; justify-content: center; padding: 0; }
+  .cc-logout-button span { display: none; }
 }

@@ -34,12 +34,12 @@ previous release record or dashboard observation is not current proof.
 | Binding name | Required proof |
 | --- | --- |
 | `CANDIDATE_BUNDLE_MANIFEST_SHA256` | Two independent assemblies have identical manifests; the retained manifest hash and inventory validate. |
-| `CANDIDATE_AUTH_BUNDLE_SHA256` | Compiled auth entrypoint, runtime files, package manifests, and migrations 001-014 match inventory. |
+| `CANDIDATE_AUTH_BUNDLE_SHA256` | Compiled auth entrypoint, runtime files, package manifests, and migrations 001-015 match inventory. |
 | `CANDIDATE_WEBSITE_BUNDLE_SHA256` | Website `dist` and entrypoint match the same candidate inventory. |
 | `AUTH_RUNTIME_DEPENDENCY_PROOF` | Prebuilt dependency layer matches the candidate lockfile, Node version, OS/architecture/libc, and native-module ABI; it is ready before the window and is not stored in the bundle. |
 | `ROLLBACK_AUTH_BUNDLE_SHA256` | Old auth artifact hash matches the old source SHA and accepts the rollback schema boundary. |
 | `ROLLBACK_WEBSITE_BUNDLE_SHA256` | Old website artifact hash belongs to the same rollback release as old auth. |
-| `ROLLBACK_SOURCE_SCHEMA_PROOF` | Old auth and the verified database snapshot are compatible with continuous migrations 001-013. |
+| `ROLLBACK_SOURCE_SCHEMA_PROOF` | Old auth and the verified database snapshot are compatible with continuous migrations 001-014. |
 | `CONSOLIDATED_RELEASE_ATOMIC_POINTER` | One versioned release root contains auth and website; one atomic pointer selects them together. |
 | `AUTH_ATOMIC_POINTER_SWITCH` | Auth resolves through the consolidated pointer and cannot independently select a mixed release. |
 | `WEBSITE_ATOMIC_POINTER_SWITCH` | Website resolves through the same consolidated pointer and cannot independently select a mixed release. |
@@ -53,7 +53,7 @@ previous release record or dashboard observation is not current proof.
 | `DATABASE_WRITER_ZERO_PROOF` | After PID absence, a fail-closed inventory proves no request, payment, mail, maintenance, or writable-descriptor process can write the database. |
 | `DATABASE_SCHEMA_AND_INTEGRITY_PROOF` | Journal mode, quick check, foreign keys, owner/mode, capacity, and continuous applied prefix are observed read-only. |
 | `SQLITE_BACKUP_DESTINATION` | New non-existing destination, capacity, owner, retention, restore command, and cleanup owner are approved. |
-| `SQLITE_BACKUP_SHA256_PROOF` | Snapshot mode 0600, bytes, SHA-256, quick check, foreign keys, and boundary 001-013 independently verify. |
+| `SQLITE_BACKUP_SHA256_PROOF` | Snapshot mode 0600, bytes, SHA-256, quick check, foreign keys, and boundary 001-014 independently verify. |
 | `POST_SNAPSHOT_WRITE_PROOF` | Closed-ingress continuity and writer observations prove whether any post-snapshot write occurred. |
 | `DATABASE_RESTORE_DEADLINE` | Owner can determine before normal worker startup whether restore eligibility remains open. |
 
@@ -62,11 +62,87 @@ previous release record or dashboard observation is not current proof.
 | Binding name | Required proof |
 | --- | --- |
 | `QUIESCENT_FEATURE_FLAG_PROOF` | Candidate starts with payment, mail dispatch, and registration disabled and monitor origin absent; values are checked without printing them. |
-| `QUIESCENT_HEALTH_PROOF` | Exact candidate, loopback health, schema 001-014, database integrity, static website, manifest, and closed ingress pass without business requests. |
+| `QUIESCENT_HEALTH_PROOF` | Exact candidate, loopback health, schema 001-015, database integrity, static website, manifest, and closed ingress pass without business requests. |
 | `NORMAL_FEATURE_FLAG_PROOF` | Included/excluded registration, payment, mail, public monitor, and monitor-linked fulfillment capabilities have separate acceptance. |
 | `NORMAL_WORKER_READINESS_PROOF` | Payment expiry and mail dispatch each have an approved readiness check beyond generic health; external side effects remain within release authority. |
 | `HEALTH_OBSERVATION_PROOF` | Exact loopback URL/body, candidate PID, observation interval, and failure threshold are frozen. |
 | `CREDENTIAL_INJECTION_PROOF` | Credential source, ownership, readability, rotation owner, and non-logging behavior are validated without recording values. |
+
+## Runtime configuration key-name inventory
+
+This inventory records names and classifications only. Values, credential
+bodies, source locations, and production bindings are forbidden here and remain
+only in the separately authorized external release record and credential source.
+It records the accepted inventory of 62 unique tuples with fingerprint
+`bfc8fecc287438a3958f01cb6f7933697e59a8af713435a4f3f936cfcd464705`.
+That fingerprint is derived from lexicographically sorted UTF-8 LF tuples plus
+the final LF; every tuple contains only key, phase, exposure, requiredness, and
+relevance--never a value.
+
+### Required Auth runtime environment keys
+
+| Key name | Classification |
+| --- | --- |
+| `CREDENTIALS_DIRECTORY` | Required in normal runtime. |
+| `DB_PATH` | Required in normal runtime. |
+| `HOST` | Required in normal runtime. |
+| `MAIL_DISPATCH_ENABLED` | Required in normal runtime. |
+| `NODE_ENV` | Required in normal runtime. |
+| `PAYMENT_ENABLED` | Required in normal runtime. |
+| `PORT` | Required in normal runtime. |
+| `REGISTRATION_ENABLED` | Required in normal runtime. |
+
+### Conditional payment and mail environment keys
+
+| Key name | Classification |
+| --- | --- |
+| `ALIPAY_APP_ID` | Conditional payment runtime key. |
+| `ALIPAY_ENVIRONMENT` | Conditional payment runtime key. |
+| `ALIPAY_NOTIFY_URL` | Conditional payment runtime key. |
+| `ALIPAY_PRIVATE_KEY_FILE` | Conditional payment runtime key. |
+| `ALIPAY_PRIVATE_KEY_TYPE` | Conditional payment runtime key. |
+| `ALIPAY_PUBLIC_KEY_FILE` | Conditional payment runtime key. |
+| `ALIPAY_RETURN_URL` | Conditional payment runtime key. |
+| `ALIPAY_SELLER_ID` | Conditional payment runtime key. |
+| `MAIL_DISPATCH_INTERVAL_MS` | Conditional mail runtime key. |
+| `MAIL_DISPATCH_LEASE_MS` | Conditional mail runtime key. |
+| `MAIL_DISPATCH_MAX_ATTEMPTS` | Conditional mail runtime key. |
+| `MAIL_DISPATCH_RETRY_DELAYS_MS` | Conditional mail runtime key. |
+| `RESEND_FROM_EMAIL` | Conditional mail runtime key. |
+| `RESEND_REQUEST_TIMEOUT_MS` | Conditional mail runtime key. |
+
+`MONITOR_API_ORIGIN` is optional but excluded from this release. It must be
+omitted in quiescent mode and must not be introduced as a plain-origin bypass.
+Monitor Auth Projection remains excluded.
+
+### Credential logical filenames
+
+| Logical name | Classification |
+| --- | --- |
+| `csrf_signing_key` | Required credential logical name. |
+| `invite_hmac_keyring` | Required credential logical name. |
+| `mail_payload_enc_keyring` | Required credential logical name. |
+| `rate_limit_key` | Required credential logical name. |
+| `token_hmac_keyring` | Required credential logical name. |
+| `delivery_payload_enc_keyring` | Conditional credential logical name. |
+| `resend_api_key` | Conditional credential logical name. |
+
+### Public website build key
+
+`VITE_MONITOR_URL` is a website-build, browser-exposed, public, optional, and
+conditional key. It has no literal default. A missing or malformed key preserves
+the current unconfigured fail-closed display. It is distinct from
+`MONITOR_API_ORIGIN`; active website/README guidance may be referenced without
+changing either classification.
+
+Proof is valid only when the exact key set and classifications match the
+accepted inventory: required members are explicitly supplied and verified;
+conditional groups exist only for separately approved enabled features; and
+credential-source ownership, readability, and non-logging are proven without
+outputting values. Server-only secrets must not appear in any `VITE_` or browser
+output. CI, tooling, and test keys are not production runtime bindings. An
+unknown, stale, missing, or extra key, or any value disclosure, stops the
+release.
 
 ## Website and Nginx
 
@@ -80,6 +156,19 @@ previous release record or dashboard observation is not current proof.
 | `NGINX_ATOMIC_SWITCH_AND_ROLLBACK` | Closed/open roots are installed atomically with a pre-tested rollback command and exact active-root proof. |
 | `CLOSED_TRAFFIC_PROBE_PROOF` | Bare/www and every approved alternate ingress return only the expected 503 for safe representative methods. |
 | `OPEN_TRAFFIC_PROBE_PROOF` | Canonical site, bare redirect, API proxy, SPA fallback, headers, and absence of closed/bypass servers pass. |
+| `OPEN_CANONICAL_HOST` | Exact canonical host is bound externally and matches the rendered canonical HTTP and HTTPS ownership. |
+| `OPEN_BARE_HOST` | Exact bare host is bound externally and matches the rendered bare HTTP and HTTPS redirect ownership. |
+| `OPEN_CANDIDATE_WEBSITE_ROOT` | Exact candidate website root is bound externally and resolves to the verified website inventory. |
+| `OPEN_API_UPSTREAM` | Exact `/api` upstream is bound externally; scheme, address, port, and any path semantics are approved as one value. |
+| `OPEN_TLS_BINDING` | Existing TLS directive ownership for both HTTPS servers is identified and verified without recording certificate paths or material. |
+| `OPEN_CSP_CONNECT_ALLOWLIST` | Complete approved `connect-src` sources are bound explicitly; monitor and payment origins are never inferred. |
+| `OPEN_CSP_FRAME_ALLOWLIST` | Complete approved `frame-src` sources are bound explicitly and remain distinct from the embedding policy. |
+| `OPEN_FRAMING_POLICY` | Approved embedding policy, `frame-ancestors`, and X-Frame-Options directive are mutually consistent. |
+| `OPEN_HSTS_OWNER_AND_VALUE` | HTTPS-only HSTS owner and exact policy value are bound and validated after rendering. |
+| `OPEN_COMPRESSION_OWNER` | Exactly one compression owner, its target-bound module/algorithm, and its `Vary: Accept-Encoding` duty are recorded. |
+| `ALTERNATE_INGRESS_OWNER_INVENTORY` | Target-side owner inventory covers every alternate load balancer, listener, hostname, port, proxy, and redirect; repository absence is not proof. |
+| `RENDERED_OPEN_CONFIG_SHA256` | Hash of the isolated, fully rendered open root that passed rendered-contract validation and `nginx -t`. |
+| `RENDERED_CLOSED_CONFIG_SHA256` | Hash of the isolated closed root that passed the authoritative closed validator and `nginx -t`. |
 
 ## Conditional monitor projection
 

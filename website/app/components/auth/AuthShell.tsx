@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { useThemePreference } from "../../lib/theme";
 import "./login.css";
 
@@ -39,15 +40,35 @@ export function AuthShell({
 
       <main className="auth-main">
         <div className={`auth-card${wide ? " is-wide" : ""}`}>
-          <div className="auth-brand" aria-label="Drink Life">
+          <Link className="auth-brand" to="/" aria-label="返回首页">
             <span className="auth-brand-mark" aria-hidden="true" />
-          </div>
+            <span className="auth-home-label">返回首页</span>
+          </Link>
 
           <h1>{title}</h1>
           <p className="auth-subtitle">{subtitle}</p>
 
           {children}
         </div>
+      </main>
+    </div>
+  );
+}
+
+export function AuthSessionChecking() {
+  const { theme } = useThemePreference();
+
+  return (
+    <div className="cc-shell cc-auth" data-theme={theme}>
+      <main className="auth-main">
+        <p
+          className="auth-session-status"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          正在确认登录状态…
+        </p>
       </main>
     </div>
   );

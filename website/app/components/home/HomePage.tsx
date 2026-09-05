@@ -134,23 +134,23 @@ const consoleViews: ConsoleView[] = [
   {
     id: "network",
     label: "网络状态",
-    caption: "广州电信 / 联通 / 移动，24 小时窗口",
+    caption: "网络状态待接入 · 非实时数据",
     kind: "latency",
     rows: ["广州电信", "广州联通", "广州移动"],
   },
   {
     id: "route",
     label: "线路质量",
-    caption: "去 / 回程逐跳 ASN 与反向解析，精品线路高亮",
+    caption: "已接入线路信息预览 · 非实时数据",
     kind: "route",
   },
   {
     id: "service",
     label: "服务管理",
-    caption: "服务、用量与系统状态",
+    caption: "已接入服务信息；用量与系统状态待接入",
     kind: "stats",
-    stats: ["运行中服务", "本月用量", "最近到期", "工单与告警"],
-    rows: ["运行时间", "内存", "存储"],
+    stats: ["已接入服务", "本月用量（待接入）", "最近到期", "工单与告警（待接入）"],
+    rows: ["运行时间（待接入）", "内存（待接入）", "存储（待接入）"],
   },
 ];
 
@@ -162,7 +162,7 @@ const chainSteps = [
   { code: "02", title: "判断", detail: "定位问题环节，给出是否需要更换的结论。" },
   { code: "03", title: "交付", detail: "按结论优化，或交付匹配业务的网络方案。" },
   { code: "04", title: "验收", detail: "以同一套检查维度复核交付结果。" },
-  { code: "05", title: "监控", detail: "交付后在客户中心持续观察环境状态。" },
+  { code: "05", title: "查看", detail: "交付后可在客户中心查看已接入的服务信息；状态与用量能力按接入结果显示。" },
 ] as const;
 
 const typeMeta: Record<string, { role: string; scene: string }> = {
@@ -463,7 +463,7 @@ function ConsoleShowcase() {
               ))}
             </div>
             <div className="home-preview-panel">
-              <b><em>SYSTEM</em>系统状态</b>
+              <b><em>SYSTEM</em>系统状态（待接入）</b>
               <div className="home-preview-rows">
                 {view.rows?.map((row) => (
                   <div key={row}><span>{row}</span><b>—</b></div>
@@ -473,7 +473,7 @@ function ConsoleShowcase() {
           </div>
         ) : null}
 
-        <p className="home-preview-note"><i aria-hidden="true" />{view.caption} · 数据接入后持续呈现</p>
+        <p className="home-preview-note"><i aria-hidden="true" />界面预览，非实时数据 · {view.caption}</p>
       </div>
     </div>
   );
@@ -723,10 +723,10 @@ export function HomePage() {
             <div className="home-section-head is-split">
               <div>
                 <p className="home-eyebrow"><i aria-hidden="true" />OBSERVABILITY</p>
-                <h2>交付不是终点，网络状态持续可见</h2>
+                <h2>交付后，已接入信息可在客户中心查看</h2>
                 <p className="home-section-lead">
-                  交付前可以判断与验收，交付后在客户中心持续观察网络状态、线路质量与服务用量。
-                  以下为客户中心界面预览，数据接入后在此持续呈现。
+                  交付后可在客户中心查看已接入的服务与线路信息。网络状态、系统状态与实际用量未接入时显示待接入，不作推测。
+                  以下为客户中心界面预览，非实时数据。
                 </p>
               </div>
               <span className="home-console-tag">CUSTOMER CENTER · PRODUCT PREVIEW</span>

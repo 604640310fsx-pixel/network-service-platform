@@ -93,6 +93,11 @@ export function SubscribePage() {
   const [initialSelection] = useState(() => parseSelectionParams(searchParams));
   const availability = usePlanAvailability();
   const selection = useSubscriptionSelection(initialSelection, availability.index ?? undefined);
+  const priceStatus = availability.loading
+    ? "价格加载中…"
+    : availability.error
+      ? "价格暂不可用，请稍后重试"
+      : null;
   const canRequest =
     !availability.loading &&
     !availability.error &&
@@ -185,7 +190,7 @@ export function SubscribePage() {
                       </>
                     )}
                     <span className="sub-solution-footer">
-                      <span><small>正式价格</small><b>{option.startingPrice === null ? "—" : `¥${option.startingPrice}`}<em>{option.startingPrice === null ? "待确认" : "/月"}</em></b></span>
+                      <span><small>正式价格</small><b>价格待确认</b></span>
                       <strong>{selected ? "当前方案" : "选择方案"}<i aria-hidden="true">→</i></strong>
                     </span>
                   </OptionCard>
@@ -209,7 +214,7 @@ export function SubscribePage() {
                   <span className="sub-region-main">
                     <span className="sub-option-head"><i className={`sub-flag is-${option.flagClass}`} aria-hidden="true" /><strong>{option.name}</strong></span>
                     <span className="sub-region-meta">
-                      {option.startingPrice !== undefined && option.startingPrice !== null ? <b>¥{option.startingPrice}<small> 起</small></b> : <small>价格待确认</small>}
+                      <small>价格待确认</small>
                       {option.badge && <i className={`sub-tag ${option.configured ? "is-accent" : ""}`}>{option.badge}</i>}
                     </span>
                   </span>
@@ -248,7 +253,7 @@ export function SubscribePage() {
               <div className="sub-grid sub-grid-three" role="radiogroup" aria-label="套餐规格">
                 {selection.availableSpecs.map((option) => (
                   <OptionCard key={option.id} selected={selection.specId === option.id} onSelect={() => selection.selectSpec(option.id)} label={option.name} className="sub-spec-option">
-                    <span className="sub-option-head"><strong>{option.name}</strong>{option.badge && <i className="sub-tag is-accent">{option.badge}</i>}<i className="sub-tag">{option.monthlyPrice === null ? "价格待确认" : `¥${option.monthlyPrice} / 月`}</i></span>
+                    <span className="sub-option-head"><strong>{option.name}</strong>{option.badge && <i className="sub-tag is-accent">{option.badge}</i>}<i className="sub-tag">价格待确认</i></span>
                     <span className="sub-features">{option.features.map((feature) => <span key={feature}>{feature}</span>)}</span>
                     <span className="sub-option-cta">{option.description}</span>
                   </OptionCard>
@@ -259,14 +264,13 @@ export function SubscribePage() {
 
           <section className="sub-section" id="sub-section-duration">
             <div className="sub-section-heading">
-              <div><span>{selection.requiresSpec ? "STEP 05" : "STEP 04"} · SERVICE TERM</span><h2>选择有效期</h2><p>价格由服务器实时核定；未提供价格或已停售/售罄的周期保持待确认。</p></div>
-              <small>
-                {availability.loading
-                  ? "价格加载中…"
-                  : availability.error
-                    ? "价格暂不可用，请稍后重试"
-                    : `${selection.availableDurations.length} 个期限`}
-              </small>
+              <div>
+                <span>{selection.requiresSpec ? "STEP 05" : "STEP 04"} · SERVICE TERM</span>
+                <h2>选择有效期</h2>
+                <p>价格由服务器实时核定；未提供价格或已停售/售罄的周期保持待确认。</p>
+                {priceStatus && <p className={`sub-price-status${availability.error ? " is-error" : ""}`} role={availability.error ? "alert" : "status"}>{priceStatus}</p>}
+              </div>
+              <small>{selection.availableDurations.length} 个期限</small>
             </div>
             {selection.canSelectDuration ? (
               <div className="sub-grid sub-grid-four" role="radiogroup" aria-label="购买有效期">

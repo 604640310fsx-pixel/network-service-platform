@@ -220,7 +220,7 @@ export function RegisterPage() {
                 placeholder="请输入邮件中的验证码"
                 value={verificationCode}
                 maxLength={6}
-                disabled={busy || phase === "not_started" || completed}
+                disabled={busy || phase !== "awaiting_verification"}
                 onChange={(event) => setVerificationCode(event.target.value)}
               />
             </div>

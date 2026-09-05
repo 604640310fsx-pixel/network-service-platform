@@ -13,8 +13,7 @@ import {
 import { planAvailabilityKey, type PlanAvailabilityIndex } from "./planAvailability";
 
 /* 单个五元组相对服务端权威可售状态的判定结果。"unknown" 表示未提供 availability
-   （调用方尚未拉取，或调用方本就不关心）——此时价格与既有目录逻辑完全一致，
-   不视为不可售。*/
+   （例如仍在加载或请求失败）；此时价格必须保持待确认，不能回退静态 catalog。 */
 export type DurationAvailabilityStatus = "unknown" | "available" | "sold_out" | "unavailable";
 
 /* 一组待校验的 catalog 选择 ID（可能为空 / 非法 / 不完整）。 */
@@ -63,9 +62,8 @@ export type ResolvedSelection = {
 
 /* 按 catalog 依赖链解析并校验一组 ID：type → region(configured) → isp → spec → duration。
    任一环无法在 catalog 中命中即视为该环未选中；summary.complete 只有全链有效才为 true。
-   availability 缺省（undefined）时价格与可售状态完全来自静态 catalog，行为与改动前逐字节一致；
-   传入服务端 availability index 后，每个 duration 的价格与可售状态改由服务端权威数据覆盖——
-   未命中或已停售/售罄一律不使用 catalog 价格，视为价格待确认，绝不用旧价格支持下单。 */
+   金额只来自服务端 availability 的精确五元组；availability 缺失、条目未命中、价格非法、
+   已停售或售罄时一律不使用静态 catalog 价格，也绝不用旧价格支持下单。 */
 export function resolveSelection(
   selection: CatalogSelection,
   availability?: PlanAvailabilityIndex,
@@ -91,9 +89,8 @@ export function resolveSelection(
   const durationPrices: Record<string, number | null> = {};
   const durationAvailability: Record<string, DurationAvailabilityStatus> = {};
   for (const duration of availableDurations) {
-    const catalogPrice = duration.price ?? selectedSpec?.pricesByDuration[duration.id] ?? null;
     if (!canLookupAvailability) {
-      durationPrices[duration.id] = catalogPrice;
+      durationPrices[duration.id] = null;
       durationAvailability[duration.id] = "unknown";
       continue;
     }
@@ -105,9 +102,12 @@ export function resolveSelection(
     } else if (plan.soldOut) {
       durationPrices[duration.id] = null;
       durationAvailability[duration.id] = "sold_out";
-    } else {
+    } else if (Number.isSafeInteger(plan.priceFen) && plan.priceFen > 0) {
       durationPrices[duration.id] = plan.priceFen / 100;
       durationAvailability[duration.id] = "available";
+    } else {
+      durationPrices[duration.id] = null;
+      durationAvailability[duration.id] = "unavailable";
     }
   }
 

@@ -13,11 +13,34 @@ export const RATE_LIMIT_KEYRING: RateLimitKeyring = {
   keys: { "1": Buffer.alloc(32, 0x61).toString("base64") },
 };
 
+export function diagnosisIdempotencyKey(sequence = 1): string {
+  if (!Number.isSafeInteger(sequence) || sequence < 0) {
+    throw new Error("diagnosis idempotency fixture sequence is invalid");
+  }
+  const suffix = sequence.toString(16).padStart(12, "0");
+  if (suffix.length !== 12) {
+    throw new Error("diagnosis idempotency fixture sequence is too large");
+  }
+  return `00000000-0000-4000-8000-${suffix}`;
+}
+
 export const PUBLIC_HEADERS = {
   origin: "http://localhost:5173",
   "content-type": "application/json",
   "x-requested-with": "XMLHttpRequest",
+  "Idempotency-Key": diagnosisIdempotencyKey(),
 } as const;
+
+export function publicHeaders(
+  sequence: number,
+  additional: Readonly<Record<string, string>> = {},
+): Record<string, string> {
+  return {
+    ...PUBLIC_HEADERS,
+    "Idempotency-Key": diagnosisIdempotencyKey(sequence),
+    ...additional,
+  };
+}
 
 export function publicBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {

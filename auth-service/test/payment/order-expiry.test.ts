@@ -23,6 +23,17 @@ import {
 
 const THIRTY_MINUTES_MS = 30 * 60 * 1_000;
 
+function deferred(): {
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+} {
+  let resolve!: () => void;
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 function createExpiredOrder(
   dependencies: ReturnType<typeof paymentDependencies>,
   createdMinutesAgo: number,
@@ -309,9 +320,84 @@ test("the in-process scheduler never overlaps two sweeps: a slow sweep in flight
     };
     const scheduler = startOrderExpirySweep({ ...dependencies, now: () => new Date(TEST_NOW) }, 40);
     await delay(500);
-    scheduler.stop();
+    await scheduler.stop();
     assert.equal(maxConcurrentRuns, 1, "a slower sweep must block subsequent ticks, never run concurrently");
     assert.ok(totalRuns >= 1);
+  });
+});
+
+test("scheduler stop is shared, prevents later sweeps, and drains an in-flight sweep before resource close", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const sdk = new FakeAlipaySdk();
+    const baseDependencies = paymentDependencies(database, sdk);
+    createExpiredOrder(baseDependencies, 40);
+
+    let sweepCount = 0;
+    const instrumentedDatabase = new Proxy(database, {
+      get(target, property, receiver) {
+        if (property === "prepare") {
+          return (source: string) => {
+            if (
+              source.includes("FROM payments") &&
+              source.includes("reserved_until < ?")
+            ) {
+              sweepCount += 1;
+            }
+            return target.prepare(source);
+          };
+        }
+        const value = Reflect.get(target, property, receiver) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const dependencies = {
+      ...baseDependencies,
+      database: instrumentedDatabase,
+      now: () => new Date(TEST_NOW),
+    };
+    const queryStarted = deferred();
+    const releaseQuery = deferred();
+    const originalExec = sdk.exec.bind(sdk);
+    sdk.exec = async (method, parameters, options) => {
+      if (method === "alipay.trade.query") {
+        queryStarted.resolve();
+        await releaseQuery.promise;
+      }
+      return originalExec(method, parameters, options);
+    };
+
+    const scheduler = startOrderExpirySweep(dependencies, 20);
+    await Promise.race([
+      queryStarted.promise,
+      delay(1_000).then(() => {
+        throw new Error("scheduler did not start the controlled sweep");
+      }),
+    ]);
+    assert.equal(sweepCount, 1);
+
+    const firstStop = scheduler.stop();
+    const concurrentStop = scheduler.stop();
+    assert.strictEqual(concurrentStop, firstStop);
+    let stopSettled = false;
+    let resourceClosed = false;
+    void firstStop.then(() => {
+      stopSettled = true;
+      resourceClosed = true;
+    });
+
+    await delay(60);
+    assert.equal(stopSettled, false);
+    assert.equal(resourceClosed, false);
+    assert.equal(sweepCount, 1, "ticks during the active sweep must be skipped");
+
+    releaseQuery.resolve();
+    await firstStop;
+    assert.equal(stopSettled, true);
+    assert.equal(resourceClosed, true);
+    assert.strictEqual(scheduler.stop(), firstStop);
+
+    await delay(80);
+    assert.equal(sweepCount, 1, "no sweep may start after the first stop call");
   });
 });
 

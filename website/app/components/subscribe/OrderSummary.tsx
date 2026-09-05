@@ -12,7 +12,9 @@ function value(value: string) {
 }
 
 export function OrderSummary({ summary, canRequest, drawer = false, onRequest }: OrderSummaryProps) {
-  const showListPrice = summary.total !== null && summary.listPrice !== null && summary.total < summary.listPrice;
+  const authoritativeTotal = summary.availability === "available" ? summary.total : null;
+  const showListPrice = authoritativeTotal !== null && summary.listPrice !== null && authoritativeTotal < summary.listPrice;
+  const priceLabel = authoritativeTotal === null ? "价格待确认" : `¥${authoritativeTotal}`;
   return (
     <div className={`sub-summary-card ${drawer ? "is-drawer" : ""}`}>
       <div className="sub-summary-head">
@@ -36,7 +38,7 @@ export function OrderSummary({ summary, canRequest, drawer = false, onRequest }:
         <span><small>CATALOG PRICE</small>目录价格</span>
         <div>
           <s>{showListPrice ? `¥${summary.listPrice}` : ""}</s>
-          <b>{summary.total === null ? "—" : `¥${summary.total}`}</b>
+          <b>{priceLabel}</b>
         </div>
       </div>
       <div className="sub-summary-pay">
