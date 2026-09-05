@@ -1,4 +1,9 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type {
+  FastifyError,
+  FastifyInstance,
+  FastifyReply,
+  FastifyRequest,
+} from "fastify";
 
 import { canonicalizeEmail } from "../auth/email.js";
 import { InvalidCredentialsError } from "../auth/authentication.js";
@@ -20,7 +25,13 @@ import {
   type SessionLookupDependencies,
 } from "../session/session-validity.js";
 import {
+  terminateCurrentWebSession,
+  type SessionTerminationDependencies,
+  type SessionTerminationResult,
+} from "../session/session-termination.js";
+import {
   readWebSessionCookie,
+  serializeExpiredWebSessionCookie,
   serializeWebSessionCookie,
 } from "./cookie.js";
 import { issueCsrfToken } from "./csrf.js";
@@ -71,6 +82,15 @@ type SessionLookupOperation = (
   dependencies?: SessionLookupDependencies,
 ) => AuthenticatedPrincipal | null;
 
+type SessionTerminationOperation = (
+  database: DatabaseConnection,
+  rawSessionToken: string,
+  candidateCsrfToken: unknown,
+  tokenHmacKeyring: TokenHmacKeyring,
+  csrfSigningKey: Buffer,
+  dependencies?: SessionTerminationDependencies,
+) => SessionTerminationResult;
+
 export interface AuthHttpDependencies {
   readonly database: DatabaseConnection;
   readonly nodeEnv: RuntimeEnvironment;
@@ -79,9 +99,11 @@ export interface AuthHttpDependencies {
   readonly csrfSigningKey: Buffer;
   readonly loginSessionDependencies?: LoginSessionDependencies;
   readonly sessionLookupDependencies?: SessionLookupDependencies;
+  readonly sessionTerminationDependencies?: SessionTerminationDependencies;
   readonly rateLimitDependencies?: LoginRateLimitDependencies;
   readonly loginOperation?: LoginOperation;
   readonly sessionLookupOperation?: SessionLookupOperation;
+  readonly sessionTerminationOperation?: SessionTerminationOperation;
 }
 
 const ERROR_RESPONSE_SCHEMA = {
@@ -133,6 +155,21 @@ const ME_SUCCESS_SCHEMA = {
   },
 } as const;
 
+const LOGOUT_BODY_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  maxProperties: 0,
+} as const;
+
+const LOGOUT_HEADERS_SCHEMA = {
+  type: "object",
+  required: ["content-type", "x-requested-with"],
+  properties: {
+    "content-type": { type: "string", const: "application/json" },
+    "x-requested-with": { type: "string", const: "XMLHttpRequest" },
+  },
+} as const;
+
 function errorBody(code: string): ErrorBody {
   return { error: { code } };
 }
@@ -155,6 +192,22 @@ function setNoStore(reply: FastifyReply): void {
   void reply.header("Cache-Control", "no-store");
 }
 
+async function logoutErrorHandler(
+  error: FastifyError,
+  _request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<FastifyReply> {
+  if (
+    error.validation !== undefined ||
+    error.statusCode === 400 ||
+    error.statusCode === 413 ||
+    error.statusCode === 415
+  ) {
+    return reply.code(400).send(errorBody("invalid_request"));
+  }
+  return reply.code(503).send(errorBody("auth_unavailable"));
+}
+
 export function registerAuthHttpRoutes(
   app: FastifyInstance,
   dependencies: AuthHttpDependencies,
@@ -162,6 +215,8 @@ export function registerAuthHttpRoutes(
   const loginOperation = dependencies.loginOperation ?? loginAndCreateSession;
   const sessionLookup =
     dependencies.sessionLookupOperation ?? lookupAuthenticatedPrincipal;
+  const sessionTermination =
+    dependencies.sessionTerminationOperation ?? terminateCurrentWebSession;
 
   app.post<{ Body: LoginBody; Reply: LoginSuccessBody | ErrorBody }>(
     "/api/auth/login",
@@ -232,6 +287,61 @@ export function registerAuthHttpRoutes(
         }
         return reply.code(503).send(errorBody("auth_unavailable"));
       }
+    },
+  );
+
+  app.post<{
+    Body: Record<string, never>;
+    Reply: LoginSuccessBody | ErrorBody;
+  }>(
+    "/api/auth/logout",
+    {
+      onRequest: async (_request, reply) => setNoStore(reply),
+      preValidation: async (request, reply) =>
+        requireLoginOrigin(request, reply, dependencies.nodeEnv),
+      errorHandler: logoutErrorHandler,
+      schema: {
+        headers: LOGOUT_HEADERS_SCHEMA,
+        body: LOGOUT_BODY_SCHEMA,
+        response: {
+          200: LOGIN_SUCCESS_SCHEMA,
+          400: ERROR_RESPONSE_SCHEMA,
+          403: ERROR_RESPONSE_SCHEMA,
+          503: ERROR_RESPONSE_SCHEMA,
+        },
+      },
+    },
+    async (request, reply) => {
+      const rawSessionToken = readWebSessionCookie(request.headers.cookie);
+      if (rawSessionToken === null) {
+        return reply
+          .header("Set-Cookie", serializeExpiredWebSessionCookie())
+          .code(200)
+          .send({ status: "ok" });
+      }
+
+      let result: SessionTerminationResult;
+      try {
+        result = sessionTermination(
+          dependencies.database,
+          rawSessionToken,
+          request.headers["x-csrf-token"],
+          dependencies.tokenHmacKeyring,
+          dependencies.csrfSigningKey,
+          dependencies.sessionTerminationDependencies,
+        );
+      } catch {
+        return reply.code(503).send(errorBody("auth_unavailable"));
+      }
+
+      if (result === "csrf_invalid") {
+        return reply.code(403).send(errorBody("csrf_invalid"));
+      }
+
+      return reply
+        .header("Set-Cookie", serializeExpiredWebSessionCookie())
+        .code(200)
+        .send({ status: "ok" });
     },
   );
 

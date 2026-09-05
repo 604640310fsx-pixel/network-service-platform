@@ -48,6 +48,13 @@ export const RELEASE_MIGRATIONS = Object.freeze([
   "012_commerce_plans_and_coupons.sql",
   "013_diagnosis_requests.sql",
   "014_service_delivery_monitor_target.sql",
+  "015_diagnosis_request_idempotency.sql",
+]);
+export const RELEASE_HTTP_CONTRACT_PATHS = Object.freeze([
+  "ops/nginx/release-traffic-open.conf.example",
+  "ops/nginx/bare-domain-redirect.conf.example",
+  "ops/nginx/release-traffic-closed.conf.example",
+  "scripts/ops/validate-release-open-http-contract.mjs",
 ]);
 
 const FILE_MAPPINGS = Object.freeze([
@@ -58,6 +65,22 @@ const FILE_MAPPINGS = Object.freeze([
   ["website/package.json", "website/package.json"],
   ["website/package-lock.json", "website/package-lock.json"],
   ["website/dist", "website/dist"],
+  [
+    "ops/nginx/release-traffic-open.conf.example",
+    "ops/nginx/release-traffic-open.conf.example",
+  ],
+  [
+    "ops/nginx/bare-domain-redirect.conf.example",
+    "ops/nginx/bare-domain-redirect.conf.example",
+  ],
+  [
+    "ops/nginx/release-traffic-closed.conf.example",
+    "ops/nginx/release-traffic-closed.conf.example",
+  ],
+  [
+    "scripts/ops/validate-release-open-http-contract.mjs",
+    "scripts/ops/validate-release-open-http-contract.mjs",
+  ],
 ]);
 
 const REQUIRED_PAYLOAD_PATHS = Object.freeze([
@@ -68,6 +91,7 @@ const REQUIRED_PAYLOAD_PATHS = Object.freeze([
   "website/dist/index.html",
   "website/package-lock.json",
   "website/package.json",
+  ...RELEASE_HTTP_CONTRACT_PATHS,
 ]);
 
 export class ReleaseAssemblyError extends Error {
@@ -495,7 +519,7 @@ function verifyMigrationInputs(source) {
   ) {
     throw new ReleaseAssemblyError(
       "SCHEMA_BOUNDARY_MISMATCH",
-      "migration inputs must be the exact frozen 001-014 sequence",
+      "migration inputs must be the exact frozen 001-015 sequence",
     );
   }
 }
@@ -555,7 +579,7 @@ export function assembleReleaseBundle({
     const manifest = {
       format: RELEASE_BUNDLE_FORMAT,
       sourceSha: sha,
-      schemaBoundary: { rollback: 13, candidate: 14 },
+      schemaBoundary: { rollback: 14, candidate: 15 },
       migrations: RELEASE_MIGRATIONS,
       entrypoints: {
         auth: "auth-service/dist/src/server.js",

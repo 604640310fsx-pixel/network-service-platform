@@ -106,13 +106,17 @@ function createBootstrapUser(database: DatabaseConnection): {
 
 test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", async () => {
   await withTemporaryDatabase((database) => {
+    assert.equal(
+      MIGRATION_FILES.at(-1),
+      "015_diagnosis_request_idempotency.sql",
+    );
     const migrationRows = database
       .prepare("SELECT version, applied_at FROM schema_migrations ORDER BY version")
       .all() as Array<{ readonly version: number; readonly applied_at: string }>;
 
     assert.deepEqual(
       migrationRows.map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
     );
     for (const row of migrationRows) {
       assert.match(row.applied_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
@@ -181,6 +185,7 @@ test("creates every frozen table and named index", async () => {
       "coupon_plans",
       "coupon_redemptions",
       "coupons",
+      "diagnosis_request_idempotency",
       "diagnosis_requests",
       "invite_code_redemptions",
       "invite_codes",
@@ -406,6 +411,10 @@ test("keeps token, OTP, invite, reset, and outbox storage boundaries", async () 
     const codes = columnNames(database, "sso_codes");
     const outbox = columnNames(database, "mail_outbox");
     const deliveryItems = columnNames(database, "service_delivery_items");
+    const diagnosisIdempotency = columnNames(
+      database,
+      "diagnosis_request_idempotency",
+    );
 
     assert.ok(users.includes("password_hash"));
     assert.ok(!users.includes("password"));
@@ -444,6 +453,11 @@ test("keeps token, OTP, invite, reset, and outbox storage boundaries", async () 
     }
     assert.ok(deliveryItems.includes("monitor_target_key"));
     assert.ok(!deliveryItems.includes("subscription_url"));
+    assert.deepEqual(diagnosisIdempotency, [
+      "idempotency_key",
+      "diagnosis_request_id",
+      "created_at",
+    ]);
   });
 });
 

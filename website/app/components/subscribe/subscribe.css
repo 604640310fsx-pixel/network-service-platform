@@ -33,6 +33,8 @@
 .sub-section-heading h2 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -0.015em; }
 .sub-section-heading h2 em { color: var(--cc-text-3); font-size: 12px; font-style: normal; font-weight: 450; letter-spacing: 0; }
 .sub-section-heading p { margin: 3px 0 0; color: var(--cc-text-3); font-size: 12.5px; }
+.sub-section-heading .sub-price-status { margin-top: 8px; color: var(--cc-text-2); font-weight: 600; }
+.sub-section-heading .sub-price-status.is-error { color: #f59e0b; }
 .sub-section-heading > small { flex: 0 0 auto; margin-top: 5px; padding: 3px 8px; border: 1px solid var(--cc-line); border-radius: 5px; background: var(--cc-inset); color: var(--cc-text-3); font-size: 10.5px; white-space: nowrap; }
 .sub-grid { display: grid; gap: 10px; }
 .sub-grid > * { min-width: 0; }

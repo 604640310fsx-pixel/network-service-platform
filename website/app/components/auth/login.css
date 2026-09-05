@@ -31,7 +31,9 @@
 /* 注册页字段更多，卡片略宽，仍保持单一视觉焦点。 */
 .auth-card.is-wide { flex-basis: 484px; padding: 32px 38px 34px; }
 
-.auth-brand { display: flex; align-items: center; margin-bottom: 24px; }
+.auth-brand { width: fit-content; display: flex; align-items: center; gap: 10px; margin-bottom: 24px; color: var(--cc-text-2); }
+.auth-brand:hover { color: var(--cc-text); }
+.auth-home-label { font-size: 13px; font-weight: 500; }
 /* 与首页 Header/Footer、客户中心侧栏同一份品牌图形（.home-brand-mark/.cc-brand-mark），
    单色 CSS mask，跟随 --cc-accent 主题色。 */
 .auth-brand-mark {
@@ -50,6 +52,7 @@
 
 .auth-card h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: 0.01em; }
 .auth-subtitle { margin: 7px 0 0; color: var(--cc-text-3); font-size: 13.5px; }
+.auth-session-status { margin: 0; padding: 12px 16px; border: 1px solid var(--cc-line); border-radius: 10px; background: var(--cc-panel); color: var(--cc-text-2); box-shadow: var(--cc-shadow-raised); font-size: 13.5px; }
 
 .auth-error { display: flex; align-items: flex-start; gap: 10px; margin-top: 20px; padding: 12px 14px; border: 1px solid var(--auth-danger-line); border-radius: 10px; background: var(--auth-danger-tint); color: var(--auth-danger); font-size: 13px; }
 .auth-error svg { width: 15px; height: 15px; flex: 0 0 15px; margin-top: 2px; stroke-width: 1.8; }

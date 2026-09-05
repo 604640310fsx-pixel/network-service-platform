@@ -12,9 +12,11 @@ import {
   DIAGNOSIS_NOW,
   PUBLIC_HEADERS,
   createSession,
+  diagnosisIdempotencyKey,
   diagnosisApp,
   firstNumber,
   publicBody,
+  publicHeaders,
 } from "./helpers.js";
 
 function submission(overrides: Record<string, unknown> = {}): DiagnosisSubmission {
@@ -51,7 +53,7 @@ test("public POST accepts complete and required-only requests with a minimal res
       const requiredOnly = await app.inject({
         method: "POST",
         url: "/api/diagnosis/requests",
-        headers: PUBLIC_HEADERS,
+        headers: publicHeaders(2),
         payload: publicBody({ contactValue: "second-contact" }),
       });
       assert.equal(requiredOnly.statusCode, 200);
@@ -85,6 +87,192 @@ test("public POST accepts complete and required-only requests with a minimal res
       assert.equal(firstNumber(database, "SELECT COUNT(*) FROM orders"), 0);
       assert.equal(firstNumber(database, "SELECT COUNT(*) FROM payments"), 0);
       assert.equal(firstNumber(database, "SELECT COUNT(*) FROM services"), 0);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+test("public POST requires one exact canonical lowercase UUID v4 header", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const app = diagnosisApp(database);
+    const baseHeaders = {
+      origin: PUBLIC_HEADERS.origin,
+      "content-type": PUBLIC_HEADERS["content-type"],
+      "x-requested-with": PUBLIC_HEADERS["x-requested-with"],
+    };
+    const valid = diagnosisIdempotencyKey(10);
+    const invalidHeaders: Array<Record<string, string | string[]>> = [
+      baseHeaders,
+      { ...baseHeaders, "Idempotency-Key": valid.toUpperCase() },
+      { ...baseHeaders, "Idempotency-Key": ` ${valid}` },
+      { ...baseHeaders, "Idempotency-Key": `${valid},${valid}` },
+      {
+        ...baseHeaders,
+        "Idempotency-Key": valid.replace("-4000-", "-5000-"),
+      },
+      {
+        ...baseHeaders,
+        "Idempotency-Key": valid.replace("-8000-", "-7000-"),
+      },
+      { ...baseHeaders, "Idempotency-Key": [valid, valid] },
+    ];
+
+    try {
+      for (const headers of invalidHeaders) {
+        const response = await app.inject({
+          method: "POST",
+          url: "/api/diagnosis/requests",
+          headers,
+          payload: publicBody(),
+        });
+        assert.equal(response.statusCode, 400);
+        assert.deepEqual(response.json(), {
+          error: { code: "idempotency_key_required" },
+        });
+        assert.equal(response.headers["cache-control"], "no-store");
+      }
+      assert.equal(firstNumber(database, "SELECT COUNT(*) FROM diagnosis_requests"), 0);
+      assert.equal(
+        firstNumber(
+          database,
+          "SELECT COUNT(*) FROM diagnosis_request_idempotency",
+        ),
+        0,
+      );
+      assert.equal(firstNumber(database, "SELECT COUNT(*) FROM rate_limit_buckets"), 0);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+test("public POST replays normalized content and rejects key conflicts without echo", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const app = diagnosisApp(database);
+    const headers = publicHeaders(20);
+    const firstPayload = publicBody({
+      contactValue: " safe-contact ",
+      targetRegion: " Example Region ",
+    });
+    const replayPayload = publicBody({
+      contactValue: "safe-contact",
+      targetRegion: "Example Region",
+    });
+    try {
+      const first = await app.inject({
+        method: "POST",
+        url: "/api/diagnosis/requests",
+        headers,
+        payload: firstPayload,
+      });
+      assert.equal(first.statusCode, 200);
+      assert.deepEqual(first.json(), { status: "ok" });
+
+      for (let delivery = 0; delivery < 6; delivery += 1) {
+        const replay = await app.inject({
+          method: "POST",
+          url: "/api/diagnosis/requests",
+          headers,
+          payload: replayPayload,
+        });
+        assert.equal(replay.statusCode, 200);
+        assert.deepEqual(replay.json(), { status: "ok" });
+        assert.equal(replay.headers["cache-control"], "no-store");
+      }
+
+      const conflict = await app.inject({
+        method: "POST",
+        url: "/api/diagnosis/requests",
+        headers,
+        payload: publicBody({
+          contactValue: "safe-contact",
+          targetRegion: "Different Region",
+        }),
+      });
+      assert.equal(conflict.statusCode, 409);
+      assert.deepEqual(conflict.json(), {
+        error: { code: "idempotency_key_conflict" },
+      });
+      assert.equal(conflict.headers["cache-control"], "no-store");
+      assert.equal(conflict.body.includes("safe-contact"), false);
+      assert.equal(
+        conflict.body.includes(diagnosisIdempotencyKey(20)),
+        false,
+      );
+      assert.equal(firstNumber(database, "SELECT COUNT(*) FROM diagnosis_requests"), 1);
+      assert.equal(
+        firstNumber(
+          database,
+          "SELECT COUNT(*) FROM diagnosis_request_idempotency",
+        ),
+        1,
+      );
+      assert.equal(
+        firstNumber(
+          database,
+          "SELECT COALESCE(SUM(count), 0) FROM rate_limit_buckets",
+        ),
+        1,
+      );
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+test("concurrent public replays and conflicts preserve one atomic submission", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const app = diagnosisApp(database);
+    try {
+      const sameResponses = await Promise.all(
+        Array.from({ length: 6 }, () =>
+          app.inject({
+            method: "POST",
+            url: "/api/diagnosis/requests",
+            headers: publicHeaders(30),
+            payload: publicBody({ contactValue: "concurrent-same" }),
+          }),
+        ),
+      );
+      assert.equal(
+        sameResponses.every((response) => response.statusCode === 200),
+        true,
+      );
+
+      const differentResponses = await Promise.all([
+        app.inject({
+          method: "POST",
+          url: "/api/diagnosis/requests",
+          headers: publicHeaders(31),
+          payload: publicBody({ contactValue: "concurrent-a" }),
+        }),
+        app.inject({
+          method: "POST",
+          url: "/api/diagnosis/requests",
+          headers: publicHeaders(31),
+          payload: publicBody({ contactValue: "concurrent-b" }),
+        }),
+      ]);
+      assert.deepEqual(
+        differentResponses.map((response) => response.statusCode).sort(),
+        [200, 409],
+      );
+      assert.equal(firstNumber(database, "SELECT COUNT(*) FROM diagnosis_requests"), 2);
+      assert.equal(
+        firstNumber(
+          database,
+          "SELECT COUNT(*) FROM diagnosis_request_idempotency",
+        ),
+        2,
+      );
+      assert.equal(
+        firstNumber(
+          database,
+          "SELECT COALESCE(SUM(count), 0) FROM rate_limit_buckets",
+        ),
+        2,
+      );
     } finally {
       await app.close();
     }
@@ -138,6 +326,7 @@ test("public POST enforces exact environment Origin, XHR, and JSON content type"
         headers: {
           origin: PUBLIC_HEADERS.origin,
           "content-type": "application/json",
+          "Idempotency-Key": diagnosisIdempotencyKey(2),
         },
         payload: publicBody(),
       });
@@ -151,6 +340,7 @@ test("public POST enforces exact environment Origin, XHR, and JSON content type"
           origin: PUBLIC_HEADERS.origin,
           "content-type": "text/plain",
           "x-requested-with": "XMLHttpRequest",
+          "Idempotency-Key": diagnosisIdempotencyKey(3),
         },
         payload: JSON.stringify(publicBody()),
       });
@@ -262,7 +452,7 @@ test("public POST accepts every maximum boundary and rejects each overflow", asy
       const maximum = await app.inject({
         method: "POST",
         url: "/api/diagnosis/requests",
-        headers: PUBLIC_HEADERS,
+        headers: publicHeaders(2),
         payload: publicBody({
           contactValue: "x".repeat(200),
           targetRegion: "x".repeat(80),
@@ -336,23 +526,41 @@ test("public rate limit permits five submissions, rejects the sixth, and isolate
         const response = await app.inject({
           method: "POST",
           url: "/api/diagnosis/requests",
-          headers: { ...PUBLIC_HEADERS, "x-forwarded-for": "192.0.2.10" },
+          headers: publicHeaders(100 + count, {
+            "x-forwarded-for": "192.0.2.10",
+          }),
           payload: publicBody({ contactValue: `contact-${count}` }),
         });
         assert.equal(response.statusCode, 200);
       }
+      const replayAtLimit = await app.inject({
+        method: "POST",
+        url: "/api/diagnosis/requests",
+        headers: publicHeaders(100, { "x-forwarded-for": "192.0.2.10" }),
+        payload: publicBody({ contactValue: "contact-0" }),
+      });
+      assert.equal(replayAtLimit.statusCode, 200);
+      assert.deepEqual(replayAtLimit.json(), { status: "ok" });
+      assert.equal(
+        firstNumber(
+          database,
+          "SELECT COALESCE(SUM(count), 0) FROM rate_limit_buckets",
+        ),
+        5,
+      );
       const limited = await app.inject({
         method: "POST",
         url: "/api/diagnosis/requests",
-        headers: { ...PUBLIC_HEADERS, "x-forwarded-for": "192.0.2.10" },
+        headers: publicHeaders(105, { "x-forwarded-for": "192.0.2.10" }),
         payload: publicBody({ contactValue: "limited-contact" }),
       });
       assert.equal(limited.statusCode, 429);
       assert.deepEqual(limited.json(), { error: { code: "rate_limited" } });
+      assert.equal(limited.headers["cache-control"], "no-store");
       const otherIp = await app.inject({
         method: "POST",
         url: "/api/diagnosis/requests",
-        headers: { ...PUBLIC_HEADERS, "x-forwarded-for": "192.0.2.11" },
+        headers: publicHeaders(106, { "x-forwarded-for": "192.0.2.11" }),
         payload: publicBody({ contactValue: "other-contact" }),
       });
       assert.equal(otherIp.statusCode, 200);
@@ -383,7 +591,9 @@ test("IPv4-mapped IPv6 and canonical IPv4 share the diagnosis limit", async () =
         const response = await app.inject({
           method: "POST",
           url: "/api/diagnosis/requests",
-          headers: { ...PUBLIC_HEADERS, "x-forwarded-for": "192.0.2.30" },
+          headers: publicHeaders(200 + count, {
+            "x-forwarded-for": "192.0.2.30",
+          }),
           payload: publicBody({ contactValue: `mapped-${count}` }),
         });
         assert.equal(response.statusCode, 200);
@@ -391,7 +601,9 @@ test("IPv4-mapped IPv6 and canonical IPv4 share the diagnosis limit", async () =
       const response = await app.inject({
         method: "POST",
         url: "/api/diagnosis/requests",
-        headers: { ...PUBLIC_HEADERS, "x-forwarded-for": "::ffff:192.0.2.30" },
+        headers: publicHeaders(205, {
+          "x-forwarded-for": "::ffff:192.0.2.30",
+        }),
         payload: publicBody({ contactValue: "mapped-limit" }),
       });
       assert.equal(response.statusCode, 429);
@@ -429,6 +641,59 @@ test("public insert failure returns fail-closed 503 without echo or partial diag
       assert.equal(firstNumber(database, "SELECT COUNT(*) FROM orders"), 0);
       assert.equal(firstNumber(database, "SELECT COUNT(*) FROM payments"), 0);
       assert.equal(firstNumber(database, "SELECT COUNT(*) FROM services"), 0);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+test("public replay fails closed on a corrupt idempotency mapping without echo", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const app = diagnosisApp(database);
+    const headers = publicHeaders(300);
+    try {
+      const first = await app.inject({
+        method: "POST",
+        url: "/api/diagnosis/requests",
+        headers,
+        payload: publicBody({ contactValue: "private-replay-contact" }),
+      });
+      assert.equal(first.statusCode, 200);
+      database
+        .prepare("UPDATE diagnosis_request_idempotency SET created_at = ?")
+        .run("2026-08-21 00:00:00");
+
+      const replay = await app.inject({
+        method: "POST",
+        url: "/api/diagnosis/requests",
+        headers,
+        payload: publicBody({ contactValue: "private-replay-contact" }),
+      });
+      assert.equal(replay.statusCode, 503);
+      assert.deepEqual(replay.json(), {
+        error: { code: "diagnosis_unavailable" },
+      });
+      assert.equal(replay.headers["cache-control"], "no-store");
+      assert.equal(replay.body.includes("private-replay-contact"), false);
+      assert.equal(
+        replay.body.includes(diagnosisIdempotencyKey(300)),
+        false,
+      );
+      assert.equal(firstNumber(database, "SELECT COUNT(*) FROM diagnosis_requests"), 1);
+      assert.equal(
+        firstNumber(
+          database,
+          "SELECT COUNT(*) FROM diagnosis_request_idempotency",
+        ),
+        1,
+      );
+      assert.equal(
+        firstNumber(
+          database,
+          "SELECT COALESCE(SUM(count), 0) FROM rate_limit_buckets",
+        ),
+        1,
+      );
     } finally {
       await app.close();
     }

@@ -3,6 +3,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -25,7 +26,18 @@ type AuthContextValue = {
   readonly principal: AuthPrincipal | null;
   readonly csrfToken: string | null;
   readonly login: (email: string, password: string) => Promise<void>;
+  readonly logout: () => Promise<void>;
 };
+
+type AuthState = {
+  readonly status: AuthStatus;
+  readonly session: AuthSession | null;
+};
+
+type LogoutFetch = (
+  input: string,
+  init: RequestInit,
+) => Promise<Response>;
 
 type ErrorResponse = {
   readonly error: { readonly code: string };
@@ -51,6 +63,21 @@ function isLoginSuccess(value: unknown): value is { readonly status: "ok" } {
   return (
     typeof value === "object" &&
     value !== null &&
+    "status" in value &&
+    value.status === "ok"
+  );
+}
+
+function isExactLogoutSuccess(
+  value: unknown,
+): value is { readonly status: "ok" } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const keys = Object.keys(value);
+  return (
+    keys.length === 1 &&
+    keys[0] === "status" &&
     "status" in value &&
     value.status === "ok"
   );
@@ -113,6 +140,27 @@ async function requestSession(signal?: AbortSignal): Promise<AuthSession | null>
   };
 }
 
+export async function requestCurrentWebSessionLogout(
+  csrfToken: string,
+  fetchOperation: LogoutFetch = fetch,
+): Promise<void> {
+  const response = await fetchOperation("/api/auth/logout", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+      "X-CSRF-Token": csrfToken,
+    },
+    body: "{}",
+  });
+  const body = await readJson(response);
+  if (response.status !== 200 || !isExactLogoutSuccess(body)) {
+    throw new Error("Logout request failed");
+  }
+}
+
 function mapLoginFailure(status: number, body: unknown): LoginFailureCode {
   const code = isErrorResponse(body) ? body.error.code : null;
 
@@ -132,23 +180,27 @@ function mapLoginFailure(status: number, body: unknown): LoginFailureCode {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [status, setStatus] = useState<AuthStatus>("checking");
-  const [session, setSession] = useState<AuthSession | null>(null);
+  const [authState, setAuthState] = useState<AuthState>({
+    status: "checking",
+    session: null,
+  });
+  const logoutPromiseRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
 
     void requestSession(controller.signal)
       .then((currentSession) => {
-        setSession(currentSession);
-        setStatus(currentSession === null ? "unauthenticated" : "authenticated");
+        setAuthState({
+          status: currentSession === null ? "unauthenticated" : "authenticated",
+          session: currentSession,
+        });
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") {
           return;
         }
-        setSession(null);
-        setStatus("unauthenticated");
+        setAuthState({ status: "unauthenticated", session: null });
       });
 
     return () => controller.abort();
@@ -184,23 +236,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (authenticatedSession === null) {
         throw new Error("Session cookie was not accepted");
       }
-      setSession(authenticatedSession);
-      setStatus("authenticated");
+      setAuthState({ status: "authenticated", session: authenticatedSession });
     } catch {
-      setSession(null);
-      setStatus("unauthenticated");
+      setAuthState({ status: "unauthenticated", session: null });
       throw new LoginRequestError("auth_unavailable");
     }
   }
 
+  function logout(): Promise<void> {
+    if (logoutPromiseRef.current !== null) {
+      return logoutPromiseRef.current;
+    }
+    if (authState.status !== "authenticated" || authState.session === null) {
+      return Promise.reject(new Error("No authenticated Session"));
+    }
+
+    const operation = requestCurrentWebSessionLogout(
+      authState.session.csrfToken,
+    ).then(() => {
+      setAuthState({ status: "unauthenticated", session: null });
+    });
+    logoutPromiseRef.current = operation;
+    void operation.then(
+      () => {
+        if (logoutPromiseRef.current === operation) {
+          logoutPromiseRef.current = null;
+        }
+      },
+      () => {
+        if (logoutPromiseRef.current === operation) {
+          logoutPromiseRef.current = null;
+        }
+      },
+    );
+    return operation;
+  }
+
   const value = useMemo<AuthContextValue>(
     () => ({
-      status,
-      principal: session?.principal ?? null,
-      csrfToken: session?.csrfToken ?? null,
+      status: authState.status,
+      principal: authState.session?.principal ?? null,
+      csrfToken: authState.session?.csrfToken ?? null,
       login,
+      logout,
     }),
-    [session, status],
+    [authState],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

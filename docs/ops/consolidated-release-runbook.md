@@ -13,8 +13,8 @@ Frozen repository facts for `CONSOLIDATED-RELEASE-PACKET-HARDENING-01`:
 ```text
 IMPLEMENTATION_BASE_SHA: 7b79139133fe912088bfe3ae9e1321bb8bc379de
 IMPLEMENTATION_BASE_IS_RELEASE_CANDIDATE: NO
-PRE_RELEASE_SCHEMA_BOUNDARY: 13
-CANDIDATE_SCHEMA_BOUNDARY: 14
+PRE_RELEASE_SCHEMA_BOUNDARY: 14
+CANDIDATE_SCHEMA_BOUNDARY: 15
 ```
 
 The implementation base is only the starting point for this hardening change.
@@ -29,6 +29,41 @@ current proof in an external release record. The record may contain hashes,
 counts, timestamps, pass/fail results, and binding names. It must not contain
 secret values, customer rows, database contents, credential material, or
 private configuration bodies.
+
+## Runtime configuration inventory gate
+
+Before the pre-window artifact gate, an authorized operator uses only the
+separately authorized external binding record and credential source. Do not
+print, copy, or compare values. Record only redacted pass/fail results, counts,
+the accepted inventory fingerprint
+`bfc8fecc287438a3958f01cb6f7933697e59a8af713435a4f3f936cfcd464705`, and
+approved evidence references. The fingerprint represents 62 lexicographically
+sorted UTF-8 LF tuples with a final LF and contains no values.
+
+Compare names and classifications only, and keep these categories separate:
+
+- Auth runtime environment keys: required normal-runtime keys and conditional
+  payment/mail keys described in
+  [`consolidated-release-bindings.md`](consolidated-release-bindings.md).
+- Credential logical names: required and conditional names from the approved
+  credential source; source ownership, readability, and non-logging are proven
+  without emitting credential contents.
+- Public website build key: optional, conditional, browser-exposed
+  `VITE_MONITOR_URL`, which is distinct from the excluded
+  `MONITOR_API_ORIGIN` and has no literal default.
+
+In quiescent mode, require `PAYMENT_ENABLED`, `MAIL_DISPATCH_ENABLED`, and
+`REGISTRATION_ENABLED` to be explicitly disabled and require
+`MONITOR_API_ORIGIN` to be omitted. Normal-mode inclusions, values, and
+capabilities require their separately approved production binding record;
+required or conditional classification does not authorize supplying values,
+enabling features, contacting providers, or deploying. Also prove that
+server-only secrets are absent from the website bundle and any browser output.
+
+Stop the release on any missing, extra, unknown, or stale name; malformed
+required flag; unreadable credential; value leakage; classification or
+fingerprint mismatch; or any `MONITOR_API_ORIGIN` present in this release. Do
+not treat CI, tooling, or test keys as production runtime bindings.
 
 ## Pre-window artifact gate
 
@@ -89,7 +124,7 @@ in a separate decision. Before requesting a release window:
    unavailable metadata, altered archive, PR merge ref, failed run, or
    environment-only provenance fails closed.
 4. The bundle retains the repository-relative auth runtime layout, including
-   compiled `auth-service/dist/src`, package manifests, migrations 001-014, and
+   compiled `auth-service/dist/src`, package manifests, migrations 001-015, and
    `website/dist`. It excludes dependency directories, environment files,
    credentials, private keys, databases, and files outside the explicit release
    inputs. Bind its verified manifest and auth/website inventory hashes.
@@ -114,6 +149,37 @@ configuration test stops the release before traffic changes.
 
 ## Nginx invariants
 
+The repository carries three candidate fragments and one validator in the
+release inventory: the value-free open template, the value-free bare redirect
+template, the existing closed candidate, and
+`scripts/ops/validate-release-open-http-contract.mjs`. A repository template is
+not a target-rendered configuration. It cannot pass `nginx -t`, must not be
+installed, and contains no target hostname, website root, upstream, TLS path,
+CSP origin, framing choice, HSTS value, or compression choice. Rendering occurs
+only in a separately authorized target record. Every token must be resolved,
+the caller-provided non-secret metadata must match, and only then may the
+isolated rendered validator and later target gates run.
+
+The exact repository placeholder inventory is:
+
+| Placeholder | Open template | Bare template | Total |
+| --- | ---: | ---: | ---: |
+| `__OPEN_CANONICAL_HOST__` | 3 | 2 | 5 |
+| `__OPEN_BARE_HOST__` | 0 | 2 | 2 |
+| `__OPEN_CANDIDATE_WEBSITE_ROOT__` | 1 | 0 | 1 |
+| `__OPEN_API_UPSTREAM__` | 2 | 0 | 2 |
+| `__OPEN_EXISTING_TLS_DIRECTIVES__` | 1 | 1 | 2 |
+| `__OPEN_CSP_POLICY__` | 1 | 0 | 1 |
+| `__OPEN_X_FRAME_OPTIONS_DIRECTIVE__` | 1 | 0 | 1 |
+| `__OPEN_HSTS_DIRECTIVE__` | 1 | 1 | 2 |
+| `__OPEN_COMPRESSION_DIRECTIVES__` | 1 | 0 | 1 |
+
+An unknown, missing, excess, or unresolved token is a hard failure. A concrete
+host, root, upstream, TLS/certificate path, credential, wildcard origin, or
+unsafe CSP source in a repository template is also a hard failure. The bundle
+contains only the templates and validator, never a rendered configuration, TLS
+material, environment file, credential, or production path.
+
 `CLOSED_NGINX_INVARIANT` starts from
 `ops/nginx/release-traffic-closed.conf.example` and requires a complete
 replacement of every public and alternate ingress for both approved hostnames
@@ -124,14 +190,55 @@ redirect, application route, or second server that can accept the same names.
 The internal loopback health endpoint is outside this public gate.
 
 `OPEN_NGINX_INVARIANT` requires the approved website root from the same
-candidate bundle, BrowserRouter fallback to `index.html`, the exact approved
-`/api` upstream, existing TLS material, security headers, and the bare-domain
-308 redirect to the canonical www origin. It must contain no release-closed 503
-server and no alternate ingress that bypasses the approved application path.
+candidate bundle, extensionless BrowserRouter fallback to exact `index.html`,
+the exact approved `/api` upstream, existing TLS material, security headers,
+and the bare-domain 308 redirect to the canonical origin. The bare fragment is
+the sole owner of bare HTTP and HTTPS. The full open template is the sole owner
+of canonical HTTP-to-HTTPS redirect and canonical HTTPS application service;
+the two fragments may not duplicate host/listener ownership. The open root must
+contain no release-closed 503 or `Retry-After`, and it must have no alternate
+ingress that bypasses the approved application path. Alternate-ingress absence
+is target evidence, never a repository assumption.
+
+Exact `/api` and the `^~ /api/` prefix outrank every static and SPA location.
+They disable proxy caching and error interception and do not hide upstream
+`Content-Type`, `Content-Encoding`, `Vary`, or `Cache-Control`; an API status or
+body is never converted into SPA HTML. Existing static files resolve under the
+bound candidate root. Missing `/assets` files and missing file-like paths return
+404 and never reach `index.html`; only extensionless navigation may use the SPA
+fallback. Directory listing and `alias` are forbidden.
+
+Cache ownership is explicit: `index.html` and SPA fallback use fail-safe
+revalidation/no-store; only names matching the validator-frozen hashed
+`/assets` pattern receive exactly one immutable year; non-hashed assets
+revalidate; API cache headers remain upstream-owned. Security headers apply
+with `always` without location-level `add_header` inheritance loss. The rendered
+canonical HTTPS server must use production MIME mapping plus
+`application/octet-stream`, `nosniff`, strict-origin-when-cross-origin referrer
+policy, conservative camera/microphone/geolocation/payment/USB denial, and a
+complete CSP containing all frozen directives. CSP wildcard origins,
+`unsafe-eval`, script `data:`, and unbound monitor/payment origins are forbidden.
+The rendered framing marker, X-Frame-Options, and `frame-ancestors` must agree.
+HSTS is HTTPS-only and target-bound. Compression has one target-bound owner,
+never rewrites upstream content encoding, and owns `Vary: Accept-Encoding`.
 
 The active parsed topology, four host/scheme probes, representative safe
 methods, and configuration hash must prove the selected invariant. A listener
 alone is not proof.
+
+The future target proof matrix is mandatory and remains `UNVERIFIED` in this
+repository task:
+
+| Proof | Required result |
+| --- | --- |
+| Isolated rendered validator | Open, bare, and closed inputs match all externally bound metadata; no token remains. |
+| `nginx -t` | Complete isolated open and closed roots both pass on the bound target runtime. |
+| Four host/scheme probes | Bare HTTP, bare HTTPS, canonical HTTP, and canonical HTTPS each reach exactly their owned redirect or application behavior. |
+| Canonical deep link | An extensionless client route returns revalidating/no-store `index.html` with security headers. |
+| Missing static | Missing `/assets` and representative file-like requests return 404, never SPA HTML. |
+| API non-HTML error | Representative safe API failure preserves upstream status, body, MIME, encoding, Vary, and cache headers. |
+| Header matrix | HTML, hashed assets, non-hashed assets, API success/error, and static 404 responses satisfy cache, MIME, security, CSP, framing, HSTS, compression, and Vary ownership. |
+| Alternate-ingress bypass | Bound owner/inventory plus safe probes prove no second ingress bypasses the selected open or closed root. |
 
 ## Read-only execution preflight
 
@@ -144,7 +251,7 @@ following from the bound target:
   ABI without an install during the release switch;
 - the current auth/website artifacts and schema boundary match the rollback
   record;
-- `schema_migrations` is the continuous prefix 001-013, journal mode and
+- `schema_migrations` is the continuous prefix 001-014, journal mode and
   integrity checks pass, and the database owner/mode are the approved values;
 - the exact application PID, every background writer, alternate ingress, and
   active Nginx topology are discoverable without printing sensitive values;
@@ -155,7 +262,7 @@ following from the bound target:
 - the closed and open configurations still pass isolated validation;
 - feature inclusion and normal worker readiness checks are frozen.
 
-Unexpected SHA, schema other than 001-013, unknown writer, partial artifact,
+Unexpected SHA, schema other than 001-014, unknown writer, partial artifact,
 unresolved placeholder, missing proof, or changed binding is `DRIFT`. Stop
 before writes.
 
@@ -195,7 +302,7 @@ is still running.
 
 5. With ingress still closed and writers still zero, create the SQLite backup
    at a new destination. Verify owner-only mode, SHA-256, size, `quick_check`,
-   `foreign_key_check`, and continuous migrations through 013. Re-run the
+   `foreign_key_check`, and continuous migrations through 014. Re-run the
    source-independent verification using the recorded hash, then record:
 
    ```text
@@ -222,8 +329,8 @@ is still running.
    MONITOR_API_ORIGIN: OMITTED_IN_QUIESCENT_MODE
    ```
 
-   Startup may apply migration 014. Validate exact candidate identity, loopback
-   health, migration prefix 001-014, database integrity, static website files,
+   Startup may apply migration 015. Validate exact candidate identity, loopback
+   health, migration prefix 001-015, database integrity, static website files,
    the manifest inventory, and the still-closed ingress. Do not send a payment,
    email, order, registration, diagnosis, or other business request.
 
@@ -253,7 +360,7 @@ is still running.
    NORMAL_CANDIDATE: STARTED
    ```
 
-10. While ingress remains closed, validate health, schema 001-014, database
+10. While ingress remains closed, validate health, schema 001-015, database
     integrity, auth and website artifact hashes, worker-specific readiness, and
     all approved non-business probes. Payment expiry and mail dispatch are not
     considered ready merely because `/health` succeeds. Repeat closed topology
@@ -274,7 +381,7 @@ is still running.
 
 If normal startup or worker readiness fails after restore eligibility ended,
 keep ingress closed and use a separately approved forward fix. Do not restore
-the pre-014 database.
+the pre-015 database.
 
 ## Rollback while restore remains eligible
 
@@ -283,10 +390,10 @@ Rollback is a matched database-and-artifact operation:
 1. Keep every ingress closed; stop the quiescent candidate and prove its PID is
    absent and all database writers are zero.
 2. Reverify the backup mode, hash, size, integrity, foreign keys, and migration
-   boundary 001-013. Reprove that no post-snapshot write occurred and the
+   boundary 001-014. Reprove that no post-snapshot write occurred and the
    restore deadline has not passed.
-3. Restore the verified pre-014 snapshot using the separately authorized bound
-   command. Never open the old binary on a database containing migration 014.
+3. Restore the verified pre-015 snapshot using the separately authorized bound
+   command. Never open the old binary on a database containing migration 015.
 4. Atomically switch the single consolidated pointer to the matched rollback
    bundle containing both old auth and old website artifacts. Prove their hashes
    and old source SHA.
@@ -325,7 +432,7 @@ redacted evidence when any of these occurs:
 - quiescent payment/mail/registration unexpectedly enabled;
 - normal worker readiness not independently proven;
 - an open or closed ingress invariant fails on any path;
-- rollback artifacts do not match the pre-014 database;
+- rollback artifacts do not match the pre-015 database;
 - database restore is proposed after eligibility ended;
 - monitor-linked fulfillment is requested without the accepted private mTLS
   projection;
