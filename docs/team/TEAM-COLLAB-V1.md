@@ -110,23 +110,32 @@ Handoff 的 mandatory core：
 
 每次 handoff 先由原作者停止写入并记录真实剩余责任，再由执行主管显式转移所有权；接手者复核全部 mandatory core 和 Packet 条件证据后才可进入 `IN_PROGRESS`。base、范围、权限、作者或 worktree 不一致时保持 `BLOCKED`，不得通过 stash/reset/clean/覆盖来接手。
 
-## 7. 短核心报告与条件证据
+## 7. 材料事件报告与条件证据
 
-每次 checkpoint、结果或 PR 更新先给轻量核心：
+执行主管是执行器的唯一日常跟进者；项目经理不得与主管并行轮询、重复 readback 或持续跟进同一执行器。主管必须向项目经理报告主要工作，但报告由材料事件触发，不按 timer、heartbeat 或“仍在运行”状态触发：
+
+- `DISPATCH_ACK`：只在实际创建任务或确认执行器收到任务后报告一次；包含 `TASK_ID`、executor/model、目标与范围、base/branch、`CURRENT_WRITER`，以及执行是否已经实际开始。
+- `MAJOR_PROGRESS`：只在出现材料性新证据时报告；包含当前状态、已完成的主要工作、精确新证据/版本、风险或未知和一个范围内下一动作。多阶段实施在真实实现 checkpoint 或重大验证里程碑后至少报告一次中点；不得发送 timer-only 更新。
+- `RESULT_LEVEL_HANDOFF`：主管完成结果级复核后报告一次；包含可供裁决的结果、精确 SHA/artifact、实际验证、安全收尾、剩余问题和一个下一授权或动作。
+- `ESCALATION`：只有确实需要项目经理/用户权限或关键决定时报告；包含影响、根因/证据、已尝试路径及结果、当前安全状态、建议和最小所需决定。
+
+完整 Task Packet 只在派发时发送一次。后续更新引用稳定 `TASK_ID`、精确 version/hash/PR/CI ID，并只报告材料增量；只有范围或权限真实改变时才重发完整 Packet。`DELTA_ONLY` 是报告方法，不表示旧线程上下文已被删除。没有新证据就不重复报告；禁止周期性轮询汇报、重复 readback 和反复重放完整历史。
+
+各事件的常用核心保持精简：
 
 ```yaml
 TASK_ID: <id>
-AUTHOR: <current-writer>
-CHANGED: [<what-changed>]
-NOT_CHANGED: [<explicit-boundaries>]
+STATUS: <state>
+MAJOR_WORK: <material-work-or-NONE>
 RESULT_VERSION: <exact-sha-or-approved-artifact-version/hash>
 ACTUAL_VALIDATIONS: [<method/result/version>]
-SAFE_CLOSEOUT: <worktree/user-change/sensitive-boundary result>
-REMAINING_ISSUE: <one-real-issue-or-NONE>
+RISKS_OR_UNKNOWNS: [<item-or-NONE>]
 NEXT_ACTION: <one-authorized-action-or-NONE>
 ```
 
-状态、base/branch、handoff、CI run/job ID、浏览器视口、主题、视觉偏差、迁移矩阵、外部状态、ledger、行数或其他字段只在当前 Packet、PR 或 handoff 确实要求时追加。条件证据仍必须使用真实的 `PASS/FAIL/NOT_RUN/N/A/UNVERIFIED`；required 项没有运行就是 `NOT_RUN` 或 `UNVERIFIED`，不得写成 `N/A`，也不得用重复 boilerplate 隐藏缺失项。
+原始命令、日志、失败、退出码和测试证据必须保留在获准的 task、PR、CI 或 evidence 位置，不得为节省 token 而删除或隐藏；主管摘要提供可复核的精确引用。项目经理只在最终/高风险验收或正式升级时读取必要证据。状态、base/branch、handoff、CI run/job ID、浏览器视口、主题、视觉偏差、迁移矩阵、外部状态、ledger、行数或其他字段只在当前 Packet、PR、具体事件或 handoff 确实要求时追加。
+
+条件证据仍必须使用真实的 `PASS/FAIL/NOT_RUN/N/A/UNVERIFIED`；required 项没有运行就是 `NOT_RUN` 或 `UNVERIFIED`，不得写成 `N/A`，也不得用重复 boilerplate 隐藏缺失项。token/成本只使用当前可见的完整任务证据；不可见或不完整时报告 `UNKNOWN`，不得推断单次调用成本、声称零成本或另建成本监控系统。
 
 ## 8. 问题闭环与升级
 
@@ -148,7 +157,7 @@ base/repository/作者漂移、范围外必需修改、依赖或 lockfile 未授
 
 ## 10. 自动化边界
 
-当前协议不引入 Skills、Node0 Dispatcher、第二套状态机、timer 变更或无人值守队列。未来自动化只能复用这些稳定接口：稳定 `TASK_ID`、单一写入者、状态与动作计数、绑定精确版本的 handoff、幂等去重和显式权限。
+当前协议不引入或声称 heartbeat、timer、event callback、Skills、Node0 Dispatcher、第二套状态机、timer 变更、后台唤醒或无人值守队列。材料事件报告只规定人工/现有任务链中的报告时机，不证明任何自动触发能力。未来自动化只能复用这些稳定接口：稳定 `TASK_ID`、单一写入者、状态与动作计数、绑定精确版本的 handoff、幂等去重和显式权限。
 
 已有 linkage 证据按稳定记录复用，不为证明同一结果而重跑。来源认证、S4 完整授权链和后台唤醒在没有独立证据时保持 `UNVERIFIED`，不得从行政绑定或历史结果推导已实现。
 
