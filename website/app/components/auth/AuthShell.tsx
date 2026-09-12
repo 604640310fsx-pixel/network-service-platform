@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useThemePreference } from "../../lib/theme";
 import "./login.css";
@@ -6,6 +6,18 @@ import "./login.css";
 /* 登录页与注册页共用的 Auth 外壳：主题切换条 + 居中卡片 + 品牌 + 标题。
    复用 .cc-shell 基座（令牌、字体、背景、滚动条、focus-visible），
    不新建第二套样式系统。 */
+
+const POST_LOGOUT_FOCUS_TARGET_ID = "auth-post-logout-focus";
+let postLogoutFocusRequested = false;
+
+export function requestPostLogoutFocus() {
+  postLogoutFocusRequested = true;
+  const mountedTarget = document.getElementById(POST_LOGOUT_FOCUS_TARGET_ID);
+  if (mountedTarget) {
+    mountedTarget.focus();
+    postLogoutFocusRequested = false;
+  }
+}
 
 export function AuthShell({
   title,
@@ -19,6 +31,13 @@ export function AuthShell({
   children: ReactNode;
 }) {
   const { theme, toggleTheme } = useThemePreference();
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    if (!postLogoutFocusRequested || !headingRef.current) return;
+    headingRef.current.focus();
+    postLogoutFocusRequested = false;
+  }, []);
 
   return (
     <div className="cc-shell cc-auth" data-theme={theme}>
@@ -45,7 +64,7 @@ export function AuthShell({
             <span className="auth-home-label">返回首页</span>
           </Link>
 
-          <h1>{title}</h1>
+          <h1 ref={headingRef} id={POST_LOGOUT_FOCUS_TARGET_ID} tabIndex={-1}>{title}</h1>
           <p className="auth-subtitle">{subtitle}</p>
 
           {children}

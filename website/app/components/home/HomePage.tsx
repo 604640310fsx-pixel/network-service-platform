@@ -487,7 +487,7 @@ export function HomePage() {
     <div className="cc-shell cc-home" data-theme={theme}>
       <SiteHeader theme={theme} onToggleTheme={toggleTheme} />
 
-      <main>
+      <main id="home-main" tabIndex={-1}>
         {/* ================= 01 HERO ================= */}
         <section className="home-hero">
           <div className="home-wrap home-hero-grid">

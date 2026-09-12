@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { networkTypes } from "../../lib/subscribeCatalog";
 import { parseSelectionParams, selectionToQuery, type CatalogSelection } from "../../lib/resolveSelection";
@@ -6,7 +6,7 @@ import { usePlanAvailability } from "../../lib/planAvailability";
 import { WorkbenchBanner } from "../WorkbenchBanner";
 import { useCustomerDrawer } from "../customer/CustomerCenterShell";
 import { MobileOrderBar } from "./MobileOrderBar";
-import { OptionCard } from "./OptionCard";
+import { getNextEnabledRadioIndex, getRovingRadioTabIndex, OptionCard } from "./OptionCard";
 import { OrderSummary } from "./OrderSummary";
 import { StepProgress } from "./StepProgress";
 import { useSubscriptionSelection } from "./useSubscriptionSelection";
@@ -74,6 +74,39 @@ const RESIDENTIAL_REGION_TAGS: Record<string, string[]> = {
   tw: ["AI 推荐", "社媒", "低延迟", "稳定"],
   us: ["AI 推荐", "社媒", "稳定"],
 };
+
+function optionTabIndex<T extends { id: string }>(
+  options: readonly T[],
+  selectedId: string | null,
+  optionId: string,
+  isDisabled?: (option: T) => boolean,
+): 0 | -1 {
+  const disabled = options.map((option) => isDisabled?.(option) ?? false);
+  return getRovingRadioTabIndex(
+    options.findIndex((option) => option.id === selectedId),
+    options.findIndex((option) => option.id === optionId),
+    disabled,
+  );
+}
+
+function handleRadioGroupKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+  const target = event.target;
+  if (!(target instanceof HTMLButtonElement) || target.getAttribute("role") !== "radio") return;
+
+  const radios = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="radio"]'));
+  const nextIndex = getNextEnabledRadioIndex(
+    radios.indexOf(target),
+    event.key,
+    radios.map((radio) => radio.disabled),
+  );
+  if (nextIndex === null) return;
+
+  const nextRadio = radios[nextIndex];
+  if (!nextRadio) return;
+  event.preventDefault();
+  nextRadio.click();
+  nextRadio.focus();
+}
 
 function SolutionIcon({ typeId }: { typeId: string }) {
   if (typeId === "us-local-carrier") {
@@ -162,12 +195,12 @@ export function SubscribePage() {
               <div><span>STEP 01 · NETWORK TYPE</span><h2>选择网络方案架构</h2><p>先确定接入网络的技术方向，再继续配置地区与运营商。</p></div>
               <small>三类方案</small>
             </div>
-            <div className="sub-grid sub-solution-grid" role="radiogroup" aria-label="网络类型">
+            <div className="sub-grid sub-solution-grid" role="radiogroup" aria-label="网络类型" onKeyDown={handleRadioGroupKeyDown}>
               {networkTypes.map((option) => {
                 const presentation = solutionPresentation[option.id];
                 const selected = selection.typeId === option.id;
                 return (
-                  <OptionCard key={option.id} selected={selected} onSelect={() => selection.selectType(option.id)} label={option.name} className="sub-type-option">
+                  <OptionCard key={option.id} selected={selected} onSelect={() => selection.selectType(option.id)} label={option.name} className="sub-type-option" tabIndex={optionTabIndex(networkTypes, selection.typeId, option.id)}>
                     <span className="sub-solution-top">
                       <span className="sub-solution-icon"><SolutionIcon typeId={option.id} /></span>
                       <span className="sub-solution-title"><small>{presentation.code}</small><strong>{option.name}</strong></span>
@@ -208,9 +241,10 @@ export function SubscribePage() {
               className={`sub-grid sub-grid-region${selection.typeId === "residential" ? " has-tags" : ""}`}
               role="radiogroup"
               aria-label="国家或地区"
+              onKeyDown={handleRadioGroupKeyDown}
             >
               {selection.availableRegions.map((option) => (
-                <OptionCard key={option.id} selected={selection.regionId === option.id} onSelect={() => selection.selectRegion(option.id)} label={option.name} className="sub-region-option">
+                <OptionCard key={option.id} selected={selection.regionId === option.id} onSelect={() => selection.selectRegion(option.id)} label={option.name} className="sub-region-option" tabIndex={optionTabIndex(selection.availableRegions, selection.regionId, option.id)}>
                   <span className="sub-region-main">
                     <span className="sub-option-head"><i className={`sub-flag is-${option.flagClass}`} aria-hidden="true" /><strong>{option.name}</strong></span>
                     <span className="sub-region-meta">
@@ -234,9 +268,9 @@ export function SubscribePage() {
               <small>{selection.availableIsps.length ? `${selection.availableIsps.length} 个可用项` : "待配置"}</small>
             </div>
             {selection.availableIsps.length ? (
-              <div className="sub-grid sub-isp-grid" role="radiogroup" aria-label="运营商">
+              <div className="sub-grid sub-isp-grid" role="radiogroup" aria-label="运营商" onKeyDown={handleRadioGroupKeyDown}>
                 {selection.availableIsps.map((option) => (
-                  <OptionCard key={option.id} selected={selection.ispId === option.id} onSelect={() => selection.selectIsp(option.id)} label={option.name} className="sub-isp-option">
+                  <OptionCard key={option.id} selected={selection.ispId === option.id} onSelect={() => selection.selectIsp(option.id)} label={option.name} className="sub-isp-option" tabIndex={optionTabIndex(selection.availableIsps, selection.ispId, option.id)}>
                     <span><strong>{option.name}</strong><small>{option.routeInfo ?? option.description}</small></span>
                   </OptionCard>
                 ))}
@@ -250,9 +284,9 @@ export function SubscribePage() {
               <small>{selection.availableSpecs.length ? `${selection.availableSpecs.length} 个规格` : "请先选择 ISP"}</small>
             </div>
             {selection.availableSpecs.length ? (
-              <div className="sub-grid sub-grid-three" role="radiogroup" aria-label="套餐规格">
+              <div className="sub-grid sub-grid-three" role="radiogroup" aria-label="套餐规格" onKeyDown={handleRadioGroupKeyDown}>
                 {selection.availableSpecs.map((option) => (
-                  <OptionCard key={option.id} selected={selection.specId === option.id} onSelect={() => selection.selectSpec(option.id)} label={option.name} className="sub-spec-option">
+                  <OptionCard key={option.id} selected={selection.specId === option.id} onSelect={() => selection.selectSpec(option.id)} label={option.name} className="sub-spec-option" tabIndex={optionTabIndex(selection.availableSpecs, selection.specId, option.id)}>
                     <span className="sub-option-head"><strong>{option.name}</strong>{option.badge && <i className="sub-tag is-accent">{option.badge}</i>}<i className="sub-tag">价格待确认</i></span>
                     <span className="sub-features">{option.features.map((feature) => <span key={feature}>{feature}</span>)}</span>
                     <span className="sub-option-cta">{option.description}</span>
@@ -273,13 +307,30 @@ export function SubscribePage() {
               <small>{selection.availableDurations.length} 个期限</small>
             </div>
             {selection.canSelectDuration ? (
-              <div className="sub-grid sub-grid-four" role="radiogroup" aria-label="购买有效期">
+              <div className="sub-grid sub-grid-four" role="radiogroup" aria-label="购买有效期" onKeyDown={handleRadioGroupKeyDown}>
                 {selection.availableDurations.map((option) => {
                   const total = selection.durationPrices[option.id] ?? null;
                   const status = selection.durationAvailability[option.id] ?? "unknown";
                   const statusLabel = status === "sold_out" ? "售罄" : status === "unavailable" ? "暂不可选" : null;
+                  const durationDisabled = status === "sold_out" || status === "unavailable";
                   return (
-                    <OptionCard key={option.id} selected={selection.durationId === option.id} onSelect={() => selection.selectDuration(option.id)} label={option.name} className="sub-duration-option">
+                    <OptionCard
+                      key={option.id}
+                      selected={selection.durationId === option.id}
+                      onSelect={() => selection.selectDuration(option.id)}
+                      label={option.name}
+                      className="sub-duration-option"
+                      disabled={durationDisabled}
+                      tabIndex={optionTabIndex(
+                        selection.availableDurations,
+                        selection.durationId,
+                        option.id,
+                        (duration) => {
+                          const durationStatus = selection.durationAvailability[duration.id] ?? "unknown";
+                          return durationStatus === "sold_out" || durationStatus === "unavailable";
+                        },
+                      )}
+                    >
                       <span className="sub-option-head">
                         <strong>{option.name}</strong>
                         {statusLabel ? <i className="sub-tag">{statusLabel}</i> : option.badge && <i className="sub-tag is-accent">{option.badge}</i>}

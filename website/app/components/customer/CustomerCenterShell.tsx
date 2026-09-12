@@ -16,6 +16,7 @@ import {
   createMonitorThemeMessage,
   monitorPostTargetOrigin,
 } from "../../lib/monitorEmbed";
+import { requestPostLogoutFocus } from "../auth/AuthShell";
 import "./customer-center.css";
 
 type DrawerKind = "navigation" | "order";
@@ -169,6 +170,7 @@ export function CustomerCenterShell({
     try {
       await logout();
       navigate("/login", { replace: true });
+      requestPostLogoutFocus();
     } catch {
       setLogoutFailed(true);
     } finally {
