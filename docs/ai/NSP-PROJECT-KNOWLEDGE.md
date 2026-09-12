@@ -24,6 +24,7 @@
 - `DURABLE_POLICY` — Claude Design/Code 作者差异：[`../../CLAUDE.md`](../../CLAUDE.md)
 - `MANUAL_APPLICATION_ARTIFACT` — ChatGPT 项目级常驻指令最终粘贴稿：[`PROJECT_INSTRUCTIONS_FINAL.txt`](PROJECT_INSTRUCTIONS_FINAL.txt)
 - `EVIDENCE_PROCEDURE` — 发布程序与绑定清单：[`../ops/consolidated-release-runbook.md`](../ops/consolidated-release-runbook.md)、[`../ops/consolidated-release-bindings.md`](../ops/consolidated-release-bindings.md)
+- `FROZEN_ARCHITECTURE` — 登录客户监控状态的唯一 target-free Auth 投影契约：[`../architecture/MONITOR-AUTH-PROJECTION-01.md`](../architecture/MONITOR-AUTH-PROJECTION-01.md)
 - `HISTORICAL_EVIDENCE` — 已被替代的 diagnosis intake runbook：[`../ops/diagnosis-intake-release-runbook.md`](../ops/diagnosis-intake-release-runbook.md)
 - `HISTORICAL_EVIDENCE` — [`../../NSP_Codex_Ultra_Master_Packet.md`](../../NSP_Codex_Ultra_Master_Packet.md) 仅是历史任务记录，绝不是当前 Master Packet、当前范围、当前作者或当前生产状态。
 
@@ -82,14 +83,15 @@
 website (React/Vite/TypeScript)
   |-- public /monitor -> monitoring gateway 的脱敏公开能力
   |-- authenticated product paths -> auth-service 的仓库接线路径
-  `-- /status -> MONITOR-AUTH-PROJECTION-01 未完成前保持待接入
+  `-- /status -> same-origin Auth monitor projection；浏览器不持有 target
 
 auth-service (Node/TypeScript/Fastify/SQLite)
-  `-- 与 website 一起进入 consolidated release tooling 的候选构建/验证范围
+  |-- web-session ownership -> paid/paid/open SQL selector
+  `-- dedicated auth_service mTLS client；与 website 一起进入候选构建/验证
 
 monitoring
-  |-- SQLite + 只读 dashboard + ICMP/TCP collector
-  `-- gateway -> 仓库内 public/private 边界实现；启动和外部绑定另需授权
+  |-- SQLite + 只读 dashboard + ICMP/TCP collector + fixed raw VPS reads
+  `-- gateway -> public_bff/auth_service path ACL + fresh strict projections
 
 ops/release tooling
   `-- 组装、校验、绑定证据和回滚程序；程序存在不等于获准发布
@@ -105,9 +107,9 @@ AI-team coordination
 
 | 模块 | `BASE_SHA` 仓库/证据状态 | 主要依赖或边界 | 证据 |
 | --- | --- | --- | --- |
-| Website | 客户后台与公开 monitor 代码、构建/测试命令存在；README 明确不等于生产部署或真实业务受理 | 公开 monitor 只用脱敏 origin；账户状态投影未完成时 fail closed | [`website/README.md`](../../website/README.md)、[`website/package.json`](../../website/package.json) |
-| Auth service | Node/TypeScript 服务及 build/test 定义存在；发布文档记录候选 Schema/运行门禁 | 与 website 的候选必须保持同一 release 身份；真实配置和数据库另有授权 | [`auth-service/package.json`](../../auth-service/package.json)、[binding checklist](../ops/consolidated-release-bindings.md) |
-| Monitoring | SQLite、只读面板和采集边界有仓库说明 | 公开 gateway 与私有 raw/账户投影分离；仓库实现不证明连接、证书或部署 | [`monitoring/README.md`](../../monitoring/README.md)、[`monitoring/gateway/README.md`](../../monitoring/gateway/README.md) |
+| Website | 客户后台、公开 monitor 与 target-free `/status` Auth 投影客户端代码和验证命令存在 | `/status` 只读同源 endpoint；严格 body/schema/error/no-store，无 public/Mock fallback | [`website/README.md`](../../website/README.md)、[`website/package.json`](../../website/package.json) |
+| Auth service | Node/TypeScript 服务及 build/test 定义存在；账户监控选择在 SQL 中执行 ownership + paid/paid/open | 专用 `auth_service` mTLS 客户端与 customer field allowlist；真实配置和数据库另有授权 | [`MONITOR-AUTH-PROJECTION-01`](../architecture/MONITOR-AUTH-PROJECTION-01.md)、[binding checklist](../ops/consolidated-release-bindings.md) |
+| Monitoring | SQLite、只读面板、采集边界及固定 raw VPS read paths 有仓库实现 | Gateway 按 `public_bff`/`auth_service` 固定路径执行 ACL；仓库实现不证明连接、证书或部署 | [`monitoring/README.md`](../../monitoring/README.md)、[`monitoring/gateway/README.md`](../../monitoring/gateway/README.md) |
 | Ops/release | consolidated runbook、binding checklist、校验/组装 CI 路径存在 | procedure ≠ authorization；本地/PR artifact ≠ 可发布 production candidate | [runbook](../ops/consolidated-release-runbook.md)、[bindings](../ops/consolidated-release-bindings.md)、[`ci.yml`](../../.github/workflows/ci.yml) |
 | Recovery evidence | `recovery/prod-monitor-3002/2026-08-10/` 是跟踪的日期化证据目录 | 只作为历史证据；当前生产来源、完整性和恢复资格均需另证 | [`recovery/.../README.md`](../../recovery/prod-monitor-3002/2026-08-10/README.md) |
 | AI-team | 中央路由、共享协议和两类作者边界存在 | 当前事实必须从 Packet + pushed SHA/PR/CI 刷新 | [管理路由](GPT-CONTROL-V2.md)、[协作协议](../team/TEAM-COLLAB-V1.md) |
@@ -120,6 +122,11 @@ AI-team coordination
 - code handoff 使用已 push 的精确 SHA；design/local artifact 使用自身版本/哈希。
 - PR 或 CI 只证明其精确 head 的记录/检查；不证明 merge、部署、生产或外部业务完成。
 - evidence index 只收录稳定链接、哈希、run/job ID、结果和未知项，不收 secret、客户数据、私有配置、隐藏推理或生产 target 细节。
+
+`MONITOR-AUTH-PROJECTION-01` 在仓库中的代码、测试与文档候选不自动改变
+`MONITOR_AUTH_PROJECTION_STATUS: CONDITIONAL_BLOCKER`。只有精确 Draft PR head
+验证通过并经项目经理接受后，仓库实现才可进入后续合并裁决；实际 origin、
+证书、权限、进程、Nginx、部署和真实客户行为仍是独立的生产前事实。
 
 ## 7. Claude linkage 证据登记
 

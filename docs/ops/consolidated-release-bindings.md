@@ -78,11 +78,18 @@ Nginx topology, and external binding evidence own that proof.
 This inventory records names and classifications only. Values, credential
 bodies, source locations, and production bindings are forbidden here and remain
 only in the separately authorized external release record and credential source.
-It records the accepted inventory of 62 unique tuples with fingerprint
+The currently accepted release baseline remains 62 unique tuples with fingerprint
 `bfc8fecc287438a3958f01cb6f7933697e59a8af713435a4f3f936cfcd464705`.
 That fingerprint is derived from lexicographically sorted UTF-8 LF tuples plus
 the final LF; every tuple contains only key, phase, exposure, requiredness, and
 relevance--never a value.
+
+The repository candidate now freezes five additional conditional Monitor Auth
+Projection names below. They are not silently folded into the accepted 62-tuple
+release fingerprint. Including the capability requires project-manager
+acceptance plus a separately frozen expanded name/classification inventory and
+fingerprint in the external release record. This prevents repository code from
+claiming a production binding.
 
 ### Required Auth runtime environment keys
 
@@ -116,9 +123,18 @@ relevance--never a value.
 | `RESEND_FROM_EMAIL` | Conditional mail runtime key. |
 | `RESEND_REQUEST_TIMEOUT_MS` | Conditional mail runtime key. |
 
-`MONITOR_API_ORIGIN` is optional but excluded from this release. It must be
-omitted in quiescent mode and must not be introduced as a plain-origin bypass.
-Monitor Auth Projection remains excluded.
+### Conditional Monitor Auth Projection environment keys
+
+| Key name | Classification |
+| --- | --- |
+| `MONITOR_AUTH_PROJECTION_ENABLED` | Conditional Auth runtime feature gate; required and exactly `true` only when the separately accepted projection is enabled. |
+| `MONITOR_AUTH_PRIVATE_ORIGIN` | Conditional server-only private HTTPS authority; required only when the accepted projection is enabled. |
+
+The public gateway's legacy `MONITOR_API_ORIGIN` is not an Auth configuration
+key and is excluded from the consolidated Auth/website release. It must be
+omitted in quiescent mode and must never be introduced as an Auth projection
+bypass. Until acceptance and all external bindings exist, the projection feature
+gate remains disabled and the private Auth origin remains absent.
 
 ### Credential logical filenames
 
@@ -131,6 +147,9 @@ Monitor Auth Projection remains excluded.
 | `token_hmac_keyring` | Required credential logical name. |
 | `delivery_payload_enc_keyring` | Conditional credential logical name. |
 | `resend_api_key` | Conditional credential logical name. |
+| `monitor_private_ca_certificate` | Conditional Monitor Auth private CA logical name. |
+| `monitor_auth_service_client_certificate` | Conditional dedicated Auth Service client certificate logical name. |
+| `monitor_auth_service_client_private_key` | Conditional dedicated Auth Service client private-key logical name. |
 
 ### Public website build key
 
@@ -180,6 +199,9 @@ release.
 | Binding name | Required proof |
 | --- | --- |
 | `MONITOR_AUTH_PROJECTION_ACCEPTANCE` | If included, a separately accepted contract proves Auth Service private HTTPS route, dedicated mTLS identity, ACL, projections, failure mapping, and tests. |
+| `MONITOR_AUTH_CONFIGURATION_PROOF` | Enabled flag, private HTTPS authority, three credential logical names, source ownership, readability, TLS >=1.2, server-chain/hostname verification, and non-logging are validated without recording values. |
+| `MONITOR_AUTH_IDENTITY_ACL_PROOF` | Fresh certificate fingerprints prove `public_bff` only reads `/api/public-summary`, `auth_service` only reads the two Auth routes, and operator/unknown read neither; rotation and revocation are exercised. |
+| `MONITOR_AUTH_RAW_BINDING_PROOF` | The authorized target proves the gateway's fixed raw catalog/status routes, 5-second timeout, body bounds, no redirects, and target-query redaction without exposing the origin or target. |
 | `MONITOR_ORIGIN_OMISSION_PROOF` | If that contract is not accepted, quiescent and normal release records prove no plain monitor origin is used as a bypass. |
 | `MONITOR_CAPABILITY_EXCLUSION` | Product acceptance explicitly excludes admin target selection and monitor-linked fulfillment when projection acceptance is absent. |
 

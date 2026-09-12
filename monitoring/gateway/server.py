@@ -12,13 +12,14 @@ import argparse
 import html
 import json
 import os
+import re
 import ssl
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Protocol
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from .client import (
     AUTH_SERVICE_IDENTITY,
@@ -29,12 +30,19 @@ from .client import (
     Origin,
     PrivateProjectionClient,
     RawMonitorClient,
+    UpstreamNotFound,
     UpstreamSchemaInvalid,
     UpstreamTimeout,
     UpstreamUnavailable,
     build_mtls_client_context,
     build_mtls_server_context,
     build_public_tls_server_context,
+)
+from .auth_projection import (
+    AuthProjectionError,
+    project_target_catalog,
+    project_target_status,
+    require_assignable_target,
 )
 from .projection import ProjectionError, project_public_summary
 from .security import (
@@ -51,6 +59,8 @@ STATIC_ROOT = Path(__file__).resolve().parent / "static"
 INDEX_PARENT_ORIGIN_PLACEHOLDER = b"__MONITOR_PARENT_ORIGIN__"
 PUBLIC_SUMMARY_PATH = "/api/summary"
 PRIVATE_SUMMARY_PATH = "/api/public-summary"
+AUTH_TARGETS_PATH = "/api/auth-service/targets"
+AUTH_STATUS_PATH = "/api/auth-service/status"
 STATIC_PATHS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/master.css": ("master.css", "text/css; charset=utf-8"),
@@ -64,6 +74,10 @@ class PublicSummaryReader(Protocol):
 
 class RawProjectionReader(Protocol):
     def read_projection_inputs(self) -> tuple[Any, Any]: ...
+
+    def read_target_catalog(self) -> Any: ...
+
+    def read_target_status(self, target: str) -> Any: ...
 
 
 @dataclass(frozen=True)
@@ -370,8 +384,9 @@ def make_private_handler(dependencies: PrivateDependencies):
             event: str,
             allow: str | None = None,
             head_only: bool = False,
+            public_projection: bool = True,
         ) -> None:
-            if status < 400 and scan_public_value(payload):
+            if public_projection and status < 400 and scan_public_value(payload):
                 payload = _safe_error("monitor_unavailable")
                 status = 502
                 event = "upstream_schema_invalid"
@@ -379,7 +394,7 @@ def make_private_handler(dependencies: PrivateDependencies):
                 _json_bytes(payload),
                 status=status,
                 content_type="application/json; charset=utf-8",
-                cache_control="private, no-store",
+                cache_control="no-store",
                 allow=allow,
                 head_only=head_only,
             )
@@ -391,18 +406,219 @@ def make_private_handler(dependencies: PrivateDependencies):
             certificate = self.connection.getpeercert(binary_form=True)
             return dependencies.identities.resolve_der_certificate(certificate)
 
-        def do_GET(self) -> None:
-            parsed = urlsplit(self.path)
-            if parsed.path != PRIVATE_SUMMARY_PATH or parsed.query or parsed.fragment:
+        def _authorized(self, identity: str | None, path: str) -> bool:
+            if path == PRIVATE_SUMMARY_PATH:
+                return identity == PUBLIC_BFF_IDENTITY
+            if path in (AUTH_TARGETS_PATH, AUTH_STATUS_PATH):
+                return identity == AUTH_SERVICE_IDENTITY
+            return False
+
+        def _has_body(self) -> bool:
+            if self.headers.get("Transfer-Encoding") is not None:
+                return True
+            raw_length = self.headers.get("Content-Length")
+            if raw_length is None:
+                return False
+            return not raw_length.isdigit() or int(raw_length) != 0
+
+        def _target_query(self, raw_query: str) -> str:
+            if not raw_query or re.search(r"%(?![0-9A-Fa-f]{2})", raw_query):
+                raise AuthProjectionError("invalid_request")
+            try:
+                pairs = parse_qsl(
+                    raw_query,
+                    keep_blank_values=True,
+                    strict_parsing=True,
+                    encoding="utf-8",
+                    errors="strict",
+                    max_num_fields=2,
+                )
+            except (UnicodeError, ValueError) as exc:
+                raise AuthProjectionError("invalid_request") from exc
+            if len(pairs) != 1 or pairs[0][0] != "target":
+                raise AuthProjectionError("invalid_request")
+            target = pairs[0][1]
+            if (
+                not target
+                or target.strip() != target
+                or len(target) > 128
+                or any(ord(character) < 32 or ord(character) == 127 for character in target)
+            ):
+                raise AuthProjectionError("invalid_request")
+            return target
+
+        def _send_auth_error(self, code: str) -> None:
+            status = {
+                "invalid_request": 400,
+                "forbidden": 403,
+                "target_not_found": 404,
+                "method_not_allowed": 405,
+                "target_unavailable": 409,
+                "monitor_invalid_response": 502,
+                "monitor_unavailable": 503,
+            }.get(code, 503)
+            self._send_private_json(
+                _safe_error(code if code in {
+                    "invalid_request",
+                    "forbidden",
+                    "target_not_found",
+                    "method_not_allowed",
+                    "target_unavailable",
+                    "monitor_invalid_response",
+                    "monitor_unavailable",
+                } else "monitor_unavailable"),
+                status=status,
+                event="private_rejected",
+                allow="GET" if code == "method_not_allowed" else None,
+                public_projection=False,
+            )
+
+        def _auth_targets(self) -> None:
+            try:
+                payload = {
+                    "items": list(
+                        project_target_catalog(
+                            dependencies.raw_reader.read_target_catalog()
+                        )
+                    )
+                }
+            except UpstreamTimeout:
                 return self._send_private_json(
-                    _safe_error("not_found"),
+                    _safe_error("monitor_unavailable"),
+                    status=504,
+                    event="upstream_timeout",
+                    public_projection=False,
+                )
+            except (AuthProjectionError, UpstreamSchemaInvalid, UpstreamNotFound):
+                return self._send_private_json(
+                    _safe_error("monitor_invalid_response"),
+                    status=502,
+                    event="upstream_schema_invalid",
+                    public_projection=False,
+                )
+            except UpstreamUnavailable:
+                return self._send_private_json(
+                    _safe_error("monitor_unavailable"),
+                    status=503,
+                    event="upstream_unavailable",
+                    public_projection=False,
+                )
+            except Exception:
+                return self._send_private_json(
+                    _safe_error("monitor_unavailable"),
+                    status=503,
+                    event="upstream_unavailable",
+                    public_projection=False,
+                )
+            self._send_private_json(
+                payload,
+                status=200,
+                event="private_request",
+                public_projection=False,
+            )
+
+        def _auth_status(self, target: str) -> None:
+            try:
+                catalog = project_target_catalog(
+                    dependencies.raw_reader.read_target_catalog()
+                )
+                require_assignable_target(catalog, target)
+                payload = project_target_status(
+                    dependencies.raw_reader.read_target_status(target),
+                    target,
+                )
+            except UpstreamNotFound:
+                return self._send_private_json(
+                    _safe_error("target_not_found"),
                     status=404,
                     event="private_rejected",
+                    public_projection=False,
                 )
-            if self._identity() != PUBLIC_BFF_IDENTITY:
+            except AuthProjectionError as exc:
+                if exc.code == "target_not_found":
+                    status = 404
+                elif exc.code == "target_unavailable":
+                    status = 409
+                elif exc.code == "monitor_unavailable":
+                    status = 503
+                else:
+                    status = 502
+                code = (
+                    exc.code
+                    if exc.code in {
+                        "target_not_found",
+                        "target_unavailable",
+                        "monitor_unavailable",
+                        "monitor_invalid_response",
+                    }
+                    else "monitor_invalid_response"
+                )
+                return self._send_private_json(
+                    _safe_error(code),
+                    status=status,
+                    event="private_rejected",
+                    public_projection=False,
+                )
+            except UpstreamTimeout:
+                return self._send_private_json(
+                    _safe_error("monitor_unavailable"),
+                    status=504,
+                    event="upstream_timeout",
+                    public_projection=False,
+                )
+            except UpstreamSchemaInvalid:
+                return self._send_private_json(
+                    _safe_error("monitor_invalid_response"),
+                    status=502,
+                    event="upstream_schema_invalid",
+                    public_projection=False,
+                )
+            except UpstreamUnavailable:
+                return self._send_private_json(
+                    _safe_error("monitor_unavailable"),
+                    status=503,
+                    event="upstream_unavailable",
+                    public_projection=False,
+                )
+            except Exception:
+                return self._send_private_json(
+                    _safe_error("monitor_unavailable"),
+                    status=503,
+                    event="upstream_unavailable",
+                    public_projection=False,
+                )
+            self._send_private_json(
+                payload,
+                status=200,
+                event="private_request",
+                public_projection=False,
+            )
+
+        def do_GET(self) -> None:
+            parsed = urlsplit(self.path)
+            identity = self._identity()
+            if not self._authorized(identity, parsed.path):
                 return self._send_private_json(
                     _safe_error("forbidden"),
                     status=403,
+                    event="private_rejected",
+                )
+            if parsed.path == AUTH_TARGETS_PATH:
+                if parsed.query or parsed.fragment or self._has_body():
+                    return self._send_auth_error("invalid_request")
+                return self._auth_targets()
+            if parsed.path == AUTH_STATUS_PATH:
+                if parsed.fragment or self._has_body():
+                    return self._send_auth_error("invalid_request")
+                try:
+                    target = self._target_query(parsed.query)
+                except AuthProjectionError:
+                    return self._send_auth_error("invalid_request")
+                return self._auth_status(target)
+            if parsed.query or parsed.fragment:
+                return self._send_private_json(
+                    _safe_error("not_found"),
+                    status=404,
                     event="private_rejected",
                 )
             try:
@@ -443,20 +659,23 @@ def make_private_handler(dependencies: PrivateDependencies):
             )
 
         def do_HEAD(self) -> None:
-            self._send_private_json(
-                _safe_error("method_not_allowed"),
-                status=405,
-                event="private_rejected",
-                allow="GET",
-                head_only=True,
-            )
+            self._reject_method(head_only=True)
 
-        def _reject_method(self) -> None:
+        def _reject_method(self, *, head_only: bool = False) -> None:
+            parsed = urlsplit(self.path)
+            if not self._authorized(self._identity(), parsed.path):
+                return self._send_private_json(
+                    _safe_error("forbidden"),
+                    status=403,
+                    event="private_rejected",
+                    head_only=head_only,
+                )
             self._send_private_json(
                 _safe_error("method_not_allowed"),
                 status=405,
                 event="private_rejected",
                 allow="GET",
+                head_only=head_only,
             )
 
         do_POST = _reject_method
@@ -464,6 +683,8 @@ def make_private_handler(dependencies: PrivateDependencies):
         do_PATCH = _reject_method
         do_DELETE = _reject_method
         do_OPTIONS = _reject_method
+        do_TRACE = _reject_method
+        do_CONNECT = _reject_method
 
     return PrivateHandler
 

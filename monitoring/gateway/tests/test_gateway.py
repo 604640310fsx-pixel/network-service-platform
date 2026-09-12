@@ -489,7 +489,7 @@ class HttpBoundaryTests(unittest.TestCase):
         with _RunningServer(handler) as server:
             status, headers, body = server.request("GET", "/api/public-summary")
             self.assertEqual(status, 200)
-            self.assertEqual(headers.get("Cache-Control"), "private, no-store")
+            self.assertEqual(headers.get("Cache-Control"), "no-store")
             self.assertNotIn("Access-Control-Allow-Origin", headers)
             self.assertEqual(scan_public_value(json.loads(body)), [])
             status, headers, _ = server.request("POST", "/api/public-summary")

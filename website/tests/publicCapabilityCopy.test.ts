@@ -20,12 +20,13 @@ test("home preview presents only connected information and labels unavailable ca
   assert.doesNotMatch(page, /网络状态持续可见/);
 });
 
-test("buyer status entry retains the status route while refusing VPS-state inference", () => {
+test("buyer status entry uses the authenticated target-free projection route", () => {
   const page = source("../app/components/network/BuyerNetworkPage.tsx");
 
-  assert.match(page, /const statusHref = resolveBuyerStatusHref\(accountServices\);/);
-  assert.match(page, /<Link className="cc-net-ghost" to=\{statusHref\}>查看服务器状态接入说明<\/Link>/);
+  assert.match(page, /const statusHref = resolveBuyerStatusHref\(\);/);
+  assert.match(page, /<Link className="cc-net-ghost" to=\{statusHref\}>查看服务器状态<\/Link>/);
   assert.match(page, /服务器状态入口/);
-  assert.match(page, /已交付线路可前往服务器状态页；账户授权状态投影尚未接入，页面不会推测具体 VPS 状态。/);
+  assert.match(page, /目标由服务端按所有权选择，不会进入浏览器。/);
+  assert.doesNotMatch(page, /status\?vps=/);
   assert.doesNotMatch(page, /买家线路与服务器状态联动/);
 });

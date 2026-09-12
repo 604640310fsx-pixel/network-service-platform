@@ -8,6 +8,7 @@ import {
   loadAlipayConfig,
   loadConfig,
   loadDeliveryCredentialConfig,
+  loadMonitorCredentialConfig,
   loadMonitorRuntimeConfig,
 } from "../../src/config.js";
 import { issueCsrfToken, verifyCsrfToken } from "../../src/http/csrf.js";
@@ -79,20 +80,62 @@ test("delivery credential loader reads only the frozen independent keyring", asy
 test("monitor runtime is optional but strictly validates its private API origin", () => {
   assert.deepEqual(loadMonitorRuntimeConfig({}), { enabled: false });
   assert.deepEqual(
-    loadMonitorRuntimeConfig({ MONITOR_API_ORIGIN: "http://192.0.2.10:3002" }),
-    { enabled: true, apiOrigin: "http://192.0.2.10:3002" },
+    loadMonitorRuntimeConfig({ MONITOR_AUTH_PROJECTION_ENABLED: "false" }),
+    { enabled: false },
+  );
+  assert.deepEqual(
+    loadMonitorRuntimeConfig({
+      MONITOR_AUTH_PROJECTION_ENABLED: "true",
+      MONITOR_AUTH_PRIVATE_ORIGIN: "https://monitor.internal:3443",
+    }),
+    { enabled: true, privateOrigin: "https://monitor.internal:3443" },
   );
   for (const value of [
     "",
-    " http://192.0.2.10:3002",
-    "ftp://192.0.2.10:3002",
-    "http://user:pass@192.0.2.10:3002",
-    "http://192.0.2.10:3002/api",
+    " http://10.0.0.2:3443",
+    "http://10.0.0.2:3443",
+    "https://user:pass@10.0.0.2:3443",
+    "https://10.0.0.2:3443/api",
+    "https://8.8.8.8:3443",
   ]) {
     assert.throws(
-      () => loadMonitorRuntimeConfig({ MONITOR_API_ORIGIN: value }),
-      /Monitor runtime configuration is invalid/,
+      () => loadMonitorRuntimeConfig({
+        MONITOR_AUTH_PROJECTION_ENABLED: "true",
+        MONITOR_AUTH_PRIVATE_ORIGIN: value,
+      }),
+      /Monitor Auth runtime configuration is invalid/,
     );
+  }
+  assert.throws(
+    () => loadMonitorRuntimeConfig({ MONITOR_AUTH_PROJECTION_ENABLED: "yes" }),
+    /Monitor Auth runtime configuration is invalid/,
+  );
+});
+
+test("monitor credential loader reads the three dedicated mTLS files only", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "monitor-auth-config-"));
+  try {
+    const files = {
+      monitor_private_ca_certificate: "CA-CERTIFICATE",
+      monitor_auth_service_client_certificate: "AUTH-CLIENT-CERTIFICATE",
+      monitor_auth_service_client_private_key: "AUTH-CLIENT-PRIVATE-KEY",
+    } as const;
+    for (const [name, value] of Object.entries(files)) {
+      await writeFile(join(directory, name), value, "utf8");
+    }
+    assert.deepEqual(loadMonitorCredentialConfig({ CREDENTIALS_DIRECTORY: directory }), {
+      caCertificate: Buffer.from(files.monitor_private_ca_certificate),
+      clientCertificate: Buffer.from(files.monitor_auth_service_client_certificate),
+      clientPrivateKey: Buffer.from(files.monitor_auth_service_client_private_key),
+    });
+
+    await rm(join(directory, "monitor_auth_service_client_private_key"));
+    assert.throws(
+      () => loadMonitorCredentialConfig({ CREDENTIALS_DIRECTORY: directory }),
+      /Monitor Auth credential configuration is invalid/,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });
 

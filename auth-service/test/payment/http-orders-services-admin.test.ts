@@ -366,13 +366,12 @@ test("me/delivery-lines returns only buyer-visible labels for the owning user", 
           orderRef: order.orderRef,
           position: 1,
           label: "日本中转 A",
-          monitorTargetKey: "Tokyo Transit A",
         }],
       });
       assert.equal(mine.body.includes("subscription.example.test"), false);
+      assert.equal(mine.body.includes("monitorTargetKey"), false);
       assert.deepEqual(Object.keys(mine.json().items[0]).sort(), [
         "label",
-        "monitorTargetKey",
         "orderRef",
         "position",
       ]);

@@ -63,6 +63,7 @@ export const REGISTRATION_RESEND_EMAIL_LIMIT = 5;
 export const REGISTRATION_VERIFY_IP_LIMIT = 30;
 export const REGISTRATION_COMPLETE_IP_LIMIT = 20;
 export const DIAGNOSIS_SUBMIT_IP_LIMIT = 5;
+export const MONITOR_STATUS_USER_LIMIT = 120;
 export const RATE_LIMIT_BUCKET_SECONDS = 300;
 export const RATE_LIMIT_WINDOW_SECONDS = 3_600;
 
@@ -316,6 +317,30 @@ export function consumeLoginRateLimit(
         writeKey: accountKeys[0]!,
         limit: LOGIN_ACCOUNT_LIMIT,
       },
+    ],
+    times,
+  );
+}
+
+export function consumeMonitorStatusRateLimit(
+  database: DatabaseConnection,
+  keyring: RateLimitKeyring,
+  userId: number,
+  dependencies: { readonly now?: () => Date } = {},
+): void {
+  if (!Number.isSafeInteger(userId) || userId < 1) {
+    throw new Error("Monitor rate-limit principal is invalid");
+  }
+  const times = rateLimitTimes(dependencies.now ?? (() => new Date()));
+  consumeDimensions(
+    database,
+    [
+      dimension(
+        keyring,
+        "monitor:status:user",
+        [String(userId)],
+        MONITOR_STATUS_USER_LIMIT,
+      ),
     ],
     times,
   );

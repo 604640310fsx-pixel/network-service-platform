@@ -8,10 +8,12 @@ import {
 import {
   computeRateLimitBucketKey,
   consumeLoginRateLimit,
+  consumeMonitorStatusRateLimit,
   consumeRegistrationResendRateLimit,
   withRegistrationStartRateLimit,
   LOGIN_ACCOUNT_LIMIT,
   LOGIN_IP_LIMIT,
+  MONITOR_STATUS_USER_LIMIT,
   REGISTRATION_RESEND_EMAIL_LIMIT,
   REGISTRATION_START_EMAIL_LIMIT,
   RateLimitExceededError,
@@ -44,6 +46,36 @@ test("matches frozen CSRF and rate-limit derivation vectors", () => {
   );
   assert.equal(bucket, "gHeGioL7_wHps7P49VGXRWqA56MJ_RswAD7IgjKHzPw");
   assert.equal(bucket.length, 43);
+});
+
+test("monitor status uses one HMAC user bucket with a 120 per hour limit", async () => {
+  await withAuthenticationDatabase((database) => {
+    for (let count = 0; count < MONITOR_STATUS_USER_LIMIT; count += 1) {
+      consumeMonitorStatusRateLimit(database, KEYRING, 42, {
+        now: () => new Date(NOW),
+      });
+    }
+    assert.throws(
+      () => consumeMonitorStatusRateLimit(database, KEYRING, 42, {
+        now: () => new Date(NOW),
+      }),
+      RateLimitExceededError,
+    );
+    assert.doesNotThrow(() => consumeMonitorStatusRateLimit(database, KEYRING, 43, {
+      now: () => new Date(NOW),
+    }));
+
+    const expected = computeRateLimitBucketKey(
+      KEYRING,
+      KEYRING.version,
+      "monitor:status:user",
+      "42",
+    );
+    const rows = database
+      .prepare("SELECT bucket_key, count FROM rate_limit_buckets WHERE bucket_key = ?")
+      .all(expected) as Array<{ readonly bucket_key: string; readonly count: number }>;
+    assert.deepEqual(rows, [{ bucket_key: expected, count: MONITOR_STATUS_USER_LIMIT }]);
+  });
 });
 
 test("registration start silently suppresses email excess and rolls back callback failures", async () => {

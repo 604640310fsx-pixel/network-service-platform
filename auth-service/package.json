@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/server.js",
-    "test": "npm run build && node --test --test-concurrency=1 dist/test/*.test.js dist/test/auth/*.test.js dist/test/payment/*.test.js"
+    "test": "npm run build && node --test --test-concurrency=1 dist/test/*.test.js dist/test/auth/*.test.js dist/test/monitor/*.test.js dist/test/payment/*.test.js"
   },
   "dependencies": {
     "alipay-sdk": "4.14.0",

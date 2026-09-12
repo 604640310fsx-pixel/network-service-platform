@@ -21,6 +21,10 @@ import {
   registerPaymentHttpRoutes,
   type PaymentHttpDependencies,
 } from "./http/payment-routes.js";
+import {
+  registerMonitorHttpRoutes,
+  type MonitorHttpDependencies,
+} from "./http/monitor-routes.js";
 
 interface HealthResponse {
   readonly status: "ok";
@@ -67,6 +71,7 @@ export interface BuildAppOptions {
   readonly inviteAdmin?: InviteAdminHttpDependencies;
   readonly diagnosis?: DiagnosisHttpDependencies;
   readonly payment?: PaymentHttpDependencies;
+  readonly monitor?: MonitorHttpDependencies;
   readonly readiness?: ReadinessDependencies;
 }
 
@@ -125,6 +130,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   if (options.diagnosis !== undefined) {
     registerDiagnosisHttpRoutes(app, options.diagnosis);
   }
+  registerMonitorHttpRoutes(app, options.monitor ?? null);
   const payment = options.payment ?? { enabled: false };
   registerPaymentHttpRoutes(app, payment);
   registerPaymentAdminHttpRoutes(app, payment);

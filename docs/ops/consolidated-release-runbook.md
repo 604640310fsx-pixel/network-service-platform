@@ -37,8 +37,11 @@ separately authorized external binding record and credential source. Do not
 print, copy, or compare values. Record only redacted pass/fail results, counts,
 the accepted inventory fingerprint
 `bfc8fecc287438a3958f01cb6f7933697e59a8af713435a4f3f936cfcd464705`, and
-approved evidence references. The fingerprint represents 62 lexicographically
-sorted UTF-8 LF tuples with a final LF and contains no values.
+approved evidence references. The fingerprint represents the currently accepted
+62-tuple release baseline, sorted as UTF-8 LF tuples with a final LF, and contains
+no values. The five frozen conditional Monitor Auth Projection names are not
+part of that baseline; enabling them requires a separately accepted expanded
+inventory/fingerprint rather than silently changing this record.
 
 Compare names and classifications only, and keep these categories separate:
 
@@ -48,13 +51,18 @@ Compare names and classifications only, and keep these categories separate:
 - Credential logical names: required and conditional names from the approved
   credential source; source ownership, readability, and non-logging are proven
   without emitting credential contents.
+- Monitor Auth Projection names: conditional server-only
+  `MONITOR_AUTH_PROJECTION_ENABLED`, `MONITOR_AUTH_PRIVATE_ORIGIN`, and the three
+  dedicated mTLS credential logical names in the binding checklist. These names
+  do not authorize values or enablement.
 - Public website build key: optional, conditional, browser-exposed
   `VITE_MONITOR_URL`, which is distinct from the excluded
   `MONITOR_API_ORIGIN` and has no literal default.
 
 In quiescent mode, require `PAYMENT_ENABLED`, `MAIL_DISPATCH_ENABLED`, and
-`REGISTRATION_ENABLED` to be explicitly disabled and require
-`MONITOR_API_ORIGIN` to be omitted. Normal-mode inclusions, values, and
+`REGISTRATION_ENABLED` to be explicitly disabled, require
+`MONITOR_AUTH_PROJECTION_ENABLED` to be explicitly disabled, and require both
+`MONITOR_AUTH_PRIVATE_ORIGIN` and `MONITOR_API_ORIGIN` to be omitted. Normal-mode inclusions, values, and
 capabilities require their separately approved production binding record;
 required or conditional classification does not authorize supplying values,
 enabling features, contacting providers, or deploying. Also prove that
@@ -326,7 +334,9 @@ is still running.
    ```text
    QUIESCENT_PAYMENT: DISABLED
    QUIESCENT_MAIL: DISABLED
+   QUIESCENT_MONITOR_AUTH_PROJECTION: DISABLED
    BACKGROUND_WRITERS: DISABLED
+   MONITOR_AUTH_PRIVATE_ORIGIN: OMITTED_IN_QUIESCENT_MODE
    MONITOR_API_ORIGIN: OMITTED_IN_QUIESCENT_MODE
    ```
 
@@ -421,13 +431,20 @@ restore is prohibited. Keep ingress closed and obtain a forward-fix decision.
 MONITOR_AUTH_PROJECTION_STATUS: CONDITIONAL_BLOCKER
 ```
 
-This task does not implement `MONITOR-AUTH-PROJECTION-01`. If the release
-includes administrator monitor-target selection or monitor-linked fulfillment,
-the separate Auth Service mTLS identity and private HTTPS projection must first
-be contract-tested and accepted. A plain `MONITOR_API_ORIGIN` value is not an
-allowed bypass. If the projection is not accepted, the capability must remain
-excluded under a separate product decision; the runbook cannot make that
-decision.
+The repository candidate implements the frozen
+[`MONITOR-AUTH-PROJECTION-01`](../architecture/MONITOR-AUTH-PROJECTION-01.md)
+code and offline acceptance matrix, but this runbook does not mark it accepted,
+merged, configured, deployed, or production-ready. The conditional blocker
+remains until project-manager acceptance and fresh external proofs bind the
+dedicated Auth Service mTLS identity, private HTTPS authority, credential
+logical names, ACL, raw source, rollback, and runtime reachability without
+recording their values.
+
+The browser must stay on same-origin `GET /api/me/monitor-status`; the public
+gateway's `MONITOR_API_ORIGIN` is not an allowed Auth configuration or fallback.
+If the projection is not accepted or any binding is absent, its feature gate
+remains disabled and the capability stays excluded under a separate product
+decision. This runbook cannot infer that decision from repository or CI state.
 
 ## Stop lines
 

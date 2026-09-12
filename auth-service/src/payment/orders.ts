@@ -906,12 +906,11 @@ export interface MyDeliveryLineItem {
   readonly orderRef: string;
   readonly position: number;
   readonly label: string;
-  readonly monitorTargetKey: string | null;
 }
 
 /* 买家可见的交付线路名称。所有权在 SQL 层限定；只读取已经交付的公开名称，
-   以及管理员绑定的 3002 目标键；不读取或解密订阅 URL，也不暴露主机名、IP、
-   面板地址或监控源返回的连接字段。历史未绑定行保持 null。 */
+   不读取或解密订阅 URL，也不读取或暴露管理员绑定的目标键、主机名、IP、
+   面板地址或监控源返回的连接字段。 */
 export function listMyDeliveryLines(
   database: DatabaseConnection,
   userId: number,
@@ -919,8 +918,7 @@ export function listMyDeliveryLines(
   const rows = database
     .prepare(
       `SELECT orders.order_ref, service_delivery_items.position,
-              service_delivery_items.label,
-              service_delivery_items.monitor_target_key
+              service_delivery_items.label
        FROM service_delivery_items
        JOIN services ON services.id = service_delivery_items.service_id
        JOIN payments ON payments.id = services.payment_id
@@ -936,13 +934,11 @@ export function listMyDeliveryLines(
     const value = row as Record<string, unknown>;
     const position = rowNumber(value, "position");
     const label = rowString(value, "label");
-    const monitorTargetKey = rowNullableString(value, "monitor_target_key");
     if (
       !Number.isSafeInteger(position) ||
       position < 1 ||
       label.trim() !== label ||
-      label.length === 0 ||
-      (monitorTargetKey !== null && normalizeMonitorTargetKey(monitorTargetKey) === null)
+      label.length === 0
     ) {
       throw new Error("Service delivery database invariant failed");
     }
@@ -950,7 +946,6 @@ export function listMyDeliveryLines(
       orderRef: rowString(value, "order_ref"),
       position,
       label,
-      monitorTargetKey,
     };
   });
 }
