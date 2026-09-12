@@ -23,12 +23,17 @@ anonymous browser
 ```
 
 The public listener cannot request a raw 3002 route. The private listener has no
-static files, no CORS, no write method, and only accepts the public-BFF identity
-on `/api/public-summary`. Auth Service and operator certificates are modeled as
-separate, independently revocable identities. Their routes are intentionally not
-implemented here: customer/admin projection belongs to
-`MONITOR-AUTH-PROJECTION-01`, while raw operator access stays on a separate
-private-only boundary.
+static files, no CORS, and no write method. It enforces a path-scoped identity
+matrix: public-BFF can read only `/api/public-summary`; Auth Service can read
+only `/api/auth-service/targets` and `/api/auth-service/status`; operator and
+unknown identities can read none of those routes. Raw operator access stays on
+a separate private-only boundary.
+
+The Auth routes implement the separately frozen
+[`MONITOR-AUTH-PROJECTION-01`](../../docs/architecture/MONITOR-AUTH-PROJECTION-01.md).
+They construct fresh exact projections and never return raw host, target,
+metrics, topology, provider, traffic, subscription, database, certificate, or
+error details.
 
 ## Public contract
 
@@ -88,9 +93,10 @@ Private mode requires:
 - `RAW_MONITOR_API_ORIGIN` (loopback/private authority only);
 - `RAW_MONITOR_CA_FILE` only when that raw origin uses HTTPS.
 
-`AUTH_SERVICE_IDENTITY_CERT_FILE` and `OPERATOR_IDENTITY_CERT_FILE` are optional
-in this task, but if provided their certificate fingerprints must differ from
-every other identity. The private listener rejects wildcard/public bind
+`AUTH_SERVICE_IDENTITY_CERT_FILE` enables the dedicated, independently
+revocable Auth Service route identity; `OPERATOR_IDENTITY_CERT_FILE` can model
+the separately denied operator identity. If provided, each fingerprint must
+differ from every other identity. The private listener rejects wildcard/public bind
 addresses. `MONITOR_API_ORIGIN` accepts only a private HTTPS authority; neither
 private origin can contain credentials, a path, query, or fragment.
 
@@ -100,7 +106,14 @@ iframe response. The same exact origin is injected into a fixed HTML meta field;
 the client accepts the versioned theme message only from that origin and the
 immediate parent frame. It accepts no wildcard, customer value, target value, or
 message reply channel. All public content and API responses are `no-store`; private
-responses are `private, no-store`. Neither listener emits CORS or cookies.
+responses are exactly `no-store`. Neither listener emits CORS or cookies.
+
+The Auth catalog response is exactly `{items:[{key,label,state}]}` with at most
+100 unique source-ordered entries. The Auth status response is exactly
+`{status,updatedAt,stale}`. Raw catalog and status reads are limited to 256 KiB
+and 64 KiB respectively with the existing five-second raw timeout. All Auth
+errors are nested `{error:{code}}`; redirects, flat errors, unknown fields,
+oversized bodies, malformed JSON, and lifecycle inconsistencies fail closed.
 
 `view=mini` renders the identity-free sidebar summary. `view=embed` hides the
 gateway's duplicate banner so the website `/monitor` WorkbenchBanner remains the

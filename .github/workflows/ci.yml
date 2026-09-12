@@ -125,7 +125,9 @@ jobs:
       - name: Run monitor gateway offline tests
         run: |
           python3 -m unittest discover -s monitoring/gateway/tests -v
+          python3 -m unittest discover -s monitoring/dashboard-next/tests -v
           python3 -m py_compile monitoring/gateway/*.py
+          python3 -m py_compile monitoring/dashboard-next/server.py
           node --test monitoring/gateway/tests/static-app.test.cjs
           node --check monitoring/gateway/static/app.js
 

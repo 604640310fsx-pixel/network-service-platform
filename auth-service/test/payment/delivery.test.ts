@@ -364,16 +364,15 @@ test("admin save-and-open is atomic and customer delivery is authorized before d
             position: 1,
             label: "订阅线路 1",
             subscriptionUrl: DELIVERY_URL,
-            monitorTargetKey: "DMIT Premium",
           },
           {
             position: 2,
             label: "订阅线路 2",
             subscriptionUrl: "https://subscription.example.test/backup",
-            monitorTargetKey: "Tokyo Transit A",
           },
         ],
       });
+      assert.equal(ownerRead.body.includes("monitorTargetKey"), false);
 
       const tokenRead = await app.inject({
         method: "GET",
@@ -382,6 +381,7 @@ test("admin save-and-open is atomic and customer delivery is authorized before d
       });
       assert.equal(tokenRead.statusCode, 200);
       assert.equal(tokenRead.json().service.items.length, 2);
+      assert.equal(tokenRead.body.includes("monitorTargetKey"), false);
 
       for (const headers of [
         {},

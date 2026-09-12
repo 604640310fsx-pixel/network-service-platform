@@ -28,7 +28,6 @@ import {
   type OrderCreationResult,
   type OrderSelection,
   type OrderServiceDependencies,
-  type ServiceDeliveryItem,
   type ServiceStatus,
 } from "../payment/orders.js";
 import { refreshPaymentFromAlipay } from "../payment/payment-refresh.js";
@@ -615,7 +614,11 @@ export function registerPaymentHttpRoutes(
         const after = getAuthorizedOrderStatus(dependencies, authorization);
         let service: {
           readonly status: ServiceStatus;
-          readonly items?: readonly ServiceDeliveryItem[];
+          readonly items?: ReadonlyArray<{
+            readonly position: number;
+            readonly label: string;
+            readonly subscriptionUrl: string;
+          }>;
         } | null = after.service;
         if (after.service?.status === "open") {
           try {
@@ -628,7 +631,14 @@ export function registerPaymentHttpRoutes(
               dependencies.deliveryEncKeyring,
             );
             if (items.length > 0) {
-              service = { status: "open", items };
+              service = {
+                status: "open",
+                items: items.map(({ position, label, subscriptionUrl }) => ({
+                  position,
+                  label,
+                  subscriptionUrl,
+                })),
+              };
             }
           } catch {
             try {

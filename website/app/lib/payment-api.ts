@@ -27,7 +27,6 @@ export type ServiceDeliveryItem = {
   readonly position: number;
   readonly label: string;
   readonly subscriptionUrl: string;
-  readonly monitorTargetKey: string | null;
 };
 
 export type DeliveryItemInput = {
@@ -108,7 +107,6 @@ export type MyDeliveryLineItem = {
   readonly orderRef: string;
   readonly position: number;
   readonly label: string;
-  readonly monitorTargetKey: string | null;
 };
 
 export type AdminMonitorTarget = {
@@ -181,6 +179,15 @@ export class PaymentApiError extends Error {
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(value: JsonRecord, keys: readonly string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  return (
+    actual.length === expected.length &&
+    actual.every((key, index) => key === expected[index])
+  );
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -281,20 +288,16 @@ function parseDeliveryItems(value: unknown): readonly ServiceDeliveryItem[] {
   return value.map((rawItem, index) => {
     const item = requireRecord(rawItem);
     const normalized = normalizeDeliveryPayload(item);
-    const monitorTargetKey = item.monitorTargetKey === null
-      ? null
-      : normalizeMonitorTargetKey(item.monitorTargetKey);
     if (
+      !hasExactKeys(item, ["position", "label", "subscriptionUrl"]) ||
       item.position !== index + 1 ||
-      normalized === null ||
-      (monitorTargetKey === null && item.monitorTargetKey !== null)
+      normalized === null
     ) {
       throw new PaymentApiError("invalid_response");
     }
     return {
       position: item.position,
       ...normalized,
-      monitorTargetKey,
     };
   });
 }
@@ -408,16 +411,13 @@ function parseMyDeliveryLines(value: unknown): MyDeliveryLineItem[] {
 
   return body.items.map((rawItem) => {
     const item = requireRecord(rawItem);
-    const monitorTargetKey = item.monitorTargetKey === null
-      ? null
-      : normalizeMonitorTargetKey(item.monitorTargetKey);
     if (
+      !hasExactKeys(item, ["orderRef", "position", "label"]) ||
       !isNonEmptyString(item.orderRef) ||
       !isPositiveInteger(item.position) ||
       !isNonEmptyString(item.label) ||
       item.label !== item.label.trim() ||
-      item.label.length > DELIVERY_MAX_LABEL_LENGTH ||
-      (monitorTargetKey === null && item.monitorTargetKey !== null)
+      item.label.length > DELIVERY_MAX_LABEL_LENGTH
     ) {
       throw new PaymentApiError("invalid_response");
     }
@@ -425,7 +425,6 @@ function parseMyDeliveryLines(value: unknown): MyDeliveryLineItem[] {
       orderRef: item.orderRef,
       position: item.position,
       label: item.label,
-      monitorTargetKey,
     };
   });
 }

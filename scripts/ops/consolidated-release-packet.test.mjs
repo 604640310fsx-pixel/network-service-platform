@@ -24,7 +24,10 @@ import {
   RELEASE_HTTP_CONTRACT_PATHS,
   RELEASE_MIGRATIONS,
 } from "./assemble-consolidated-release.mjs";
-import { validateBundle } from "./validate-consolidated-release-packet.mjs";
+import {
+  validateBundle,
+  validateMonitorAuthProjectionSources,
+} from "./validate-consolidated-release-packet.mjs";
 import {
   createSanitizedSyntheticRender,
   OPEN_HTTP_PLACEHOLDERS,
@@ -1011,6 +1014,54 @@ test("runbook and bindings describe rollback 015 and candidate 016 consistently"
     true,
     "repository validator must require the exact backup proof",
   );
+});
+
+test("monitor Auth release validator pins the target-free source contract and fails closed", () => {
+  assert.equal(
+    validateMonitorAuthProjectionSources(REPOSITORY_ROOT).status,
+    "ok",
+  );
+
+  const cases = [
+    {
+      path: "auth-service/src/http/monitor-routes.ts",
+      mutate(source) {
+        return source.replace(
+          'url: "/api/me/monitor-status"',
+          'url: "/api/me/changed-status"',
+        );
+      },
+    },
+    {
+      path: "auth-service/src/config.ts",
+      mutate(source) {
+        return `${source}\n// MONITOR_API_ORIGIN\n`;
+      },
+    },
+    {
+      path: "auth-service/src/http/payment-routes.ts",
+      mutate(source) {
+        return `${source}\n// monitorTargetKey\n`;
+      },
+    },
+    {
+      path: "website/app/lib/buyerStatusLink.ts",
+      mutate(source) {
+        return `${source}\n// ?vps=\n`;
+      },
+    },
+  ];
+  for (const scenario of cases) {
+    const original = readFileSync(join(REPOSITORY_ROOT, scenario.path), "utf8");
+    assert.throws(
+      () =>
+        validateMonitorAuthProjectionSources(REPOSITORY_ROOT, {
+          [scenario.path]: scenario.mutate(original),
+        }),
+      (error) => error?.code === "PACKET_INCOMPLETE",
+      scenario.path,
+    );
+  }
 });
 
 test("runbook and bindings pin liveness, aggregate readiness, and traffic-mode ownership", () => {

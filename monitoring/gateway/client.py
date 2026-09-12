@@ -10,12 +10,15 @@ import ssl
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from .projection import ProjectionError, validate_public_summary
 from .security import SecurityBoundaryError, validate_origin
 
 
 MAX_JSON_BYTES = 512 * 1024
+RAW_STATUS_MAX_BYTES = 64 * 1024
+RAW_CATALOG_MAX_BYTES = 256 * 1024
 DEFAULT_TIMEOUT_SECONDS = 5.0
 PUBLIC_BFF_IDENTITY = "public_bff"
 AUTH_SERVICE_IDENTITY = "auth_service"
@@ -38,6 +41,10 @@ class UpstreamUnavailable(MonitorGatewayError):
 
 
 class UpstreamSchemaInvalid(MonitorGatewayError):
+    pass
+
+
+class UpstreamNotFound(MonitorGatewayError):
     pass
 
 
@@ -111,13 +118,16 @@ class FixedJsonClient:
         self._tls_context = tls_context
         self._timeout_seconds = timeout_seconds
 
-    def get(self, path: str) -> Any:
+    def get(self, path: str, *, max_bytes: int = MAX_JSON_BYTES) -> Any:
         if (
             not isinstance(path, str)
             or not path.startswith("/")
             or len(path) > 512
             or "\r" in path
             or "\n" in path
+            or not isinstance(max_bytes, int)
+            or max_bytes < 1
+            or max_bytes > MAX_JSON_BYTES
         ):
             raise SecurityBoundaryError("invalid fixed upstream path")
         connection: http.client.HTTPConnection
@@ -147,13 +157,23 @@ class FixedJsonClient:
             response = connection.getresponse()
             if response.status != 200:
                 # Never consume or log an upstream error body.
+                if response.status == 404:
+                    raise UpstreamNotFound("upstream target not found")
                 if response.status == 504:
                     raise UpstreamTimeout("upstream timeout")
                 if response.status >= 500:
                     raise UpstreamUnavailable("upstream unavailable")
                 raise UpstreamSchemaInvalid("unexpected upstream response")
-            content_type = response.getheader("Content-Type", "")
-            if "application/json" not in content_type.casefold():
+            content_type = response.getheader("Content-Type", "").casefold()
+            content_type_parts = [part.strip() for part in content_type.split(";")]
+            if (
+                content_type_parts[0] != "application/json"
+                or len(content_type_parts) > 2
+                or (
+                    len(content_type_parts) == 2
+                    and content_type_parts[1] != "charset=utf-8"
+                )
+            ):
                 raise UpstreamSchemaInvalid("upstream content type is invalid")
             content_length = response.getheader("Content-Length")
             if content_length is not None:
@@ -163,10 +183,10 @@ class FixedJsonClient:
                     raise UpstreamSchemaInvalid(
                         "upstream content length is invalid"
                     ) from exc
-                if declared_length < 0 or declared_length > MAX_JSON_BYTES:
+                if declared_length < 0 or declared_length > max_bytes:
                     raise UpstreamSchemaInvalid("upstream response is too large")
-            body = response.read(MAX_JSON_BYTES + 1)
-            if len(body) > MAX_JSON_BYTES:
+            body = response.read(max_bytes + 1)
+            if len(body) > max_bytes:
                 raise UpstreamSchemaInvalid("upstream response is too large")
             try:
                 return json.loads(body)
@@ -181,7 +201,7 @@ class FixedJsonClient:
 
 
 class RawMonitorClient:
-    """Private-only client for the two fixed raw 3002 read paths."""
+    """Private-only client for fixed raw 3002 read paths."""
 
     OVERVIEW_PATH = "/api/overview"
     LATENCY_PATH = "/api/latency?range=6h&type=icmp&target=AliDNS"
@@ -192,6 +212,26 @@ class RawMonitorClient:
     def read_projection_inputs(self) -> tuple[Any, Any]:
         # Sequential reads keep load bounded and avoid concurrent raw requests.
         return self._client.get(self.OVERVIEW_PATH), self._client.get(self.LATENCY_PATH)
+
+    def read_target_catalog(self) -> Any:
+        return self._client.get(
+            "/api/vps-targets",
+            max_bytes=RAW_CATALOG_MAX_BYTES,
+        )
+
+    def read_target_status(self, target: str) -> Any:
+        if (
+            not isinstance(target, str)
+            or not target
+            or target.strip() != target
+            or len(target) > 128
+            or any(ord(character) < 32 or ord(character) == 127 for character in target)
+        ):
+            raise SecurityBoundaryError("target key is invalid")
+        return self._client.get(
+            f"/api/vps-status?target={quote(target, safe='')}",
+            max_bytes=RAW_STATUS_MAX_BYTES,
+        )
 
 
 class PrivateProjectionClient:

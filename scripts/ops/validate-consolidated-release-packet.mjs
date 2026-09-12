@@ -70,6 +70,8 @@ const REQUIRED_RUNBOOK_FRAGMENTS = Object.freeze([
   "CLOSED_NGINX_INVARIANT",
   "OPEN_NGINX_INVARIANT",
   "MONITOR_AUTH_PROJECTION_STATUS: CONDITIONAL_BLOCKER",
+  "QUIESCENT_MONITOR_AUTH_PROJECTION: DISABLED",
+  "MONITOR_AUTH_PRIVATE_ORIGIN: OMITTED_IN_QUIESCENT_MODE",
   "MONITOR_API_ORIGIN: OMITTED_IN_QUIESCENT_MODE",
   "LOCAL_BUNDLE_RELEASE_USE: FORBIDDEN",
   "GITHUB_ARTIFACT_PROVENANCE: REQUIRED",
@@ -102,6 +104,9 @@ const REQUIRED_BINDING_NAMES = Object.freeze([
   "OPEN_NGINX_CONFIG_PROOF",
   "ALTERNATE_INGRESS_CLOSURE_PROOF",
   "MONITOR_AUTH_PROJECTION_ACCEPTANCE",
+  "MONITOR_AUTH_CONFIGURATION_PROOF",
+  "MONITOR_AUTH_IDENTITY_ACL_PROOF",
+  "MONITOR_AUTH_RAW_BINDING_PROOF",
   "OPEN_CANONICAL_HOST",
   "OPEN_BARE_HOST",
   "OPEN_CANDIDATE_WEBSITE_ROOT",
@@ -271,6 +276,236 @@ function assertFragments(source, fragments, label) {
   }
 }
 
+function assertNoFragments(source, fragments, label) {
+  for (const fragment of fragments) {
+    if (source.includes(fragment)) {
+      throw new ReleaseValidationError(
+        "PACKET_INCOMPLETE",
+        `${label} contains forbidden fragment ${fragment}`,
+      );
+    }
+  }
+}
+
+const MONITOR_AUTH_SOURCE_PATHS = Object.freeze({
+  architecture: "docs/architecture/MONITOR-AUTH-PROJECTION-01.md",
+  authConfig: "auth-service/src/config.ts",
+  authRoute: "auth-service/src/http/monitor-routes.ts",
+  authRateLimit: "auth-service/src/http/rate-limit.ts",
+  accountProjection: "auth-service/src/monitor/account-projection.ts",
+  authPrivateClient: "auth-service/src/monitor/private-client.ts",
+  authServer: "auth-service/src/server.ts",
+  customerPaymentRoute: "auth-service/src/http/payment-routes.ts",
+  gatewayClient: "monitoring/gateway/client.py",
+  gatewayProjection: "monitoring/gateway/auth_projection.py",
+  gatewayServer: "monitoring/gateway/server.py",
+  dashboardServer: "monitoring/dashboard-next/server.py",
+  websiteClient: "website/app/lib/monitor-status-api.ts",
+  websitePage: "website/app/components/status/BuyerServerStatusPage.tsx",
+  websiteStatusLink: "website/app/lib/buyerStatusLink.ts",
+  websitePaymentApi: "website/app/lib/payment-api.ts",
+});
+
+export function validateMonitorAuthProjectionSources(sourceRoot, overrides = {}) {
+  const read = (name) => {
+    const relativePath = MONITOR_AUTH_SOURCE_PATHS[name];
+    if (Object.hasOwn(overrides, relativePath)) {
+      const value = overrides[relativePath];
+      if (typeof value !== "string") {
+        throw new ReleaseValidationError(
+          "PACKET_INCOMPLETE",
+          `monitor Auth override is invalid for ${relativePath}`,
+        );
+      }
+      return value;
+    }
+    return readText(join(sourceRoot, relativePath), `monitor Auth ${name}`);
+  };
+
+  const architecture = read("architecture");
+  assertFragments(
+    architecture,
+    [
+      "DECISION_TYPE: FROZEN_FINAL2",
+      "GET /api/me/monitor-status",
+      "services.payment_id = payments.id",
+      "payments.order_id = orders.id",
+      "MONITOR_AUTH_PROJECTION_ENABLED",
+      "MONITOR_AUTH_PRIVATE_ORIGIN",
+      "monitor_private_ca_certificate",
+      "monitor_auth_service_client_certificate",
+      "monitor_auth_service_client_private_key",
+      "monitor:status:user",
+      "1440x900",
+      "390x844",
+    ],
+    "monitor Auth architecture",
+  );
+
+  const accountProjection = read("accountProjection");
+  assertFragments(
+    accountProjection,
+    [
+      "JOIN payments ON payments.id = services.payment_id",
+      "JOIN orders ON orders.id = payments.order_id",
+      "WHERE orders.user_id = ?",
+      "AND orders.status = 'paid'",
+      "AND payments.status = 'paid'",
+      "AND services.status = 'open'",
+      "ORDER BY services.id DESC, service_delivery_items.position ASC",
+    ],
+    "monitor Auth account selector",
+  );
+  assertNoFragments(
+    accountProjection,
+    ["services.order_id"],
+    "monitor Auth account selector",
+  );
+
+  const authConfig = read("authConfig");
+  assertFragments(
+    authConfig,
+    [
+      "MONITOR_AUTH_PROJECTION_ENABLED",
+      "MONITOR_AUTH_PRIVATE_ORIGIN",
+      '"monitor_private_ca_certificate"',
+      '"monitor_auth_service_client_certificate"',
+      '"monitor_auth_service_client_private_key"',
+    ],
+    "monitor Auth configuration",
+  );
+  assertNoFragments(authConfig, ["MONITOR_API_ORIGIN"], "monitor Auth configuration");
+
+  assertFragments(
+    read("authRoute"),
+    [
+      'url: "/api/me/monitor-status"',
+      "consumeMonitorStatusRateLimit",
+      '"no_eligible_service"',
+      'errorResponse("monitor_unbound")',
+      'errorResponse("monitor_unconfigured")',
+      "MONITOR_BROWSER_RESPONSE_MAX_BYTES = 4 * 1024",
+      "MONITOR_AUTH_TOTAL_TIMEOUT_MS",
+    ],
+    "monitor Auth HTTP route",
+  );
+  assertFragments(
+    read("authRateLimit"),
+    ["MONITOR_STATUS_USER_LIMIT = 120", '"monitor:status:user"'],
+    "monitor Auth rate limit",
+  );
+  const privateClient = read("authPrivateClient");
+  assertFragments(
+    privateClient,
+    [
+      "MONITOR_PRIVATE_STATUS_MAX_BYTES = 8 * 1024",
+      "MONITOR_PRIVATE_CATALOG_MAX_BYTES = 64 * 1024",
+      "MONITOR_AUTH_TOTAL_TIMEOUT_MS = 6_000",
+      '"/api/auth-service/targets"',
+      "`/api/auth-service/status?target=${encodeURIComponent(normalizedTarget)}`",
+      'minVersion: "TLSv1.2"',
+      "rejectUnauthorized: true",
+      'response.cacheControl.trim().toLowerCase() !== "no-store"',
+    ],
+    "monitor Auth private client",
+  );
+  assertNoFragments(
+    `${privateClient}\n${read("authServer")}`,
+    ["MONITOR_API_ORIGIN"],
+    "monitor Auth private path",
+  );
+
+  const gatewayClient = read("gatewayClient");
+  assertFragments(
+    gatewayClient,
+    [
+      "RAW_STATUS_MAX_BYTES = 64 * 1024",
+      "RAW_CATALOG_MAX_BYTES = 256 * 1024",
+      "DEFAULT_TIMEOUT_SECONDS = 5.0",
+      '"/api/vps-targets"',
+      'f"/api/vps-status?target={quote(target, safe=\'\')}"',
+    ],
+    "monitor Auth gateway raw client",
+  );
+  const gatewayServer = read("gatewayServer");
+  assertFragments(
+    gatewayServer,
+    [
+      'AUTH_TARGETS_PATH = "/api/auth-service/targets"',
+      'AUTH_STATUS_PATH = "/api/auth-service/status"',
+      "identity == PUBLIC_BFF_IDENTITY",
+      "identity == AUTH_SERVICE_IDENTITY",
+      'cache_control="no-store"',
+      'AUTH_SERVICE_IDENTITY: "AUTH_SERVICE_IDENTITY_CERT_FILE"',
+    ],
+    "monitor Auth gateway ACL",
+  );
+  assertFragments(
+    read("gatewayProjection"),
+    [
+      'TARGET_KEY_MAX_LENGTH = 128',
+      'TARGET_LABEL_MAX_LENGTH = 200',
+      '"status": status, "updatedAt": updated_at, "stale": False',
+      'return {"status": "stale", "updatedAt": updated_at, "stale": True}',
+    ],
+    "monitor Auth gateway projection",
+  );
+  assertFragments(
+    read("dashboardServer"),
+    [
+      'parsed.path == "/api/vps-targets"',
+      'parsed.path == "/api/vps-status"',
+      "target = parse_vps_target_query(raw_query)",
+      "def log_message(self, _fmt, *_args):",
+    ],
+    "monitor Auth raw dashboard",
+  );
+
+  const websiteClient = read("websiteClient");
+  assertFragments(
+    websiteClient,
+    [
+      "MONITOR_STATUS_RESPONSE_MAX_BYTES = 4 * 1024",
+      "MONITOR_STATUS_TIMEOUT_MS = 7_000",
+      'fetchImpl("/api/me/monitor-status"',
+      'credentials: "same-origin"',
+      'cache: "no-store"',
+      'redirect: "manual"',
+    ],
+    "monitor Auth website client",
+  );
+  assertNoFragments(
+    websiteClient,
+    ["VITE_MONITOR_URL", "MONITOR_API_ORIGIN", "?target=", "?vps="],
+    "monitor Auth website client",
+  );
+  assertFragments(
+    read("websitePage"),
+    ["getMonitorStatus(controller.signal)", "controller.abort()", "手动重试"],
+    "monitor Auth website page",
+  );
+  assertNoFragments(
+    read("websiteStatusLink"),
+    ["?vps=", "monitorTargetKey"],
+    "monitor Auth website status link",
+  );
+  assertNoFragments(
+    read("customerPaymentRoute"),
+    ["monitorTargetKey", "monitor_target_key"],
+    "customer payment route",
+  );
+  assertFragments(
+    read("websitePaymentApi"),
+    [
+      'hasExactKeys(item, ["position", "label", "subscriptionUrl"])',
+      'hasExactKeys(item, ["orderRef", "position", "label"])',
+    ],
+    "customer website payment parser",
+  );
+
+  return Object.freeze({ status: "ok" });
+}
+
 function assertOrderedFragments(source, fragments, label) {
   let previous = -1;
   for (const fragment of fragments) {
@@ -339,6 +574,8 @@ export function validateRepository({ source, expectedSha }) {
     "auth server",
   );
 
+  validateMonitorAuthProjectionSources(sourceRoot);
+
   const runbook = readText(
     join(sourceRoot, "docs/ops/consolidated-release-runbook.md"),
     "consolidated runbook",
@@ -388,6 +625,7 @@ export function validateRepository({ source, expectedSha }) {
       "validate-release-open-http-contract.mjs",
       "assemble-consolidated-release.mjs",
       "python3 -m unittest discover -s monitoring/gateway/tests -v",
+      "python3 -m unittest discover -s monitoring/dashboard-next/tests -v",
       "node --test monitoring/gateway/tests/static-app.test.cjs",
       "npm --prefix auth-service test",
       "node auth-service/dist/test/db.test.js",

@@ -23,7 +23,7 @@ export function DashboardShell() {
   const section = requestedSection as SectionKey;
   if (section === "status") {
     return (
-      <CustomerCenterShell fill title="服务器状态" description="账户授权状态接入后，可在这里查看对应服务器的运行状态">
+      <CustomerCenterShell fill title="服务器状态" description="查看当前账户已开通服务的服务器运行状态">
         <BuyerServerStatusPage />
       </CustomerCenterShell>
     );

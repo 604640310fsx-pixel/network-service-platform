@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import {
+  getAdminMonitorTargets,
+  getMyDeliveryLines,
+  getPaymentOrder,
+  PaymentApiError,
+} from "../app/lib/payment-api.ts";
 
 function source(relativePath: string): string {
   return readFileSync(new URL(relativePath, import.meta.url), "utf8");
@@ -26,9 +32,71 @@ test("sidebar mini is identity-free and status navigation carries no fixed targe
   assert.doesNotMatch(shell, /SIDEBAR_MONITOR_TARGET|target\s*:/);
 });
 
-test("buyer status fails closed until the authenticated projection exists", () => {
+test("buyer status uses only the authenticated same-origin projection", () => {
   const page = source("../app/components/status/BuyerServerStatusPage.tsx");
-  assert.match(page, /服务器状态待接入/);
-  assert.match(page, /不会显示或推测具体 VPS/);
+  assert.match(page, /getMonitorStatus\(controller\.signal\)/);
+  assert.match(page, /状态由账户授权投影返回/);
   assert.doesNotMatch(page, /<iframe|import\.meta\.env|buildMonitorEmbedUrl\(|useSearchParams\(/);
+  assert.doesNotMatch(page, /monitorTargetKey|[?&](?:target|vps)=/);
+});
+
+function apiResponse(value: unknown): Response {
+  return new Response(JSON.stringify(value), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+test("customer payment projections reject monitor target leakage while admin retains keys", async (context) => {
+  const originalFetch = globalThis.fetch;
+  const responses: Response[] = [];
+  globalThis.fetch = (async () => {
+    const response = responses.shift();
+    if (response === undefined) throw new Error("missing test response");
+    return response;
+  }) as typeof fetch;
+  context.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  responses.push(apiResponse({
+    orderRef: "DLBOUNDARY1",
+    status: "paid",
+    amountFen: 7900,
+    currency: "CNY",
+    reservedUntil: null,
+    service: {
+      status: "open",
+      items: [{
+        position: 1,
+        label: "线路 1",
+        subscriptionUrl: "https://subscription.example.test/one",
+        monitorTargetKey: "hidden-target",
+      }],
+    },
+  }));
+  await assert.rejects(
+    getPaymentOrder("DLBOUNDARY1", null),
+    (error: unknown) => error instanceof PaymentApiError && error.code === "invalid_response",
+  );
+
+  responses.push(apiResponse({
+    items: [{
+      orderRef: "DLBOUNDARY1",
+      position: 1,
+      label: "线路 1",
+      monitorTargetKey: "hidden-target",
+    }],
+  }));
+  await assert.rejects(
+    getMyDeliveryLines(),
+    (error: unknown) => error instanceof PaymentApiError && error.code === "invalid_response",
+  );
+
+  responses.push(apiResponse({
+    items: [{ key: "target-a", label: "Target A", state: "active" }],
+  }));
+  assert.deepEqual(await getAdminMonitorTargets(), [
+    { key: "target-a", label: "Target A", state: "active" },
+  ]);
 });

@@ -26,8 +26,8 @@ import "./buyer-network.css";
    IP、面板地址、凭据、监控 ID 或供应商身份；线路条数也不当作在线节点数使用。
    三个接口相互独立：交付线路读取失败时保留仍然有效的服务与订单，只降级为局部警告 + 重试。
    视觉语言：真实数据用 --cc-text 强调，未知数据用 --cc-text-4 弱化，二者一眼可分。
-   账户内线路入口统一进入 /status，并携带后端校验的 VPS 目标；公开 /monitor 仍保持独立，
-   但不再从本账户数据卡片跳转。 */
+   账户内线路入口统一进入不带目标参数的 /status；目标只由 Auth 按所有权选择。
+   公开 /monitor 仍保持独立，但不再从本账户数据卡片跳转。 */
 
 type Resource<T> =
   | { readonly kind: "loading" }
@@ -267,9 +267,8 @@ function StateBlock({
   );
 }
 
-/* 每条买家可见线路名称都指向 /status。管理员已绑定 3002 目标时，仅把经过
-   后端校验的目标键放入 vps 查询参数，让监控页自动选中；历史未绑定行进入
-   默认监控视图，不根据线路名称猜测 VPS。长名称仍完整换行显示。 */
+/* 每条买家可见线路名称只指向同源 /status，不携带目标、订单或线路参数。
+   Auth 依据当前 Session 和所有权在服务端选择目标。长名称仍完整换行显示。 */
 function DeliveryLineLinks({
   lines,
   orderRef,
@@ -283,7 +282,7 @@ function DeliveryLineLinks({
         <li key={line.position}>
           <Link
             className="cc-net-line-label"
-            to={buyerStatusHref(line.monitorTargetKey)}
+            to={buyerStatusHref()}
             aria-label={`线路 ${line.position}：${line.label}（订单 ${orderRef}），前往服务器状态页查看`}
           >
             <span className="cc-net-line-label-index" aria-hidden="true">{line.position}</span>
@@ -545,7 +544,7 @@ function TrafficPanel({
   accountServices: readonly AccountServiceView[];
 }) {
   const ready = servicesState.kind === "ready";
-  const statusHref = resolveBuyerStatusHref(accountServices);
+  const statusHref = resolveBuyerStatusHref();
 
   return (
     <section className="cc-net-panel" aria-labelledby="cc-net-traffic-title">
@@ -651,9 +650,9 @@ function TrafficPanel({
         <span className="cc-net-monitor-icon"><MonitorIcon /></span>
         <div>
           <strong>服务器状态入口</strong>
-          <p>已交付线路可前往服务器状态页；账户授权状态投影尚未接入，页面不会推测具体 VPS 状态。</p>
+          <p>前往服务器状态页查看当前账户获准的状态投影；目标由服务端按所有权选择，不会进入浏览器。</p>
         </div>
-        <Link className="cc-net-ghost" to={statusHref}>查看服务器状态接入说明</Link>
+        <Link className="cc-net-ghost" to={statusHref}>查看服务器状态</Link>
       </div>
     </section>
   );

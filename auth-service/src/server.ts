@@ -9,6 +9,7 @@ import {
   loadConfig,
   loadDeliveryCredentialConfig,
   loadMailRuntimeConfig,
+  loadMonitorCredentialConfig,
   loadMonitorRuntimeConfig,
   loadResendCredentialConfig,
 } from "./config.js";
@@ -17,7 +18,7 @@ import {
   prepareDatabaseReadinessProbe,
   type DatabaseReadinessProbe,
 } from "./db.js";
-import { createMonitorTargetCatalog } from "./monitor/target-catalog.js";
+import { createMonitorPrivateClient } from "./monitor/private-client.js";
 import { startOrderExpirySweep } from "./payment/order-expiry.js";
 import { startRegistrationMailRuntime } from "./registration/mail-runtime.js";
 import { ResendMailTransport } from "./registration/resend-mail-transport.js";
@@ -232,9 +233,14 @@ async function start(): Promise<void> {
   const delivery = config.paymentEnabled
     ? loadDeliveryCredentialConfig()
     : null;
-  const monitor = config.paymentEnabled
-    ? loadMonitorRuntimeConfig()
-    : ({ enabled: false } as const);
+  const monitor = loadMonitorRuntimeConfig();
+  const monitorCredentials = monitor.enabled
+    ? loadMonitorCredentialConfig()
+    : null;
+  const monitorPrivateClient =
+    monitor.enabled && monitorCredentials !== null
+      ? createMonitorPrivateClient(monitor.privateOrigin, monitorCredentials)
+      : null;
   const alipaySdk =
     alipay === null
       ? null
@@ -260,9 +266,7 @@ async function start(): Promise<void> {
               tokenHmacKeyring: credentials.tokenHmacKeyring,
               deliveryEncKeyring: delivery.deliveryEncKeyring,
               csrfSigningKey: credentials.csrfSigningKey,
-              monitorTargetCatalog: monitor.enabled
-                ? createMonitorTargetCatalog(monitor.apiOrigin)
-                : null,
+              monitorTargetCatalog: monitorPrivateClient,
               appId: alipay.appId,
               sellerId: alipay.sellerId,
               notifyUrl: alipay.notifyUrl,
@@ -300,6 +304,12 @@ async function start(): Promise<void> {
           tokenHmacKeyring: credentials.tokenHmacKeyring,
           rateLimitKeyring: credentials.rateLimitKeyring,
           csrfSigningKey: credentials.csrfSigningKey,
+        },
+        monitor: {
+          database,
+          tokenHmacKeyring: credentials.tokenHmacKeyring,
+          rateLimitKeyring: credentials.rateLimitKeyring,
+          privateClient: monitorPrivateClient,
         },
         payment,
         readiness,

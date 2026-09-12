@@ -5,7 +5,10 @@ import { canonicalizeEmail } from "./auth/email.js";
 import type { RateLimitKeyring } from "./http/rate-limit.js";
 import type { InviteHmacKeyring } from "./registration/invite-code.js";
 import type { TokenHmacKeyring } from "./session/session-token.js";
-import { normalizeMonitorApiOrigin } from "./monitor/target-catalog.js";
+import {
+  normalizeMonitorPrivateOrigin,
+  type MonitorPrivateTlsCredentials,
+} from "./monitor/private-client.js";
 
 export const LOOPBACK_HOST = "127.0.0.1" as const;
 
@@ -54,7 +57,9 @@ export interface DeliveryCredentialConfig {
 
 export type MonitorRuntimeConfig =
   | { readonly enabled: false }
-  | { readonly enabled: true; readonly apiOrigin: string };
+  | { readonly enabled: true; readonly privateOrigin: string };
+
+export type MonitorCredentialConfig = MonitorPrivateTlsCredentials;
 
 export interface MailDispatcherRuntimeConfig {
   readonly intervalMs: number;
@@ -363,15 +368,55 @@ export function loadDeliveryCredentialConfig(
 export function loadMonitorRuntimeConfig(
   environment: NodeJS.ProcessEnv = process.env,
 ): MonitorRuntimeConfig {
-  const configured = environment.MONITOR_API_ORIGIN;
-  if (configured === undefined) {
+  const enabled = environment.MONITOR_AUTH_PROJECTION_ENABLED;
+  if (enabled === undefined || enabled === "false") {
     return Object.freeze({ enabled: false });
   }
-  const apiOrigin = normalizeMonitorApiOrigin(configured);
-  if (apiOrigin === null) {
-    throw new Error("Monitor runtime configuration is invalid");
+  if (enabled !== "true") {
+    throw new Error("Monitor Auth runtime configuration is invalid");
   }
-  return Object.freeze({ enabled: true, apiOrigin });
+  const privateOrigin = normalizeMonitorPrivateOrigin(
+    environment.MONITOR_AUTH_PRIVATE_ORIGIN,
+  );
+  if (privateOrigin === null) {
+    throw new Error("Monitor Auth runtime configuration is invalid");
+  }
+  return Object.freeze({ enabled: true, privateOrigin });
+}
+
+function readMonitorCredential(directory: string, name: string): Buffer {
+  try {
+    const value = readFileSync(resolve(directory, name));
+    if (value.length < 1 || value.length > 256 * 1024) {
+      throw new Error("invalid credential size");
+    }
+    return value;
+  } catch {
+    throw new Error("Monitor Auth credential configuration is invalid");
+  }
+}
+
+export function loadMonitorCredentialConfig(
+  environment: NodeJS.ProcessEnv = process.env,
+): MonitorCredentialConfig {
+  const directory = environment.CREDENTIALS_DIRECTORY?.trim();
+  if (!directory) {
+    throw new Error("Monitor Auth credential configuration is invalid");
+  }
+  return Object.freeze({
+    caCertificate: readMonitorCredential(
+      directory,
+      "monitor_private_ca_certificate",
+    ),
+    clientCertificate: readMonitorCredential(
+      directory,
+      "monitor_auth_service_client_certificate",
+    ),
+    clientPrivateKey: readMonitorCredential(
+      directory,
+      "monitor_auth_service_client_private_key",
+    ),
+  });
 }
 
 function invalidMailRuntimeConfiguration(): Error {

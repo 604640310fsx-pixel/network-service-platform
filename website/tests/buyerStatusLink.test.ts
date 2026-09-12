@@ -5,30 +5,12 @@ import {
   resolveBuyerStatusHref,
 } from "../app/lib/buyerStatusLink.ts";
 
-test("buyerStatusHref opens the buyer status page and preserves an exact VPS target", () => {
-  assert.equal(buyerStatusHref(null), "/status");
-  assert.equal(
-    buyerStatusHref("DMIT Premium"),
-    "/status?vps=DMIT%20Premium",
-  );
-  assert.equal(
-    buyerStatusHref("香港 Yecaoyun Cloud"),
-    "/status?vps=%E9%A6%99%E6%B8%AF%20Yecaoyun%20Cloud",
-  );
+test("buyerStatusHref always opens the target-free buyer status route", () => {
+  assert.equal(buyerStatusHref(), "/status");
+  assert.equal(buyerStatusHref.length, 0);
 });
 
-test("resolveBuyerStatusHref uses the first bound delivered line and skips unbound lines", () => {
-  assert.equal(
-    resolveBuyerStatusHref([
-      { lines: [{ monitorTargetKey: null }] },
-      {
-        lines: [
-          { monitorTargetKey: "DMIT Eyeball" },
-          { monitorTargetKey: "NetLab Global US" },
-        ],
-      },
-    ]),
-    "/status?vps=DMIT%20Eyeball",
-  );
-  assert.equal(resolveBuyerStatusHref([{ lines: [] }]), "/status");
+test("resolveBuyerStatusHref never accepts account data or creates a query", () => {
+  assert.equal(resolveBuyerStatusHref(), "/status");
+  assert.equal(resolveBuyerStatusHref.length, 0);
 });
