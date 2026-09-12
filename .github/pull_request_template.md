@@ -1,100 +1,68 @@
 # TEAM-COLLAB-V1 Task Record
 
-> Keep this pull request in Draft until the frozen acceptance criteria and required validation are complete. Do not include credentials, secrets, customer data, or production configuration.
+> Keep this PR in Draft until its frozen acceptance and Packet-required validation are complete. Never include secrets, credentials, customer data, private configuration, or production values. Failed code must not be pushed only to satisfy this template.
 
-## TASK_ID
-
-<!-- Stable task identifier, for example TEAM-WORKFLOW-BASE-01. -->
+## Mandatory core
 
 - TASK_ID:
-- STATUS:
-- TASK_BRANCH:
-
-## BASE_SHA
-
-<!-- Record the frozen base branch and full base SHA. -->
-
+- STATUS: `READY | IN_PROGRESS | VALIDATING | HANDOFF_READY | BLOCKED | STOPPED | DONE`
+- CURRENT_WRITER:
 - BASE_BRANCH:
 - BASE_SHA:
-- CURRENT_HEAD_SHA:
+- HANDOFF_SHA / CURRENT_HEAD_SHA:
+- TASK_BRANCH:
 
-## CURRENT_WRITER
+### Changed files and scope
 
-<!-- Exactly one active writer for overlapping files; use NONE when no writer is active. -->
+<!-- List exact paths and a short diff summary. State forbidden scope that was relevant. -->
 
-- CURRENT_WRITER:
-- NEXT_WRITER:
+- Changed files:
+- Diff summary:
+- Scope result: `PASS | FAIL`
 
-## FROZEN_SCOPE
+### Actual validations
 
-<!-- List allowed files/actions and explicit forbidden scope. -->
+<!-- Use actual evidence only. Packet-required items cannot be relabelled N/A. Allowed results: PASS, FAIL, NOT_RUN, N/A, UNVERIFIED. -->
 
-### Allowed
-
--
-
-### Forbidden
-
--
-
-## CHECKPOINTS
-
-<!-- Add one row per checkpoint. Do not replace failed or superseded evidence silently. -->
-
-| ID | Status | HEAD | Changed files | Result |
-| --- | --- | --- | --- | --- |
-| CP-01 |  |  |  |  |
-
-## TEST_RESULTS
-
-<!-- Record exact commands, execution environment, result, and the tested HEAD. -->
-
-| Validation level | Command | Environment | Result | HEAD |
+| Requirement source | Command or method | Environment | Result | Exact HEAD/artifact |
 | --- | --- | --- | --- | --- |
 | V0 STATIC | `git diff --check` | local |  |  |
 
-### CI checks
+### Risks and unknowns
 
-- [ ] Website check
-- [ ] Website build
-- [ ] Auth service build
-- [ ] Auth service full test
-- [ ] Lockfiles unchanged
+<!-- Use only BLOCKER, SHOULD_FIX, or DEFERRED; write NONE when empty. -->
 
-## SENSITIVE_GATE
+- RISKS_OR_UNKNOWNS:
 
-- [ ] No credentials, tokens, keys, or customer data are included.
-- [ ] No production configuration, deployment, or real transaction was used.
-- [ ] Auth, payment, Migration, Secrets, Billing, and branch protection are unchanged unless separately authorized and documented.
-- Required sensitive approval: `NOT_APPLICABLE` / <!-- approval reference -->
+### Next authorized action
 
-## OPEN_RISKS
-
-<!-- Use only BLOCKER, SHOULD_FIX, or DEFERRED. Write NONE when empty. -->
-
--
-
-## NEXT_ACTION
-
-<!-- One smallest authorized action, its owner, and any approval required. -->
-
-- Action:
+- NEXT_AUTHORIZED_ACTION:
 - Owner:
 - Required approval:
+
+## Packet-conditional evidence
+
+<!-- Include only rows/blocks required by this Task Packet, such as exact-head CI, browser, migration, visual, external, ledger, or line-count evidence. Delete unused placeholder rows; do not mark a required row N/A. -->
+
+| Packet requirement | Evidence/run/job/version | Result | Notes |
+| --- | --- | --- | --- |
+|  |  |  |  |
+
+## Sensitive and authorization gates
+
+- [ ] No credential, token, key, customer data, private configuration, or production value is included.
+- [ ] User and unrelated worktree changes were preserved.
+- [ ] Stage used explicit authorized paths only.
+- [ ] Commit, push, and this Draft PR were each authorized.
+- [ ] No unauthorized dependency, lockfile, Migration, Auth/security, external, merge, release, deploy, or production action occurred.
 
 ## Handoff
 
 - From:
 - To:
-- Last completed checkpoint:
+- HANDOFF_SHA / artifact version and hash:
+- REMOTE_SHA (for pushed code):
 - Worktree status:
-- User changes preserved:
-- Notes:
-
-## Authorization audit
-
-- [ ] Stage was explicitly authorized and used explicit paths only.
-- [ ] Commit was explicitly authorized.
-- [ ] Push was explicitly authorized for this task branch.
-- [ ] Draft PR was explicitly authorized with the recorded base.
-- [ ] No merge or deploy was performed.
+- UNCOMMITTED_RELEVANT_WORK:
+- ACTION_COUNTS:
+- Forbidden next actions:
