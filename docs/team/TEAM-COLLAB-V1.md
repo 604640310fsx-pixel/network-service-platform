@@ -1,165 +1,157 @@
 # TEAM-COLLAB-V1
 
-TEAM-COLLAB-V1 是本仓库中 Claude Code、Codex、GPT 与人工参与者共享的协作基线。它规定任务状态、单一写入者、checkpoint、handoff、验证证据和 Git 授权的最小格式；它不扩大任何任务的产品、生产或 Git 权限。
+TEAM-COLLAB-V1 是 Network Service Platform 中 GPT、执行主管、Claude、Codex 和人工参与者共享的最小执行协议。它规定任务状态、单一写入者、验证证据、Git、checkpoint、handoff 和报告；不定义模型路由，不扩大产品、生产或 Git 权限。管理和模型路由见 [`../ai/GPT-CONTROL-V2.md`](../ai/GPT-CONTROL-V2.md)。
 
-## 1. 事实源与任务记录
+## 1. 任务记录与事实源
 
-每个任务开始前必须记录并核对：
+每个正式任务开始前记录并核对：
 
-- `TASK_ID`：稳定且唯一的任务标识。
-- `BASE_BRANCH` 与 `BASE_SHA`：任务冻结时的目标分支和精确提交。
-- `FROZEN_SCOPE`：允许修改的文件、行为和明确禁止项。
-- `CURRENT_WRITER`：当前唯一允许写入任务 worktree 的参与者。
-- `STATUS`：下述状态机中的一个状态。
-- `CHECKPOINTS`：已经完成的可复核证据。
-- `TEST_RESULTS`：实际运行的命令、结果和对应 HEAD。
-- `SENSITIVE_GATE`：凭据、Auth、金额、数据、生产、迁移和部署等敏感边界。
-- `OPEN_RISKS`：尚未关闭的风险、阻塞和未验证事项。
-- `NEXT_ACTION`：下一项最小、明确、已授权动作。
+- `TASK_ID`、repository、`BASE_BRANCH`、精确 `BASE_SHA`、`TASK_BRANCH`；
+- `FROZEN_SCOPE`：允许路径/行为及明确禁止项；
+- `CURRENT_WRITER`：当前唯一作者；
+- `STATUS`、`CHECKPOINTS`、`ACTION_COUNTS`；
+- 实际验证、敏感门禁、风险/未知和一个 `NEXT_ACTION`；
+- Packet 指定的 PR、CI、外部和停止规则。
 
-优先级从高到低为：用户批准的冻结任务包、仓库中的契约和约束、当前 branch/HEAD/diff、实际测试结果。目标事实与仓库现实冲突时，记录 `DRIFT` 并停止受影响步骤；不得静默选择一方。
+优先级：用户批准的当前 Task Packet > 仓库冻结契约 > 当前 branch/HEAD/diff > 实际验证。目标和现实冲突时标记 `DRIFT` 并停止受影响步骤，不静默选边。GitHub 上已 push 的精确 SHA 才是跨执行器共享代码事实；聊天摘要、本地未提交修改和历史 Packet 都不是当前共享事实。
 
-## 2. 任务状态机
-
-正常路径：
+## 2. 状态与 CURRENT_WRITER
 
 ```text
 READY -> IN_PROGRESS -> VALIDATING -> HANDOFF_READY -> DONE
+任一非终态 -> BLOCKED | STOPPED
+BLOCKED -> IN_PROGRESS       仅在阻塞已关闭且授权仍有效时
+HANDOFF_READY -> IN_PROGRESS 接手者复核 handoff 后
 ```
 
-异常路径：
+`DONE` 和 `STOPPED` 是终态。`HANDOFF_READY` 不是最终验收；执行器不得自判 `DONE`。
 
-```text
-READY | IN_PROGRESS | VALIDATING | HANDOFF_READY -> BLOCKED
-BLOCKED -> IN_PROGRESS       仅在阻塞证据被关闭且权限仍有效时
-任意非终态 -> STOPPED       命中停止线或任务被撤销时
-HANDOFF_READY -> IN_PROGRESS 下一位写入者验收 handoff 后
-```
+- 一个任务、一个阶段和任何重叠文件集合同时只能有一个可定位的 `CURRENT_WRITER`，例如 `CODEX:<task>`、`CLAUDE_CODE:<session>`、`HUMAN:<name>`；无人写入时用 `NONE`。
+- 写入者只获得 Packet 明确授予的权限，不自动获得 commit、push、PR、merge、deploy 或 production 权限。
+- 协调者可审阅和跟进，但不得与作者并行修改重叠文件。
+- 失去联系不等于作者已经停止写入；所有权不明时保持 `BLOCKED`，禁止启动第二作者。
+- 执行主管不可用时，暂停新派发、任务继续和写入者转移；项目经理不得临时兼任执行主管。
+- 接手前必须复核 repository、base、branch、HEAD、diff、未提交状态、最后 checkpoint 和授权，然后显式更新写入者。
+- 模型、effort、workflow 或会话变化不重置任务计时、连接/查询/重试次数、`ACTION_COUNTS` 或停止线。
 
-状态定义：
+## 3. Action count 与 Checkpoint
 
-| 状态 | 含义 | 进入条件 |
-| --- | --- | --- |
-| `READY` | 冻结范围、base 和权限已记录，尚未写入 | 基线只读检查通过 |
-| `IN_PROGRESS` | 唯一写入者正在范围内实施 | `CURRENT_WRITER` 已声明 |
-| `VALIDATING` | 写入已暂停，正在运行验证和审计 diff | 目标改动已完成 |
-| `HANDOFF_READY` | checkpoint、测试、风险和下一动作齐全 | worktree 状态已记录 |
-| `BLOCKED` | 受影响步骤无法安全继续 | 阻塞点和所需决策已明确 |
-| `STOPPED` | 命中停止线或任务被撤销 | 不再执行写入或外部动作 |
-| `DONE` | 验收完成且没有剩余必需动作 | 最终证据可复核 |
+`ACTION_COUNTS` 至少记录 Packet 限制或授权的 fetch、外部连接/查询、文件写入、commit、push、PR 和 CI 检查次数。计数只增不减；失败、未知结果和模型切换也计入实际已发起动作。
 
-`DONE`、`STOPPED` 是终态。未运行的验证必须标记 `UNVERIFIED`，不得以计划、命令存在或 CI 配置存在替代通过证据。
-
-## 3. CURRENT_WRITER
-
-- 任一任务和重叠文件集合在同一时刻只能有一个 `CURRENT_WRITER`。
-- 值必须能定位到具体参与者或会话，例如 `CODEX:<task>`、`CLAUDE_CODE:<session>`、`GPT:<chat>`、`HUMAN:<name>`；无人写入时使用 `NONE`。
-- `CURRENT_WRITER` 只获得任务包已经授予的权限，不因成为写入者而获得 commit、push、PR、merge、deploy 或生产权限。
-- 协调者可以审阅、提出 checkpoint 或准备 handoff，但不得与当前写入者并行修改重叠文件。
-- 接手者必须先核对 branch、`BASE_SHA`、HEAD、diff、未提交状态和最后 checkpoint，再把 `CURRENT_WRITER` 改为自己。
-- 原写入者完成 handoff 后必须停止写入，直到再次被明确接手。
-
-## 4. Checkpoint
-
-Checkpoint 是不可省略的进度证据，不是新的授权。至少在以下时点记录：
-
-1. 基线核对完成后；
-2. 修改完成、进入验证前；
-3. handoff 前；
-4. commit、push 或创建 PR 前；
-5. 最终验收后。
-
-每个 checkpoint 使用以下最小结构：
+Checkpoint 是证据，不是新授权。至少在基线核对后、修改完成进入验证前、commit/push/PR 前及 handoff 前记录；Packet 可以指定更少的逻辑 checkpoint，但不能省略最终证据。
 
 ```yaml
 CHECKPOINT_ID: CP-<number>
 TASK_ID: <task-id>
 STATUS: <state>
 CURRENT_WRITER: <writer>
-BASE_BRANCH: <branch>
 BASE_SHA: <full-sha>
 HEAD_SHA: <full-sha-or-WORKTREE>
-CHANGED_FILES:
-  - <path>
+CHANGED_FILES: [<paths>]
 VALIDATION:
-  - command: <exact-command>
-    result: PASS | FAIL | UNVERIFIED
-OPEN_RISKS:
-  - <risk-or-NONE>
-NEXT_ACTION: <one authorized action>
+  - requirement: <Packet-or-policy-item>
+    command: <actual-command-or-NONE>
+    result: PASS | FAIL | NOT_RUN | N/A | UNVERIFIED
+RISKS_OR_UNKNOWNS: [<item-or-NONE>]
+ACTION_COUNTS: <current-counts>
+NEXT_ACTION: <one-authorized-action>
 ```
 
-Checkpoint 必须记录真实结果，不复制凭据、token、密钥、客户数据或生产配置。失败结果要区分本次新增失败、相关既有失败、无关既有失败、环境缺失和外部服务不可用。
+不得复制凭据、客户数据或生产配置。失败证据不得被新 checkpoint 静默覆盖；应区分本次新增、相关既有、无关既有、环境和外部失败。
 
-## 5. Handoff
+## 4. 验证规则
 
-Handoff 必须在 `HANDOFF_READY` 状态进行，并包含：
+结果统一使用：
 
-- `TASK_ID`、来源写入者、目标写入者；
-- `BASE_BRANCH`、`BASE_SHA`、当前 branch 和完整 HEAD；
-- `FROZEN_SCOPE` 与明确禁止项；
-- 已修改文件和简要 diff；
-- 最后一个 checkpoint；
-- 实际测试命令、结果和环境限制；
-- worktree 是否干净及所有用户既有修改；
-- `SENSITIVE_GATE`、`OPEN_RISKS` 与唯一 `NEXT_ACTION`。
+- `PASS`：要求已实际运行并有对应版本的成功证据；
+- `FAIL`：已运行且未满足要求；
+- `NOT_RUN`：没有运行；
+- `N/A`：要求客观不适用，且没有被 Packet 列为必需；
+- `UNVERIFIED`：缺少足够证据或证据不能绑定当前版本。
 
-接手者只有在复核以上证据后才能将状态切回 `IN_PROGRESS`。若 base、范围、权限或 worktree 与 handoff 不一致，保持 `BLOCKED`，不得自动 stash、reset、clean、覆盖或扩展范围。
+作者不得把 Packet-required validation 重标为 `N/A`。计划、命令存在、历史 run、旧 SHA、被替代 CI 或模板勾选不等于 `PASS`。
 
-## 6. 验证等级
-
-| 等级 | 最小内容 | 适用场景 |
+| 等级 | 最小证据 | 用途 |
 | --- | --- | --- |
-| `V0 STATIC` | `git status`、目标 diff、`git diff --check`、格式或语法检查 | 所有任务必需 |
-| `V1 TARGETED` | 与改动直接相关的最小测试或命令 | 文档、配置、单模块修改 |
-| `V2 COMPONENT` | 受影响组件的 check、build 和完整 test | 产品模块、共享配置、CI 门禁 |
-| `V3 INTEGRATION` | 跨组件、浏览器、沙箱或外部系统的端到端验证 | 仅在目标和外部权限明确时 |
-| `V4 PRODUCTION` | 生产部署后验收、监控和回滚证据 | 仅限单独生产授权 |
+| `V0 STATIC` | status、范围 diff、`git diff --check`、格式/结构检查 | 所有写入任务 |
+| `V1 TARGETED` | 与改动直接相关的检查或测试 | 文档、配置、单模块 |
+| `V2 COMPONENT` | 受影响组件的 check/build/test | 产品模块、共享配置、CI 门禁 |
+| `V3 INTEGRATION` | 跨组件、浏览器、沙箱或外部 E2E | 仅在范围和外部权限明确时 |
+| `V4 PRODUCTION` | 生产验收、监控和回滚证据 | 仅限单独生产授权 |
 
-规则：
+每项证据绑定精确命令/方法、环境和 HEAD/artifact 版本。较高等级不自动授予外部、支付、设备、数据或生产权限；CI 成功不等于浏览器、真实交易、部署或流量完成。
 
-- 每项结果必须绑定精确命令、执行环境和 HEAD。
-- 较高等级不自动授予外部、生产、付款、设备或数据权限。
-- CI 通过不等于浏览器 E2E、真实交易或生产验证。
-- 环境不允许执行时标记 `UNVERIFIED`，不得降级为虚假 PASS。
-- 工作流基础设施修改至少完成 `V0`，并实际运行其声明的本地 `V2` 命令；CI 运行结果在 PR 中单独记录。
+## 5. Git 与用户工作保护
 
-## 7. Git 权限
-
-以下权限彼此独立，必须由任务包分别授权：
+权限链彼此独立：
 
 ```text
-read -> test -> edit -> stage -> commit -> push -> PR -> merge -> deploy
+read -> test -> edit -> stage -> commit -> push -> PR -> merge -> release -> deploy -> production
 ```
 
-- 前一项不蕴含后一项；`commit != push`，`push != PR`，`PR != merge`，`merge != deploy`。
-- 所有动作必须限定到批准的仓库、base、branch 和文件范围。
-- stage 只能使用明确路径；禁止 `git add .` 和 `git add -A`。
-- 不得自动 stash、reset、clean、切换含有冲突修改的 worktree 或覆盖用户文件。
-- push 前必须再次确认本地 branch、remote branch、base/HEAD、最终 diff 和测试结果。
-- PR 默认使用 Draft；base 必须与任务包一致。Merge、branch protection、Secrets、部署和生产操作需要单独授权。
+- 所有动作限定到批准的 repository、base、task branch 和文件；stage 只用明确路径，禁止 `git add .` 和 `git add -A`。
+- 不得自动 stash、reset、clean、restore、覆盖用户文件，或切换含冲突修改的 worktree。
+- push 前复核 branch、remote target、base/HEAD、范围、最终 diff、敏感门禁及所有 push 前必需验证。
+- 失败代码不得仅为满足 PR 模板或形成 handoff SHA 而 push。
+- PR 默认 Draft，base 必须匹配 Packet。push main/长期 integration、force push、PR Ready、merge、branch 删除、release、deploy 和 production 必须分别授权。
 
-## 8. 风险与停止线
+## 6. Handoff
 
-风险只使用以下标签：
+Handoff 的 mandatory core：
 
-- `BLOCKER`：当前步骤不能安全继续，必须给出唯一阻塞点和解除条件。
-- `SHOULD_FIX`：范围内明确缺陷，应在交付前关闭并重跑相关验证。
-- `DEFERRED`：范围外或未来优化，不阻断当前验收。
+- `TASK_ID`、`STATUS`、来源/目标和 `CURRENT_WRITER`；
+- `BASE_BRANCH`、`BASE_SHA`、当前 branch；
+- 修改文件和简要 diff；
+- 实际验证及对应版本；
+- 风险/未知、worktree 状态、用户修改保护；
+- 一个 `NEXT_AUTHORIZED_ACTION` 和明确禁止项。
 
-命中以下任一情况立即停止受影响动作：
+代码 handoff 必须使用已 push 的精确 `HANDOFF_SHA`/`REMOTE_SHA`，相关未提交工作为 `NONE`。设计使用批准版本；仅本地 artifact 使用批准的 Manifest、哈希和稳定位置，不伪造 Git 提交，并明确 `LOCAL_ARTIFACT` 或 `APPROVED_DESIGN`；Packet 未授权 push 时如实保持未 push。
 
-- `BASE_SHA`、base branch 或目标仓库不匹配；
-- 需要修改冻结范围外文件或产品契约；
-- 需要升级依赖、修改 lockfile 或新增未经批准的工具；
-- 需要真实 secret、token、密码、2FA、Passkey、Touch ID、扫码或 CAPTCHA；
-- 需要 Auth、安全、金额、订单、Migration、生产、部署或客户数据决策但没有独立授权；
-- 用户修改与任务文件重叠，无法无损隔离；
-- 测试、build 或核心交互失败且无法在批准范围内修复；
-- 即将执行 merge、deploy、删除、强制更新或不可回滚动作但没有对应权限。
+每次 handoff 先由原作者停止写入并记录真实剩余责任，再由执行主管显式转移所有权；接手者复核全部 mandatory core 和 Packet 条件证据后才可进入 `IN_PROGRESS`。base、范围、权限、作者或 worktree 不一致时保持 `BLOCKED`，不得通过 stash/reset/clean/覆盖来接手。
 
-不得通过扩大范围、伪造 checkpoint、回退 Mock、跳过测试或把公开数据当作私有连接证据来绕过停止线。
+## 7. 短核心报告与条件证据
 
-## 9. PR 作为持久化任务面板
+每次 checkpoint、结果或 PR 更新先给轻量核心：
 
-Draft PR 使用 `.github/pull_request_template.md` 记录当前任务事实。每次 push 或 handoff 后更新 `CHECKPOINTS`、`TEST_RESULTS`、`OPEN_RISKS` 和 `NEXT_ACTION`；只有验收证据齐全并获得 review/merge 权限后，才可退出 Draft。PR 描述不存放任何 secret 或生产配置。
+```yaml
+TASK_ID: <id>
+AUTHOR: <current-writer>
+CHANGED: [<what-changed>]
+NOT_CHANGED: [<explicit-boundaries>]
+RESULT_VERSION: <exact-sha-or-approved-artifact-version/hash>
+ACTUAL_VALIDATIONS: [<method/result/version>]
+SAFE_CLOSEOUT: <worktree/user-change/sensitive-boundary result>
+REMAINING_ISSUE: <one-real-issue-or-NONE>
+NEXT_ACTION: <one-authorized-action-or-NONE>
+```
+
+状态、base/branch、handoff、CI run/job ID、浏览器视口、主题、视觉偏差、迁移矩阵、外部状态、ledger、行数或其他字段只在当前 Packet、PR 或 handoff 确实要求时追加。条件证据仍必须使用真实的 `PASS/FAIL/NOT_RUN/N/A/UNVERIFIED`；required 项没有运行就是 `NOT_RUN` 或 `UNVERIFIED`，不得写成 `N/A`，也不得用重复 boilerplate 隐藏缺失项。
+
+## 8. 问题闭环与升级
+
+普通工具、脚本、测试、build、类型、参数、路径、fixture、解析器、数据接线和机械 UI 问题留在原作者/执行主管链中：读取新证据，尝试权限内、可回滚、可验证且彼此不同的最小修复，避免无差别重复。
+
+范围、能力、预算、权限、产品/商业/Auth/安全/Schema/公共 API、生产或不可回滚问题才升级。升级必须包含：摘要、影响、根因/证据、不同修复及逐项结果、未解决原因、当前安全状态、风险、建议和最小所需决定。模型变化不允许重做相同尝试或清零停止线。
+
+失联不等于停止。未知状态下禁止第二作者；不得自动 stash/reset/clean、删除 branch/worktree，或用 force push 失败代码制造 handoff。普通范围由原作者闭环；只有范围、能力、预算、权限或不可回滚边界确实需要裁决时才升级。
+
+## 9. 风险与停止线
+
+只使用：
+
+- `BLOCKER`：受影响步骤不能安全继续，并给出解除条件；
+- `SHOULD_FIX`：范围内明确缺陷，应在交付前关闭；
+- `DEFERRED`：范围外或未来优化。
+
+base/repository/作者漂移、范围外必需修改、依赖或 lockfile 未授权、用户修改冲突、secret/账户/权限/真实支付需要人工输入、Auth/安全/Migration/生产无授权、不可修复必要验证失败、merge/deploy/删除/强制更新无授权时停止受影响动作。不得以扩大范围、Mock 回退、跳过检查、伪造 evidence 或 second writer 绕过。
+
+## 10. 自动化边界
+
+当前协议不引入 Skills、Node0 Dispatcher、第二套状态机、timer 变更或无人值守队列。未来自动化只能复用这些稳定接口：稳定 `TASK_ID`、单一写入者、状态与动作计数、绑定精确版本的 handoff、幂等去重和显式权限。
+
+已有 linkage 证据按稳定记录复用，不为证明同一结果而重跑。来源认证、S4 完整授权链和后台唤醒在没有独立证据时保持 `UNVERIFIED`，不得从行政绑定或历史结果推导已实现。
+
+## 11. Draft PR 作为持久任务面板
+
+使用 [`.github/pull_request_template.md`](../../.github/pull_request_template.md) 记录 mandatory core 和 Packet 条件证据。每次获准 push/handoff 后更新实际验证、风险/未知和下一动作；PR 描述不存 secret 或生产配置。只有验收证据齐全且另获 PR Ready/merge 权限后才能退出 Draft。
