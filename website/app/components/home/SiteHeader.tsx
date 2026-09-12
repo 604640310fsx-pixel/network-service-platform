@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
 import type { ThemePreference } from "../../lib/theme";
@@ -13,6 +13,31 @@ const navEntries = [
   { label: "服务状态", to: "/monitor" },
 ] as const;
 
+export type MobileMenuKeyAction =
+  | { kind: "close" }
+  | { kind: "focus"; index: number }
+  | null;
+
+export function resolveMobileMenuKeyAction(
+  key: string,
+  shiftKey: boolean,
+  currentIndex: number,
+  controlCount: number,
+): MobileMenuKeyAction {
+  if (key === "Escape") return { kind: "close" };
+  if (key !== "Tab" || controlCount < 1) return null;
+  if (currentIndex < 0) {
+    return { kind: "focus", index: shiftKey ? controlCount - 1 : 0 };
+  }
+  if (shiftKey && currentIndex === 0) {
+    return { kind: "focus", index: controlCount - 1 };
+  }
+  if (!shiftKey && currentIndex === controlCount - 1) {
+    return { kind: "focus", index: 0 };
+  }
+  return null;
+}
+
 export function SiteHeader({
   theme,
   onToggleTheme,
@@ -23,6 +48,8 @@ export function SiteHeader({
   const { status } = useAuth();
   const [stuck, setStuck] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileNavRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onScroll = () => setStuck(window.scrollY > 4);
@@ -31,6 +58,53 @@ export function SiteHeader({
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1025px)");
+    const closeAtDesktopWidth = () => {
+      if (desktop.matches) setMenuOpen(false);
+    };
+    desktop.addEventListener("change", closeAtDesktopWidth);
+    return () => desktop.removeEventListener("change", closeAtDesktopWidth);
+  }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    const trigger = menuButtonRef.current;
+    const menu = mobileNavRef.current;
+    if (!trigger || !menu) return;
+
+    const menuControls = Array.from(
+      menu.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+    );
+    const controls = [trigger, ...menuControls];
+    const focusFrame = window.requestAnimationFrame(() => (menuControls[0] ?? trigger).focus());
+    const onKeyDown = (event: KeyboardEvent) => {
+      const action = resolveMobileMenuKeyAction(
+        event.key,
+        event.shiftKey,
+        controls.indexOf(document.activeElement as HTMLElement),
+        controls.length,
+      );
+      if (action?.kind === "close") {
+        event.preventDefault();
+        setMenuOpen(false);
+        trigger.focus();
+        return;
+      }
+      if (action?.kind === "focus") {
+        event.preventDefault();
+        controls[action.index]?.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpen]);
+
   // 已登录时入口指向客户中心，未登录（含会话检查中）指向登录页。
   const authenticated = status === "authenticated";
   const accountHref = authenticated ? "/dashboard" : "/login";
@@ -38,6 +112,7 @@ export function SiteHeader({
 
   return (
     <>
+      <a className="home-skip-link" href="#home-main">跳到主要内容</a>
       <header className={`home-header${stuck ? " is-stuck" : ""}`}>
         <div className="home-wrap home-header-inner">
           <Link to="/" className="home-brand" onClick={() => setMenuOpen(false)} aria-label="Drink Life">
@@ -75,10 +150,12 @@ export function SiteHeader({
             <Link to={accountHref} className="home-header-cta">{accountLabel}</Link>
 
             <button
+              ref={menuButtonRef}
               type="button"
               className="home-icon-button home-menu-button"
               aria-label={menuOpen ? "关闭导航" : "打开导航"}
               aria-expanded={menuOpen}
+              aria-controls="home-mobile-navigation"
               onClick={() => setMenuOpen((open) => !open)}
             >
               {menuOpen ? (
@@ -90,7 +167,11 @@ export function SiteHeader({
           </div>
         </div>
 
-        <div className={`home-mobile-nav${menuOpen ? " is-open" : ""}`}>
+        <div
+          ref={mobileNavRef}
+          id="home-mobile-navigation"
+          className={`home-mobile-nav${menuOpen ? " is-open" : ""}`}
+        >
           <div>
             {navEntries.map((entry) => (
               <NavLink key={entry.label} to={entry.to} end={entry.to === "/"} onClick={() => setMenuOpen(false)}>
