@@ -36,13 +36,17 @@ bash scripts/team/preflight-readonly.sh \
 
 每个 Task Packet 只启用一种主模式；模式不扩大权限。
 
-### DESIGN / DECIDE
+### DESIGN
 
-用于探索性新视觉方向，或尚未冻结的架构、Auth/Session/事务/API/部署边界。默认只读，最多给两个可比较方案、一个首选、最小可回滚契约和验收标准。输出是 `PROPOSAL`，不得自行标记 `FROZEN` 或改产品代码。
+用于探索性新视觉方向、视觉母版和未冻结关键交互。默认只读，给可比较方案、首选和验收标准；输出是 `PROPOSAL`，不得自行标记 `FROZEN` 或改产品代码。
 
-### SPIKE
+### DECIDE
 
-仅在 Packet 明确写出 SPIKE/POC/薄骨架/隔离验证时使用。产物必须可丢弃，不自动进入正式产品路径；默认不 push、不创建正式 PR、不执行持久 Migration、不访问生产、不删除 worktree。进入正式实施前需要新的冻结事实和授权。
+用于分析尚未冻结的架构、Auth/Session、事务、API 或部署边界。默认只读，给最小可回滚契约、取舍和验收标准；结论仍由管理链冻结。
+
+### RCA
+
+用于复杂故障的证据化只读诊断：说明影响、可复现证据、根因置信度、已尝试的不同路径、当前安全状态和最小下一决定。RCA 不自动获得修复、生产或外部写入权限。
 
 ### IMPLEMENT_UI
 
@@ -61,6 +65,8 @@ bash scripts/team/preflight-readonly.sh \
 Claude Design 负责探索新的视觉方向；Claude Code 可负责未冻结复杂边界的方案、明确授权的复杂实施、关键 UI、复杂响应式、关键交互和局部复杂 Review。商业、价格、套餐、权益、客户承诺、最终产品优先级和事实冻结仍属于管理链。
 
 方案冻结后，剩余普通后端、API、Migration、React/TypeScript、数据接线、build/test、机械 UI 和 Git 收尾通常由 Codex 承担。Claude/Codex handoff 只按剩余责任和证据发生，不机械轮换，不因模型变化重复已完成工作。
+
+Claude 已获准实施时，其本次修改引入或直接暴露的普通 build、test、类型和机械 Bug 仍由同一作者闭环；不得把这些问题立即转给 Codex，也不得重做 Codex 已完成或已验收的范围。失联或模型变化不能据此启动第二个 Claude 作者。
 
 写入任务依次完成：定位目标与调用方/类型/测试，检查现有 diff，保护用户修改，做最小改动，运行直接相关验证和必要浏览器检查，修复本次引入的失败，重跑并审计最终 diff。命令成功不等于功能完成；未验证项标记 `UNVERIFIED`，并区分本次新增、相关既有、无关既有、环境和外部失败。
 

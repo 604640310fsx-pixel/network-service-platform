@@ -5,20 +5,13 @@
 ## Mandatory core
 
 - TASK_ID:
-- STATUS: `READY | IN_PROGRESS | VALIDATING | HANDOFF_READY | BLOCKED | STOPPED | DONE`
-- CURRENT_WRITER:
-- BASE_BRANCH:
-- BASE_SHA:
-- HANDOFF_SHA / CURRENT_HEAD_SHA:
-- TASK_BRANCH:
-
-### Changed files and scope
-
-<!-- List exact paths and a short diff summary. State forbidden scope that was relevant. -->
-
-- Changed files:
-- Diff summary:
-- Scope result: `PASS | FAIL`
+- AUTHOR / CURRENT_WRITER:
+- WHAT_CHANGED:
+- WHAT_DID_NOT_CHANGE:
+- RESULT_VERSION: <!-- exact SHA or approved artifact version/hash -->
+- SAFE_CLOSEOUT: <!-- worktree, user-change and sensitive-boundary result -->
+- REMAINING_ISSUE: <!-- one real issue or NONE -->
+- NEXT_AUTHORIZED_ACTION:
 
 ### Actual validations
 
@@ -28,21 +21,9 @@
 | --- | --- | --- | --- | --- |
 | V0 STATIC | `git diff --check` | local |  |  |
 
-### Risks and unknowns
-
-<!-- Use only BLOCKER, SHOULD_FIX, or DEFERRED; write NONE when empty. -->
-
-- RISKS_OR_UNKNOWNS:
-
-### Next authorized action
-
-- NEXT_AUTHORIZED_ACTION:
-- Owner:
-- Required approval:
-
 ## Packet-conditional evidence
 
-<!-- Include only rows/blocks required by this Task Packet, such as exact-head CI, browser, migration, visual, external, ledger, or line-count evidence. Delete unused placeholder rows; do not mark a required row N/A. -->
+<!-- Include only rows/blocks required by this Task Packet, such as status/base/branch/handoff, exact-head CI, browser, migration, visual, external, ledger, or line-count evidence. Delete unused placeholder rows; do not mark a required row N/A. -->
 
 | Packet requirement | Evidence/run/job/version | Result | Notes |
 | --- | --- | --- | --- |
@@ -57,6 +38,8 @@
 - [ ] No unauthorized dependency, lockfile, Migration, Auth/security, external, merge, release, deploy, or production action occurred.
 
 ## Handoff
+
+<!-- Keep this block only when a handoff is required. The original author stops before ownership is explicitly transferred. -->
 
 - From:
 - To:

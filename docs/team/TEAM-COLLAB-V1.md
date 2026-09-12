@@ -26,10 +26,11 @@ HANDOFF_READY -> IN_PROGRESS 接手者复核 handoff 后
 
 `DONE` 和 `STOPPED` 是终态。`HANDOFF_READY` 不是最终验收；执行器不得自判 `DONE`。
 
-- 一个任务和任何重叠文件集合同时只能有一个可定位的 `CURRENT_WRITER`，例如 `CODEX:<task>`、`CLAUDE_CODE:<session>`、`HUMAN:<name>`；无人写入时用 `NONE`。
+- 一个任务、一个阶段和任何重叠文件集合同时只能有一个可定位的 `CURRENT_WRITER`，例如 `CODEX:<task>`、`CLAUDE_CODE:<session>`、`HUMAN:<name>`；无人写入时用 `NONE`。
 - 写入者只获得 Packet 明确授予的权限，不自动获得 commit、push、PR、merge、deploy 或 production 权限。
 - 协调者可审阅和跟进，但不得与作者并行修改重叠文件。
 - 失去联系不等于作者已经停止写入；所有权不明时保持 `BLOCKED`，禁止启动第二作者。
+- 执行主管不可用时，暂停新派发、任务继续和写入者转移；项目经理不得临时兼任执行主管。
 - 接手前必须复核 repository、base、branch、HEAD、diff、未提交状态、最后 checkpoint 和授权，然后显式更新写入者。
 - 模型、effort、workflow 或会话变化不重置任务计时、连接/查询/重试次数、`ACTION_COUNTS` 或停止线。
 
@@ -105,33 +106,35 @@ Handoff 的 mandatory core：
 - 风险/未知、worktree 状态、用户修改保护；
 - 一个 `NEXT_AUTHORIZED_ACTION` 和明确禁止项。
 
-代码 handoff 必须使用已 push 的精确 `HANDOFF_SHA`/`REMOTE_SHA`，相关未提交工作为 `NONE`。设计、批准截图或仅本地 artifact 不伪造 Git 提交：使用自身版本/哈希/位置并明确 `LOCAL_ARTIFACT` 或 `APPROVED_DESIGN`；Packet 未授权 push 时如实保持未 push。
+代码 handoff 必须使用已 push 的精确 `HANDOFF_SHA`/`REMOTE_SHA`，相关未提交工作为 `NONE`。设计使用批准版本；仅本地 artifact 使用批准的 Manifest、哈希和稳定位置，不伪造 Git 提交，并明确 `LOCAL_ARTIFACT` 或 `APPROVED_DESIGN`；Packet 未授权 push 时如实保持未 push。
 
-接手者复核全部 mandatory core 和 Packet 条件证据后才可进入 `IN_PROGRESS`。base、范围、权限、作者或 worktree 不一致时保持 `BLOCKED`，不得通过 stash/reset/clean/覆盖来接手。
+每次 handoff 先由原作者停止写入并记录真实剩余责任，再由执行主管显式转移所有权；接手者复核全部 mandatory core 和 Packet 条件证据后才可进入 `IN_PROGRESS`。base、范围、权限、作者或 worktree 不一致时保持 `BLOCKED`，不得通过 stash/reset/clean/覆盖来接手。
 
 ## 7. 短核心报告与条件证据
 
-每次 checkpoint、结果或 PR 更新先给短核心：
+每次 checkpoint、结果或 PR 更新先给轻量核心：
 
 ```yaml
 TASK_ID: <id>
-STATUS: <state>
-CURRENT_WRITER: <writer>
-BASE_SHA: <full-sha>
-HANDOFF_SHA: <full-pushed-sha-or-N/A>
-CHANGED_FILES: [<paths>]
-ACTUAL_VALIDATIONS: [<command/result/version>]
-RISKS_OR_UNKNOWNS: [<item-or-NONE>]
-NEXT_AUTHORIZED_ACTION: <one-action>
+AUTHOR: <current-writer>
+CHANGED: [<what-changed>]
+NOT_CHANGED: [<explicit-boundaries>]
+RESULT_VERSION: <exact-sha-or-approved-artifact-version/hash>
+ACTUAL_VALIDATIONS: [<method/result/version>]
+SAFE_CLOSEOUT: <worktree/user-change/sensitive-boundary result>
+REMAINING_ISSUE: <one-real-issue-or-NONE>
+NEXT_ACTION: <one-authorized-action-or-NONE>
 ```
 
-只有当前 Packet 要求时才追加 CI run/job ID、浏览器视口、主题、视觉偏差、迁移矩阵、外部状态、ledger、行数或其他条件证据。条件证据仍必须使用真实的 `PASS/FAIL/NOT_RUN/N/A/UNVERIFIED`；不得用重复 boilerplate 隐藏缺失项。
+状态、base/branch、handoff、CI run/job ID、浏览器视口、主题、视觉偏差、迁移矩阵、外部状态、ledger、行数或其他字段只在当前 Packet、PR 或 handoff 确实要求时追加。条件证据仍必须使用真实的 `PASS/FAIL/NOT_RUN/N/A/UNVERIFIED`；required 项没有运行就是 `NOT_RUN` 或 `UNVERIFIED`，不得写成 `N/A`，也不得用重复 boilerplate 隐藏缺失项。
 
 ## 8. 问题闭环与升级
 
 普通工具、脚本、测试、build、类型、参数、路径、fixture、解析器、数据接线和机械 UI 问题留在原作者/执行主管链中：读取新证据，尝试权限内、可回滚、可验证且彼此不同的最小修复，避免无差别重复。
 
 范围、能力、预算、权限、产品/商业/Auth/安全/Schema/公共 API、生产或不可回滚问题才升级。升级必须包含：摘要、影响、根因/证据、不同修复及逐项结果、未解决原因、当前安全状态、风险、建议和最小所需决定。模型变化不允许重做相同尝试或清零停止线。
+
+失联不等于停止。未知状态下禁止第二作者；不得自动 stash/reset/clean、删除 branch/worktree，或用 force push 失败代码制造 handoff。普通范围由原作者闭环；只有范围、能力、预算、权限或不可回滚边界确实需要裁决时才升级。
 
 ## 9. 风险与停止线
 
@@ -143,6 +146,12 @@ NEXT_AUTHORIZED_ACTION: <one-action>
 
 base/repository/作者漂移、范围外必需修改、依赖或 lockfile 未授权、用户修改冲突、secret/账户/权限/真实支付需要人工输入、Auth/安全/Migration/生产无授权、不可修复必要验证失败、merge/deploy/删除/强制更新无授权时停止受影响动作。不得以扩大范围、Mock 回退、跳过检查、伪造 evidence 或 second writer 绕过。
 
-## 10. Draft PR 作为持久任务面板
+## 10. 自动化边界
+
+当前协议不引入 Skills、Node0 Dispatcher、第二套状态机、timer 变更或无人值守队列。未来自动化只能复用这些稳定接口：稳定 `TASK_ID`、单一写入者、状态与动作计数、绑定精确版本的 handoff、幂等去重和显式权限。
+
+已有 linkage 证据按稳定记录复用，不为证明同一结果而重跑。来源认证、S4 完整授权链和后台唤醒在没有独立证据时保持 `UNVERIFIED`，不得从行政绑定或历史结果推导已实现。
+
+## 11. Draft PR 作为持久任务面板
 
 使用 [`.github/pull_request_template.md`](../../.github/pull_request_template.md) 记录 mandatory core 和 Packet 条件证据。每次获准 push/handoff 后更新实际验证、风险/未知和下一动作；PR 描述不存 secret 或生产配置。只有验收证据齐全且另获 PR Ready/merge 权限后才能退出 Draft。
