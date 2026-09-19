@@ -55,16 +55,20 @@ test("category and query filters compose without inventing fallback documents", 
 test("subscription import articles remain searchable by their real reader content", () => {
   assert.deepEqual(documentCategories(SUBSCRIPTION_IMPORT_ARTICLES), ["订阅导入"]);
   assert.deepEqual(
-    filterDocumentationArticles(SUBSCRIPTION_IMPORT_ARTICLES, "当前浏览器本地生成", "订阅导入").map(
-      (item) => item.id,
-    ),
-    ["subscription-address"],
+    SUBSCRIPTION_IMPORT_ARTICLES.map((item) => item.id),
+    ["flclash-import", "shadowrocket-import", "clash-verge-import", "clash-meta-import"],
   );
   assert.deepEqual(
-    filterDocumentationArticles(SUBSCRIPTION_IMPORT_ARTICLES, "手动导入", "订阅导入").map(
+    filterDocumentationArticles(SUBSCRIPTION_IMPORT_ARTICLES, "通过 URL 获取配置文件", "订阅导入").map(
       (item) => item.id,
     ),
-    ["manual-client-import"],
+    ["flclash-import"],
+  );
+  assert.deepEqual(
+    filterDocumentationArticles(SUBSCRIPTION_IMPORT_ARTICLES, "Subscribe", "订阅导入").map(
+      (item) => item.id,
+    ),
+    ["shadowrocket-import"],
   );
 });
 
@@ -83,6 +87,7 @@ test("four client tutorials have readable steps and only checked local images", 
     }
   }
   const shadowrocket = SUBSCRIPTION_IMPORT_ARTICLES.find((item) => item.id === "shadowrocket-import");
+  assert.ok(shadowrocket.sections[0].video, "the video should appear before the written steps");
   assert.deepEqual(shadowrocket.sections.find((section) => section.video)?.video, {
     youtubeId: "BKYbtaMdD6A",
     title: "原教程的小火箭相关视频",

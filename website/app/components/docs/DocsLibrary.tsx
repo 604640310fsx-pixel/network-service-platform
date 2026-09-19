@@ -6,6 +6,9 @@ import {
 } from "./docsModel";
 import "./docs.css";
 
+const CLIENT_DOWNLOAD_GUIDE_URL =
+  "https://chatbot.sufe.pro/hc/sufe/articles/1761215257-?show_plain_layout=true&theme=light";
+
 export type DocsLibraryProps = {
   /** Only repository-approved or Packet-approved article bodies may be supplied. */
   readonly articles?: readonly DocumentationArticle[];
@@ -26,7 +29,7 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
 
   function selectArticle(article: DocumentationArticle) {
     setSelectedId(article.id);
-    requestAnimationFrame(() => readerRef.current?.focus());
+    requestAnimationFrame(() => readerRef.current?.focus({ preventScroll: true }));
   }
 
   return (
@@ -38,6 +41,16 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
             <h2>使用文档</h2>
             <p>查找订阅地址与常见客户端的导入步骤。</p>
           </header>
+
+          <a
+            className="cc-docs-download-link"
+            href={CLIENT_DOWNLOAD_GUIDE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <strong>代理工具下载 ↗</strong>
+            <span>前往外部页面查看常用客户端下载链接</span>
+          </a>
 
           <label className="cc-docs-search" htmlFor={`${instanceId}-search`}>
             <span>搜索文档</span>

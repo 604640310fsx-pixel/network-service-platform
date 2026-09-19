@@ -52,6 +52,32 @@
   line-height: 1.65;
 }
 
+.cc-docs-download-link {
+  display: block;
+  margin-top: 16px;
+  padding: 12px 13px;
+  border: 1px solid var(--cc-accent-line, rgba(245, 158, 11, 0.55));
+  border-radius: 9px;
+  background: var(--cc-accent-tint, rgba(245, 158, 11, 0.07));
+  text-decoration: none;
+}
+.cc-docs-download-link strong {
+  display: block;
+  color: var(--cc-accent, #f59e0b);
+  font-size: 13.5px;
+}
+.cc-docs-download-link span {
+  display: block;
+  margin-top: 4px;
+  color: var(--cc-text-2, #d7dce4);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.cc-docs-download-link:focus-visible {
+  outline: 2px solid var(--cc-accent, #f59e0b);
+  outline-offset: 2px;
+}
+
 .cc-docs-search {
   display: block;
   margin-top: 16px;
@@ -230,9 +256,9 @@
   object-fit: contain;
 }
 .cc-docs-figure figcaption {
-  margin-top: 6px;
-  color: var(--cc-text-3, #979da7);
-  font-size: 12px;
+  margin-top: 10px;
+  color: var(--cc-text-2, #d7dce4);
+  font-size: 16px;
   line-height: 1.6;
 }
 .cc-docs-video { width: min(100%, 620px); margin-top: 16px; }
