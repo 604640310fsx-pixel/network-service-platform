@@ -82,4 +82,9 @@ test("four client tutorials have readable steps and only checked local images", 
       }
     }
   }
+  const shadowrocket = SUBSCRIPTION_IMPORT_ARTICLES.find((item) => item.id === "shadowrocket-import");
+  assert.deepEqual(shadowrocket.sections.find((section) => section.video)?.video, {
+    youtubeId: "BKYbtaMdD6A",
+    title: "原教程的小火箭相关视频",
+  });
 });

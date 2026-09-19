@@ -137,6 +137,25 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
                       <figcaption>{item.caption}</figcaption>
                     </figure>
                   ))}
+                  {section.video !== undefined && (
+                    <div className="cc-docs-video">
+                      <iframe
+                        src={`https://www.youtube-nocookie.com/embed/${section.video.youtubeId}`}
+                        title={section.video.title}
+                        loading="lazy"
+                        referrerPolicy="strict-origin-when-cross-origin"
+                        allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowFullScreen
+                      />
+                      <a
+                        href={`https://www.youtube.com/watch?v=${section.video.youtubeId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        在 YouTube 观看
+                      </a>
+                    </div>
+                  )}
                 </section>
               ))}
             </article>

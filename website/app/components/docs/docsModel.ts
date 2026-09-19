@@ -7,6 +7,10 @@ export type DocumentationSection = {
     readonly alt: string;
     readonly caption: string;
   }[];
+  readonly video?: {
+    readonly youtubeId: string;
+    readonly title: string;
+  };
 };
 
 export type DocumentationArticle = {
@@ -147,7 +151,6 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
         heading: "按需更新",
         paragraphs: [
           "客户端的「设置」中有「订阅」入口，可按需要选择打开时更新或后台更新。设置项和更新行为随客户端版本而变化。",
-          "本页提供图文导入步骤，暂无可用的订阅导入视频。",
         ],
         images: [
           {
@@ -161,6 +164,16 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
             caption: "更新选项可根据自己的需要设置。",
           },
         ],
+      },
+      {
+        heading: "相关视频",
+        paragraphs: [
+          "原教程提供小火箭相关视频。该视频从 Apple ID 与客户端获取讲起，具体订阅导入片段尚未核实；导入当前线路请以上方图文步骤为准。",
+        ],
+        video: {
+          youtubeId: "BKYbtaMdD6A",
+          title: "原教程的小火箭相关视频",
+        },
       },
     ],
   },
@@ -243,6 +256,7 @@ function searchableArticleText(article: DocumentationArticle): string {
     ...(section.paragraphs ?? []),
     ...(section.steps ?? []),
     ...(section.images ?? []).flatMap((image) => [image.alt, image.caption]),
+    section.video?.title ?? "",
   ]);
   return [article.title, article.summary, article.category, ...sectionText]
     .join("\n")

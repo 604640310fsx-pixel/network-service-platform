@@ -235,6 +235,20 @@
   font-size: 12px;
   line-height: 1.6;
 }
+.cc-docs-video { width: min(100%, 620px); margin-top: 16px; }
+.cc-docs-video iframe {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--cc-line, #2a2e34);
+  border-radius: 9px;
+}
+.cc-docs-video a {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--cc-accent, #f59e0b);
+  font-size: 12px;
+}
 
 @media (max-width: 980px) {
   .cc-docs-layout { grid-template-columns: minmax(0, 1fr); }
