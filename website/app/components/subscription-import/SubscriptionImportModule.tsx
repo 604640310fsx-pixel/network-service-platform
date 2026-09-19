@@ -90,7 +90,7 @@ export function SubscriptionImportModule({
   const [selectedPosition, setSelectedPosition] = useState<number | null>(
     deliveryItems[0]?.position ?? null,
   );
-  const [qrOpen, setQrOpen] = useState(compact);
+  const [qrOpen, setQrOpen] = useState(false);
   const [safeOpenVisible, setSafeOpenVisible] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -123,7 +123,7 @@ export function SubscriptionImportModule({
 
   function selectDelivery(position: number) {
     setSelectedPosition(position);
-    setQrOpen(compact);
+    setQrOpen(false);
     setSafeOpenVisible(false);
     setActionMessage(null);
   }
@@ -268,6 +268,17 @@ export function SubscriptionImportModule({
             </button>
           </div>
 
+          {qrOpen && (
+            <div id={qrPanelId} className="cc-si-qr" aria-label="订阅二维码">
+              <div className="cc-si-qr-code">
+                <LocalQrBoundary key={subscriptionUrl}>
+                  <QRCodeSVG value={subscriptionUrl} size={184} level="M" marginSize={2} />
+                </LocalQrBoundary>
+              </div>
+              <p>使用客户端扫码导入。</p>
+            </div>
+          )}
+
           {actionMessage !== null && <p className="cc-si-status" role="status">{actionMessage}</p>}
 
           {safeOpenVisible && (
@@ -347,15 +358,6 @@ export function SubscriptionImportModule({
                 </button>
               ))}
             </div>
-
-            {qrOpen && (
-              <div id={qrPanelId} className="cc-si-qr" aria-label="本地订阅二维码">
-                <LocalQrBoundary key={subscriptionUrl}>
-                  <QRCodeSVG value={subscriptionUrl} size={184} level="M" marginSize={2} />
-                </LocalQrBoundary>
-                <p>二维码仅在当前浏览器本地生成，不调用第三方二维码服务。</p>
-              </div>
-            )}
 
             <div className="cc-si-manual">
               <h3>{selectedClient.name} · 手动导入</h3>

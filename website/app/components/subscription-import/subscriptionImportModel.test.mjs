@@ -81,20 +81,21 @@ test("location guidance covers frozen Chrome cases without a fake chrome setting
   assert.doesNotMatch(COMPONENT_SOURCE, /href=[^>]*chrome:\/\//);
 });
 
-test("the frozen import hierarchy is preserved in DOM order", () => {
+test("the subscription controls follow the approved card order", () => {
   const orderedMarkers = [
     'className="cc-si-location-note"',
     "<span>当前订阅地址</span>",
+    'className="cc-si-actions"',
+    'className="cc-si-qr"',
     'className="cc-si-platform-tabs"',
     'className="cc-si-client-grid"',
-    'className="cc-si-qr"',
     'className="cc-si-manual"',
     'className="cc-si-help"',
   ];
   let previousIndex = -1;
   for (const marker of orderedMarkers) {
     const currentIndex = COMPONENT_SOURCE.indexOf(marker);
-    assert.ok(currentIndex > previousIndex, `${marker} must follow the previous frozen section`);
+    assert.ok(currentIndex > previousIndex, `${marker} must follow the previous section`);
     previousIndex = currentIndex;
   }
   assert.match(COMPONENT_SOURCE, /aria-controls=\{qrPanelId\}/);
@@ -126,6 +127,6 @@ test("the module is embeddable and responds to its container instead of the view
     /aria-labelledby=\{`\$\{instanceId\}-title`\}[\s\S]*?<h2 id=\{`\$\{instanceId\}-title`\}>/,
   );
   assert.match(COMPONENT_CSS, /repeat\(auto-fit, minmax\(min\(100%, 420px\), 1fr\)\)/);
-  assert.match(COMPONENT_SOURCE, /const \[qrOpen, setQrOpen\] = useState\(compact\)/);
+  assert.match(COMPONENT_SOURCE, /const \[qrOpen, setQrOpen\] = useState\(false\)/);
   assert.match(COMPONENT_CSS, /\.cc-si-page\.is-compact \.cc-si-layout/);
 });
