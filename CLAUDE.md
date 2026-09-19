@@ -2,9 +2,9 @@
 
 @docs/team/TEAM-COLLAB-V1.md
 
-本文件只约束被当前 Task Packet 指定为写入者的 **Claude Design/Claude Code 作者**。项目经理或执行主管即使读取本文件，也继续保留其管理角色，不会自动变成 Claude 作者或让出所有权。
+本文件约束当前 Task Packet 指派的 **Claude Design/Claude Code 作者**；只读任务不要求先成为写入者，实际写入必须取得唯一 `CURRENT_WRITER` 和对应授权。项目经理或执行主管即使读取本文件，也继续保留其管理角色，不会自动变成 Claude 作者或让出所有权。
 
-Claude 的作者职责是：探索新的视觉方向、分析尚未冻结的复杂技术边界，或在明确授权时实施复杂工程/关键 UI。Claude 不是商业总控，也不是已冻结普通工程任务的默认执行器。
+Claude 的作者职责是：探索新的视觉方向、分析尚未冻结的复杂技术边界，或在明确授权时完整实施复杂工程/关键 UI。未来路由中的 Opus 5 可以承担获准范围的最终实现及验证；模型选择仍以中央规则和 Packet 为准。Claude 不是商业总控，也不是已冻结普通工程任务的默认执行器。
 
 共享规则只以以下文件为准：
 
@@ -16,7 +16,7 @@ Claude 的作者职责是：探索新的视觉方向、分析尚未冻结的复�
 
 ## 1. 作者范围与 CURRENT_WRITER
 
-- 只有 Task Packet 将 `CURRENT_WRITER` 精确指定为本 Claude 会话时才允许写入；未定义、歧义或属于 Codex/其他作者时只读。
+- DESIGN、DECIDE、RCA、REVIEW 的只读参与不要求先取得 `CURRENT_WRITER`；只有实施 Packet 将其精确指定为本 Claude 会话且授予 edit 时才允许写入。未定义、歧义或属于其他作者时不写入。
 - 一个任务和重叠文件集合只能有一个作者。失联不等于停止写入；所有权不明时不得启动第二作者。
 - 开始前核对仓库、remote、base branch、精确 `BASE_SHA`、branch、HEAD、status、用户修改、模式、冻结源、允许/禁止范围、验收命令、视口及权限。
 - GitHub 上已 push 的精确 SHA 才是跨执行器共享代码事实；聊天摘要、粘贴代码和本地未提交修改不是共享事实。
@@ -64,11 +64,11 @@ bash scripts/team/preflight-readonly.sh \
 
 Claude Design 负责探索新的视觉方向；Claude Code 可负责未冻结复杂边界的方案、明确授权的复杂实施、关键 UI、复杂响应式、关键交互和局部复杂 Review。商业、价格、套餐、权益、客户承诺、最终产品优先级和事实冻结仍属于管理链。
 
-方案冻结后，剩余普通后端、API、Migration、React/TypeScript、数据接线、build/test、机械 UI 和 Git 收尾通常由 Codex 承担。Claude/Codex handoff 只按剩余责任和证据发生，不机械轮换，不因模型变化重复已完成工作。
+方案冻结后，未交给 Claude 的普通后端、API、Migration、React/TypeScript、数据接线、build/test、机械 UI 和 Git 收尾通常由 Codex 承担。Claude 若已获完整 UI/复杂实施范围，应完成范围内实现、冻结接线、必要测试与浏览器验证；Claude/Codex handoff 只按真实剩余责任和证据发生，不默认回交旧版本或因模型变化重复已完成工作。
 
 Claude 已获准实施时，其本次修改引入或直接暴露的普通 build、test、类型和机械 Bug 仍由同一作者闭环；不得把这些问题立即转给 Codex，也不得重做 Codex 已完成或已验收的范围。失联或模型变化不能据此启动第二个 Claude 作者。
 
-写入任务依次完成：定位目标与调用方/类型/测试，检查现有 diff，保护用户修改，做最小改动，运行直接相关验证和必要浏览器检查，修复本次引入的失败，重跑并审计最终 diff。命令成功不等于功能完成；未验证项标记 `UNVERIFIED`，并区分本次新增、相关既有、无关既有、环境和外部失败。
+写入任务依次完成：定位目标与直接调用方/类型/测试，检查现有 diff，保护用户修改，做最小改动，运行与风险相称的相关验证和必要浏览器检查，修复本次引入的普通失败，审计最终 diff。无新问题不重复检查或增造验证包装器。命令成功不等于功能完成；未验证项标记 `UNVERIFIED`，并区分本次新增、相关既有、无关既有、环境和外部失败。
 
 关键 UI 的常驻边界：
 

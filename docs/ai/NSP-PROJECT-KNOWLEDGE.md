@@ -51,9 +51,9 @@
 
 独立文件 `AI公司_整体架构与执行方案_综合版_阅读稿.md` 的 SHA256 同为 `cd0f866a43464b1c3d20f0f0737fa91d33c1790a420deab01c03a06de19b7719`，已验证与材料包内同名阅读稿字节一致；状态为 `BYTE_IDENTICAL_REFERENCE`，不产生第二次采用或第二份规则。
 
-项目级指令应用状态必须分别记录：
+以下是 `DEV-AI-TEAM-RULES-CONSOLIDATE-01` 当时的项目级指令应用快照；旧文件哈希和状态只属于该版本，不代表本次修订或当前 UI：
 
-| 状态门 | 本分支交接状态 | 含义 |
+| 状态门 | 历史交接状态 | 含义 |
 | --- | --- | --- |
 | `WRITTEN_TO_TASK_BRANCH` | `PASS` | 最终粘贴稿已写入包含本记录的 task branch 版本；文件 SHA256 `592ab3a8f4398fa79c8737804aa939c4a865a8076b3a4f410c6ad1d57ec99ad7`，Git SHA 由 Draft PR/handoff 绑定 |
 | `MERGED_TO_INTEGRATION` | `NOT_RUN` | 本任务不含 merge 权限 |
@@ -62,7 +62,7 @@
 
 ## 4. 固定管理绑定与责任矩阵
 
-固定项目经理的行政绑定是 GPT-5.6 Sol / max / thread `01a06904-8db3-71e1-ba22-fd7c59d0afef`；固定执行主管是 GPT-5.6 Sol / high / thread `01a0697a-2459-7530-bf38-e29c89b47313`。完整职责和模型路由只以 `GPT-CONTROL-V2` 为准。
+固定项目经理的行政绑定是 thread `01a06904-8db3-71e1-ba22-fd7c59d0afef`；日常目标路由改为 GPT-6 Astra / medium，实际客户端选择仍待确认。固定执行主管为 GPT-5.6 Sol / high / thread `01a0697a-2459-7530-bf38-e29c89b47313`。完整职责和唯一当前模型路由只以 `GPT-CONTROL-V2` 为准。
 
 这些模型、thread、session、message 或 nonce 标识只用于行政定位和证据关联，不是来源认证、技术锁、队列授权或身份安全边界。
 
@@ -74,6 +74,12 @@
 | Claude Design/Code 作者 | 新视觉探索、未冻结复杂边界方案、获准复杂实施/关键 UI | 商业总控、最终冻结、机械重复返工 |
 
 标准链是“作者 -> 执行主管结果级验证 -> 项目经理最终验收”。项目经理不绕过主管直接管理普通执行器；管理绑定只有用户明确修订项目治理时才改变。
+
+### 2026-09-19 治理修订登记
+
+`AI-TEAM-ROUTING-DELIVERY-FIRST-01` 以 `integration/consolidate-project@27d47dc0b4ff55b37c0e70a58ebf33d64ab8eddf` 为基线，更新当前模型路由、验证比例与交付报告。原经理 Sol/max 绑定、Astra 默认排除及旧版本路由由中央规则的新目标政策替换；上述历史材料、SHA256、已验收成果和原始证据均保留原时间语义。当前变更的 pushed SHA、Draft PR、CI 与应用状态须从实际交接读取，不能从此登记推断。
+
+产品进展以获准目标的可验收结果记录；辅助工具修复、哈希/测试数量、`SAFE_STOP` 或仓库文档写入不等于业务完成。仓库规则写入、push、merge、项目 UI 人工应用、既有会话加载和实际模型选择分别核实；未知项保持 `UNKNOWN`/`UNVERIFIED`。本次知识入口不宣称发布、生产或客户状态改变。
 
 ## 5. 仓库模块与依赖全景
 
@@ -195,7 +201,7 @@ AI-team coordination
 
 ## 9. 已知 UNKNOWN
 
-- 当前任务之外的模型/effort 实际可用性：`UNKNOWN`；不得探测或静默替代。
+- 当前任务之外的模型/effort 实际可用性与项目 UI 的真实选择：`UNKNOWN`；可见选择也不证明底层权重身份，不作鉴定工程或静默替代。
 - S3 来源认证、S4 完整无人值守授权链、后台/无提示 manager wake：`UNVERIFIED`。
 - 当前部署、生产 binding、真实流量、真实支付/订单、客户数据、外部服务和恢复资格：`UNKNOWN`，且本入口不授权连接确认。
 - 作者会话是否自动加载了最新规则、Claude 是否加载了本次 `CLAUDE.md`：`UNVERIFIED`。

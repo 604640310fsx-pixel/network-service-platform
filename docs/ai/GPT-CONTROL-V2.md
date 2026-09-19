@@ -10,11 +10,11 @@
 
 ### 项目经理
 
-固定绑定：GPT-5.6 Sol / max / thread `01a06904-8db3-71e1-ba22-fd7c59d0afef`。
+固定岗位与线程：唯一项目经理 / thread `01a06904-8db3-71e1-ba22-fd7c59d0afef`。日常目标路由为 GPT-6 Astra / medium；跨模块取舍或复杂冲突由同一经理在获准且实际可用时选 Astra / high。岗位绑定不随模型选择改变；本规则不证明客户端已切换，实际选择须以设置可见事实确认。
 
 项目经理长期负责整个项目：持续维护目标、模块与依赖图、已批准决定及原因、交付状态、当前证据、发布缺口、风险和有效授权；裁定优先级、范围、路由、风险与 Task Packet；对执行结果作最终 `ACCEPTED`、`PARTIAL` 或 `REJECTED`。项目经理不做普通实施或调试，不绕过执行主管直接经营执行链，也不与执行主管并行轮询或跟进同一执行器；只在结果级交接、正式升级或高风险/最终验收确有需要时定向读取必要证据。管理绑定只有用户明确修订项目治理时才改变。
 
-只有尚未解决且确属关键的商业、产品、Auth、安全、支付、Migration 原则或生产风险裁决，项目经理才可向 ChatGPT Pro 请求只读意见。该意见必须返回同一项目经理后再裁决；Pro 不是派发链、作者或验收者，也不扩大任何权限。
+只有尚未解决且确属关键的商业、产品、Auth、安全、支付、Migration 原则或生产风险裁决，项目经理才可在用户指定且当前可用时向 ChatGPT Pro 请求专项只读意见。该意见必须返回同一项目经理后再裁决；Pro 不是派发链、作者或验收者，也不扩大任何权限。
 
 ### 执行主管
 
@@ -44,26 +44,31 @@
 
 ## 2. 唯一当前动态模型路由表
 
-固定项目经理和执行主管属于上一节的行政绑定，不参加动态路由。下表是本项目唯一权威的执行模型路由表。表外模型、effort 或 workflow 不得静默替代；精确模型 ID、effort 和可用性没有当前直接证据时一律为 `UNKNOWN`，普通任务不得为了确认可用性而探测，也不得为“保险”重复调用多个模型。
+项目经理与执行主管的岗位和线程绑定见上一节；下表是唯一当前任务模型路由表。它规定后续派工选择，不代表运行设置已改变，也不中途替换现任作者。表外模型、effort 或 workflow 不得静默替代；实际选择、可见回退或精确 ID 缺少直接证据时记 `UNKNOWN`，不为“保险”重复调用多个模型。
 
 | 责任 | 当前路由 | 使用条件 |
 | --- | --- | --- |
+| 日常项目经理 | GPT-6 Astra / medium | 同一经理负责全局、优先级、范围、派工与验收；实际切换待设置确认 |
+| 复杂经理问题 | GPT-6 Astra / high | 同一经理仅在当前跨模块取舍或复杂冲突且实际可用时专项选用 |
+| 固定执行主管 | GPT-5.6 Sol / high | 保持唯一主管和现有线程，不成为第二作者 |
 | 普通工程 | GPT-5.6 Sol / high | 边界清晰的正常实施、测试和修复 |
-| 复杂正式工程 | GPT-5.6 Sol / xhigh / 标准串行 | 多文件、多模块、后端、Migration 代码、难 Bug 或完整测试闭环 |
-| 低风险工程候选 | GPT-5.6 Terra 或 GPT-5.6 Luna / 当前已验证且 Packet 选定的 effort | 仅局部、可回滚、低冲突、可独立验收；关键安全、数据或生产裁决仍回管理链 |
-| Luna max 候选 | GPT-5.6 Luna / max | 仅非紧急、低风险、边界清楚、可独立验收，且精确候选已可用并被当前 Packet 显式选择；否则 `UNKNOWN` |
+| 复杂正式工程 | GPT-5.6 Sol / xhigh / 标准串行 | 多文件、跨模块或难 Bug；关键事务和数据完整性按批准风险选择 xhigh/max |
+| 局部低风险工程 | 已可用且 Packet 选定的 Terra / medium 或 high、Luna / low 或 medium；Claude 检索可选 Haiku 4.5 | 机械检索、抽取、局部可回滚任务；不扩大权限 |
 | Codex Ultra | 当前 Packet 明确选择的 Ultra workflow | 仅 T4、至少两个独立可验收且无共享写入的子任务，最后串行整合；不用于单链路、Auth/Session、同一 Migration/事务、生产、交易或 Git 收尾 |
-| Claude Design | 当前 Packet 明确选择的 Claude 模型/effort | 探索性新视觉方向、视觉母版和未冻结关键交互；输出默认是 `PROPOSAL` |
-| Claude Sonnet | 当前 Packet 明确选择的已验证候选 | 边界清楚的普通内容、分析或工程任务 |
-| Claude Opus | 当前 Packet 明确批准的已验证候选 | 复杂 UI、创意、RCA 或复杂实施 |
-| Claude Fable | 当前 Packet 明确批准的已验证候选 | 仅有证据证明异常困难或长链路任务确有需要，并明确范围、预算和可用性 |
-| Astra | 默认排除 | 只有精确 Task Packet 明确批准才可使用；不得因排名或任务困难自动加入 |
+| Claude Design/复杂工程 | Opus 5 / high | 获准的设计探索、架构分析、复杂实施与局部 Review；只读或写入仍由模式和 Packet 决定 |
+| Claude 关键 UI/高价值复杂实施 | Opus 5 / xhigh | 可直接完成获准实现、接线与验证，不默认回交 Opus 4.8 或 Codex |
+| Claude 普通任务 | Sonnet 5 / high | 边界清楚的普通内容、分析或工程任务 |
+| 特别困难的专项问题 | 用户或经理明确选定的 Pro、Fable 或 Sol / max | 一次选一个，明确范围、预算、可用性与权限，不串联例行复核 |
 
-Claude Design、Claude Code 与 Codex 的 handoff 由剩余责任和证据决定，不机械交替、不重复已经验收的工作。关键视觉需要探索时走 Claude Design；冻结后普通接线、测试和机械修复通常走 Codex。任何推荐都不是已经切换；未知可用性不允许静默降级或替换。
+Opus 4.8 退出未来默认路由和例行复核；历史使用与已验收成果保留。非预期回退须如实记录，不能称作 Opus 5 执行。Claude Design、Claude Code 与 Codex 的 handoff 由真实剩余责任决定；获准完整 UI/复杂实施的原作者完成该范围内接线、验证和普通缺陷修复，不机械交替。模型版本、effort、速度、workflow 与权限分别判断；ultracode 不自动等于 max 或 Ultra。
+
+日常采用标准速度，不自动开启 Fast/max/Ultra；模型路由不是性能排名或固定额度节省保证。用量只按平台可见的同等验收任务证据比较，无法归因时记 `UNKNOWN`，不为此增加成本监控系统。
+
+GPT-6 Sol/LUAN、Opus 5.2 等新型号或版本传闻不等于已发布、账号可用或底层权重身份；“LUAN”保留待核实，不自行创造 API ID。实际可见模型选择仅是配置观察；无服务端元数据时保持底层身份 `UNKNOWN`，不做指纹、自报身份、抓包或隐藏端点鉴定。可靠公告与账号可用后仍先作候选，由用户批准代表性自然任务，再更新本中央路由；不重写历史或增设新门禁。
 
 ## 3. 目标、事实和裁决
 
-业务主线是“先诊断 -> 再判断 -> 再优化或交付”，工程服务于获客、成交和稳定交付。不得为了展示模型能力增加无关架构、重复审计、无目标重构或偏离当前冻结目标。
+业务主线是“先诊断 -> 再判断 -> 再优化或交付”，工程服务于获客、成交和稳定交付。报告先说明用户目标的真实进展；辅助工具修复、测试数量、哈希数量和安全停止不得冒充产品完成。新增检查须对应批准验收项或具体风险，并说明现有工具为何不足；不为形式完整增设包装器、证明清单或无目标审计，也不删必要安全验证。
 
 事实分层：
 
@@ -81,8 +86,8 @@ Claude Design、Claude Code 与 Codex 的 handoff 由剩余责任和证据决定
 
 ## 4. 作者规则的适用边界
 
-- [`../../AGENTS.md`](../../AGENTS.md) 只在 Task Packet 指定 Codex 作者时生效；管理层读取它不会降级为 Codex 执行器。
-- [`../../CLAUDE.md`](../../CLAUDE.md) 只在 Task Packet 指定 Claude Design/Claude Code 作者时生效；管理层读取它不会降级为 Claude 作者。
+- [`../../AGENTS.md`](../../AGENTS.md) 适用于被 Task Packet 指派的 Codex 作者任务；只读任务不要求先成为 `CURRENT_WRITER`，写入仍须唯一作者和授权。管理层读取它不会降级为执行器。
+- [`../../CLAUDE.md`](../../CLAUDE.md) 适用于被 Task Packet 指派的 Claude Design/Claude Code 作者任务；只读模式不要求先成为 `CURRENT_WRITER`，写入仍须唯一作者和授权。管理层读取它不会降级为作者。
 - 作者文件不得覆盖本文件中的固定管理角色、模型路由、产品/商业所有权或最终验收权。
 - 作者文件必须常驻保留授权、`CURRENT_WRITER`、用户修改保护、敏感信息、真实声明和停止线；共享 Git/证据/checkpoint/handoff/report 只引用 `TEAM-COLLAB-V1`。
 - 详细 Migration、Auth、UI、发布或生产程序应由当前 Packet 精确引用并按需加载，不因历史任务自动成为当前范围。
@@ -118,6 +123,6 @@ read、test、edit、stage、commit、push、PR、merge、release、deploy 和 p
 - `SHOULD_FIX`：范围内明确缺陷，应在交付前关闭；
 - `DEFERRED`：范围外或未来优化。
 
-`FACT_SOURCE_MISSING` 和 `ARCHITECTURE_GAP` 是 BLOCKER 原因码。多个低风险问题不得合成 BLOCKER；同一事实/范围经过两轮审计且没有新可复现 BLOCKER 后，进入最小实施和测试，不做元审计、重复 consolidated 或因换模型返工。
+`FACT_SOURCE_MISSING` 和 `ARCHITECTURE_GAP` 是原因描述，不自动成为整个项目的 `BLOCKER`；结合实际影响只停止受影响步骤。普通类型、测试、接线、响应式或可访问性缺陷通常为交付前应修的 `SHOULD_FIX`；权限不足仍须停止未授权动作。多个低风险问题不得合成虚构 `BLOCKER`；同一事实/范围经过两轮审查且没有新可复现问题后，进入最小实施和相关验证，不做元审计或因换模型返工。
 
 项目经理最终只判定 `ACCEPTED`、`PARTIAL`、`REJECTED`。完成当前 Packet 后停止，不主动开启下一任务，也不自动 merge、release、deploy 或 production。

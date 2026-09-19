@@ -8,7 +8,7 @@ TEAM-COLLAB-V1 是 Network Service Platform 中 GPT、执行主管、Claude、Co
 
 - `TASK_ID`、repository、`BASE_BRANCH`、精确 `BASE_SHA`、`TASK_BRANCH`；
 - `FROZEN_SCOPE`：允许路径/行为及明确禁止项；
-- `CURRENT_WRITER`：当前唯一作者；
+- `CURRENT_WRITER`：写入时的当前唯一作者；只读参与者不必先取得写入所有权；
 - `STATUS`、`CHECKPOINTS`、`ACTION_COUNTS`；
 - 实际验证、敏感门禁、风险/未知和一个 `NEXT_ACTION`；
 - Packet 指定的 PR、CI、外部和停止规则。
@@ -38,7 +38,7 @@ HANDOFF_READY -> IN_PROGRESS 接手者复核 handoff 后
 
 `ACTION_COUNTS` 至少记录 Packet 限制或授权的 fetch、外部连接/查询、文件写入、commit、push、PR 和 CI 检查次数。计数只增不减；失败、未知结果和模型切换也计入实际已发起动作。
 
-Checkpoint 是证据，不是新授权。至少在基线核对后、修改完成进入验证前、commit/push/PR 前及 handoff 前记录；Packet 可以指定更少的逻辑 checkpoint，但不能省略最终证据。
+Checkpoint 是证据，不是新授权。在基线、进入验证、提交/推送与最终交接等实际逻辑边界记录必要变化；同一版本的证据可引用复用，不按消息、文件或普通命令重复生成清单。Packet 可指定更少的逻辑 checkpoint，但不能省略最终证据。
 
 ```yaml
 CHECKPOINT_ID: CP-<number>
@@ -73,13 +73,17 @@ NEXT_ACTION: <one-authorized-action>
 
 | 等级 | 最小证据 | 用途 |
 | --- | --- | --- |
-| `V0 STATIC` | status、范围 diff、`git diff --check`、格式/结构检查 | 所有写入任务 |
-| `V1 TARGETED` | 与改动直接相关的检查或测试 | 文档、配置、单模块 |
+| `V0 STATIC` | status、范围 diff、`git diff --check`、必要格式/结构检查 | 所有写入任务 |
+| `V1 TARGETED` | 与批准验收和改动直接相关的检查或测试 | 文档、配置、单模块 |
 | `V2 COMPONENT` | 受影响组件的 check/build/test | 产品模块、共享配置、CI 门禁 |
 | `V3 INTEGRATION` | 跨组件、浏览器、沙箱或外部 E2E | 仅在范围和外部权限明确时 |
 | `V4 PRODUCTION` | 生产验收、监控和回滚证据 | 仅限单独生产授权 |
 
 每项证据绑定精确命令/方法、环境和 HEAD/artifact 版本。较高等级不自动授予外部、支付、设备、数据或生产权限；CI 成功不等于浏览器、真实交易、部署或流量完成。
+
+按风险和改动选验证：治理 MD/TXT 查内容、引用、范围和已有相关检查；单模块 UI 查交互、状态、必要类型/构建及批准视口；API 查调用方、契约和错误路径；Auth、支付、订单与数据完整性查对应权限、事务、幂等和失败路径；发布/迁移/生产按另获批准的契约取新鲜证据。Packet 与实际触发的必需 CI 始终执行，不能改标 `N/A`。命令成功不等于用户目标完成；区分产品缺陷、工具缺陷、环境/外部失败、权限和证据不足。
+
+新增测试、校验器、包装器或证明清单前，须能指出它对应的批准验收项或具体风险，以及现有检查的不足；不要求为此再写表或检查器。已有校验器报错先定位具体不兼容，不为过关删除断言、改 Mock 或扩大工具建设。原始错误与退出结果保留在获准位置，并在输出中脱敏。
 
 ## 5. Git 与用户工作保护
 
@@ -106,7 +110,9 @@ Handoff 的 mandatory core：
 - 风险/未知、worktree 状态、用户修改保护；
 - 一个 `NEXT_AUTHORIZED_ACTION` 和明确禁止项。
 
-代码 handoff 必须使用已 push 的精确 `HANDOFF_SHA`/`REMOTE_SHA`，相关未提交工作为 `NONE`。设计使用批准版本；仅本地 artifact 使用批准的 Manifest、哈希和稳定位置，不伪造 Git 提交，并明确 `LOCAL_ARTIFACT` 或 `APPROVED_DESIGN`；Packet 未授权 push 时如实保持未 push。
+代码 handoff 必须使用已 push 的精确 `HANDOFF_SHA`/`REMOTE_SHA`，相关未提交工作为 `NONE`。同一 Git 版本和信任范围内复用 SHA、相关 diff 与实际验证，不默认对每个已提交文件再造 SHA256、树指纹或相互校验清单。设计使用批准版本；非 Git 制品、跨环境传输或备份恢复仅按批准契约使用必要哈希、来源和稳定位置，并明确 `LOCAL_ARTIFACT` 或 `APPROVED_DESIGN`；支付验签、制品签名和既有安全/发布契约不得放宽。Packet 未授权 push 时如实保持未 push。
+
+获准编辑后的 diff、新 HEAD 或预期的原子替换不单独构成 `DRIFT`；对照批准范围判断。相关环境、依赖、授权或信任边界变化时重验受影响证据；发布前的新鲜证据仍按批准契约取得。工作过程如实记录未提交变化，跨执行器代码交接才要求相关改动已提交并 push。
 
 每次 handoff 先由原作者停止写入并记录真实剩余责任，再由执行主管显式转移所有权；接手者复核全部 mandatory core 和 Packet 条件证据后才可进入 `IN_PROGRESS`。base、范围、权限、作者或 worktree 不一致时保持 `BLOCKED`，不得通过 stash/reset/clean/覆盖来接手。
 
@@ -139,7 +145,9 @@ NEXT_ACTION: <one-authorized-action-or-NONE>
 
 ## 8. 问题闭环与升级
 
-普通工具、脚本、测试、build、类型、参数、路径、fixture、解析器、数据接线和机械 UI 问题留在原作者/执行主管链中：读取新证据，尝试权限内、可回滚、可验证且彼此不同的最小修复，避免无差别重复。
+普通工具、脚本、测试、build、类型、参数、路径、fixture、解析器、数据接线和机械 UI 问题留在原作者/执行主管链中：读取真实错误、定位、做权限内可回滚的最小修复、运行直接相关验证，再 checkpoint/handoff；避免无差别重复或只返回无法诊断的 PASS/FAIL。
+
+同一辅助验证经两轮不同的局部修正仍阻断主线时，停止自动扩建验证工具；主管汇总已有证据、影响与最小等价路径，交经理在权限内裁决或暂停受影响部分。不得因此跳过必要安全检查、重置生产连接/查询上限或停止其他已授权工作。
 
 范围、能力、预算、权限、产品/商业/Auth/安全/Schema/公共 API、生产或不可回滚问题才升级。升级必须包含：摘要、影响、根因/证据、不同修复及逐项结果、未解决原因、当前安全状态、风险、建议和最小所需决定。模型变化不允许重做相同尝试或清零停止线。
 
@@ -149,15 +157,17 @@ NEXT_ACTION: <one-authorized-action-or-NONE>
 
 只使用：
 
-- `BLOCKER`：受影响步骤不能安全继续，并给出解除条件；
+- `BLOCKER`：真实权限绕过、凭据泄漏、明确数据破坏、无法回滚、生产无法启动，或关键冻结事实/核心页面与交互使受影响目标客观不可执行；说明影响和解除条件；
 - `SHOULD_FIX`：范围内明确缺陷，应在交付前关闭；
 - `DEFERRED`：范围外或未来优化。
 
 base/repository/作者漂移、范围外必需修改、依赖或 lockfile 未授权、用户修改冲突、secret/账户/权限/真实支付需要人工输入、Auth/安全/Migration/生产无授权、不可修复必要验证失败、merge/deploy/删除/强制更新无授权时停止受影响动作。不得以扩大范围、Mock 回退、跳过检查、伪造 evidence 或 second writer 绕过。
 
+`FACT_SOURCE_MISSING`、`ARCHITECTURE_GAP` 和普通测试工具错误是原因描述，须按影响定风险与停止范围，不自动阻断整个项目。缺真实价格阻断真实报价/下单，缺生产绑定阻断部署；不据此阻断隔离演示或无关获准工作。必要检查不能运行时保持待验证/未验收，不报通过。
+
 ## 10. 自动化边界
 
-当前协议不引入或声称 heartbeat、timer、event callback、Skills、Node0 Dispatcher、第二套状态机、timer 变更、后台唤醒或无人值守队列。材料事件报告只规定人工/现有任务链中的报告时机，不证明任何自动触发能力。未来自动化只能复用这些稳定接口：稳定 `TASK_ID`、单一写入者、状态与动作计数、绑定精确版本的 handoff、幂等去重和显式权限。
+当前协议不新增或声称 heartbeat、timer、event callback、Node0 Dispatcher、第二套状态机、后台唤醒或无人值守队列，也不安装、卸载或改变已有 Skills/插件。材料事件报告只规定人工/现有任务链中的报告时机，不证明任何自动触发能力。未来自动化只能复用这些稳定接口：稳定 `TASK_ID`、单一写入者、状态与动作计数、绑定精确版本的 handoff、幂等去重和显式权限。
 
 已有 linkage 证据按稳定记录复用，不为证明同一结果而重跑。来源认证、S4 完整授权链和后台唤醒在没有独立证据时保持 `UNVERIFIED`，不得从行政绑定或历史结果推导已实现。
 
