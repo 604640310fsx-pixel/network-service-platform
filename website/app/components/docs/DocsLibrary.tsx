@@ -74,7 +74,7 @@ function AdvancedNoteBody({ note }: { readonly note: AdvancedNote }) {
           slotIndex += 1;
           return slot.map((src, imageIndex) => (
             <figure key={`${partIndex}-${imageIndex}`} className="cc-docs-figure">
-              <img src={src} alt={`${note.title}：原文图片 ${slotIndex}`} loading="lazy" decoding="async" />
+              <img src={src} alt={`${note.title}：配图 ${slotIndex}`} loading="lazy" decoding="async" />
             </figure>
           ));
         }
