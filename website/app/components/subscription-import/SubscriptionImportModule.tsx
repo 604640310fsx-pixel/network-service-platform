@@ -359,9 +359,13 @@ export function SubscriptionImportModule({
                       <a
                         className="cc-si-client-import"
                         href={deepLink}
-                        aria-label={`请求打开 ${client.name} 导入当前线路订阅`}
+                        aria-label={client.id === "clash"
+                          ? "请求系统的 Clash 协议处理客户端导入当前线路订阅"
+                          : `请求打开 ${client.name} 导入当前线路订阅`}
                         onClick={() => setActionMessage(
-                          `已请求浏览器打开 ${client.name}；请在客户端确认是否添加，未响应请手动导入。`,
+                          client.id === "clash"
+                            ? "已请求系统的 Clash 协议处理客户端打开；可能由不同应用接管，请确认是否添加，未响应请手动导入。"
+                            : `已请求浏览器打开 ${client.name}；请在客户端确认是否添加，未响应请手动导入。`,
                         )}
                       >
                         导入

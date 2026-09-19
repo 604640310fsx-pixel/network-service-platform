@@ -115,31 +115,38 @@ test("documented remote URL actions keep the exact synthetic subscription URL", 
     );
     if (clientId === "clashx") assert.equal(uri.searchParams.get("name"), "NSP");
   }
+
+  for (const platform of ["android", "macos", "windows"]) {
+    const clash = link(platform, "clash");
+    assert.equal(clash, `clash://install-config?url=${encodeURIComponent(subscriptionUrl)}`);
+    assert.equal(new URL(clash).searchParams.get("url"), subscriptionUrl);
+  }
+  assert.equal(link("ios", "clash"), null);
 });
 
-test("only catalog-eligible clients get a safe request and Clash stays manual", () => {
+test("only catalog-eligible clients get a safe request", () => {
   const supportedSchemes = {
     shadowrocket: "shadowrocket:", "sing-box": "sing-box:", loon: "loon:",
     "quantumult-x": "quantumult-x:", stash: "stash:", surge: "surge:",
-    surfboard: "surfboard:", flclash: "flclash:", clashx: "clash:",
+    surfboard: "surfboard:", flclash: "flclash:", clashx: "clash:", clash: "clash:",
   };
   for (const platform of ["ios", "android", "macos", "windows"]) {
     for (const client of clientsForPlatform(platform)) {
       const href = verifiedSubscriptionDeepLink({
         platform, clientId: client.id, subscriptionUrl: DEMO_SUBSCRIPTION_URL,
       });
-      if (client.id === "clash") {
-        assert.equal(href, null);
-      } else {
-        assert.equal(new URL(href).protocol, supportedSchemes[client.id]);
-        assert.equal(safeVerifiedDeepLinkHref(href), href);
-      }
+      assert.equal(new URL(href).protocol, supportedSchemes[client.id]);
+      assert.equal(safeVerifiedDeepLinkHref(href), href);
       assert.ok(clientManualImportReason(client.id).length > 0);
     }
   }
   assert.equal(verifiedSubscriptionDeepLink({
     platform: "android", clientId: "loon", subscriptionUrl: DEMO_SUBSCRIPTION_URL,
   }), null);
+  assert.equal(verifiedSubscriptionDeepLink({
+    platform: "android", clientId: "clash", subscriptionUrl: "http://subscription.example.invalid/feed",
+  }), null);
+  assert.match(clientManualImportReason("clash"), /不同应用.*格式未核实/);
   for (const clientId of ["shadowrocket", "sing-box", "loon", "quantumult-x", "stash", "surge"]) {
     for (const subscriptionUrl of [
       "http://subscription.example.invalid/feed",

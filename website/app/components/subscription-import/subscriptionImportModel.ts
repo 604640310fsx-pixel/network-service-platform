@@ -184,10 +184,11 @@ export function verifiedSubscriptionDeepLink(request: {
       return `surfboard:///install-config?url=${encodedUrl}`;
     case "flclash":
       return `flclash://install-config?url=${encodedUrl}`;
+    case "clash":
+      // Clash Meta for Android documents this shared handler; the OS picks its owner.
+      return `clash://install-config?url=${encodedUrl}`;
     case "clashx":
       return `clash://install-config?url=${encodedUrl}&name=NSP`;
-    case "clash":
-      return null;
   }
 }
 
@@ -206,7 +207,7 @@ export function clientManualImportReason(clientId: SubscriptionClientId): string
     case "surge":
       return "此入口需要 Surge 配置；当前订阅内容格式未核实，失败请手动确认。";
     case "clash":
-      return "Clash 是客户端类别，尚未绑定具体应用的一键导入协议，请手动添加。";
+      return "系统会交给注册 clash:// 的客户端，可能打开不同应用；订阅格式未核实，失败请复制地址手动导入。";
     case "surfboard":
       return "此入口需要 Surfboard 配置；当前订阅内容格式未核实，失败请手动确认。";
     case "flclash":
