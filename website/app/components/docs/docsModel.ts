@@ -33,14 +33,14 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
       {
         heading: "查看当前线路",
         paragraphs: [
-          "在当前套餐或节点与流量页面，打开已开通服务的「查看订阅信息」。只有授权接口返回交付数据后，页面才会显示订阅地址；地址暂不可用时，页面会说明原因。",
+          "打开「当前套餐」，找到对应的已开通服务卡片。只有授权接口返回交付数据后，卡片才会直接显示「当前订阅地址」；地址暂不可用时，卡片会说明原因。",
           "有多条线路时，先选择线路。地址、复制内容和二维码都对应当前选中的线路。",
         ],
       },
       {
         heading: "复制或显示二维码",
         steps: [
-          "使用「复制地址」复制本页当前线路的订阅地址；自动复制失败时，页面会选中地址供手动复制。",
+          "在已开通服务卡片点击「复制地址」，复制所选线路的订阅地址；自动复制失败时，卡片会选中地址供手动复制。",
           "使用「显示二维码」查看由当前浏览器本地生成的二维码，不调用第三方二维码服务。",
         ],
       },
@@ -61,7 +61,7 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
       {
         heading: "手动导入",
         steps: [
-          "选择当前设备系统和已安装客户端，复制本页当前线路的订阅地址。",
+          "在「当前套餐」的已开通服务卡片选择线路、设备系统和已安装客户端，再点击「复制地址」。",
           "打开所选客户端，进入它的订阅或配置导入入口。",
           "粘贴地址并提交；是否导入成功以客户端实际显示为准。",
         ],
@@ -87,7 +87,7 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
       {
         heading: "准备订阅地址",
         paragraphs: [
-          "先在本站已开通服务的「查看订阅信息」中选定线路，复制该线路的订阅地址。地址属于私密交付信息，不要发给他人或粘贴到第三方网站。",
+          "在「当前套餐」找到已开通服务卡片；有多条线路时先选定线路，再点击「复制地址」。地址属于私密交付信息，不要发给他人或粘贴到第三方网站。",
           "以下以已安装的 FlClash 为例。客户端界面可能随版本变化，以你实际看到的菜单为准。",
         ],
       },
@@ -129,7 +129,7 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
       {
         heading: "准备地址",
         paragraphs: [
-          "先在本站已开通服务的「查看订阅信息」中选定线路，复制订阅地址。以下步骤假设设备上已有 Shadowrocket；本站不提供客户端账号或安装服务。",
+          "在「当前套餐」找到已开通服务卡片；有多条线路时先选定线路，再点击「复制地址」。以下步骤假设设备上已有 Shadowrocket；本站不提供客户端账号或安装服务。",
         ],
       },
       {
@@ -186,7 +186,7 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
       {
         heading: "取得当前线路 URL",
         paragraphs: [
-          "打开本站已开通服务的「查看订阅信息」，选定线路并复制地址。只使用自己的授权地址，不要把完整 URL 发到聊天、工单或截图中。",
+          "在「当前套餐」找到已开通服务卡片；有多条线路时先选定线路，再点击「复制地址」。只使用自己的授权地址，不要把完整 URL 发到聊天、工单或截图中。",
         ],
       },
       {
@@ -216,7 +216,7 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
       {
         heading: "复制订阅地址",
         paragraphs: [
-          "在本站已开通服务的「查看订阅信息」中选定线路并复制地址。以下以已安装的 Clash Meta for Android 为例，不涉及客户端安装。",
+          "在「当前套餐」找到已开通服务卡片；有多条线路时先选定线路，再点击「复制地址」。以下以已安装的 Clash Meta for Android 为例，不涉及客户端安装。",
         ],
       },
       {

@@ -251,13 +251,13 @@
 }
 .cc-si-client-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
   gap: 7px;
 }
 .cc-si-client-option {
   display: flex;
   min-width: 0;
-  min-height: 41px;
+  min-height: 44px;
   border: 1px solid var(--cc-line, #2a2e34);
   border-radius: 9px;
   background: var(--cc-card, #171b21);
@@ -265,10 +265,10 @@
 }
 .cc-si-client-option button {
   flex: 1 1 auto;
-  min-height: 41px;
-  padding: 7px 3px;
+  min-height: 44px;
+  padding: 7px 10px;
   font-size: 12px;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 .cc-si-client-grid button > span { min-width: 0; }
 .cc-si-client-grid button > small {
@@ -295,7 +295,10 @@
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
-  padding: 0 5px;
+  justify-content: center;
+  min-width: 56px;
+  min-height: 44px;
+  padding: 0 12px;
   border-left: 1px solid var(--cc-line, #2a2e34);
   color: var(--cc-accent, #f59e0b);
   font-size: 11px;
@@ -406,7 +409,7 @@
 .cc-si-page.is-compact .cc-si-heading { margin-bottom: 10px; }
 .cc-si-page.is-compact .cc-si-location-note { display: none; }
 .cc-si-page.is-compact .cc-si-empty { margin: 0; }
-.cc-si-page.is-compact .cc-si-client-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cc-si-page.is-compact .cc-si-client-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); }
 .cc-si-page.is-compact .cc-si-qr { margin-top: 10px; padding: 8px; }
 .cc-si-page.is-compact .cc-si-qr-code { width: 174px; }
 
@@ -418,8 +421,6 @@
   .cc-si-panel { padding: 15px 14px 16px; border-radius: 12px; }
   .cc-si-heading { gap: 10px; margin-bottom: 14px; }
   .cc-si-platform-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .cc-si-client-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .cc-si-page.is-compact .cc-si-client-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cc-si-actions > *,
   .cc-si-manual > .cc-si-primary,
   .cc-si-manual > .cc-si-secondary { flex: 1; min-width: 132px; }
