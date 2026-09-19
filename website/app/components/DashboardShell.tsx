@@ -4,6 +4,7 @@ import { CustomerOrdersPage } from "./customer/CustomerOrdersPage";
 import { CustomerServicesPage } from "./customer/CustomerServicesPage";
 import { DashboardPage } from "./dashboard/DashboardPage";
 import { DocsLibrary } from "./docs/DocsLibrary";
+import { SUBSCRIPTION_IMPORT_ARTICLES } from "./docs/docsModel";
 import { PublicMonitorPage } from "./monitor/PublicMonitorPage";
 import { BuyerNetworkPage } from "./network/BuyerNetworkPage";
 import { NotFoundPage } from "./not-found/NotFoundPage";
@@ -62,7 +63,7 @@ export function DashboardShell() {
   if (section === "docs") {
     return (
       <CustomerCenterShell title="使用文档" description="搜索并阅读已批准的客户端与服务使用说明">
-        <DocsLibrary />
+        <DocsLibrary articles={SUBSCRIPTION_IMPORT_ARTICLES} />
       </CustomerCenterShell>
     );
   }

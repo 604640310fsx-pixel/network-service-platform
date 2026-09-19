@@ -305,7 +305,7 @@ export function OrderStatusPanel({
   }
 
   const deliveryItems =
-    snapshot.service?.status === "open" ? snapshot.service.items : undefined;
+    snapshot.service?.status === "open" ? snapshot.service.items ?? [] : undefined;
 
   return (
     <>

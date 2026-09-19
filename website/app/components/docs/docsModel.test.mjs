@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { documentCategories, filterDocumentationArticles } from "./docsModel.ts";
+import {
+  SUBSCRIPTION_IMPORT_ARTICLES,
+  documentCategories,
+  filterDocumentationArticles,
+} from "./docsModel.ts";
 
 // 演示数据 · 非报价；仅用于验证搜索/分类，不是正式教程正文。
 const ARTICLES = [
@@ -45,4 +49,20 @@ test("category and query filters compose without inventing fallback documents", 
   ]);
   assert.deepEqual(filterDocumentationArticles(ARTICLES, "missing", null), []);
   assert.deepEqual(filterDocumentationArticles([], "", null), []);
+});
+
+test("subscription import articles remain searchable by their real reader content", () => {
+  assert.deepEqual(documentCategories(SUBSCRIPTION_IMPORT_ARTICLES), ["订阅导入"]);
+  assert.deepEqual(
+    filterDocumentationArticles(SUBSCRIPTION_IMPORT_ARTICLES, "二维码", "订阅导入").map(
+      (item) => item.id,
+    ),
+    ["subscription-address"],
+  );
+  assert.deepEqual(
+    filterDocumentationArticles(SUBSCRIPTION_IMPORT_ARTICLES, "手动导入", "订阅导入").map(
+      (item) => item.id,
+    ),
+    ["manual-client-import"],
+  );
 });
