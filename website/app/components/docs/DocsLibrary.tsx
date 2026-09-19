@@ -1,4 +1,5 @@
-import { useId, useRef, useState } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
+import type { AdvancedNote } from "./advancedDocsContent";
 import {
   documentCategories,
   filterDocumentationArticles,
@@ -6,8 +7,81 @@ import {
 } from "./docsModel";
 import "./docs.css";
 
-const CLIENT_DOWNLOAD_GUIDE_URL =
-  "https://chatbot.sufe.pro/hc/sufe/articles/1761215257-?show_plain_layout=true&theme=light";
+function noteLinkTarget(value: string): string | null {
+  if (/^https?:\/\/[^\s]+$/i.test(value)) return value;
+  if (/^[\w.-]+\.[a-z]{2,}(?:\/[^\s]*)?$/i.test(value)) return `https://${value}`;
+  return null;
+}
+
+function noteInline(value: string): ReactNode[] {
+  return value
+    .split(/(\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*|~~[^~]+~~)/g)
+    .filter(Boolean)
+    .map((part, index) => {
+      const link = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      if (link) {
+        const href = noteLinkTarget(link[2]);
+        return href ? (
+          <a key={index} href={href} target="_blank" rel="noopener noreferrer">
+            {link[1]}
+          </a>
+        ) : (
+          <span key={index}>{link[1]}</span>
+        );
+      }
+      if (part.startsWith("**") && part.endsWith("**")) {
+        return <strong key={index}>{part.slice(2, -2)}</strong>;
+      }
+      if (part.startsWith("~~") && part.endsWith("~~")) {
+        return <del key={index}>{part.slice(2, -2)}</del>;
+      }
+      return <span key={index}>{part.replaceAll("**", "")}</span>;
+    });
+}
+
+function noteText(text: string, title: string, firstPart: boolean): ReactNode[] {
+  const lines = text.split("\n");
+  return lines.map((line, index) => {
+    const trimmed = line.trim();
+    const plain = trimmed.replaceAll("**", "");
+    if (firstPart && index === 0 && plain === title) return null;
+    if (trimmed === "" || trimmed === "****" || trimmed === "**") {
+      return <span className="cc-docs-note-gap" key={index} aria-hidden="true" />;
+    }
+    if (/^\s*\*\s+/.test(line)) {
+      return <p className="cc-docs-note-bullet" key={index}>• {noteInline(line.replace(/^\s*\*\s+/, ""))}</p>;
+    }
+    if (
+      (trimmed.startsWith("**") || (firstPart && index === 1 && trimmed.endsWith("**"))) &&
+      plain.length < 85 &&
+      !plain.includes("。")
+    ) {
+      return <h2 key={index}>{noteInline(trimmed)}</h2>;
+    }
+    return <p key={index}>{noteInline(line)}</p>;
+  });
+}
+
+function AdvancedNoteBody({ note }: { readonly note: AdvancedNote }) {
+  const parts = note.body.split(/(\[attachment:[^\]]+\]|\uFFFC)/g);
+  let slotIndex = 0;
+  return (
+    <div className="cc-docs-note-body">
+      {parts.map((part, partIndex) => {
+        if (part.startsWith("[attachment:") || part === "\uFFFC") {
+          const slot = note.imageSlots[slotIndex] ?? [];
+          slotIndex += 1;
+          return slot.map((src, imageIndex) => (
+            <figure key={`${partIndex}-${imageIndex}`} className="cc-docs-figure">
+              <img src={src} alt={`${note.title}：原文图片 ${slotIndex}`} loading="lazy" decoding="async" />
+            </figure>
+          ));
+        }
+        return <div key={partIndex}>{noteText(part, note.title, partIndex === 0)}</div>;
+      })}
+    </div>
+  );
+}
 
 export type DocsLibraryProps = {
   /** Only repository-approved or Packet-approved article bodies may be supplied. */
@@ -39,18 +113,8 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
           <header className="cc-docs-heading">
             <span>DOCUMENTATION</span>
             <h2>使用文档</h2>
-            <p>查找订阅地址与常见客户端的导入步骤。</p>
+            <p>查找订阅导入、代理工具下载与进阶教程。</p>
           </header>
-
-          <a
-            className="cc-docs-download-link"
-            href={CLIENT_DOWNLOAD_GUIDE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <strong>代理工具下载 ↗</strong>
-            <span>前往外部页面查看常用客户端下载链接</span>
-          </a>
 
           <label className="cc-docs-search" htmlFor={`${instanceId}-search`}>
             <span>搜索文档</span>
@@ -144,6 +208,18 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
                       ))}
                     </ol>
                   )}
+                  {(section.links?.length ?? 0) > 0 && (
+                    <ul className="cc-docs-download-list">
+                      {section.links?.map((item) => (
+                        <li key={item.url}>
+                          <span>{item.label}</span>
+                          <a href={item.url} target="_blank" rel="noopener noreferrer">
+                            前往下载 ↗
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                   {(section.images ?? []).map((item) => (
                     <figure key={item.src} className="cc-docs-figure">
                       <img src={item.src} alt={item.alt} loading="lazy" decoding="async" />
@@ -171,6 +247,7 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
                   )}
                 </section>
               ))}
+              {selectedArticle.note !== undefined && <AdvancedNoteBody note={selectedArticle.note} />}
             </article>
           )}
         </section>

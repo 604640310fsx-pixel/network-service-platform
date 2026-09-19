@@ -53,10 +53,23 @@ test("category and query filters compose without inventing fallback documents", 
 });
 
 test("subscription import articles remain searchable by their real reader content", () => {
-  assert.deepEqual(documentCategories(SUBSCRIPTION_IMPORT_ARTICLES), ["订阅导入"]);
+  assert.deepEqual(documentCategories(SUBSCRIPTION_IMPORT_ARTICLES), [
+    "订阅导入",
+    "代理工具下载",
+    "进阶教程",
+  ]);
   assert.deepEqual(
     SUBSCRIPTION_IMPORT_ARTICLES.map((item) => item.id),
-    ["flclash-import", "shadowrocket-import", "clash-verge-import", "clash-meta-import"],
+    [
+      "flclash-import",
+      "shadowrocket-import",
+      "clash-verge-import",
+      "clash-meta-import",
+      "proxy-tool-downloads",
+      "home-ip-quality",
+      "proxy-detection-risk",
+      "network-lines-overview",
+    ],
   );
   assert.deepEqual(
     filterDocumentationArticles(SUBSCRIPTION_IMPORT_ARTICLES, "通过 URL 获取配置文件", "订阅导入").map(
@@ -70,6 +83,34 @@ test("subscription import articles remain searchable by their real reader conten
     ),
     ["shadowrocket-import"],
   );
+});
+
+test("download guide keeps the thirteen source links on the local docs page", () => {
+  const article = SUBSCRIPTION_IMPORT_ARTICLES.find((item) => item.id === "proxy-tool-downloads");
+  assert.ok(article);
+  const links = article.sections.flatMap((section) => section.links ?? []);
+  assert.equal(links.length, 13);
+  assert.ok(links.every((item) => item.url.startsWith("https://99data.qqx.me/")));
+  assert.ok(links.some((item) => item.url.endsWith("cmfa-2.11.28-meta-arm64-v8a-release.apk")));
+});
+
+test("three advanced notes retain complete text and original image positions", () => {
+  for (const [id, length, slots, occurrences] of [
+    ["home-ip-quality", 756, 4, 4],
+    ["proxy-detection-risk", 10002, 41, 42],
+    ["network-lines-overview", 2604, 0, 0],
+  ]) {
+    const article = SUBSCRIPTION_IMPORT_ARTICLES.find((item) => item.id === id);
+    assert.ok(article?.note);
+    assert.equal(article.note.body.length, length);
+    assert.equal(article.note.imageSlots.length, slots);
+    assert.equal([...article.note.body.matchAll(/\[attachment:[^\]]+\]|\uFFFC/g)].length, slots);
+    assert.equal(article.note.imageSlots.flat().length, occurrences);
+    for (const src of article.note.imageSlots.flat()) {
+      assert.match(src, /^\/docs\/advanced\//);
+      assert.ok(existsSync(new URL(`../../../public${src}`, import.meta.url)));
+    }
+  }
 });
 
 test("four client tutorials have readable steps and only checked local images", () => {

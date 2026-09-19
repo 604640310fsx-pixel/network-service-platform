@@ -52,32 +52,6 @@
   line-height: 1.65;
 }
 
-.cc-docs-download-link {
-  display: block;
-  margin-top: 16px;
-  padding: 12px 13px;
-  border: 1px solid var(--cc-accent-line, rgba(245, 158, 11, 0.55));
-  border-radius: 9px;
-  background: var(--cc-accent-tint, rgba(245, 158, 11, 0.07));
-  text-decoration: none;
-}
-.cc-docs-download-link strong {
-  display: block;
-  color: var(--cc-accent, #f59e0b);
-  font-size: 13.5px;
-}
-.cc-docs-download-link span {
-  display: block;
-  margin-top: 4px;
-  color: var(--cc-text-2, #d7dce4);
-  font-size: 12px;
-  line-height: 1.5;
-}
-.cc-docs-download-link:focus-visible {
-  outline: 2px solid var(--cc-accent, #f59e0b);
-  outline-offset: 2px;
-}
-
 .cc-docs-search {
   display: block;
   margin-top: 16px;
@@ -241,6 +215,28 @@
 .cc-docs-article > section p { margin: 0 0 11px; }
 .cc-docs-article > section ol { margin: 0; padding-left: 22px; }
 .cc-docs-article > section li { padding-left: 4px; }
+.cc-docs-article .cc-docs-download-list {
+  list-style: none;
+  margin-top: 10px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.cc-docs-download-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--cc-line, #2a2e34);
+  border-radius: 9px;
+  background: var(--cc-card, #171b21);
+}
+.cc-docs-download-list a {
+  flex: none;
+  color: var(--cc-accent, #f59e0b);
+  font-size: 13px;
+}
 .cc-docs-figure {
   width: min(100%, 620px);
   margin: 18px 0 0;
@@ -275,6 +271,26 @@
   color: var(--cc-accent, #f59e0b);
   font-size: 12px;
 }
+.cc-docs-note-body { margin-top: 23px; }
+.cc-docs-note-body h2 {
+  margin: 23px 0 9px;
+  color: var(--cc-text, #edf1f6);
+  font-size: 18px;
+  line-height: 1.5;
+}
+.cc-docs-note-body p {
+  margin: 0 0 10px;
+  color: var(--cc-text-2, #d7dce4);
+  font-size: 15px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.cc-docs-note-body .cc-docs-note-bullet {
+  margin-left: 18px;
+  text-indent: -18px;
+}
+.cc-docs-note-body .cc-docs-note-gap { display: block; height: 8px; }
+.cc-docs-note-body a { color: var(--cc-accent, #f59e0b); }
 
 @media (max-width: 980px) {
   .cc-docs-layout { grid-template-columns: minmax(0, 1fr); }

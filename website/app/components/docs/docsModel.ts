@@ -1,7 +1,15 @@
+// Node's strip-types test runner needs the extension; Vite resolves the same module during build.
+// @ts-ignore TS5097: the website tsconfig does not enable allowImportingTsExtensions.
+import { ADVANCED_NOTES, type AdvancedNote } from "./advancedDocsContent.ts";
+
 export type DocumentationSection = {
   readonly heading?: string;
   readonly paragraphs?: readonly string[];
   readonly steps?: readonly string[];
+  readonly links?: readonly {
+    readonly label: string;
+    readonly url: string;
+  }[];
   readonly images?: readonly {
     readonly src: string;
     readonly alt: string;
@@ -20,6 +28,7 @@ export type DocumentationArticle = {
   readonly summary: string;
   /** Plain text only. The module never accepts or injects HTML. */
   readonly sections: readonly DocumentationSection[];
+  readonly note?: AdvancedNote;
 };
 
 // 获授权复用的四篇客户端教程。图片只引用已检查的本地素材。
@@ -285,6 +294,60 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
       },
     ],
   },
+  {
+    id: "proxy-tool-downloads",
+    category: "代理工具下载",
+    title: "代理工具下载",
+    summary: "按设备系统选择原文列出的客户端安装文件。",
+    sections: [
+      {
+        paragraphs: [
+          "以下链接整理自获授权的「常用代理工具下载链接」原文。请按自己的系统和处理器选择；只有点击具体「前往下载」才会离开本站。文件来源、版本、兼容性与安全性尚未经本站验证。",
+        ],
+      },
+      {
+        heading: "Windows",
+        links: [
+          { label: "Clash Verge · x64", url: "https://99data.qqx.me/f/vaC7/Clash.Verge_2.5.1_x64-setup.exe" },
+          { label: "Clash Verge · x64 内置 WebView2", url: "https://99data.qqx.me/f/LRh3/Clash.Verge_2.5.1_x64_fixed_webview2-setup.exe" },
+          { label: "FlClash · Windows", url: "https://99data.qqx.me/s/G9hL" },
+        ],
+      },
+      {
+        heading: "macOS",
+        links: [
+          { label: "Clash Verge · Apple 芯片", url: "https://99data.qqx.me/f/MdiJ/Clash.Verge_2.5.1_aarch64.dmg" },
+          { label: "Clash Verge · Intel 芯片", url: "https://99data.qqx.me/f/apcn/Clash.Verge_2.5.1_x64.dmg" },
+          { label: "FlClash · Apple 芯片", url: "https://99data.qqx.me/s/RgT8" },
+          { label: "FlClash · Intel 芯片", url: "https://99data.qqx.me/s/EeCv" },
+        ],
+      },
+      {
+        heading: "Linux",
+        links: [
+          { label: "Clash Verge · amd64 DEB", url: "https://99data.qqx.me/f/7bsY/Clash.Verge_2.5.1_amd64.deb" },
+          { label: "Clash Verge · x86_64 RPM", url: "https://99data.qqx.me/f/j6UE/Clash.Verge-2.5.1-1.x86_64.rpm" },
+          { label: "FlClash · Linux", url: "https://99data.qqx.me/s/ObUM" },
+        ],
+      },
+      {
+        heading: "Android",
+        links: [
+          { label: "v2rayNG · arm64-v8a", url: "https://99data.qqx.me/f/WATj/v2rayNG_2.1.8-fdroid_arm64-v8a.apk" },
+          { label: "Clash Meta · arm64-v8a", url: "https://99data.qqx.me/f/VRIl/cmfa-2.11.28-meta-arm64-v8a-release.apk" },
+          { label: "FlClash · Android", url: "https://99data.qqx.me/s/2Yie" },
+        ],
+      },
+    ],
+  },
+  ...ADVANCED_NOTES.map((note) => ({
+    id: note.id,
+    category: "进阶教程",
+    title: note.title,
+    summary: note.summary,
+    sections: [],
+    note,
+  })),
 ];
 
 function searchableArticleText(article: DocumentationArticle): string {
@@ -292,10 +355,11 @@ function searchableArticleText(article: DocumentationArticle): string {
     section.heading ?? "",
     ...(section.paragraphs ?? []),
     ...(section.steps ?? []),
+    ...(section.links ?? []).map((link) => link.label),
     ...(section.images ?? []).flatMap((image) => [image.alt, image.caption]),
     section.video?.title ?? "",
   ]);
-  return [article.title, article.summary, article.category, ...sectionText]
+  return [article.title, article.summary, article.category, ...sectionText, article.note?.body ?? ""]
     .join("\n")
     .normalize("NFKC")
     .toLocaleLowerCase("zh-CN");
