@@ -50,13 +50,7 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
         heading: "准备订阅地址",
         paragraphs: [
           "在「当前套餐」找到已开通服务卡片；有多条线路时先选定线路，再点击「复制地址」。地址属于私密交付信息，不要发给他人或粘贴到第三方网站。",
-          {
-            text: "以下以已安装的 FlClash 为例。客户端界面可能随版本变化，以你实际看到的菜单为准。原教程的两张旧站界面图仅供识别复制入口；本站请按上面的「当前套餐」操作。",
-            images: [
-              { src: "/docs/subscription-import/flclash/source-copy-menu-1.jpg", alt: "原教程旧站的一键订阅和复制地址菜单", caption: "原教程旧界面：展示复制订阅地址的入口；本站使用「当前套餐」卡片。" },
-              { src: "/docs/subscription-import/flclash/source-copy-menu-2.jpg", alt: "原教程旧站的快捷导入和复制菜单", caption: "原教程第二张复制入口图；实际页面以本站「当前套餐」为准。" },
-            ],
-          },
+          "以下以已安装的 FlClash 为例。客户端界面可能随版本变化，以你实际看到的菜单为准。",
         ],
       },
       {
@@ -86,12 +80,12 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
       {
         heading: "二维码导入（可选）",
         paragraphs: [
-          "原教程另有二维码导入入口。本站二维码编码的是订阅 URL，并非单个节点；FlClash 能否识别该二维码取决于版本，识别失败时使用上面的 URL 步骤。",
+          "FlClash 也提供二维码导入入口。本站二维码编码的是订阅 URL，并非单个节点；能否识别取决于客户端版本，识别失败时使用上面的 URL 步骤。",
         ],
         steps: [
           {
             text: "回到「配置」，点击右下角添加按钮（＋）。",
-            images: [{ src: "/docs/subscription-import/flclash/config-entry.jpg", alt: "FlClash 配置页及右下角的添加按钮再次出现", caption: "原教程在二维码步骤再次使用同一张配置入口图。" }],
+            images: [{ src: "/docs/subscription-import/flclash/config-entry.jpg", alt: "FlClash 配置页及右下角的添加按钮", caption: "回到「配置」，点击右下角的＋。" }],
           },
           {
             text: "在添加配置菜单选择「二维码／扫描二维码获取配置文件」。",
@@ -105,10 +99,10 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
         paragraphs: [
           {
             text: "导入成功后，在「配置」列表确认出现新配置，并点击它将其设为当前配置。然后进入左侧「代理」，从配置提供的列表中选择需要使用的节点；节点和延迟以客户端实际显示为准。",
-            images: [{ src: "/docs/subscription-import/flclash/imported-config.png", alt: "FlClash 成功导入后的配置卡片，客户用量已遮盖", caption: "配置卡片出现后点击它以启用；图中原客户用量已遮盖。" }],
+            images: [{ src: "/docs/subscription-import/flclash/imported-config.png", alt: "FlClash 成功导入后的配置卡片，示例名称和用量已遮盖", caption: "配置卡片出现后点击它以启用；示例名称和用量已遮盖。" }],
           },
           {
-            text: "需要连接时，进入「仪表盘」，按客户端界面开启代理。原教程展示了系统代理和「规则／全局／直连」出站模式；这些是连接与分流设置，导入 URL 本身不要求先开启。请选择符合自己设备需要的模式。",
+            text: "需要连接时，进入「仪表盘」，按客户端界面开启代理。这里可查看系统代理和「规则／全局／直连」出站模式；这些是连接与分流设置，导入 URL 本身不要求先开启。请选择符合自己设备需要的模式。",
             images: [{ src: "/docs/subscription-import/flclash/start-proxy.png", alt: "FlClash 仪表盘的系统代理与出站模式，示例 IP 已遮盖", caption: "按自己设备需要选择连接和出站模式；示例 IP 已遮盖。" }],
           },
         ],
@@ -117,7 +111,7 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
         heading: "开机自启动（可选）",
         steps: [
           {
-            text: "原教程从「工具」进入「应用程序」，查看启动选项。",
+            text: "从「工具」进入「应用程序」，查看启动选项。",
             images: [{ src: "/docs/subscription-import/flclash/autolaunch-entry.jpg", alt: "FlClash 工具页中的应用程序入口", caption: "从「工具」打开「应用程序」。" }],
           },
           {
@@ -131,7 +125,7 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
         paragraphs: [
           {
             text: "订阅内容变化后，回到「配置」页使用右上角刷新入口，再确认当前配置和代理列表。刷新成功与否以客户端提示为准。",
-            images: [{ src: "/docs/subscription-import/flclash/refresh-config.png", alt: "FlClash 配置页右上角的刷新入口，客户用量已遮盖", caption: "在配置页点击刷新入口；图中原客户用量已遮盖。" }],
+            images: [{ src: "/docs/subscription-import/flclash/refresh-config.png", alt: "FlClash 配置页右上角的刷新入口，示例名称和用量已遮盖", caption: "在配置页点击刷新入口；示例名称和用量已遮盖。" }],
           },
           "配置列表为空时，检查 URL 是否完整、是否选择了当前线路，以及客户端是否给出格式或网络错误。配置出现但代理列表为空时，先刷新配置；仍无结果时向现有支持渠道提供线路名称和客户端错误提示，不要发送完整订阅地址。",
         ],
@@ -146,19 +140,19 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
     sections: [
       {
         paragraphs: [
-          "原教程的视频从 Apple ID 和客户端获取讲起；订阅导入片段的准确时间尚未核实。需要按当前线路操作时，请继续看下方图文步骤。",
+          "视频介绍客户端获取和使用；导入本站当前线路时，请按下方图文步骤操作。",
         ],
         video: {
           youtubeId: "BKYbtaMdD6A",
-          title: "原教程的小火箭相关视频",
+          title: "Shadowrocket 客户端视频",
         },
       },
       {
-        heading: "原教程的客户端页面",
+        heading: "客户端页面示意",
         paragraphs: [
           {
-            text: "原教程先展示 Shadowrocket 的历史 App Store 页面。版本和获取方式以当前官方商店实际显示为准；下面的导入步骤以设备上已有客户端为前提。",
-            images: [{ src: "/docs/subscription-import/shadowrocket/app-store.jpg", alt: "原教程的 Shadowrocket 历史 App Store 页面", caption: "原教程所示的客户端页面；版本与商店状态以当前实际页面为准。" }],
+            text: "下图展示 Shadowrocket 的历史 App Store 页面。版本和获取方式以当前官方商店实际显示为准；下面的导入步骤以设备上已有客户端为前提。",
+            images: [{ src: "/docs/subscription-import/shadowrocket/app-store.jpg", alt: "Shadowrocket 的历史 App Store 页面", caption: "商店页面示意；版本与上架状态以当前页面为准。" }],
           },
         ],
       },
@@ -172,7 +166,7 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
         heading: "识别首页入口",
         paragraphs: [
           {
-            text: "原教程先展示了首页扫码入口。本站的订阅 URL 请按下面的「添加订阅」步骤填写；不要把订阅二维码当成单个节点二维码。",
+            text: "首页可以找到扫码入口。本站的订阅 URL 请按下面的「添加订阅」步骤填写；不要把订阅二维码当成单个节点二维码。",
             images: [{ src: "/docs/subscription-import/shadowrocket/home.png", alt: "Shadowrocket 首页与左上角扫码入口，示例订阅名称已遮盖", caption: "首页可识别扫码和右上角添加入口；示例订阅名称已遮盖。" }],
           },
         ],
@@ -204,13 +198,13 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
       {
         heading: "选择节点并连接",
         paragraphs: [
-          "订阅分组出现后，选择需要使用的节点；可按原教程在首页使用「连通性测试」查看客户端测得的结果。测试数值只反映当时的探测，连接是否可用仍以实际结果为准。",
+          "订阅分组出现后，选择需要使用的节点；可在首页使用「连通性测试」查看客户端测得的结果。测试数值只反映当时的探测，连接是否可用仍以实际结果为准。",
           {
             text: "选好节点后，使用首页顶部开关连接。若系统首次弹出 VPN 配置确认，应先核对设备提示和客户端身份，再由你本人决定是否允许。连接成功时以客户端状态和设备实际网络表现为准。",
             images: [{ src: "/docs/subscription-import/shadowrocket/connected.png", alt: "Shadowrocket 首页显示代理已开启，示例订阅名称已遮盖", caption: "首页开关开启后的示意；示例订阅名称已遮盖。" }],
           },
           {
-            text: "原教程在「全局路由」中展示「配置、代理、直连、场景」。需要按配置规则分流时，可在该页面查看「配置」模式；切换模式前先了解对当前设备流量的影响。",
+            text: "在「全局路由」中可以查看「配置、代理、直连、场景」。需要按配置规则分流时，可在该页面选择「配置」模式；切换前先了解对当前设备流量的影响。",
             images: [{ src: "/docs/subscription-import/shadowrocket/routing-options.jpg", alt: "Shadowrocket 全局路由页面，显示配置、代理、直连与场景选项", caption: "全局路由可查看不同的流量处理模式。" }],
           },
         ],
@@ -232,10 +226,7 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
       {
         heading: "取得当前线路 URL",
         paragraphs: [
-          {
-            text: "在「当前套餐」找到已开通服务卡片；有多条线路时先选定线路，再点击「复制地址」。只使用自己的授权地址，不要把完整 URL 发到聊天、工单或截图中。以下以已安装的 Clash Verge 为例。原教程截图是历史页面，其中活动信息不代表本站当前报价。",
-            images: [{ src: "/docs/subscription-import/clash-verge/subscription-source.png", alt: "原教程历史服务页面的订阅入口，账户和订阅信息已遮盖", caption: "原教程历史截图：箭头指向订阅入口；账户、余额、订阅链接及二维码已遮盖，活动信息非本站当前报价。" }],
-          },
+          "在「当前套餐」找到已开通服务卡片；有多条线路时先选定线路，再点击「复制地址」。只使用自己的授权地址，不要把完整 URL 发到聊天、工单或截图中。以下以已安装的 Clash Verge 为例。",
         ],
       },
       {
@@ -244,17 +235,17 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
           "打开 Clash Verge，点击左侧「订阅」。在页面顶部找到「订阅文件链接」输入框。",
           {
             text: "将本站当前线路 URL 粘贴到这个输入框，不要填入节点名称；检查首尾没有空格，再点击「导入」或当前版本的确认按钮。",
-            images: [{ src: "/docs/subscription-import/clash-verge/subscription-entry.png", alt: "Clash Verge 订阅页顶部的订阅文件链接输入框，客户数据已遮盖", caption: "在顶部输入框粘贴订阅 URL；旧卡片中的客户信息已遮盖。" }],
+            images: [{ src: "/docs/subscription-import/clash-verge/subscription-entry.png", alt: "Clash Verge 订阅页顶部的订阅文件链接输入框，示例卡片信息已遮盖", caption: "在顶部输入框粘贴订阅 URL；示例订阅卡片信息已遮盖。" }],
           },
           "等待订阅卡片出现。点击刚导入的卡片，把它设为当前使用的配置；如果已存在旧卡片，先核对名称和导入时间，避免选错。",
         ],
-        paragraphs: ["原教程的截图使用特定版本；按钮名称与位置以你实际安装的客户端为准。"],
+        paragraphs: ["配图使用特定版本的界面；按钮名称与位置以你实际安装的客户端为准。"],
       },
       {
         heading: "选择节点",
         paragraphs: [
           {
-            text: "点击左侧「代理」，展开配置提供的代理组，从列表中选择需要使用的节点。原教程示例中还有「自动选择」「故障转移」等组；它们的行为取决于配置，先确认选中的是自己需要的组与节点。",
+            text: "点击左侧「代理」，展开配置提供的代理组，从列表中选择需要使用的节点。列表中也可能有「自动选择」「故障转移」等组；它们的行为取决于配置，先确认选中的是自己需要的组与节点。",
             images: [{ src: "/docs/subscription-import/clash-verge/proxy-list.png", alt: "Clash Verge 代理组和节点列表，客户用量已遮盖", caption: "在「代理」中选择当前配置提供的组和节点；客户用量已遮盖。" }],
           },
           "列表与延迟结果来自当前配置和客户端，不能仅凭截图中的示例名称判断自己的节点。若列表为空，返回「订阅」检查配置卡片是否已导入、已选中，以及客户端是否有错误提示。",
@@ -264,8 +255,8 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
         heading: "连接与模式",
         paragraphs: [
           {
-            text: "需要让桌面应用使用代理时，可在客户端首页查看「系统代理」及「规则／全局／直连」模式。原教程以系统代理和规则模式为例；是否还需要虚拟网卡模式取决于应用与设备，不能把它当成导入订阅的必需步骤。",
-            images: [{ src: "/docs/subscription-import/clash-verge/system-proxy.png", alt: "Clash Verge 首页系统代理开关与代理模式，客户流量已遮盖", caption: "原教程的系统代理和规则模式界面；客户连接与流量信息已遮盖。" }],
+            text: "需要让桌面应用使用代理时，可在客户端首页查看「系统代理」及「规则／全局／直连」模式。是否还需要虚拟网卡模式取决于应用与设备，不能把它当成导入订阅的必需步骤。",
+            images: [{ src: "/docs/subscription-import/clash-verge/system-proxy.png", alt: "Clash Verge 首页系统代理开关与代理模式，客户流量已遮盖", caption: "系统代理和规则模式界面；客户连接与流量信息已遮盖。" }],
           },
           "更改系统代理或虚拟网卡会影响设备网络。请按照自己设备与客户端的实际提示操作，连接后通过目标应用验证。关闭代理时也在客户端核对开关状态。",
         ],
@@ -289,8 +280,8 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
         heading: "客户端主界面",
         paragraphs: [
           {
-            text: "原教程先展示 Clash Meta for Android 的主界面。界面和按钮位置随版本变化，以你的客户端实际显示为准。",
-            images: [{ src: "/docs/subscription-import/clash-meta/home.jpg", alt: "Clash Meta for Android 主界面及配置入口", caption: "原教程的主界面。" }],
+            text: "打开 Clash Meta for Android 后，先查看主界面的「配置」入口。界面和按钮位置随版本变化，以你的客户端实际显示为准。",
+            images: [{ src: "/docs/subscription-import/clash-meta/home.jpg", alt: "Clash Meta for Android 主界面及配置入口", caption: "主界面和配置入口。" }],
           },
         ],
       },
@@ -325,11 +316,11 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
         ],
       },
       {
-        heading: "原教程的文件方式对照",
+        heading: "文件导入方式（对照）",
         paragraphs: [
           {
-            text: "原教程也展示从本地文件创建配置。本站当前提供订阅 URL，按上面的 URL 步骤操作即可；此图仅保留原教程中对应的文件入口。",
-            images: [{ src: "/docs/subscription-import/clash-meta/file-form.jpg", alt: "Clash Meta for Android 从本地文件导入配置的对照界面", caption: "原教程中的文件导入方式；本站订阅使用 URL。" }],
+            text: "客户端也提供从本地文件创建配置的入口。本站当前提供订阅 URL，请按上面的 URL 步骤操作。",
+            images: [{ src: "/docs/subscription-import/clash-meta/file-form.jpg", alt: "Clash Meta for Android 从本地文件导入配置的对照界面", caption: "本地文件导入方式；本站订阅使用 URL。" }],
           },
         ],
       },
@@ -350,11 +341,11 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
         heading: "选择节点与模式",
         paragraphs: [
           {
-            text: "进入「代理」查看当前配置提供的组和节点，按自己的需要选择；原教程在该页展示了节点列表。",
+            text: "进入「代理」查看当前配置提供的组和节点，按自己的需要选择。",
             images: [{ src: "/docs/subscription-import/clash-meta/node-list.jpg", alt: "Clash Meta for Android 代理页中的组与节点列表", caption: "进入代理页，从当前配置的列表中选择节点。" }],
           },
           {
-            text: "原教程还展示了代理页的模式菜单；规则、全局和直连会影响不同流量的处理方式，切换前请确认用途。",
+            text: "在代理页打开模式菜单；规则、全局和直连会影响不同流量的处理方式，切换前请确认用途。",
             images: [{ src: "/docs/subscription-import/clash-meta/mode-menu.jpg", alt: "Clash Meta for Android 代理页的模式菜单", caption: "代理模式入口与可选模式以客户端实际显示为准。" }],
           },
         ],
@@ -372,11 +363,11 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
     id: "proxy-tool-downloads",
     category: "代理工具下载",
     title: "代理工具下载",
-    summary: "按设备系统选择原文列出的客户端安装文件。",
+    summary: "按设备系统选择客户端并下载。",
     sections: [
       {
         paragraphs: [
-          "以下链接整理自获授权的「常用代理工具下载链接」原文。请按自己的系统和处理器选择；只有点击具体「前往下载」才会离开本站。文件来源、版本、兼容性与安全性尚未经本站验证。",
+          "请按设备系统和处理器类型选择客户端。点击具体「前往下载」会打开第三方页面；下载前请核对文件名、版本和设备兼容性。",
         ],
       },
       {

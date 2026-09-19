@@ -105,19 +105,38 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
   const instanceId = useId();
   const readerRef = useRef<HTMLElement>(null);
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<string | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [searchCollapsedGroups, setSearchCollapsedGroups] = useState<Record<string, boolean>>({});
   const [selectedId, setSelectedId] = useState<string | null>(initialArticleId ?? null);
 
-  const categories = documentCategories(articles);
-  const visibleArticles = filterDocumentationArticles(articles, query, category);
   const downloadArticle = articles.find((article) => article.id === "proxy-tool-downloads");
+  const visibleArticles = filterDocumentationArticles(articles, query, null);
   const directoryArticles = visibleArticles.filter((article) => article.id !== downloadArticle?.id);
+  const groups = documentCategories(directoryArticles).map((name) => ({
+    name,
+    articles: directoryArticles.filter((article) => article.category === name),
+  }));
+  const searching = query.trim().length > 0;
   const selectedArticle =
-    visibleArticles.find((article) => article.id === selectedId) ?? visibleArticles[0] ?? null;
+    visibleArticles.find((article) => article.id === selectedId) ??
+    (selectedId === null && !searching ? visibleArticles.find((article) => article.id === "home-ip-quality") : undefined) ??
+    visibleArticles[0] ?? null;
 
   function selectArticle(article: DocumentationArticle) {
     setSelectedId(article.id);
-    requestAnimationFrame(() => readerRef.current?.focus({ preventScroll: true }));
+    requestAnimationFrame(() => {
+      const reader = readerRef.current;
+      if (reader === null) return;
+      if (!window.matchMedia("(max-width: 980px)").matches) return;
+      reader.focus({ preventScroll: true });
+
+      const topbarHeight = document.querySelector<HTMLElement>(".cc-topbar")?.getBoundingClientRect().height ?? 0;
+      const top = window.scrollY + reader.getBoundingClientRect().top - topbarHeight - 12;
+      window.scrollTo({
+        top: Math.max(0, top),
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      });
+    });
   }
 
   return (
@@ -137,7 +156,8 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
               aria-current={selectedArticle?.id === downloadArticle.id ? "page" : undefined}
               onClick={() => {
                 setQuery("");
-                setCategory(null);
+                setExpandedGroups({});
+                setSearchCollapsedGroups({});
                 selectArticle(downloadArticle);
               }}
             >
@@ -153,33 +173,14 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
               type="search"
               value={query}
               placeholder="搜索标题、分类或正文"
-              onChange={(event) => setQuery(event.currentTarget.value)}
+              onChange={(event) => {
+                const nextQuery = event.currentTarget.value;
+                setQuery(nextQuery);
+                if (nextQuery.trim().length === 0) setExpandedGroups({});
+                setSearchCollapsedGroups({});
+              }}
             />
           </label>
-
-          {categories.length > 0 && (
-            <div className="cc-docs-categories" aria-label="文档分类">
-              <button
-                type="button"
-                className={category === null ? "is-active" : undefined}
-                aria-pressed={category === null}
-                onClick={() => setCategory(null)}
-              >
-                全部
-              </button>
-              {categories.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  className={category === item ? "is-active" : undefined}
-                  aria-pressed={category === item}
-                  onClick={() => setCategory(item)}
-                >
-                  {item}
-                </button>
-              ))}
-            </div>
-          )}
 
           {articles.length === 0 ? (
             <div className="cc-docs-notice" role="status">
@@ -189,25 +190,55 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
           ) : visibleArticles.length === 0 ? (
             <div className="cc-docs-notice" role="status">
               <strong>没有匹配的文档</strong>
-              <p>请调整关键词或分类。</p>
+              <p>请调整搜索关键词。</p>
             </div>
-          ) : directoryArticles.length > 0 ? (
-            <ul className="cc-docs-list">
-              {directoryArticles.map((article) => (
-                <li key={article.id}>
-                  <button
-                    type="button"
-                    className={selectedArticle?.id === article.id ? "is-active" : undefined}
-                    aria-current={selectedArticle?.id === article.id ? "page" : undefined}
-                    onClick={() => selectArticle(article)}
-                  >
-                    <span>{article.category}</span>
-                    <strong>{article.title}</strong>
-                    <span className="cc-docs-list-summary">{article.summary}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+          ) : groups.length > 0 ? (
+            <div className="cc-docs-groups">
+              {groups.map((group, groupIndex) => {
+                const expanded = searching
+                  ? searchCollapsedGroups[group.name] !== true
+                  : expandedGroups[group.name] === true;
+                const groupId = `${instanceId}-group-${groupIndex}`;
+                return (
+                  <section key={group.name} className="cc-docs-group">
+                    <button
+                      type="button"
+                      className="cc-docs-group-heading"
+                      aria-expanded={expanded}
+                      aria-controls={groupId}
+                      onClick={() => {
+                        if (searching) {
+                          setSearchCollapsedGroups((current) => ({ ...current, [group.name]: !current[group.name] }));
+                        } else {
+                          setExpandedGroups((current) => ({ ...current, [group.name]: !expanded }));
+                        }
+                      }}
+                    >
+                      <span>{group.name}（{group.articles.length}）</span>
+                      <span className="cc-docs-group-action">
+                        <span>{expanded ? "点击收起" : "点击展开"}</span>
+                        <span className={`cc-docs-group-arrow${expanded ? " is-expanded" : ""}`} aria-hidden="true">▾</span>
+                      </span>
+                    </button>
+                    <ul id={groupId} className="cc-docs-list" hidden={!expanded}>
+                      {group.articles.map((article) => (
+                        <li key={article.id}>
+                          <button
+                            type="button"
+                            className={selectedArticle?.id === article.id ? "is-active" : undefined}
+                            aria-current={selectedArticle?.id === article.id ? "page" : undefined}
+                            onClick={() => selectArticle(article)}
+                          >
+                            <strong>{article.title}</strong>
+                            <span className="cc-docs-list-summary">{article.summary}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                );
+              })}
+            </div>
           ) : null}
         </section>
 

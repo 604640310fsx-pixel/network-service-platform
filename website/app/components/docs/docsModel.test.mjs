@@ -122,11 +122,11 @@ test("proxy article keeps its local guide reference and removes two obsolete ext
   assert.doesNotMatch(body, /我做的小玩具|特征检测工具|meowvps\.com\/tools\/detector\//);
 });
 
-test("four client tutorials keep every source image at its step in source order", () => {
+test("four client tutorials keep client screenshots at their steps in order", () => {
   const expected = {
-    "flclash-import": ["source-copy-menu-1.jpg", "source-copy-menu-2.jpg", "config-entry.jpg", "url-entry.jpg", "url-submit.jpg", "config-entry.jpg", "qr-entry.jpg", "imported-config.png", "start-proxy.png", "autolaunch-entry.jpg", "autolaunch-toggle.jpg", "refresh-config.png"],
+    "flclash-import": ["config-entry.jpg", "url-entry.jpg", "url-submit.jpg", "config-entry.jpg", "qr-entry.jpg", "imported-config.png", "start-proxy.png", "autolaunch-entry.jpg", "autolaunch-toggle.jpg", "refresh-config.png"],
     "shadowrocket-import": ["app-store.jpg", "home.png", "subscribe-form.jpg", "settings-entry.jpg", "update-options.jpg", "connected.png", "routing-options.jpg"],
-    "clash-verge-import": ["subscription-source.png", "subscription-entry.png", "proxy-list.png", "system-proxy.png"],
+    "clash-verge-import": ["subscription-entry.png", "proxy-list.png", "system-proxy.png"],
     "clash-meta-import": ["home.jpg", "config-entry.jpg", "add-menu.jpg", "url-form.jpg", "file-form.jpg", "start-connection.jpg", "running.jpg", "node-list.jpg", "mode-menu.jpg"],
   };
   for (const [id, names] of Object.entries(expected)) {
@@ -149,6 +149,6 @@ test("four client tutorials keep every source image at its step in source order"
   assert.ok(shadowrocket.sections[0].video, "the video should appear before the written steps");
   assert.deepEqual(shadowrocket.sections.find((section) => section.video)?.video, {
     youtubeId: "BKYbtaMdD6A",
-    title: "原教程的小火箭相关视频",
+    title: "Shadowrocket 客户端视频",
   });
 });

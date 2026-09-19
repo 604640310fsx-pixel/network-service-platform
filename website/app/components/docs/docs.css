@@ -110,28 +110,28 @@
   outline-offset: 2px;
 }
 
-.cc-docs-categories {
+.cc-docs-groups { display: grid; gap: 10px; margin-top: 15px; }
+.cc-docs-group-heading {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 12px;
-}
-.cc-docs-categories button {
-  min-height: 30px;
-  padding: 0 10px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
   border: 1px solid var(--cc-line, #2a2e34);
-  border-radius: 7px;
+  border-radius: 9px;
   background: var(--cc-card, #171b21);
-  color: var(--cc-text-3, #979da7);
-  font-size: 11.5px;
+  color: var(--cc-text, #edf1f6);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  text-align: left;
   cursor: pointer;
 }
-.cc-docs-categories button:hover,
-.cc-docs-categories button.is-active {
-  border-color: var(--cc-accent-line, rgba(245, 158, 11, 0.55));
-  background: var(--cc-accent-tint, rgba(245, 158, 11, 0.07));
-  color: var(--cc-accent, #f59e0b);
-}
+.cc-docs-group-heading:hover { border-color: var(--cc-accent-line, rgba(245, 158, 11, 0.55)); }
+.cc-docs-group-action { display: inline-flex; flex: none; align-items: center; gap: 7px; color: var(--cc-text-2, #d7dce4); font-size: 12px; font-weight: 600; }
+.cc-docs-group-arrow { color: var(--cc-accent, #f59e0b); transform: rotate(-90deg); }
+.cc-docs-group-arrow.is-expanded { transform: none; }
 
 .cc-docs-notice {
   margin-top: 15px;
@@ -153,12 +153,13 @@
 
 .cc-docs-list {
   list-style: none;
-  margin: 15px 0 0;
+  margin: 8px 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
   gap: 7px;
 }
+.cc-docs-list[hidden] { display: none; }
 .cc-docs-list li { min-width: 0; }
 .cc-docs-list button {
   width: 100%;
@@ -176,15 +177,8 @@
   border-color: var(--cc-accent-line, rgba(245, 158, 11, 0.55));
   background: var(--cc-accent-tint, rgba(245, 158, 11, 0.07));
 }
-.cc-docs-list button > span:not(.cc-docs-list-summary) {
-  display: block;
-  color: var(--cc-accent, #f59e0b);
-  font-size: 10px;
-  font-weight: 600;
-}
 .cc-docs-list button > strong {
   display: block;
-  margin-top: 5px;
   font-size: 13.5px;
   overflow-wrap: anywhere;
 }
