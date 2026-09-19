@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import test from "node:test";
 import {
   SUBSCRIPTION_IMPORT_ARTICLES,
@@ -54,7 +55,7 @@ test("category and query filters compose without inventing fallback documents", 
 test("subscription import articles remain searchable by their real reader content", () => {
   assert.deepEqual(documentCategories(SUBSCRIPTION_IMPORT_ARTICLES), ["订阅导入"]);
   assert.deepEqual(
-    filterDocumentationArticles(SUBSCRIPTION_IMPORT_ARTICLES, "二维码", "订阅导入").map(
+    filterDocumentationArticles(SUBSCRIPTION_IMPORT_ARTICLES, "当前浏览器本地生成", "订阅导入").map(
       (item) => item.id,
     ),
     ["subscription-address"],
@@ -65,4 +66,20 @@ test("subscription import articles remain searchable by their real reader conten
     ),
     ["manual-client-import"],
   );
+});
+
+test("four client tutorials have readable steps and only checked local images", () => {
+  const ids = ["flclash-import", "shadowrocket-import", "clash-verge-import", "clash-meta-import"];
+  for (const id of ids) {
+    const article = SUBSCRIPTION_IMPORT_ARTICLES.find((item) => item.id === id);
+    assert.ok(article, `missing ${id}`);
+    assert.ok(article.sections.some((section) => (section.steps?.length ?? 0) >= 3));
+    for (const section of article.sections) {
+      for (const image of section.images ?? []) {
+        assert.match(image.src, /^\/docs\/subscription-import\//);
+        assert.ok(image.alt && image.caption);
+        assert.ok(existsSync(new URL(`../../../public${image.src}`, import.meta.url)));
+      }
+    }
+  }
 });

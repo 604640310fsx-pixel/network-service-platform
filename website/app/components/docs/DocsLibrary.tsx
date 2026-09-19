@@ -36,7 +36,7 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
           <header className="cc-docs-heading">
             <span>DOCUMENTATION</span>
             <h2>使用文档</h2>
-            <p>这里只展示已经批准并由调用方提供的正文。</p>
+            <p>查找订阅地址与常见客户端的导入步骤。</p>
           </header>
 
           <label className="cc-docs-search" htmlFor={`${instanceId}-search`}>
@@ -131,6 +131,12 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
                       ))}
                     </ol>
                   )}
+                  {(section.images ?? []).map((item) => (
+                    <figure key={item.src} className="cc-docs-figure">
+                      <img src={item.src} alt={item.alt} loading="lazy" decoding="async" />
+                      <figcaption>{item.caption}</figcaption>
+                    </figure>
+                  ))}
                 </section>
               ))}
             </article>
