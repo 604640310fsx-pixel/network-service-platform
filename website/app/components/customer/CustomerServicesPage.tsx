@@ -6,7 +6,6 @@ import {
   getMyServices,
   type MyServiceItem,
   type PaymentOrderSnapshot,
-  type PaymentOrderStatus,
   type ServiceDeliveryItem,
   type ServiceStatus,
 } from "../../lib/payment-api";
@@ -28,19 +27,8 @@ type DeliveryState =
   | { readonly kind: "ready"; readonly items: readonly ServiceDeliveryItem[] }
   | { readonly kind: "error"; readonly message: string };
 
-const ORDER_STATUS_LABEL: Record<PaymentOrderStatus, string> = {
-  pending: "待支付",
-  paid: "已支付",
-  closed: "已关闭",
-};
-
 function serviceStatusLabel(status: ServiceStatus): string {
   return status === "open" ? "已开通" : "待开通";
-}
-
-function formatFen(amountFen: number): string {
-  const amount = amountFen / 100;
-  return `¥${Number.isInteger(amount) ? amount : amount.toFixed(2)}`;
 }
 
 function formatDate(value: string): string {
@@ -301,23 +289,11 @@ export function CustomerServicesPage() {
                     {serviceStatusLabel(item.serviceStatus)}
                   </span>
                 </div>
-                <dl className="cc-svc-facts">
-                  <div>
-                    <dt>支付金额</dt>
-                    <dd>{formatFen(item.amountFen)}</dd>
+                {!isOpen && (
+                  <div className="cc-svc-item-foot">
+                    <p>服务正在等待人工开通，请留意状态更新。</p>
                   </div>
-                  <div>
-                    <dt>订单状态</dt>
-                    <dd>{ORDER_STATUS_LABEL[item.orderStatus]}</dd>
-                  </div>
-                  <div>
-                    <dt>服务状态</dt>
-                    <dd>{serviceStatusLabel(item.serviceStatus)}</dd>
-                  </div>
-                </dl>
-                <div className="cc-svc-item-foot">
-                  <p>{isOpen ? "服务已完成人工开通。" : "服务正在等待人工开通，请留意状态更新。"}</p>
-                </div>
+                )}
                 {isOpen && <ServiceSubscription item={item} />}
                 {!isOpen && <p className="cc-svc-import-state">等待人工交付，订阅信息暂未提供。</p>}
               </li>
