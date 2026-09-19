@@ -144,9 +144,9 @@ export function safeVerifiedDeepLinkHref(value: string | null | undefined): stri
   }
 }
 
-/** Loon's documented node-subscription action accepts one URL-encoded remote URL.
- * https://nsloon.app/docs/Scheme/
- * This only requests import; the client decides whether the response can be parsed.
+/** Only construct documented remote-URL import requests for clients in the display matrix.
+ * The schemes request an app action; they do not prove that the feed is parseable.
+ * Exact source links and format limits are recorded in the task's Draft PR.
  */
 export function verifiedSubscriptionDeepLink(request: {
   readonly platform: SubscriptionPlatform;
@@ -154,36 +154,64 @@ export function verifiedSubscriptionDeepLink(request: {
   readonly subscriptionUrl: string;
 }): string | null {
   if (
-    request.clientId !== "loon" ||
-    (request.platform !== "ios" && request.platform !== "macos") ||
-    safeSubscriptionHref(request.subscriptionUrl) === null
+    safeSubscriptionHref(request.subscriptionUrl) === null ||
+    !clientsForPlatform(request.platform).some((client) => client.id === request.clientId)
   ) {
     return null;
   }
-  return `loon://import?nodelist=${encodeURIComponent(request.subscriptionUrl)}`;
+  const encodedUrl = encodeURIComponent(request.subscriptionUrl);
+  switch (request.clientId) {
+    case "shadowrocket": {
+      // Xboard's safeBase64SubscribeUrl is URL-safe, unpadded UTF-8 Base64.
+      const bytes = new TextEncoder().encode(request.subscriptionUrl);
+      const base64Url = btoa(String.fromCharCode(...bytes))
+        .replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+      return `shadowrocket://add/sub://${base64Url}`;
+    }
+    case "sing-box":
+      return `sing-box://import-remote-profile?url=${encodedUrl}#${encodeURIComponent("订阅")}`;
+    case "loon":
+      return `loon://import?nodelist=${encodedUrl}`;
+    case "quantumult-x":
+      return `quantumult-x:///add-resource?remote-resource=${encodeURIComponent(
+        JSON.stringify({ server_remote: [request.subscriptionUrl] }),
+      )}`;
+    case "stash":
+      return `stash://install-config?url=${encodedUrl}`;
+    case "surge":
+      return `surge:///install-config?url=${encodedUrl}`;
+    case "surfboard":
+      return `surfboard:///install-config?url=${encodedUrl}`;
+    case "flclash":
+      return `flclash://install-config?url=${encodedUrl}`;
+    case "clashx":
+      return `clash://install-config?url=${encodedUrl}&name=NSP`;
+    case "clash":
+      return null;
+  }
 }
 
 export function clientManualImportReason(clientId: SubscriptionClientId): string {
   switch (clientId) {
     case "shadowrocket":
-      return "尚缺开发方可核验的一键导入协议；请在 Shadowrocket 的 Subscribe 入口粘贴地址。";
+      return "若未唤起或未识别，请在 Shadowrocket 的 Subscribe 入口粘贴地址。";
     case "sing-box":
-      return "远程导入需要 sing-box 配置格式；当前交付地址未标明该格式，请手动确认。";
+      return "远程入口需要 sing-box 配置；当前订阅内容格式未核实，失败请手动确认。";
     case "loon":
       return "若浏览器未能打开 Loon，可复制地址后在客户端手动添加节点订阅。";
     case "quantumult-x":
-      return "远程服务器资源格式未与当前交付地址绑定，请在 Quantumult X 中手动确认。";
+      return "远程服务器资源格式未核实；若客户端未添加，请手动确认。";
     case "stash":
-      return "一键安装需要 Stash 或 Clash 配置；当前交付地址未标明该格式，请手动确认。";
+      return "此入口需要 Stash 配置；当前订阅内容格式未核实，失败请手动确认。";
     case "surge":
-      return "一键安装需要 Surge 配置；当前交付地址未标明该格式，请手动确认。";
+      return "此入口需要 Surge 配置；当前订阅内容格式未核实，失败请手动确认。";
     case "clash":
       return "Clash 是客户端类别，尚未绑定具体应用的一键导入协议，请手动添加。";
     case "surfboard":
-      return "一键安装需要 Surfboard 配置；当前交付地址未标明该格式，请手动确认。";
+      return "此入口需要 Surfboard 配置；当前订阅内容格式未核实，失败请手动确认。";
     case "flclash":
-      return "尚缺可核验的一键导入协议，请在 FlClash 中手动添加。";
+      return "此入口需要 Clash 配置；当前订阅内容格式未核实，失败请手动确认。";
     case "clashx":
-      return "一键安装需要 Clash 配置；当前交付地址未标明该格式，请手动确认。";
+      return "此入口需要 Clash 配置；当前订阅内容格式未核实，失败请手动确认。";
   }
 }

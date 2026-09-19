@@ -266,7 +266,7 @@
 .cc-si-client-option button {
   flex: 1 1 auto;
   min-height: 41px;
-  padding: 7px 6px;
+  padding: 7px 3px;
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -295,7 +295,7 @@
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
-  padding: 0 8px;
+  padding: 0 5px;
   border-left: 1px solid var(--cc-line, #2a2e34);
   color: var(--cc-accent, #f59e0b);
   font-size: 11px;
@@ -426,7 +426,7 @@
   .cc-si-empty { margin: 14px var(--cc-gutter, 14px) 30px; }
 }
 
-@media (max-width: 360px) {
+@media (max-width: 430px) {
   .cc-si-client-grid,
   .cc-si-page.is-compact .cc-si-client-grid { grid-template-columns: minmax(0, 1fr); }
 }

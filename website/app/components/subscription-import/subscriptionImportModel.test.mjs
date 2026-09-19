@@ -74,38 +74,80 @@ test("only caller-supplied non-web deep links can reach the client action", () =
   assert.equal(safeVerifiedDeepLinkHref(null), null);
 });
 
-test("Loon import requests encode only the selected synthetic HTTPS subscription URL", () => {
+test("documented remote URL actions keep the exact synthetic subscription URL", () => {
   const subscriptionUrl = "https://subscription.example.invalid/feed?line=2&name=%E6%B5%8B%E8%AF%95#part";
-  const expected = `loon://import?nodelist=${encodeURIComponent(subscriptionUrl)}`;
-  assert.equal(verifiedSubscriptionDeepLink({
-    platform: "ios", clientId: "loon", subscriptionUrl,
-  }), expected);
-  assert.equal(verifiedSubscriptionDeepLink({
-    platform: "macos", clientId: "loon", subscriptionUrl,
-  }), expected);
-  assert.equal(safeVerifiedDeepLinkHref(expected), expected);
-  assert.equal(new URL(expected).searchParams.get("nodelist"), subscriptionUrl);
+  const link = (platform, clientId) => verifiedSubscriptionDeepLink({
+    platform, clientId, subscriptionUrl,
+  });
+  const shadowrocket = link("ios", "shadowrocket");
+  assert.match(shadowrocket, /^shadowrocket:\/\/add\/sub:\/\/[A-Za-z0-9_-]+$/);
+  assert.equal(Buffer.from(shadowrocket.split("sub://")[1], "base64url").toString("utf8"), subscriptionUrl);
+
+  const singBox = new URL(link("ios", "sing-box"));
+  assert.equal(singBox.protocol, "sing-box:");
+  assert.equal(singBox.host, "import-remote-profile");
+  assert.equal(singBox.searchParams.get("url"), subscriptionUrl);
+  assert.equal(decodeURIComponent(singBox.hash.slice(1)), "订阅");
+
+  const loon = link("ios", "loon");
+  assert.equal(loon, `loon://import?nodelist=${encodeURIComponent(subscriptionUrl)}`);
+  assert.equal(link("macos", "loon"), loon);
+  assert.equal(new URL(loon).searchParams.get("nodelist"), subscriptionUrl);
+
+  const quantumult = new URL(link("ios", "quantumult-x"));
+  assert.equal(quantumult.pathname, "/add-resource");
+  assert.deepEqual(JSON.parse(quantumult.searchParams.get("remote-resource")), {
+    server_remote: [subscriptionUrl],
+  });
+
+  const expectedSchemes = {
+    stash: "stash:", surge: "surge:", surfboard: "surfboard:",
+    flclash: "flclash:", clashx: "clash:",
+  };
+  for (const [clientId, scheme] of Object.entries(expectedSchemes)) {
+    const platform = clientId === "surfboard" ? "android" : "macos";
+    const uri = new URL(link(platform, clientId));
+    assert.equal(uri.protocol, scheme);
+    assert.equal(uri.searchParams.get("url"), subscriptionUrl);
+    assert.equal(
+      [uri.host, uri.pathname].filter(Boolean).join(""),
+      clientId === "surge" || clientId === "surfboard" ? "/install-config" : "install-config",
+    );
+    if (clientId === "clashx") assert.equal(uri.searchParams.get("name"), "NSP");
+  }
 });
 
-test("unverified clients and unsafe URLs have no one-click import action", () => {
+test("only catalog-eligible clients get a safe request and Clash stays manual", () => {
+  const supportedSchemes = {
+    shadowrocket: "shadowrocket:", "sing-box": "sing-box:", loon: "loon:",
+    "quantumult-x": "quantumult-x:", stash: "stash:", surge: "surge:",
+    surfboard: "surfboard:", flclash: "flclash:", clashx: "clash:",
+  };
   for (const platform of ["ios", "android", "macos", "windows"]) {
     for (const client of clientsForPlatform(platform)) {
-      if (client.id === "loon") continue;
-      assert.equal(verifiedSubscriptionDeepLink({
+      const href = verifiedSubscriptionDeepLink({
         platform, clientId: client.id, subscriptionUrl: DEMO_SUBSCRIPTION_URL,
-      }), null);
+      });
+      if (client.id === "clash") {
+        assert.equal(href, null);
+      } else {
+        assert.equal(new URL(href).protocol, supportedSchemes[client.id]);
+        assert.equal(safeVerifiedDeepLinkHref(href), href);
+      }
       assert.ok(clientManualImportReason(client.id).length > 0);
     }
   }
   assert.equal(verifiedSubscriptionDeepLink({
     platform: "android", clientId: "loon", subscriptionUrl: DEMO_SUBSCRIPTION_URL,
   }), null);
-  assert.equal(verifiedSubscriptionDeepLink({
-    platform: "ios", clientId: "loon", subscriptionUrl: "http://subscription.example.invalid/feed",
-  }), null);
-  assert.equal(verifiedSubscriptionDeepLink({
-    platform: "ios", clientId: "loon", subscriptionUrl: "https://user:secret@subscription.example.invalid/feed",
-  }), null);
+  for (const clientId of ["shadowrocket", "sing-box", "loon", "quantumult-x", "stash", "surge"]) {
+    for (const subscriptionUrl of [
+      "http://subscription.example.invalid/feed",
+      "https://user:demo@subscription.example.invalid/feed",
+    ]) {
+      assert.equal(verifiedSubscriptionDeepLink({ platform: "ios", clientId, subscriptionUrl }), null);
+    }
+  }
 });
 
 test("location guidance covers frozen Chrome cases without a fake chrome settings link", () => {

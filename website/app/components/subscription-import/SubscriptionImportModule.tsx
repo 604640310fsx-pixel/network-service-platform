@@ -332,7 +332,7 @@ export function SubscriptionImportModule({
             className="cc-si-client-panel"
           >
             <p className="cc-si-client-caveat" role="note">
-              客户端清单仅按批准矩阵展示；「导入」只请求打开客户端，能否添加由客户端决定。
+              客户端清单仅按批准矩阵展示；「导入」只请求打开客户端，订阅内容格式未核实，能否添加由客户端决定。
             </p>
             <div className="cc-si-client-grid" aria-label={`${platformLabel} 可选客户端`}>
               {clients.map((client) => {
