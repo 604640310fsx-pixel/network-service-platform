@@ -4,9 +4,11 @@ import test from "node:test";
 import {
   SUBSCRIPTION_CLIENTS,
   SUBSCRIPTION_PLATFORMS,
+  clientManualImportReason,
   clientsForPlatform,
   safeSubscriptionHref,
   safeVerifiedDeepLinkHref,
+  verifiedSubscriptionDeepLink,
 } from "./subscriptionImportModel.ts";
 
 // 演示数据 · 非报价；.invalid 为保留域名，不是真实订阅地址。
@@ -72,6 +74,40 @@ test("only caller-supplied non-web deep links can reach the client action", () =
   assert.equal(safeVerifiedDeepLinkHref(null), null);
 });
 
+test("Loon import requests encode only the selected synthetic HTTPS subscription URL", () => {
+  const subscriptionUrl = "https://subscription.example.invalid/feed?line=2&name=%E6%B5%8B%E8%AF%95#part";
+  const expected = `loon://import?nodelist=${encodeURIComponent(subscriptionUrl)}`;
+  assert.equal(verifiedSubscriptionDeepLink({
+    platform: "ios", clientId: "loon", subscriptionUrl,
+  }), expected);
+  assert.equal(verifiedSubscriptionDeepLink({
+    platform: "macos", clientId: "loon", subscriptionUrl,
+  }), expected);
+  assert.equal(safeVerifiedDeepLinkHref(expected), expected);
+  assert.equal(new URL(expected).searchParams.get("nodelist"), subscriptionUrl);
+});
+
+test("unverified clients and unsafe URLs have no one-click import action", () => {
+  for (const platform of ["ios", "android", "macos", "windows"]) {
+    for (const client of clientsForPlatform(platform)) {
+      if (client.id === "loon") continue;
+      assert.equal(verifiedSubscriptionDeepLink({
+        platform, clientId: client.id, subscriptionUrl: DEMO_SUBSCRIPTION_URL,
+      }), null);
+      assert.ok(clientManualImportReason(client.id).length > 0);
+    }
+  }
+  assert.equal(verifiedSubscriptionDeepLink({
+    platform: "android", clientId: "loon", subscriptionUrl: DEMO_SUBSCRIPTION_URL,
+  }), null);
+  assert.equal(verifiedSubscriptionDeepLink({
+    platform: "ios", clientId: "loon", subscriptionUrl: "http://subscription.example.invalid/feed",
+  }), null);
+  assert.equal(verifiedSubscriptionDeepLink({
+    platform: "ios", clientId: "loon", subscriptionUrl: "https://user:secret@subscription.example.invalid/feed",
+  }), null);
+});
+
 test("location guidance covers frozen Chrome cases without a fake chrome settings link", () => {
   assert.match(COMPONENT_SOURCE, /chrome:\/\/settings\/content\/location/);
   assert.match(COMPONENT_SOURCE, /检查并清理已允许查看位置的网站名单/);
@@ -104,7 +140,9 @@ test("the subscription controls follow the approved card order", () => {
 
 test("client copy describes display choices without claiming verified compatibility", () => {
   assert.match(COMPONENT_SOURCE, /可选客户端/);
-  assert.match(COMPONENT_SOURCE, /一键导入和兼容性仍需逐项确认/);
+  assert.match(COMPONENT_SOURCE, /能否添加由客户端决定/);
+  assert.match(COMPONENT_SOURCE, /className="cc-si-client-import"/);
+  assert.match(COMPONENT_SOURCE, /onClick=\{\(\) => setActionMessage\(/);
   assert.doesNotMatch(COMPONENT_SOURCE, /已核验客户端/);
 });
 

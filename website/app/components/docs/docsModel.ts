@@ -46,7 +46,7 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
   {
     id: "manual-client-import",
     category: "订阅导入",
-    title: "选择客户端并手动导入",
+    title: "选择客户端并导入",
     summary: "按已批准的设备与客户端清单选择，导入结果以客户端实际显示为准。",
     sections: [
       {
@@ -57,7 +57,7 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
           "粘贴地址并提交；是否导入成功以客户端实际显示为准。",
         ],
         paragraphs: [
-          "页面的客户端清单按已批准矩阵展示；「推荐」是展示标记，不代表一键导入或兼容性已逐项确认。没有已确认的一键导入动作时，请使用手动导入。",
+          "页面的客户端清单按已批准矩阵展示；「推荐」是展示标记，不代表兼容性已确认。客户端旁有「导入」时，可点击请求浏览器打开客户端；能否添加由客户端决定。其余客户端请使用手动导入。",
         ],
       },
       {

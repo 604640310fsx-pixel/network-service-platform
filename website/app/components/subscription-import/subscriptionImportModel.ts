@@ -143,3 +143,47 @@ export function safeVerifiedDeepLinkHref(value: string | null | undefined): stri
     return null;
   }
 }
+
+/** Loon's documented node-subscription action accepts one URL-encoded remote URL.
+ * https://nsloon.app/docs/Scheme/
+ * This only requests import; the client decides whether the response can be parsed.
+ */
+export function verifiedSubscriptionDeepLink(request: {
+  readonly platform: SubscriptionPlatform;
+  readonly clientId: SubscriptionClientId;
+  readonly subscriptionUrl: string;
+}): string | null {
+  if (
+    request.clientId !== "loon" ||
+    (request.platform !== "ios" && request.platform !== "macos") ||
+    safeSubscriptionHref(request.subscriptionUrl) === null
+  ) {
+    return null;
+  }
+  return `loon://import?nodelist=${encodeURIComponent(request.subscriptionUrl)}`;
+}
+
+export function clientManualImportReason(clientId: SubscriptionClientId): string {
+  switch (clientId) {
+    case "shadowrocket":
+      return "尚缺开发方可核验的一键导入协议；请在 Shadowrocket 的 Subscribe 入口粘贴地址。";
+    case "sing-box":
+      return "远程导入需要 sing-box 配置格式；当前交付地址未标明该格式，请手动确认。";
+    case "loon":
+      return "若浏览器未能打开 Loon，可复制地址后在客户端手动添加节点订阅。";
+    case "quantumult-x":
+      return "远程服务器资源格式未与当前交付地址绑定，请在 Quantumult X 中手动确认。";
+    case "stash":
+      return "一键安装需要 Stash 或 Clash 配置；当前交付地址未标明该格式，请手动确认。";
+    case "surge":
+      return "一键安装需要 Surge 配置；当前交付地址未标明该格式，请手动确认。";
+    case "clash":
+      return "Clash 是客户端类别，尚未绑定具体应用的一键导入协议，请手动添加。";
+    case "surfboard":
+      return "一键安装需要 Surfboard 配置；当前交付地址未标明该格式，请手动确认。";
+    case "flclash":
+      return "尚缺可核验的一键导入协议，请在 FlClash 中手动添加。";
+    case "clashx":
+      return "一键安装需要 Clash 配置；当前交付地址未标明该格式，请手动确认。";
+  }
+}

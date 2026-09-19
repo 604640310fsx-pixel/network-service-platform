@@ -10,7 +10,7 @@ import {
   type ServiceDeliveryItem,
   type ServiceStatus,
 } from "../../lib/payment-api";
-import { SubscriptionImportModule } from "../subscription-import";
+import { SubscriptionImportModule, verifiedSubscriptionDeepLink } from "../subscription-import";
 import "./customer-services.css";
 
 /* /services 列表只来自 GET /api/me/services；已开通卡片的交付数据按其 orderRef
@@ -143,7 +143,13 @@ function ServiceSubscription({ item }: { item: MyServiceItem }) {
           </button>
         </div>
       )}
-      {state.kind === "ready" && <SubscriptionImportModule deliveryItems={state.items} compact />}
+      {state.kind === "ready" && (
+        <SubscriptionImportModule
+          deliveryItems={state.items}
+          compact
+          getVerifiedDeepLink={verifiedSubscriptionDeepLink}
+        />
+      )}
       <div className="cc-svc-import-links">
         <Link to="/docs">查看导入教程</Link>
         <Link to={`/subscribe/request?orderRef=${encodeURIComponent(item.orderRef)}`}>查看订单详情</Link>
