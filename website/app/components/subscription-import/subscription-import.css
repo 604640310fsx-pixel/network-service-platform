@@ -356,7 +356,7 @@
 .cc-si-page.is-compact { background: transparent; }
 .cc-si-page.is-compact .cc-si-layout {
   padding: 0;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
 }
 .cc-si-page.is-compact .cc-si-panel {
@@ -368,6 +368,7 @@
 .cc-si-page.is-compact .cc-si-heading { margin-bottom: 10px; }
 .cc-si-page.is-compact .cc-si-location-note { display: none; }
 .cc-si-page.is-compact .cc-si-empty { margin: 0; }
+.cc-si-page.is-compact .cc-si-client-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 @media (max-width: 620px) {
   .cc-si-layout {
@@ -378,6 +379,7 @@
   .cc-si-heading { gap: 10px; margin-bottom: 14px; }
   .cc-si-platform-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cc-si-client-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cc-si-page.is-compact .cc-si-client-grid { grid-template-columns: minmax(0, 1fr); }
   .cc-si-actions > *,
   .cc-si-manual > .cc-si-primary,
   .cc-si-manual > .cc-si-secondary { flex: 1; min-width: 132px; }
