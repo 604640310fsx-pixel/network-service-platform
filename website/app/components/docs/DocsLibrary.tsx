@@ -4,6 +4,7 @@ import {
   documentCategories,
   filterDocumentationArticles,
   type DocumentationArticle,
+  type DocumentationImage,
 } from "./docsModel";
 import "./docs.css";
 
@@ -83,6 +84,17 @@ function AdvancedNoteBody({ note }: { readonly note: AdvancedNote }) {
   );
 }
 
+function docsImage(image: DocumentationImage, key: string) {
+  return (
+    <figure key={key} className="cc-docs-figure">
+      <a href={image.src} target="_blank" rel="noopener noreferrer" aria-label={`查看大图：${image.alt}`}>
+        <img src={image.src} alt={image.alt} loading="lazy" decoding="async" />
+      </a>
+      <figcaption>{image.caption}<span className="cc-docs-image-hint">点按图片查看大图</span></figcaption>
+    </figure>
+  );
+}
+
 export type DocsLibraryProps = {
   /** Only repository-approved or Packet-approved article bodies may be supplied. */
   readonly articles?: readonly DocumentationArticle[];
@@ -98,6 +110,8 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
 
   const categories = documentCategories(articles);
   const visibleArticles = filterDocumentationArticles(articles, query, category);
+  const downloadArticle = articles.find((article) => article.id === "proxy-tool-downloads");
+  const directoryArticles = visibleArticles.filter((article) => article.id !== downloadArticle?.id);
   const selectedArticle =
     visibleArticles.find((article) => article.id === selectedId) ?? visibleArticles[0] ?? null;
 
@@ -115,6 +129,22 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
             <h2>使用文档</h2>
             <p>查找订阅导入、代理工具下载与进阶教程。</p>
           </header>
+
+          {downloadArticle !== undefined && (
+            <button
+              type="button"
+              className={`cc-docs-download-entry${selectedArticle?.id === downloadArticle.id ? " is-active" : ""}`}
+              aria-current={selectedArticle?.id === downloadArticle.id ? "page" : undefined}
+              onClick={() => {
+                setQuery("");
+                setCategory(null);
+                selectArticle(downloadArticle);
+              }}
+            >
+              <strong>代理工具下载 →</strong>
+              <span>在本站按设备系统查找客户端下载链接</span>
+            </button>
+          )}
 
           <label className="cc-docs-search" htmlFor={`${instanceId}-search`}>
             <span>搜索文档</span>
@@ -161,9 +191,9 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
               <strong>没有匹配的文档</strong>
               <p>请调整关键词或分类。</p>
             </div>
-          ) : (
+          ) : directoryArticles.length > 0 ? (
             <ul className="cc-docs-list">
-              {visibleArticles.map((article) => (
+              {directoryArticles.map((article) => (
                 <li key={article.id}>
                   <button
                     type="button"
@@ -178,7 +208,7 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
                 </li>
               ))}
             </ul>
-          )}
+          ) : null}
         </section>
 
         <section className="cc-docs-panel cc-docs-reader-panel" aria-label="文档正文">
@@ -198,13 +228,27 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
               {selectedArticle.sections.map((section, index) => (
                 <section key={`${selectedArticle.id}-${index}`}>
                   {section.heading !== undefined && <h2>{section.heading}</h2>}
-                  {(section.paragraphs ?? []).map((paragraph, paragraphIndex) => (
-                    <p key={`${selectedArticle.id}-${index}-p-${paragraphIndex}`}>{paragraph}</p>
-                  ))}
+                  {(section.paragraphs ?? []).map((paragraph, paragraphIndex) =>
+                    typeof paragraph === "string" ? (
+                      <p key={`${selectedArticle.id}-${index}-p-${paragraphIndex}`}>{paragraph}</p>
+                    ) : (
+                      <div key={`${selectedArticle.id}-${index}-p-${paragraphIndex}`}>
+                        <p>{paragraph.text}</p>
+                        {paragraph.images.map((image, imageIndex) =>
+                          docsImage(image, `${selectedArticle.id}-${index}-p-${paragraphIndex}-${imageIndex}`)
+                        )}
+                      </div>
+                    ),
+                  )}
                   {(section.steps?.length ?? 0) > 0 && (
                     <ol>
                       {section.steps?.map((step, stepIndex) => (
-                        <li key={`${selectedArticle.id}-${index}-s-${stepIndex}`}>{step}</li>
+                        <li key={`${selectedArticle.id}-${index}-s-${stepIndex}`}>
+                          {typeof step === "string" ? step : step.text}
+                          {typeof step !== "string" && step.images.map((image, imageIndex) =>
+                            docsImage(image, `${selectedArticle.id}-${index}-s-${stepIndex}-${imageIndex}`)
+                          )}
+                        </li>
                       ))}
                     </ol>
                   )}
@@ -220,12 +264,9 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
                       ))}
                     </ul>
                   )}
-                  {(section.images ?? []).map((item) => (
-                    <figure key={item.src} className="cc-docs-figure">
-                      <img src={item.src} alt={item.alt} loading="lazy" decoding="async" />
-                      <figcaption>{item.caption}</figcaption>
-                    </figure>
-                  ))}
+                  {(section.images ?? []).map((item, imageIndex) =>
+                    docsImage(item, `${selectedArticle.id}-${index}-image-${imageIndex}`)
+                  )}
                   {section.video !== undefined && (
                     <div className="cc-docs-video">
                       <iframe

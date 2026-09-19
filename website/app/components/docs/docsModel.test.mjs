@@ -122,18 +122,27 @@ test("proxy article keeps its local guide reference and removes two obsolete ext
   assert.doesNotMatch(body, /我做的小玩具|特征检测工具|meowvps\.com\/tools\/detector\//);
 });
 
-test("four client tutorials have readable steps and only checked local images", () => {
-  const ids = ["flclash-import", "shadowrocket-import", "clash-verge-import", "clash-meta-import"];
-  for (const id of ids) {
+test("four client tutorials keep every source image at its step in source order", () => {
+  const expected = {
+    "flclash-import": ["source-copy-menu-1.jpg", "source-copy-menu-2.jpg", "config-entry.jpg", "url-entry.jpg", "url-submit.jpg", "config-entry.jpg", "qr-entry.jpg", "imported-config.png", "start-proxy.png", "autolaunch-entry.jpg", "autolaunch-toggle.jpg", "refresh-config.png"],
+    "shadowrocket-import": ["app-store.jpg", "home.png", "subscribe-form.jpg", "settings-entry.jpg", "update-options.jpg", "connected.png", "routing-options.jpg"],
+    "clash-verge-import": ["subscription-source.png", "subscription-entry.png", "proxy-list.png", "system-proxy.png"],
+    "clash-meta-import": ["home.jpg", "config-entry.jpg", "add-menu.jpg", "url-form.jpg", "file-form.jpg", "start-connection.jpg", "running.jpg", "node-list.jpg", "mode-menu.jpg"],
+  };
+  for (const [id, names] of Object.entries(expected)) {
     const article = SUBSCRIPTION_IMPORT_ARTICLES.find((item) => item.id === id);
     assert.ok(article, `missing ${id}`);
-    assert.ok(article.sections.some((section) => (section.steps?.length ?? 0) >= 3));
-    for (const section of article.sections) {
-      for (const image of section.images ?? []) {
-        assert.match(image.src, /^\/docs\/subscription-import\//);
-        assert.ok(image.alt && image.caption);
-        assert.ok(existsSync(new URL(`../../../public${image.src}`, import.meta.url)));
-      }
+    assert.ok(article.sections.some((section) => (section.steps?.length ?? 0) >= 2));
+    const images = article.sections.flatMap((section) => [
+      ...(section.paragraphs ?? []).flatMap((item) => typeof item === "string" ? [] : item.images),
+      ...(section.steps ?? []).flatMap((item) => typeof item === "string" ? [] : item.images),
+      ...(section.images ?? []),
+    ]);
+    assert.deepEqual(images.map((image) => image.src.split("/").at(-1)), names);
+    for (const image of images) {
+      assert.match(image.src, /^\/docs\/subscription-import\//);
+      assert.ok(image.alt && image.caption);
+      assert.ok(existsSync(new URL(`../../../public${image.src}`, import.meta.url)));
     }
   }
   const shadowrocket = SUBSCRIPTION_IMPORT_ARTICLES.find((item) => item.id === "shadowrocket-import");

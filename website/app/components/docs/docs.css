@@ -52,6 +52,34 @@
   line-height: 1.65;
 }
 
+.cc-docs-download-entry {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  padding: 12px 13px;
+  border: 1px solid var(--cc-accent-line, rgba(245, 158, 11, 0.55));
+  border-radius: 9px;
+  background: var(--cc-accent-tint, rgba(245, 158, 11, 0.07));
+  text-align: left;
+  cursor: pointer;
+}
+.cc-docs-download-entry:hover,
+.cc-docs-download-entry.is-active {
+  background: var(--cc-card, #171b21);
+}
+.cc-docs-download-entry strong {
+  display: block;
+  color: var(--cc-accent, #f59e0b);
+  font-size: 13.5px;
+}
+.cc-docs-download-entry span {
+  display: block;
+  margin-top: 4px;
+  color: var(--cc-text-2, #d7dce4);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .cc-docs-search {
   display: block;
   margin-top: 16px;
@@ -241,6 +269,14 @@
   width: min(100%, 620px);
   margin: 18px 0 0;
 }
+.cc-docs-figure > a {
+  display: inline-block;
+  max-width: 100%;
+}
+.cc-docs-figure > a:focus-visible {
+  outline: 2px solid var(--cc-accent, #f59e0b);
+  outline-offset: 2px;
+}
 .cc-docs-figure img {
   display: block;
   max-width: 100%;
@@ -256,6 +292,12 @@
   color: var(--cc-text-2, #d7dce4);
   font-size: 16px;
   line-height: 1.6;
+}
+.cc-docs-image-hint {
+  display: block;
+  margin-top: 3px;
+  color: var(--cc-text-4, #68717e);
+  font-size: 12px;
 }
 .cc-docs-video { width: min(100%, 620px); margin-top: 16px; }
 .cc-docs-video iframe {
