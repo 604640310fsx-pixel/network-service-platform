@@ -32,6 +32,8 @@ export type VerifiedDeepLinkRequest = {
 export type SubscriptionImportModuleProps = {
   /** Items must come from the existing authorized delivery response. */
   readonly deliveryItems: readonly SubscriptionImportDelivery[];
+  /** Place the existing controls directly inside an owned service card. */
+  readonly compact?: boolean;
   readonly initialPlatform?: SubscriptionPlatform;
   /**
    * Optional integration hook for a separately confirmed exact deep-link contract.
@@ -77,6 +79,7 @@ function resolvedVerifiedDeepLink(
 
 export function SubscriptionImportModule({
   deliveryItems,
+  compact = false,
   initialPlatform = "ios",
   getVerifiedDeepLink,
 }: SubscriptionImportModuleProps) {
@@ -87,10 +90,11 @@ export function SubscriptionImportModule({
   const [selectedPosition, setSelectedPosition] = useState<number | null>(
     deliveryItems[0]?.position ?? null,
   );
-  const [qrOpen, setQrOpen] = useState(false);
+  const [qrOpen, setQrOpen] = useState(compact);
   const [safeOpenVisible, setSafeOpenVisible] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const pageClassName = compact ? "cc-si-page is-compact" : "cc-si-page";
 
   const clients = clientsForPlatform(platform);
   const platformLabel =
@@ -119,7 +123,7 @@ export function SubscriptionImportModule({
 
   function selectDelivery(position: number) {
     setSelectedPosition(position);
-    setQrOpen(false);
+    setQrOpen(compact);
     setSafeOpenVisible(false);
     setActionMessage(null);
   }
@@ -160,7 +164,7 @@ export function SubscriptionImportModule({
 
   if (activeItem === null) {
     return (
-      <section className="cc-si-page" aria-labelledby={`${instanceId}-empty-title`}>
+      <section className={pageClassName} aria-labelledby={`${instanceId}-empty-title`}>
         <section className="cc-si-panel cc-si-empty" role="status">
           <span>SUBSCRIPTION</span>
           <h2 id={`${instanceId}-empty-title`}>订阅信息待接入</h2>
@@ -172,7 +176,7 @@ export function SubscriptionImportModule({
 
   if (subscriptionUrl === null) {
     return (
-      <section className="cc-si-page" aria-labelledby={`${instanceId}-invalid-title`}>
+      <section className={pageClassName} aria-labelledby={`${instanceId}-invalid-title`}>
         <section className="cc-si-panel cc-si-empty" role="alert">
           <span>SUBSCRIPTION</span>
           <h2 id={`${instanceId}-invalid-title`}>订阅地址暂不可用</h2>
@@ -187,7 +191,7 @@ export function SubscriptionImportModule({
   const qrPanelId = `${instanceId}-local-qr`;
 
   return (
-    <section className="cc-si-page" aria-labelledby={`${instanceId}-title`}>
+    <section className={pageClassName} aria-labelledby={`${instanceId}-title`}>
       <div className="cc-si-layout">
         <section className="cc-si-panel">
           <header className="cc-si-heading">

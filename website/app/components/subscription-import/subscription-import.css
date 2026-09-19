@@ -352,6 +352,23 @@
   margin: 20px var(--cc-gutter, 24px) 44px;
 }
 
+/* 套餐卡内复用同一导入模块：主操作直接显示，完整位置提示保留在订单详情。 */
+.cc-si-page.is-compact { background: transparent; }
+.cc-si-page.is-compact .cc-si-layout {
+  padding: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  gap: 10px;
+}
+.cc-si-page.is-compact .cc-si-panel {
+  padding: 14px;
+  border-radius: 10px;
+  background: var(--cc-inset, #12161c);
+  box-shadow: none;
+}
+.cc-si-page.is-compact .cc-si-heading { margin-bottom: 10px; }
+.cc-si-page.is-compact .cc-si-location-note { display: none; }
+.cc-si-page.is-compact .cc-si-empty { margin: 0; }
+
 @media (max-width: 620px) {
   .cc-si-layout {
     padding: 14px var(--cc-gutter, 14px) 30px;

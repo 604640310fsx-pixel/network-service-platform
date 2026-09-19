@@ -110,7 +110,7 @@ test("client copy describes display choices without claiming verified compatibil
 test("the module is embeddable and responds to its container instead of the viewport", () => {
   assert.doesNotMatch(COMPONENT_SOURCE, /<main\b/);
   assert.equal(
-    (COMPONENT_SOURCE.match(/<section className="cc-si-page" aria-labelledby=/g) ?? []).length,
+    (COMPONENT_SOURCE.match(/<section className=\{pageClassName\} aria-labelledby=/g) ?? []).length,
     3,
   );
   assert.match(
@@ -126,4 +126,6 @@ test("the module is embeddable and responds to its container instead of the view
     /aria-labelledby=\{`\$\{instanceId\}-title`\}[\s\S]*?<h2 id=\{`\$\{instanceId\}-title`\}>/,
   );
   assert.match(COMPONENT_CSS, /repeat\(auto-fit, minmax\(min\(100%, 420px\), 1fr\)\)/);
+  assert.match(COMPONENT_SOURCE, /const \[qrOpen, setQrOpen\] = useState\(compact\)/);
+  assert.match(COMPONENT_CSS, /\.cc-si-page\.is-compact \.cc-si-layout/);
 });

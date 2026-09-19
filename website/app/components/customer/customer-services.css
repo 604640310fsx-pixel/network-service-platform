@@ -246,6 +246,14 @@
   font-size: 12px;
 }
 
+.cc-svc-import { min-width: 0; margin-top: 14px; }
+.cc-svc-import-state { margin: 14px 0 0; padding: 12px 13px; border: 1px dashed var(--cc-line); border-radius: 9px; color: var(--cc-text-3); font-size: 12px; line-height: 1.6; }
+.cc-svc-import-state p { margin: 0 0 10px; }
+.cc-svc-import-links { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 10px; }
+.cc-svc-import-links a { color: var(--cc-text-3); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.cc-svc-import-links a:hover { color: var(--cc-accent); }
+.cc-svc-import-links a:focus-visible { outline: 2px solid var(--cc-accent); outline-offset: 2px; }
+
 /* 操作按钮：沿用 dash-primary-link / ghost 语言 */
 .cc-svc-primary {
   height: 40px;

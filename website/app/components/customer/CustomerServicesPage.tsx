@@ -2,22 +2,30 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   PaymentApiError,
+  getPaymentOrder,
   getMyServices,
   type MyServiceItem,
+  type PaymentOrderSnapshot,
   type PaymentOrderStatus,
+  type ServiceDeliveryItem,
   type ServiceStatus,
 } from "../../lib/payment-api";
+import { SubscriptionImportModule } from "../subscription-import";
 import "./customer-services.css";
 
-/* /services 客户中心「当前套餐」页：数据只来自 GET /api/me/services（listMyServices），
-   仅展示公共契约允许的客户字段（订单号、金额、币种、订单状态、服务状态、创建时间）。
-   不展示节点、供应商、后台地址、交付凭证或任何内部配置；失败一律显示真实错误态，
-   绝不回退硬编码 / Mock 数据。 */
+/* /services 列表只来自 GET /api/me/services；已开通卡片的交付数据按其 orderRef
+   独立读取现有授权订单快照，不从仅含线路名称的 delivery-lines 接口推导地址。
+   失败或快照与卡片不一致时不展示地址，也不回退 Mock。 */
 
 type LoadState =
   | { readonly kind: "loading" }
   | { readonly kind: "ready"; readonly items: readonly MyServiceItem[] }
   | { readonly kind: "unauthorized" }
+  | { readonly kind: "error"; readonly message: string };
+
+type DeliveryState =
+  | { readonly kind: "loading" }
+  | { readonly kind: "ready"; readonly items: readonly ServiceDeliveryItem[] }
   | { readonly kind: "error"; readonly message: string };
 
 const ORDER_STATUS_LABEL: Record<PaymentOrderStatus, string> = {
@@ -71,6 +79,76 @@ function PanelHead({ tag }: { tag: string }) {
       </div>
       <span className="cc-svc-tag">{tag}</span>
     </div>
+  );
+}
+
+export function ownedDeliveryItems(
+  item: MyServiceItem,
+  snapshot: PaymentOrderSnapshot,
+): readonly ServiceDeliveryItem[] | null {
+  if (
+    item.serviceStatus !== "open" ||
+    snapshot.orderRef !== item.orderRef ||
+    snapshot.status !== item.orderStatus ||
+    snapshot.amountFen !== item.amountFen ||
+    snapshot.currency !== item.currency ||
+    snapshot.service?.status !== "open"
+  ) {
+    return null;
+  }
+  return snapshot.service.items ?? [];
+}
+
+function ServiceSubscription({ item }: { item: MyServiceItem }) {
+  const [state, setState] = useState<DeliveryState>({ kind: "loading" });
+  const [retryToken, setRetryToken] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let stopped = false;
+    setState({ kind: "loading" });
+    void getPaymentOrder(item.orderRef, null, controller.signal)
+      .then((snapshot) => {
+        if (stopped) return;
+        const deliveryItems = ownedDeliveryItems(item, snapshot);
+        if (deliveryItems === null) {
+          setState({ kind: "error", message: "交付数据与当前套餐不一致，请稍后重试。" });
+          return;
+        }
+        setState({ kind: "ready", items: deliveryItems });
+      })
+      .catch((error: unknown) => {
+        if (stopped) return;
+        const message = error instanceof PaymentApiError && error.code === "invalid_response"
+          ? "交付数据返回异常，请稍后重试。"
+          : "订阅信息暂不可读取，请稍后重试。";
+        setState({ kind: "error", message });
+      });
+    return () => {
+      stopped = true;
+      controller.abort();
+    };
+  }, [item.orderRef, item.orderStatus, item.amountFen, item.currency, item.serviceStatus, retryToken]);
+
+  return (
+    <section className="cc-svc-import" aria-label={`套餐 ${item.orderRef} 的订阅信息`}>
+      {state.kind === "loading" && (
+        <p className="cc-svc-import-state" role="status">正在读取此套餐的订阅信息…</p>
+      )}
+      {state.kind === "error" && (
+        <div className="cc-svc-import-state" role="alert">
+          <p>{state.message}</p>
+          <button type="button" className="cc-svc-ghost" onClick={() => setRetryToken((token) => token + 1)}>
+            重试读取
+          </button>
+        </div>
+      )}
+      {state.kind === "ready" && <SubscriptionImportModule deliveryItems={state.items} compact />}
+      <div className="cc-svc-import-links">
+        <Link to="/docs">查看导入教程</Link>
+        <Link to={`/subscribe/request?orderRef=${encodeURIComponent(item.orderRef)}`}>查看订单详情</Link>
+      </div>
+    </section>
   );
 }
 
@@ -233,15 +311,9 @@ export function CustomerServicesPage() {
                 </dl>
                 <div className="cc-svc-item-foot">
                   <p>{isOpen ? "服务已完成人工开通。" : "服务正在等待人工开通，请留意状态更新。"}</p>
-                  {isOpen && (
-                    <Link
-                      className="cc-svc-ghost"
-                      to={`/subscribe/request?orderRef=${encodeURIComponent(item.orderRef)}`}
-                    >
-                      查看订阅信息
-                    </Link>
-                  )}
                 </div>
+                {isOpen && <ServiceSubscription item={item} />}
+                {!isOpen && <p className="cc-svc-import-state">等待人工交付，订阅信息暂未提供。</p>}
               </li>
             );
           })}
