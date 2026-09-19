@@ -94,10 +94,10 @@ test("download guide keeps the thirteen source links on the local docs page", ()
   assert.ok(links.some((item) => item.url.endsWith("cmfa-2.11.28-meta-arm64-v8a-release.apk")));
 });
 
-test("three advanced notes retain complete text and original image positions", () => {
+test("three advanced articles retain approved text and original image positions", () => {
   for (const [id, length, slots, occurrences] of [
     ["home-ip-quality", 756, 4, 4],
-    ["proxy-detection-risk", 10002, 41, 42],
+    ["proxy-detection-risk", 9869, 41, 42],
     ["network-lines-overview", 2604, 0, 0],
   ]) {
     const article = SUBSCRIPTION_IMPORT_ARTICLES.find((item) => item.id === id);
@@ -111,6 +111,15 @@ test("three advanced notes retain complete text and original image positions", (
       assert.ok(existsSync(new URL(`../../../public${src}`, import.meta.url)));
     }
   }
+});
+
+test("proxy article keeps its local guide reference and removes two obsolete external links", () => {
+  const body = SUBSCRIPTION_IMPORT_ARTICLES.find((item) => item.id === "proxy-detection-risk")?.note?.body;
+  assert.ok(body);
+  assert.match(body, /你可以查看家宽IP质量检测指南来看看更深入关于IP的事情。/);
+  assert.doesNotMatch(body, /meowvps\.com\/blog\/ipcheck\/|\[家宽\]|\[质量检测指南\]/);
+  assert.match(body, /你可以查看\[ipleak\]\(ipleak\.net\/\)和\[browserleaks\]\(browserleaks\.com\/\)的检测结果。/);
+  assert.doesNotMatch(body, /我做的小玩具|特征检测工具|meowvps\.com\/tools\/detector\//);
 });
 
 test("four client tutorials have readable steps and only checked local images", () => {
