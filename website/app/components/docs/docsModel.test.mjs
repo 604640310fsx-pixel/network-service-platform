@@ -69,6 +69,7 @@ test("subscription import articles remain searchable by their real reader conten
       "home-ip-quality",
       "proxy-detection-risk",
       "network-lines-overview",
+      "claude-gpt-account-advice",
     ],
   );
   assert.deepEqual(
@@ -94,7 +95,7 @@ test("download guide keeps the thirteen source links on the local docs page", ()
   assert.ok(links.some((item) => item.url.endsWith("cmfa-2.11.28-meta-arm64-v8a-release.apk")));
 });
 
-test("three advanced articles retain approved text and original image positions", () => {
+test("existing advanced articles retain approved text and original image positions", () => {
   for (const [id, length, slots, occurrences] of [
     ["home-ip-quality", 756, 4, 4],
     ["proxy-detection-risk", 9869, 41, 42],
@@ -111,6 +112,21 @@ test("three advanced articles retain approved text and original image positions"
       assert.ok(existsSync(new URL(`../../../public${src}`, import.meta.url)));
     }
   }
+});
+
+test("new personal-advice article joins advanced search without changing existing notes", () => {
+  const advanced = SUBSCRIPTION_IMPORT_ARTICLES.filter((item) => item.category === "进阶教程");
+  assert.equal(advanced.length, 4);
+  const article = advanced.find((item) => item.id === "claude-gpt-account-advice");
+  assert.ok(article?.note);
+  assert.equal(article.title, "Claude封号与GPT降智的问题");
+  assert.equal(article.summary, "个人经验与建议，不代表平台官方规则或效果保证");
+  assert.deepEqual(article.note.imageSlots, []);
+  assert.match(article.note.body, /\[提交诊断申请\]\(\/diagnosis\)/);
+  assert.deepEqual(
+    filterDocumentationArticles(SUBSCRIPTION_IMPORT_ARTICLES, "KYC认证", "进阶教程").map((item) => item.id),
+    ["claude-gpt-account-advice"],
+  );
 });
 
 test("proxy article keeps its local guide reference and removes two obsolete external links", () => {

@@ -1,4 +1,5 @@
 import { useId, useRef, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import type { AdvancedNote } from "./advancedDocsContent";
 import {
   documentCategories,
@@ -9,6 +10,7 @@ import {
 import "./docs.css";
 
 function noteLinkTarget(value: string): string | null {
+  if (value === "/diagnosis") return value;
   if (/^https?:\/\/[^\s]+$/i.test(value)) return value;
   if (/^[\w.-]+\.[a-z]{2,}(?:\/[^\s]*)?$/i.test(value)) return `https://${value}`;
   return null;
@@ -22,6 +24,7 @@ function noteInline(value: string): ReactNode[] {
       const link = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
       if (link) {
         const href = noteLinkTarget(link[2]);
+        if (href === "/diagnosis") return <Link key={index} to={href}>{link[1]}</Link>;
         return href ? (
           <a key={index} href={href} target="_blank" rel="noopener noreferrer">
             {link[1]}
