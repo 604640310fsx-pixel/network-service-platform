@@ -70,6 +70,7 @@ test("subscription import articles remain searchable by their real reader conten
       "proxy-detection-risk",
       "network-lines-overview",
       "claude-gpt-account-advice",
+      "tk-fb-environment-guide",
     ],
   );
   assert.deepEqual(
@@ -114,9 +115,9 @@ test("existing advanced articles retain approved text and original image positio
   }
 });
 
-test("new personal-advice article joins advanced search without changing existing notes", () => {
+test("personal-advice article remains searchable without changing existing notes", () => {
   const advanced = SUBSCRIPTION_IMPORT_ARTICLES.filter((item) => item.category === "进阶教程");
-  assert.equal(advanced.length, 4);
+  assert.equal(advanced.length, 5);
   const article = advanced.find((item) => item.id === "claude-gpt-account-advice");
   assert.ok(article?.note);
   assert.equal(article.title, "Claude封号与GPT降智的问题");
@@ -128,6 +129,24 @@ test("new personal-advice article joins advanced search without changing existin
   assert.deepEqual(
     filterDocumentationArticles(SUBSCRIPTION_IMPORT_ARTICLES, "KYC认证", "进阶教程").map((item) => item.id),
     ["claude-gpt-account-advice"],
+  );
+});
+
+test("new user-supplied environment guide keeps seven sections and separate unverified claims", () => {
+  const article = SUBSCRIPTION_IMPORT_ARTICLES.find((item) => item.id === "tk-fb-environment-guide");
+  assert.ok(article?.note);
+  assert.equal(article.title, "TK、FB等的底层环境搭建与指南");
+  assert.equal(article.note.structured, true);
+  assert.deepEqual(article.note.imageSlots, []);
+  assert.equal([...article.note.body.matchAll(/^[一二三四五六七]、 /gm)].length, 7);
+  assert.match(article.note.body, /  ⚬ 抹掉所有内容与设置：/);
+  assert.match(article.note.body, /\[https:\/\/1\.1\.1\.1\/dns-query\]\(https:\/\/1\.1\.1\.1\/dns-query\)/);
+  for (const claim of ["硬件标识", "延迟测试IPv6", "按需连接", "Safari浏览器", "ISP分类"]) {
+    assert.ok(article.note.editorNote?.includes(claim));
+  }
+  assert.deepEqual(
+    filterDocumentationArticles(SUBSCRIPTION_IMPORT_ARTICLES, "TikTok", "进阶教程").map((item) => item.id),
+    ["tk-fb-environment-guide"],
   );
 });
 

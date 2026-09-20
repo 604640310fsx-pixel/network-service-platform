@@ -16,13 +16,14 @@ function noteLinkTarget(value: string): string | null {
   return null;
 }
 
-function noteInline(value: string, onSelectRelatedArticle?: (articleId: string) => void): ReactNode[] {
+function noteInline(value: string, onSelectRelatedArticle?: (articleId: string) => void, linksAsText = false): ReactNode[] {
   return value
     .split(/(\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*|~~[^~]+~~)/g)
     .filter(Boolean)
     .map((part, index) => {
       const link = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
       if (link) {
+        if (linksAsText) return <span key={index}>{link[1]}</span>;
         const relatedId = link[2].startsWith("article:") ? link[2].slice("article:".length) : null;
         if (
           onSelectRelatedArticle !== undefined &&
@@ -73,10 +74,24 @@ function noteText(text: string, title: string, firstPart: boolean, onSelectRelat
   });
 }
 
+function structuredNoteText(body: string): ReactNode[] {
+  return body.split("\n").map((line, index) => {
+    const text = line.trimStart();
+    if (text === "") return <span className="cc-docs-note-gap" key={index} aria-hidden="true" />;
+    if (/^[一二三四五六七]、\s/.test(text)) return <h2 key={index}>{noteInline(text, undefined, true)}</h2>;
+    if (/^[1-5]\.\s/.test(text)) return <h3 key={index}>{noteInline(text, undefined, true)}</h3>;
+    if (text.startsWith("⚬")) {
+      return <p className={`cc-docs-structured-bullet${line.startsWith("  ") ? " is-nested" : ""}`} key={index}>{noteInline(text, undefined, true)}</p>;
+    }
+    return <p key={index}>{noteInline(text, undefined, true)}</p>;
+  });
+}
+
 function AdvancedNoteBody({ note, onSelectRelatedArticle }: {
   readonly note: AdvancedNote;
   readonly onSelectRelatedArticle?: (articleId: string) => void;
 }) {
+  if (note.structured) return <div className="cc-docs-note-body cc-docs-structured-note">{structuredNoteText(note.body)}</div>;
   const parts = note.body.split(/(\[attachment:[^\]]+\]|\uFFFC)/g);
   let slotIndex = 0;
   return (
@@ -346,6 +361,12 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
                   )}
                 </section>
               ))}
+              {selectedArticle.note?.editorNote !== undefined && (
+                <aside className="cc-docs-editor-note" aria-label="编辑备注">
+                  <strong>编辑备注</strong>
+                  <p>{selectedArticle.note.editorNote}</p>
+                </aside>
+              )}
               {selectedArticle.note !== undefined && (
                 <AdvancedNoteBody
                   note={selectedArticle.note}

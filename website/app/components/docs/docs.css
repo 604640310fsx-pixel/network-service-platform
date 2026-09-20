@@ -308,6 +308,15 @@
   font-size: 12px;
 }
 .cc-docs-note-body { margin-top: 23px; }
+.cc-docs-editor-note {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--cc-line, #2a2e34);
+  border-radius: 9px;
+  background: var(--cc-card, #191e25);
+}
+.cc-docs-editor-note strong { color: var(--cc-text, #edf1f6); font-size: 13px; }
+.cc-docs-editor-note p { margin: 6px 0 0; color: var(--cc-text-2, #d7dce4); font-size: 13px; line-height: 1.7; }
 .cc-docs-note-body h2 {
   margin: 23px 0 9px;
   color: var(--cc-text, #edf1f6);
@@ -325,6 +334,10 @@
   margin-left: 18px;
   text-indent: -18px;
 }
+.cc-docs-structured-note h2 { padding-top: 8px; border-top: 1px solid var(--cc-hairline, #20262f); }
+.cc-docs-structured-note h3 { margin: 18px 0 8px; color: var(--cc-text, #edf1f6); font-size: 16px; line-height: 1.5; }
+.cc-docs-structured-note .cc-docs-structured-bullet { margin-left: 18px; text-indent: -18px; }
+.cc-docs-structured-note .cc-docs-structured-bullet.is-nested { margin-left: 42px; }
 .cc-docs-note-body .cc-docs-note-gap { display: block; height: 8px; }
 .cc-docs-note-body a { color: var(--cc-accent, #f59e0b); }
 .cc-docs-note-body .cc-docs-note-link {
