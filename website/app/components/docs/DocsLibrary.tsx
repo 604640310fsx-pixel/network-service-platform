@@ -150,18 +150,15 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
     (selectedId === null && !searching ? visibleArticles.find((article) => article.id === "home-ip-quality") : undefined) ??
     visibleArticles[0] ?? null;
 
-  function selectArticle(article: DocumentationArticle, revealTitleOnDesktop = false) {
+  function selectArticle(article: DocumentationArticle) {
     setSelectedId(article.id);
     requestAnimationFrame(() => {
       const reader = readerRef.current;
       if (reader === null) return;
       const stacked = window.matchMedia("(max-width: 980px)").matches;
-      if (!stacked && !revealTitleOnDesktop) return;
       reader.focus({ preventScroll: true });
 
       const topbarHeight = document.querySelector<HTMLElement>(".cc-topbar")?.getBoundingClientRect().height ?? 0;
-      const titleTop = reader.querySelector("h1")?.getBoundingClientRect().top;
-      if (!stacked && titleTop !== undefined && titleTop >= topbarHeight + 12 && titleTop < window.innerHeight - 32) return;
       const top = window.scrollY + reader.getBoundingClientRect().top - topbarHeight - 12;
       window.scrollTo({
         top: Math.max(0, top),
@@ -175,10 +172,9 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
     if (article === undefined) return;
     if (query.trim()) {
       setQuery("");
-      setExpandedGroups({});
       setSearchCollapsedGroups({});
     }
-    selectArticle(article, true);
+    selectArticle(article);
   }
 
   return (
@@ -198,7 +194,6 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
               aria-current={selectedArticle?.id === downloadArticle.id ? "page" : undefined}
               onClick={() => {
                 setQuery("");
-                setExpandedGroups({});
                 setSearchCollapsedGroups({});
                 selectArticle(downloadArticle);
               }}

@@ -110,6 +110,18 @@
   outline-offset: 2px;
 }
 
+@media (min-width: 981px) {
+  .cc-docs-browser {
+    align-self: start;
+    position: sticky;
+    top: calc(var(--cc-top-height, 67px) + 12px);
+    max-height: calc(100vh - var(--cc-top-height, 67px) - 56px);
+    max-height: calc(100dvh - var(--cc-top-height, 67px) - 56px);
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+}
+
 .cc-docs-groups { display: grid; gap: 10px; margin-top: 15px; }
 .cc-docs-group-heading {
   display: flex;

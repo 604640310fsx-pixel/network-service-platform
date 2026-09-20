@@ -87,7 +87,7 @@ export const ADVANCED_NOTES: readonly AdvancedNote[] = [
 
 1.帐号注册：Gmail、Outlook、ProtonMail、拥有企业域名的自定义邮箱或苹果ID注册帐号。
 2.付款方式：优先选择官网订阅或者礼品卡兑换，其次App Store和Google Play订阅。
-3.身份与手机号验证KYC认证，并使用正规实体运营商 SIM 卡接码。
+3.身份与手机号验证：KYC认证，并使用正规实体运营商 SIM 卡接码。
 4.网络环境：使用干净的真住宅家宽IP（更像真实本地人，详细查看“[家宽IP质量检测指南](article:home-ip-quality)”)
 5.设备防泄漏：地区与时间/本地IPv4/IPv6/DNS/WebRTC泄漏（保持长期固定运营商/IP地区/设备登陆帐号。）
 另外在终端后台与操作系统层面配置应用防火墙或网络过滤规则，限制客户端的非必要后台探测与遥测（Telemetry）行为；
