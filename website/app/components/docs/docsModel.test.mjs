@@ -122,6 +122,8 @@ test("new personal-advice article joins advanced search without changing existin
   assert.equal(article.title, "Claude封号与GPT降智的问题");
   assert.equal(article.summary, "个人经验与建议，不代表平台官方规则或效果保证");
   assert.deepEqual(article.note.imageSlots, []);
+  assert.match(article.note.body, /\[家宽IP质量检测指南\]\(article:home-ip-quality\)/);
+  assert.match(article.note.body, /\[简谈代理检测与风控科普\]\(article:proxy-detection-risk\)/);
   assert.match(article.note.body, /\[提交诊断申请\]\(\/diagnosis\)/);
   assert.deepEqual(
     filterDocumentationArticles(SUBSCRIPTION_IMPORT_ARTICLES, "KYC认证", "进阶教程").map((item) => item.id),

@@ -327,6 +327,18 @@
 }
 .cc-docs-note-body .cc-docs-note-gap { display: block; height: 8px; }
 .cc-docs-note-body a { color: var(--cc-accent, #f59e0b); }
+.cc-docs-note-body .cc-docs-note-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cc-accent, #f59e0b);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.cc-docs-note-body .cc-docs-note-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 
 @media (max-width: 980px) {
   .cc-docs-layout { grid-template-columns: minmax(0, 1fr); }

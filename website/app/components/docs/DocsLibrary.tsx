@@ -16,13 +16,20 @@ function noteLinkTarget(value: string): string | null {
   return null;
 }
 
-function noteInline(value: string): ReactNode[] {
+function noteInline(value: string, onSelectRelatedArticle?: (articleId: string) => void): ReactNode[] {
   return value
     .split(/(\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*|~~[^~]+~~)/g)
     .filter(Boolean)
     .map((part, index) => {
       const link = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
       if (link) {
+        const relatedId = link[2].startsWith("article:") ? link[2].slice("article:".length) : null;
+        if (
+          onSelectRelatedArticle !== undefined &&
+          (relatedId === "home-ip-quality" || relatedId === "proxy-detection-risk")
+        ) {
+          return <button key={index} type="button" className="cc-docs-note-link" onClick={() => onSelectRelatedArticle(relatedId)}>{link[1]}</button>;
+        }
         const href = noteLinkTarget(link[2]);
         if (href === "/diagnosis") return <Link key={index} to={href}>{link[1]}</Link>;
         return href ? (
@@ -43,7 +50,7 @@ function noteInline(value: string): ReactNode[] {
     });
 }
 
-function noteText(text: string, title: string, firstPart: boolean): ReactNode[] {
+function noteText(text: string, title: string, firstPart: boolean, onSelectRelatedArticle?: (articleId: string) => void): ReactNode[] {
   const lines = text.split("\n");
   return lines.map((line, index) => {
     const trimmed = line.trim();
@@ -53,20 +60,23 @@ function noteText(text: string, title: string, firstPart: boolean): ReactNode[] 
       return <span className="cc-docs-note-gap" key={index} aria-hidden="true" />;
     }
     if (/^\s*\*\s+/.test(line)) {
-      return <p className="cc-docs-note-bullet" key={index}>• {noteInline(line.replace(/^\s*\*\s+/, ""))}</p>;
+      return <p className="cc-docs-note-bullet" key={index}>• {noteInline(line.replace(/^\s*\*\s+/, ""), onSelectRelatedArticle)}</p>;
     }
     if (
       (trimmed.startsWith("**") || (firstPart && index === 1 && trimmed.endsWith("**"))) &&
       plain.length < 85 &&
       !plain.includes("。")
     ) {
-      return <h2 key={index}>{noteInline(trimmed)}</h2>;
+      return <h2 key={index}>{noteInline(trimmed, onSelectRelatedArticle)}</h2>;
     }
-    return <p key={index}>{noteInline(line)}</p>;
+    return <p key={index}>{noteInline(line, onSelectRelatedArticle)}</p>;
   });
 }
 
-function AdvancedNoteBody({ note }: { readonly note: AdvancedNote }) {
+function AdvancedNoteBody({ note, onSelectRelatedArticle }: {
+  readonly note: AdvancedNote;
+  readonly onSelectRelatedArticle?: (articleId: string) => void;
+}) {
   const parts = note.body.split(/(\[attachment:[^\]]+\]|\uFFFC)/g);
   let slotIndex = 0;
   return (
@@ -81,7 +91,7 @@ function AdvancedNoteBody({ note }: { readonly note: AdvancedNote }) {
             </figure>
           ));
         }
-        return <div key={partIndex}>{noteText(part, note.title, partIndex === 0)}</div>;
+        return <div key={partIndex}>{noteText(part, note.title, partIndex === 0, onSelectRelatedArticle)}</div>;
       })}
     </div>
   );
@@ -125,21 +135,35 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
     (selectedId === null && !searching ? visibleArticles.find((article) => article.id === "home-ip-quality") : undefined) ??
     visibleArticles[0] ?? null;
 
-  function selectArticle(article: DocumentationArticle) {
+  function selectArticle(article: DocumentationArticle, revealTitleOnDesktop = false) {
     setSelectedId(article.id);
     requestAnimationFrame(() => {
       const reader = readerRef.current;
       if (reader === null) return;
-      if (!window.matchMedia("(max-width: 980px)").matches) return;
+      const stacked = window.matchMedia("(max-width: 980px)").matches;
+      if (!stacked && !revealTitleOnDesktop) return;
       reader.focus({ preventScroll: true });
 
       const topbarHeight = document.querySelector<HTMLElement>(".cc-topbar")?.getBoundingClientRect().height ?? 0;
+      const titleTop = reader.querySelector("h1")?.getBoundingClientRect().top;
+      if (!stacked && titleTop !== undefined && titleTop >= topbarHeight + 12 && titleTop < window.innerHeight - 32) return;
       const top = window.scrollY + reader.getBoundingClientRect().top - topbarHeight - 12;
       window.scrollTo({
         top: Math.max(0, top),
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        behavior: !stacked || window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
       });
     });
+  }
+
+  function selectRelatedArticle(articleId: string) {
+    const article = articles.find((item) => item.id === articleId);
+    if (article === undefined) return;
+    if (query.trim()) {
+      setQuery("");
+      setExpandedGroups({});
+      setSearchCollapsedGroups({});
+    }
+    selectArticle(article, true);
   }
 
   return (
@@ -322,7 +346,12 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
                   )}
                 </section>
               ))}
-              {selectedArticle.note !== undefined && <AdvancedNoteBody note={selectedArticle.note} />}
+              {selectedArticle.note !== undefined && (
+                <AdvancedNoteBody
+                  note={selectedArticle.note}
+                  onSelectRelatedArticle={selectedArticle.id === "claude-gpt-account-advice" ? selectRelatedArticle : undefined}
+                />
+              )}
             </article>
           )}
         </section>
