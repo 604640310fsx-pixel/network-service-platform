@@ -103,8 +103,7 @@ export const ADVANCED_NOTES: readonly AdvancedNote[] = [
   {
     id: "tk-fb-environment-guide",
     title: "TK、FB等的底层环境搭建与指南",
-    summary: "用户供稿，具体菜单与防护效果需按设备、客户端版本和实际测试确认，不构成账号安全或流量保证",
-    editorNote: "以下主张未经独立验证：恢复出厂能否清除硬件标识；Shadowrocket“延迟测试IPv6”是否控制全局流量；“按需连接”是否提供失效关闭；Safari浏览器测试能否代表其他App；ISP分类是否足以证明住宅。",
+    summary: "不同设备和客户端版本的设置可能不同，请以实际界面与测试结果为准。",
     structured: true,
     body: `布局 TikTok、Facebook、Instagram 等海外社交媒体时，新号开通受限、主页进沙盒或新发视频持续 0 播放，大部分非内容性质的异常，本质均源于设备物理环境、网络出口画像、防泄漏策略与客户端行为模式之间的断层。
 

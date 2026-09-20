@@ -132,18 +132,17 @@ test("personal-advice article remains searchable without changing existing notes
   );
 });
 
-test("new user-supplied environment guide keeps seven sections and separate unverified claims", () => {
+test("new environment guide keeps seven sections and a concise title hint", () => {
   const article = SUBSCRIPTION_IMPORT_ARTICLES.find((item) => item.id === "tk-fb-environment-guide");
   assert.ok(article?.note);
   assert.equal(article.title, "TK、FB等的底层环境搭建与指南");
+  assert.equal(article.summary, "不同设备和客户端版本的设置可能不同，请以实际界面与测试结果为准。");
+  assert.equal(article.note.editorNote, undefined);
   assert.equal(article.note.structured, true);
   assert.deepEqual(article.note.imageSlots, []);
   assert.equal([...article.note.body.matchAll(/^[一二三四五六七]、 /gm)].length, 7);
   assert.match(article.note.body, /  ⚬ 抹掉所有内容与设置：/);
   assert.match(article.note.body, /\[https:\/\/1\.1\.1\.1\/dns-query\]\(https:\/\/1\.1\.1\.1\/dns-query\)/);
-  for (const claim of ["硬件标识", "延迟测试IPv6", "按需连接", "Safari浏览器", "ISP分类"]) {
-    assert.ok(article.note.editorNote?.includes(claim));
-  }
   assert.deepEqual(
     filterDocumentationArticles(SUBSCRIPTION_IMPORT_ARTICLES, "TikTok", "进阶教程").map((item) => item.id),
     ["tk-fb-environment-guide"],
