@@ -1,6 +1,6 @@
 /* 推荐返佣中心 · 纯视图模型。
    只做展示计算，不发起请求、不持有真实数据。金额一律以「分」为整数。
-   候选档位与门槛为已冻结的展示语义（候选费率 · 待批准），不在这里扩展商业规则。 */
+   档位、费率与提现门槛为已批准展示契约，不在这里扩展商业规则。 */
 
 export type Fen = number;
 
@@ -12,11 +12,11 @@ export type ReferralTier = {
   readonly max: Fen | null;
 };
 
-/** 候选四档（待批准）：按当月有效月销确定当月等级。 */
+/** 已批准四档：按当月有效月销确定当月等级。 */
 export const REFERRAL_TIERS: readonly ReferralTier[] = [
-  { key: "entry", name: "入门伙伴", rate: 10, min: 5900, max: 99900 },
-  { key: "advanced", name: "进阶伙伴", rate: 15, min: 99900, max: 199900 },
-  { key: "core", name: "核心伙伴", rate: 20, min: 199900, max: 399900 },
+  { key: "entry", name: "入门伙伴", rate: 10, min: 5900, max: 99899 },
+  { key: "advanced", name: "进阶伙伴", rate: 15, min: 99900, max: 199899 },
+  { key: "core", name: "核心伙伴", rate: 20, min: 199900, max: 399899 },
   { key: "senior", name: "高级伙伴", rate: 30, min: 399900, max: null },
 ];
 

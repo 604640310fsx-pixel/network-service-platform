@@ -200,7 +200,7 @@ test("Migration 015 enforces canonical UUID, unique mapping, and restrictive own
   });
 });
 
-test("applies Migration 016 to an existing 001-015 database without changing legacy rows", async () => {
+test("applies Migrations 016-017 to an existing 001-015 database without changing legacy rows", async () => {
   const directory = await mkdtemp(join(tmpdir(), "diagnosis-migration-compat-"));
   const database = openAndVerifyDatabase(join(directory, "auth.sqlite"));
   try {
@@ -210,7 +210,7 @@ test("applies Migration 016 to an existing 001-015 database without changing leg
         applied_at TEXT NOT NULL
       );
     `);
-    for (const file of MIGRATION_FILES.slice(0, -1)) {
+    for (const file of MIGRATION_FILES.slice(0, 15)) {
       const sql = await readFile(join(MIGRATIONS_DIRECTORY, file), "utf8");
       const version = Number.parseInt(file.slice(0, 3), 10);
       const operation = database.transaction(() => {
@@ -320,7 +320,7 @@ test("applies Migration 016 to an existing 001-015 database without changing leg
       },
       before,
     );
-    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 16);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 17);
     assert.deepEqual(
       database.prepare("SELECT * FROM diagnosis_requests").all(),
       legacyDiagnosisBefore,

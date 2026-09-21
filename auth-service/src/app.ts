@@ -25,6 +25,10 @@ import {
   registerMonitorHttpRoutes,
   type MonitorHttpDependencies,
 } from "./http/monitor-routes.js";
+import {
+  registerReferralHttpRoutes,
+  type ReferralHttpDependencies,
+} from "./http/referral-routes.js";
 
 interface HealthResponse {
   readonly status: "ok";
@@ -72,6 +76,7 @@ export interface BuildAppOptions {
   readonly diagnosis?: DiagnosisHttpDependencies;
   readonly payment?: PaymentHttpDependencies;
   readonly monitor?: MonitorHttpDependencies;
+  readonly referral?: ReferralHttpDependencies;
   readonly readiness?: ReadinessDependencies;
 }
 
@@ -129,6 +134,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   }
   if (options.diagnosis !== undefined) {
     registerDiagnosisHttpRoutes(app, options.diagnosis);
+  }
+  if (options.referral !== undefined) {
+    registerReferralHttpRoutes(app, options.referral);
   }
   registerMonitorHttpRoutes(app, options.monitor ?? null);
   const payment = options.payment ?? { enabled: false };

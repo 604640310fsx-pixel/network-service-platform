@@ -22,6 +22,7 @@ function source(relativePath: string): string {
 
 const PRODUCTION_SOURCES = [
   "../app/components/referrals/ReferralCenter.tsx",
+  "../app/components/referrals/ReferralCenterAdapter.tsx",
   "../app/components/referrals/ReferralRecords.tsx",
   "../app/components/referrals/ReferralDialog.tsx",
   "../app/components/referrals/referralParts.tsx",

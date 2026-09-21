@@ -143,7 +143,7 @@ test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", 
   await withTemporaryDatabase((database) => {
     assert.equal(
       MIGRATION_FILES.at(-1),
-      "016_invite_codes_prebound_single_use.sql",
+      "017_referral_profiles.sql",
     );
     const migrationRows = database
       .prepare("SELECT version, applied_at FROM schema_migrations ORDER BY version")
@@ -151,7 +151,7 @@ test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", 
 
     assert.deepEqual(
       migrationRows.map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
     );
     for (const row of migrationRows) {
       assert.match(row.applied_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
@@ -233,6 +233,7 @@ test("creates every frozen table and named index", async () => {
       "payments",
       "pending_registrations",
       "rate_limit_buckets",
+      "referral_profiles",
       "schema_migrations",
       "sellable_plan_price_history",
       "sellable_plans",
@@ -282,6 +283,54 @@ test("creates every frozen table and named index", async () => {
 test("payments gains a nullable reserved_until column", async () => {
   await withTemporaryDatabase((database) => {
     assert.ok(columnNames(database, "payments").includes("reserved_until"));
+  });
+});
+
+test("Migration 017 creates only the minimal user-bound referral identity", async () => {
+  await withTemporaryDatabase((database) => {
+    assert.deepEqual(columnNames(database, "referral_profiles"), [
+      "id",
+      "user_id",
+      "public_code",
+      "created_at",
+    ]);
+    const { userId } = createBootstrapUser(database);
+    database
+      .prepare(
+        `INSERT INTO referral_profiles (user_id, public_code, created_at)
+         VALUES (?, ?, ?)`,
+      )
+      .run(userId, "A".repeat(24), NOW);
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            `INSERT INTO referral_profiles (user_id, public_code, created_at)
+             VALUES (?, ?, ?)`,
+          )
+          .run(userId, "B".repeat(24), NOW),
+      /UNIQUE constraint failed: referral_profiles.user_id/,
+    );
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            `INSERT INTO referral_profiles (user_id, public_code, created_at)
+             VALUES (?, ?, ?)`,
+          )
+          .run(999999, "C".repeat(24), NOW),
+      /FOREIGN KEY constraint failed/,
+    );
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            `INSERT INTO referral_profiles (user_id, public_code, created_at)
+             VALUES (?, ?, ?)`,
+          )
+          .run(userId + 1, "contains.invalid.code!!", NOW),
+      /CHECK constraint failed/,
+    );
   });
 });
 
@@ -475,7 +524,7 @@ test("Migration 016 revokes legacy codes without guessing email and preserves hi
           .prepare("SELECT version FROM schema_migrations ORDER BY version")
           .all() as Array<{ readonly version: number }>
       ).map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
     );
     assert.deepEqual(
       database
@@ -554,7 +603,7 @@ test("Migration 016 revokes legacy codes without guessing email and preserves hi
     );
 
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 16);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 17);
     assert.equal(firstNumber(database, "SELECT COUNT(*) FROM invite_code_redemptions"), 2);
   } finally {
     database.close();
@@ -971,12 +1020,12 @@ test("missing, extra, and unknown migration registry states fail closed", async 
     try {
       await mkdir(migrationsDirectory);
       for (const file of MIGRATION_FILES) {
-        if (scenario === "missing" && file.startsWith("016_")) continue;
+        if (scenario === "missing" && file.startsWith("017_")) continue;
         await writeFile(join(migrationsDirectory, file), "SELECT 1;", "utf8");
       }
       if (scenario === "extra") {
         await writeFile(
-          join(migrationsDirectory, "017_unexpected.sql"),
+          join(migrationsDirectory, "018_unexpected.sql"),
           "SELECT 1;",
           "utf8",
         );
@@ -1012,15 +1061,15 @@ test("missing, extra, and unknown migration registry states fail closed", async 
         applied_at TEXT NOT NULL
       );
       INSERT INTO schema_migrations (version, applied_at)
-      VALUES (17, '${NOW}');
+      VALUES (18, '${NOW}');
     `);
     assert.throws(
       () => runMigrations(database),
-      /database contains unknown migration version 17/,
+      /database contains unknown migration version 18/,
     );
     assert.deepEqual(
       database.prepare("SELECT version FROM schema_migrations").all(),
-      [{ version: 17 }],
+      [{ version: 18 }],
     );
   } finally {
     database.close();
