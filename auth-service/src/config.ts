@@ -21,7 +21,16 @@ export interface AppConfig {
   readonly nodeEnv: RuntimeEnvironment;
   readonly registrationEnabled: boolean;
   readonly paymentEnabled: boolean;
+  readonly referralPublicLink: ReferralPublicLinkConfig;
 }
+
+export type ReferralPublicLinkConfig =
+  | { readonly enabled: false }
+  | {
+      readonly enabled: true;
+      readonly origin: string;
+      readonly path: string;
+    };
 
 export type AlipayPrivateKeyType = "PKCS1" | "PKCS8";
 export type AlipayEnvironment = "sandbox" | "production";
@@ -128,6 +137,75 @@ function parsePort(value: string): number {
   return port;
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  return (
+    hostname === "127.0.0.1" ||
+    hostname === "localhost" ||
+    hostname === "[::1]"
+  );
+}
+
+export function loadReferralPublicLinkConfig(
+  environment: NodeJS.ProcessEnv,
+  nodeEnv: RuntimeEnvironment,
+): ReferralPublicLinkConfig {
+  const originValue = environment.REFERRAL_PUBLIC_ORIGIN;
+  const pathValue = environment.REFERRAL_PUBLIC_PATH;
+  if (originValue === undefined && pathValue === undefined) {
+    return Object.freeze({ enabled: false });
+  }
+  if (
+    originValue === undefined ||
+    pathValue === undefined ||
+    originValue.trim() !== originValue ||
+    pathValue.trim() !== pathValue ||
+    originValue === "" ||
+    pathValue === ""
+  ) {
+    throw new Error("Referral public link configuration is invalid");
+  }
+
+  let origin: URL;
+  try {
+    origin = new URL(originValue);
+  } catch {
+    throw new Error("Referral public link configuration is invalid");
+  }
+  const loopbackHttp =
+    nodeEnv !== "production" &&
+    origin.protocol === "http:" &&
+    isLoopbackHostname(origin.hostname);
+  if (
+    (origin.protocol !== "https:" && !loopbackHttp) ||
+    origin.username !== "" ||
+    origin.password !== "" ||
+    origin.search !== "" ||
+    origin.hash !== "" ||
+    originValue !== origin.origin
+  ) {
+    throw new Error("Referral public link configuration is invalid");
+  }
+
+  if (!/^\/[A-Za-z0-9][A-Za-z0-9/_-]*(?:\.[A-Za-z0-9_-]+)?$/.test(pathValue)) {
+    throw new Error("Referral public link configuration is invalid");
+  }
+  const target = new URL(pathValue, `${origin.origin}/`);
+  if (
+    target.origin !== origin.origin ||
+    target.pathname !== pathValue ||
+    target.search !== "" ||
+    target.hash !== ""
+  ) {
+    throw new Error("Referral public link configuration is invalid");
+  }
+
+  return Object.freeze({
+    enabled: true,
+    origin: origin.origin,
+    path: pathValue,
+  });
+}
+
 export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppConfig {
   const nodeEnv = parseNodeEnvironment(requireValue(environment, "NODE_ENV"));
   const host = requireValue(environment, "HOST");
@@ -157,6 +235,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     nodeEnv,
     registrationEnabled: registrationEnabledValue === "true",
     paymentEnabled: paymentEnabledValue === "true",
+    referralPublicLink: loadReferralPublicLinkConfig(environment, nodeEnv),
   });
 }
 

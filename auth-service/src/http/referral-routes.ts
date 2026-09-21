@@ -5,7 +5,10 @@ import type {
   FastifyRequest,
 } from "fastify";
 
-import type { RuntimeEnvironment } from "../config.js";
+import type {
+  ReferralPublicLinkConfig,
+  RuntimeEnvironment,
+} from "../config.js";
 import type { DatabaseConnection } from "../db.js";
 import {
   ensureReferralProfile,
@@ -14,8 +17,19 @@ import {
   type ReferralProfileDependencies,
 } from "../referral/profile.js";
 import { readReferralSessionReadOnly } from "../referral/http-auth.js";
+import {
+  createReferralPublicRateLimiter,
+  referralPublicLink,
+  REFERRAL_PUBLIC_CODE_PATTERN,
+  resolveReferralPublicCode,
+  type ReferralPublicRateLimiter,
+} from "../referral/public-resolution.js";
 import type { TokenHmacKeyring } from "../session/session-token.js";
 import { verifyCsrfToken } from "./csrf.js";
+import {
+  RateLimitExceededError,
+  type RateLimitKeyring,
+} from "./rate-limit.js";
 
 const PRODUCTION_ORIGIN = "https://www.siqiapparel.com";
 const DEVELOPMENT_ORIGIN = "http://localhost:5173";
@@ -35,10 +49,12 @@ interface ErrorBody {
 
 interface ReferralStateBody {
   readonly profile: ReferralProfile | null;
-  readonly link: {
-    readonly status: "unavailable";
-    readonly reason: "public_route_not_integrated";
-  };
+  readonly link:
+    | {
+        readonly status: "unavailable";
+        readonly reason: "public_route_unconfigured";
+      }
+    | { readonly status: "ready"; readonly url: string };
   readonly program: {
     readonly tiers: typeof REFERRAL_TIERS;
     readonly withdrawalThresholdFen: number;
@@ -54,7 +70,14 @@ export interface ReferralHttpDependencies extends ReferralProfileDependencies {
   readonly database: DatabaseConnection;
   readonly nodeEnv: RuntimeEnvironment;
   readonly tokenHmacKeyring: TokenHmacKeyring;
+  readonly rateLimitKeyring: RateLimitKeyring;
   readonly csrfSigningKey: Buffer;
+  readonly publicLink: ReferralPublicLinkConfig;
+  readonly publicRateLimiter?: ReferralPublicRateLimiter;
+}
+
+interface PublicResolutionBody {
+  readonly valid: boolean;
 }
 
 const ERROR_RESPONSE_SCHEMA = {
@@ -93,13 +116,26 @@ const STATE_RESPONSE_SCHEMA = {
   properties: {
     profile: PROFILE_SCHEMA,
     link: {
-      type: "object",
-      additionalProperties: false,
-      required: ["status", "reason"],
-      properties: {
-        status: { type: "string", const: "unavailable" },
-        reason: { type: "string", const: "public_route_not_integrated" },
-      },
+      anyOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["status", "reason"],
+          properties: {
+            status: { type: "string", const: "unavailable" },
+            reason: { type: "string", const: "public_route_unconfigured" },
+          },
+        },
+        {
+          type: "object",
+          additionalProperties: false,
+          required: ["status", "url"],
+          properties: {
+            status: { type: "string", const: "ready" },
+            url: { type: "string" },
+          },
+        },
+      ],
     },
     program: {
       type: "object",
@@ -167,6 +203,13 @@ const STATE_RESPONSE_SCHEMA = {
   },
 } as const;
 
+const PUBLIC_RESOLUTION_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["valid"],
+  properties: { valid: { type: "boolean" } },
+} as const;
+
 const EMPTY_BODY_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -210,10 +253,18 @@ function allowedOrigin(nodeEnv: RuntimeEnvironment): string {
   return nodeEnv === "production" ? PRODUCTION_ORIGIN : DEVELOPMENT_ORIGIN;
 }
 
-function stateBody(profile: ReferralProfile | null): ReferralStateBody {
+function stateBody(
+  profile: ReferralProfile | null,
+  publicLinkConfig: ReferralPublicLinkConfig,
+): ReferralStateBody {
+  const link =
+    profile === null ? null : referralPublicLink(publicLinkConfig, profile.publicCode);
   return {
     profile,
-    link: { status: "unavailable", reason: "public_route_not_integrated" },
+    link:
+      link === null
+        ? { status: "unavailable", reason: "public_route_unconfigured" }
+        : { status: "ready", url: link },
     program: {
       tiers: REFERRAL_TIERS,
       withdrawalThresholdFen: WITHDRAWAL_THRESHOLD_FEN,
@@ -226,6 +277,21 @@ function stateBody(profile: ReferralProfile | null): ReferralStateBody {
   };
 }
 
+function publicCodeFromQuery(query: unknown): string | null {
+  if (typeof query !== "object" || query === null || Array.isArray(query)) {
+    return null;
+  }
+  const value = query as Record<string, unknown>;
+  if (
+    Object.keys(value).length !== 1 ||
+    typeof value.code !== "string" ||
+    !REFERRAL_PUBLIC_CODE_PATTERN.test(value.code)
+  ) {
+    return null;
+  }
+  return value.code;
+}
+
 function readSession(request: FastifyRequest, dependencies: ReferralHttpDependencies) {
   return readReferralSessionReadOnly(request, dependencies);
 }
@@ -234,6 +300,49 @@ export function registerReferralHttpRoutes(
   app: FastifyInstance,
   dependencies: ReferralHttpDependencies,
 ): void {
+  const publicRateLimiter =
+    dependencies.publicRateLimiter ??
+    createReferralPublicRateLimiter(dependencies.rateLimitKeyring);
+
+  app.get<{
+    Querystring: Record<string, unknown>;
+    Reply: PublicResolutionBody | ErrorBody;
+  }>(
+    "/api/public/referral",
+    {
+      onRequest: async (_request, reply) => setNoStore(reply),
+      schema: {
+        response: {
+          200: PUBLIC_RESOLUTION_SCHEMA,
+          429: ERROR_RESPONSE_SCHEMA,
+          503: ERROR_RESPONSE_SCHEMA,
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        publicRateLimiter.consume(request.ip);
+      } catch (error) {
+        if (error instanceof RateLimitExceededError) {
+          return reply.code(429).send(errorBody("rate_limited"));
+        }
+        return reply.code(503).send(errorBody("referral_unavailable"));
+      }
+
+      const publicCode = publicCodeFromQuery(request.query);
+      if (publicCode === null) {
+        return reply.code(200).send({ valid: false });
+      }
+      try {
+        return reply
+          .code(200)
+          .send({ valid: resolveReferralPublicCode(dependencies.database, publicCode) });
+      } catch {
+        return reply.code(503).send(errorBody("referral_unavailable"));
+      }
+    },
+  );
+
   app.get<{ Reply: ReferralStateBody | ErrorBody }>(
     "/api/me/referral",
     {
@@ -260,6 +369,7 @@ export function registerReferralHttpRoutes(
                 dependencies.database,
                 session.userId,
               ),
+              dependencies.publicLink,
             ),
           );
       } catch {
@@ -315,6 +425,7 @@ export function registerReferralHttpRoutes(
                 session.userId,
                 dependencies,
               ),
+              dependencies.publicLink,
             ),
           );
       } catch {
