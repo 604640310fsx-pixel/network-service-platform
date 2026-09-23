@@ -535,7 +535,7 @@ async function assertLoopbackLifecycleReadiness(options: {
         return {
           all: (...parameters: readonly unknown[]): unknown[] => {
             probeCalls += 1;
-            assert.deepEqual(parameters, [18]);
+            assert.deepEqual(parameters, [19]);
             if (databaseClosed || options.database === "throw") {
               throw new Error(`database unavailable: ${LIFECYCLE_SECRET}`);
             }
@@ -684,7 +684,7 @@ test("internal lifecycle starts enabled mail before listening and cleans resourc
   ]);
   assert.deepEqual(harness.databaseCalls, {
     prepare: ["SELECT version FROM schema_migrations ORDER BY version LIMIT ?"],
-    all: [[18]],
+    all: [[19]],
   });
   assert.deepEqual(harness.readinessObservations, [
     { point: "app.create", ready: false, databaseProbeCalls: 0 },
