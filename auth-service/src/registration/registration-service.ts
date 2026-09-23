@@ -22,6 +22,7 @@ import {
   computeMailRecipientAuditHmac,
   encryptRegistrationOtpPayload,
 } from "./mail-outbox.js";
+import { REFERRAL_PUBLIC_CODE_PATTERN } from "../referral/public-resolution.js";
 import {
   computeRegistrationOtpHash,
   computeRegistrationTokenHash,
@@ -53,6 +54,7 @@ interface PendingRegistrationRow {
   readonly expires_at: string;
   readonly consumed_at: string | null;
   readonly superseded_at: string | null;
+  readonly referral_source_profile_id: number | null;
 }
 
 export interface RegistrationServiceKeyrings {
@@ -121,7 +123,8 @@ function findPendingByHash(
     .prepare(
       `SELECT id, email, invite_code_id, otp_hash, otp_key_version,
               otp_generation, phase, verified_at, attempts, resend_count,
-              last_sent_at, expires_at, consumed_at, superseded_at
+              last_sent_at, expires_at, consumed_at, superseded_at,
+              referral_source_profile_id
        FROM pending_registrations
        WHERE registration_token_hash = ?`,
     )
@@ -130,6 +133,30 @@ function findPendingByHash(
     throw new Error("Registration token uniqueness is invalid");
   }
   return rows[0] ?? null;
+}
+
+function findReferralSourceProfileId(
+  database: DatabaseConnection,
+  publicCode: string | undefined,
+): number | null {
+  if (
+    publicCode === undefined ||
+    !REFERRAL_PUBLIC_CODE_PATTERN.test(publicCode)
+  ) {
+    return null;
+  }
+  const rows = database
+    .prepare("SELECT id FROM referral_profiles WHERE public_code = ?")
+    .all(publicCode) as Array<{ readonly id: unknown }>;
+  if (rows.length > 1) {
+    throw new Error("Referral public code uniqueness is invalid");
+  }
+  const id = rows[0]?.id;
+  if (id === undefined) return null;
+  if (typeof id !== "number" || !Number.isSafeInteger(id)) {
+    throw new Error("Referral profile identity is invalid");
+  }
+  return id;
 }
 
 function tokenHashOrInvalid(
@@ -170,7 +197,12 @@ function insertOutbox(
 
 export function startRegistration(
   database: DatabaseConnection,
-  input: { readonly email: string; readonly inviteCode: string; readonly ip: string },
+  input: {
+    readonly email: string;
+    readonly inviteCode: string;
+    readonly referralCode?: string;
+    readonly ip: string;
+  },
   keyrings: RegistrationServiceKeyrings,
   dependencies: RegistrationServiceDependencies = {},
 ): RegistrationTokenResult {
@@ -221,6 +253,10 @@ export function startRegistration(
       }
       const emailRateLimit = rateLimit.consumeEmail(invite.recipient_email);
       if (emailRateLimit.emailSilenced) return false;
+      const referralSourceProfileId = findReferralSourceProfileId(
+        database,
+        input.referralCode,
+      );
 
       const recentRows = database
         .prepare(
@@ -265,8 +301,9 @@ export function startRegistration(
           `INSERT INTO pending_registrations (
              email, registration_token_hash, registration_token_key_version,
              invite_code_id, otp_hash, otp_key_version, otp_generation, phase,
-             attempts, resend_count, last_sent_at, expires_at, created_at
-           ) VALUES (?, ?, ?, ?, ?, ?, 1, 'awaiting_verification', 0, 1, ?, ?, ?)`,
+             attempts, resend_count, last_sent_at, expires_at, created_at,
+             referral_source_profile_id
+           ) VALUES (?, ?, ?, ?, ?, ?, 1, 'awaiting_verification', 0, 1, ?, ?, ?, ?)`,
         )
         .run(
           invite.recipient_email,
@@ -278,6 +315,7 @@ export function startRegistration(
           times.now,
           times.expiresAt,
           times.now,
+          referralSourceProfileId,
         );
 
       const pending = findPendingByHash(database, token.tokenHash);
@@ -583,6 +621,30 @@ export async function completeRegistration(
       const userId = userRows[0]?.id;
       if (typeof userId !== "number") {
         throw new Error("Registration user creation failed");
+      }
+      if (current.referral_source_profile_id !== null) {
+        const sourceRows = database
+          .prepare("SELECT user_id FROM referral_profiles WHERE id = ?")
+          .all(current.referral_source_profile_id) as Array<{
+          readonly user_id: unknown;
+        }>;
+        const sourceUserId = sourceRows[0]?.user_id;
+        if (
+          sourceRows.length !== 1 ||
+          typeof sourceUserId !== "number" ||
+          !Number.isSafeInteger(sourceUserId) ||
+          sourceUserId === userId
+        ) {
+          throw new InvalidOrExpiredRegistrationError();
+        }
+        database
+          .prepare(
+            `INSERT INTO referral_attribution_candidates (
+               referred_user_id, source_profile_id, status, created_at
+             ) VALUES (?, ?, 'pending', ?)
+             ON CONFLICT(referred_user_id) DO NOTHING`,
+          )
+          .run(userId, current.referral_source_profile_id, times.now);
       }
       database
         .prepare(

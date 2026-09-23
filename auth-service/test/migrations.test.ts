@@ -143,7 +143,7 @@ test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", 
   await withTemporaryDatabase((database) => {
     assert.equal(
       MIGRATION_FILES.at(-1),
-      "017_referral_profiles.sql",
+      "018_referral_attribution_candidates.sql",
     );
     const migrationRows = database
       .prepare("SELECT version, applied_at FROM schema_migrations ORDER BY version")
@@ -151,7 +151,7 @@ test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", 
 
     assert.deepEqual(
       migrationRows.map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
     );
     for (const row of migrationRows) {
       assert.match(row.applied_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
@@ -233,6 +233,7 @@ test("creates every frozen table and named index", async () => {
       "payments",
       "pending_registrations",
       "rate_limit_buckets",
+      "referral_attribution_candidates",
       "referral_profiles",
       "schema_migrations",
       "sellable_plan_price_history",
@@ -330,6 +331,104 @@ test("Migration 017 creates only the minimal user-bound referral identity", asyn
           )
           .run(userId + 1, "contains.invalid.code!!", NOW),
       /CHECK constraint failed/,
+    );
+  });
+});
+
+test("Migration 018 adds only a server-linked pending referral candidate", async () => {
+  await withTemporaryDatabase((database) => {
+    assert.ok(
+      columnNames(database, "pending_registrations").includes(
+        "referral_source_profile_id",
+      ),
+    );
+    assert.deepEqual(columnNames(database, "referral_attribution_candidates"), [
+      "referred_user_id",
+      "source_profile_id",
+      "status",
+      "created_at",
+    ]);
+
+    const { inviteCodeId, userId: sourceUserId } = createBootstrapUser(database);
+    database
+      .prepare(
+        `INSERT INTO users (
+           email, password_hash, role, status, invited_by_code_id, created_at, updated_at
+         ) VALUES (?, ?, 'user', 'active', ?, ?, ?)`,
+      )
+      .run("referred@example.com", "argon2id-hash", inviteCodeId, NOW, NOW);
+    const referredUserId = firstNumber(
+      database,
+      "SELECT id FROM users WHERE email = ?",
+      "referred@example.com",
+    );
+    database
+      .prepare(
+        `INSERT INTO referral_profiles (user_id, public_code, created_at)
+         VALUES (?, ?, ?)`,
+      )
+      .run(sourceUserId, "R".repeat(24), NOW);
+    const sourceProfileId = firstNumber(
+      database,
+      "SELECT id FROM referral_profiles WHERE user_id = ?",
+      sourceUserId,
+    );
+    database
+      .prepare(
+        `INSERT INTO referral_attribution_candidates (
+           referred_user_id, source_profile_id, status, created_at
+         ) VALUES (?, ?, 'pending', ?)`,
+      )
+      .run(referredUserId, sourceProfileId, NOW);
+
+    assert.deepEqual(
+      database
+        .prepare(
+          `SELECT referred_user_id, source_profile_id, status, created_at
+           FROM referral_attribution_candidates`,
+        )
+        .all(),
+      [
+        {
+          referred_user_id: referredUserId,
+          source_profile_id: sourceProfileId,
+          status: "pending",
+          created_at: NOW,
+        },
+      ],
+    );
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            `INSERT INTO referral_attribution_candidates (
+               referred_user_id, source_profile_id, status, created_at
+             ) VALUES (?, ?, 'pending', ?)`,
+          )
+          .run(referredUserId, sourceProfileId, LATER),
+      /UNIQUE constraint failed: referral_attribution_candidates.referred_user_id/,
+    );
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            `INSERT INTO referral_attribution_candidates (
+               referred_user_id, source_profile_id, status, created_at
+             ) VALUES (?, ?, 'bound', ?)`,
+          )
+          .run(sourceUserId + 99, sourceProfileId, NOW),
+      /CHECK constraint failed/,
+    );
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            `INSERT INTO referral_attribution_candidates (
+               referred_user_id, source_profile_id, status, created_at
+             ) VALUES (?, ?, 'pending', ?)`,
+          )
+          .run(sourceUserId, sourceProfileId, NOW),
+      /referral_candidate_self_attribution/,
     );
   });
 });
@@ -524,7 +623,7 @@ test("Migration 016 revokes legacy codes without guessing email and preserves hi
           .prepare("SELECT version FROM schema_migrations ORDER BY version")
           .all() as Array<{ readonly version: number }>
       ).map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
     );
     assert.deepEqual(
       database
@@ -603,7 +702,7 @@ test("Migration 016 revokes legacy codes without guessing email and preserves hi
     );
 
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 17);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 18);
     assert.equal(firstNumber(database, "SELECT COUNT(*) FROM invite_code_redemptions"), 2);
   } finally {
     database.close();
@@ -1020,12 +1119,12 @@ test("missing, extra, and unknown migration registry states fail closed", async 
     try {
       await mkdir(migrationsDirectory);
       for (const file of MIGRATION_FILES) {
-        if (scenario === "missing" && file.startsWith("017_")) continue;
+        if (scenario === "missing" && file.startsWith("018_")) continue;
         await writeFile(join(migrationsDirectory, file), "SELECT 1;", "utf8");
       }
       if (scenario === "extra") {
         await writeFile(
-          join(migrationsDirectory, "018_unexpected.sql"),
+          join(migrationsDirectory, "019_unexpected.sql"),
           "SELECT 1;",
           "utf8",
         );
@@ -1061,15 +1160,15 @@ test("missing, extra, and unknown migration registry states fail closed", async 
         applied_at TEXT NOT NULL
       );
       INSERT INTO schema_migrations (version, applied_at)
-      VALUES (18, '${NOW}');
+      VALUES (19, '${NOW}');
     `);
     assert.throws(
       () => runMigrations(database),
-      /database contains unknown migration version 18/,
+      /database contains unknown migration version 19/,
     );
     assert.deepEqual(
       database.prepare("SELECT version FROM schema_migrations").all(),
-      [{ version: 18 }],
+      [{ version: 19 }],
     );
   } finally {
     database.close();

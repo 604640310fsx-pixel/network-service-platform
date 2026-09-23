@@ -8,6 +8,10 @@ import {
   referralCodeFromSearch,
   resolvePublicReferral,
 } from "../app/lib/referral-public-api.ts";
+import {
+  referralSourceCodeFromSearch,
+  startRegistration,
+} from "../app/lib/registration-api.ts";
 
 test("public response parser exposes only the validity class", () => {
   assert.deepEqual(parseReferralPublicResolution({ valid: true }), { valid: true });
@@ -64,7 +68,7 @@ test("public client omits credentials and sends no redirect target or tracking d
   }
 });
 
-test("landing keeps registration invite-gated and contains no persistence or attribution wiring", () => {
+test("landing carries only an opaque code into invite-gated registration", () => {
   const landing = readFileSync(
     new URL("../app/components/referral-public/ReferralLandingPage.tsx", import.meta.url),
     "utf8",
@@ -77,16 +81,64 @@ test("landing keeps registration invite-gated and contains no persistence or att
     new URL("../app/components/auth/RegisterPage.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(landing, /href="\/register"/);
-  assert.doesNotMatch(landing, /href="\/register\?/);
+  assert.match(landing, /href=\{`\/register\?referralCode=/);
   assert.match(landing, /仍需填写有效邀请码/);
   assert.match(registration, /name="inviteCode"/);
   assert.match(registration, /startRegistration\([\s\S]*canonicalInvite/);
+  assert.match(registration, /referralSourceCodeFromSearch\(window\.location\.search\)/);
   for (const source of [landing, client]) {
     assert.equal(source.includes("localStorage"), false);
     assert.equal(source.includes("sessionStorage"), false);
     assert.equal(source.includes("document.cookie"), false);
     assert.equal(source.includes("navigator.sendBeacon"), false);
-    assert.equal(source.includes("/register?"), false);
+    assert.equal(source.includes("referrer_user_id"), false);
+  }
+});
+
+test("registration query accepts exactly one opaque code", () => {
+  const code = "R".repeat(24);
+  assert.equal(referralSourceCodeFromSearch(`?referralCode=${code}`), code);
+  for (const search of [
+    "",
+    "?referralCode=short",
+    `?referralCode=${code}&referralCode=${code}`,
+    `?referralCode=${code}&email=private%40example.test`,
+    `?referralCode=${code}&referrer_user_id=1`,
+  ]) {
+    assert.equal(referralSourceCodeFromSearch(search), null);
+  }
+});
+
+test("registration start sends the invite unchanged and no browser identity", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ readonly url: string; readonly body: unknown }> = [];
+  globalThis.fetch = async (input, init) => {
+    requests.push({
+      url: String(input),
+      body: JSON.parse(String(init?.body)),
+    });
+    return new Response(
+      JSON.stringify({ status: "ok", registrationToken: `v2.${"A".repeat(43)}` }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  };
+  try {
+    const email = "invitee@example.test";
+    const inviteCode = "ABCD-EFGH-JKMN-PQRS-TVWX-YZ23-4567";
+    const referralCode = "R".repeat(24);
+    await startRegistration(email, inviteCode, referralCode);
+    await startRegistration(email, inviteCode);
+    assert.deepEqual(requests, [
+      {
+        url: "/api/auth/register/start",
+        body: { email, inviteCode, referralCode },
+      },
+      {
+        url: "/api/auth/register/start",
+        body: { email, inviteCode },
+      },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });

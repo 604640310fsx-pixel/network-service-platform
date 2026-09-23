@@ -2,14 +2,20 @@ type JsonRecord = Record<string, unknown>;
 
 const REGISTRATION_TOKEN_PATTERN =
   /^v[0-9]+\.[A-Za-z0-9_-]{43}$/;
+const REFERRAL_PUBLIC_CODE_PATTERN = /^[A-Za-z0-9_-]{24}$/;
 
 export class RegistrationApiError extends Error {
+  readonly code: string;
+  readonly status: number | null;
+
   constructor(
-    readonly code: string,
-    readonly status: number | null = null,
+    code: string,
+    status: number | null = null,
   ) {
     super(code);
     this.name = "RegistrationApiError";
+    this.code = code;
+    this.status = status;
   }
 }
 
@@ -89,10 +95,29 @@ function assertOk(value: unknown): void {
 export async function startRegistration(
   email: string,
   inviteCode: string,
+  referralCode: string | null = null,
 ): Promise<string> {
   return parseRegistrationToken(
-    await requestJson("/api/auth/register/start", { email, inviteCode }),
+    await requestJson("/api/auth/register/start", {
+      email,
+      inviteCode,
+      ...(referralCode === null ? {} : { referralCode }),
+    }),
   );
+}
+
+export function referralSourceCodeFromSearch(search: string): string | null {
+  const parameters = new URLSearchParams(search);
+  const keys = [...parameters.keys()];
+  if (
+    keys.length !== 1 ||
+    keys[0] !== "referralCode" ||
+    parameters.getAll("referralCode").length !== 1
+  ) {
+    return null;
+  }
+  const code = parameters.get("referralCode");
+  return code !== null && REFERRAL_PUBLIC_CODE_PATTERN.test(code) ? code : null;
 }
 
 export async function resendRegistrationCode(

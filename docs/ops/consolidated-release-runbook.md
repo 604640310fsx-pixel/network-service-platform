@@ -17,6 +17,10 @@ PRE_RELEASE_SCHEMA_BOUNDARY: 16
 CANDIDATE_SCHEMA_BOUNDARY: 17
 ```
 
+The block above records the historical hardening packet. The current repository
+inventory includes migration 018, and its local candidate manifest requires
+schema boundary 18; neither value authorizes a release candidate.
+
 The implementation base is only the starting point for this hardening change.
 After this Draft PR is accepted and a merge is separately authorized, a new
 exact `integration/consolidate-project` commit may be frozen in a separate
@@ -132,7 +136,7 @@ in a separate decision. Before requesting a release window:
    unavailable metadata, altered archive, PR merge ref, failed run, or
    environment-only provenance fails closed.
 4. The bundle retains the repository-relative auth runtime layout, including
-   compiled `auth-service/dist/src`, package manifests, migrations 001-017, and
+   compiled `auth-service/dist/src`, package manifests, migrations 001-018, and
    `website/dist`. It excludes dependency directories, environment files,
    credentials, private keys, databases, and files outside the explicit release
    inputs. Bind its verified manifest and auth/website inventory hashes.
@@ -340,8 +344,8 @@ is still running.
    MONITOR_API_ORIGIN: OMITTED_IN_QUIESCENT_MODE
    ```
 
-   Startup may apply migration 017. Validate exact candidate identity, loopback
-   health, migration prefix 001-017, database integrity, static website files,
+   Startup may apply migrations 017 and 018. Validate exact candidate identity, loopback
+   health, migration prefix 001-018, database integrity, static website files,
    the manifest inventory, and the still-closed ingress. The loopback
    `GET /health` liveness response is exactly `200 {"status":"ok"}`; do not treat
    it as traffic readiness or send a payment, email, order, registration,
@@ -374,7 +378,7 @@ is still running.
    ```
 
 10. While ingress remains closed, validate `GET /health` exact
-    `200 {"status":"ok"}` as liveness, schema 001-017, database integrity, and
+    `200 {"status":"ok"}` as liveness, schema 001-018, database integrity, and
     auth and website artifact hashes. Then require loopback `GET /ready` to
     return exact `200 {"status":"ready"}` with `Cache-Control: no-store` as the
     normal aggregate readiness proof for the serving phase, database migration
@@ -412,7 +416,7 @@ Rollback is a matched database-and-artifact operation:
    boundary 001-016. Reprove that no post-snapshot write occurred and the
    restore deadline has not passed.
 3. Restore the verified pre-017 snapshot using the separately authorized bound
-   command. Never open the old binary on a database containing migration 017.
+   command. Never open the old binary on a database containing migration 017 or 018.
 4. Atomically switch the single consolidated pointer to the matched rollback
    bundle containing both old auth and old website artifacts. Prove their hashes
    and old source SHA.

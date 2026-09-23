@@ -55,6 +55,7 @@ interface RegistrationTokenBody extends StatusBody {
 interface StartRegistrationBody {
   readonly email: string;
   readonly inviteCode: string;
+  readonly referralCode?: string;
 }
 
 interface RegistrationTokenRequestBody {
@@ -223,6 +224,10 @@ export function registerRegistrationHttpRoutes(
             inviteCode: {
               type: "string",
               pattern: INVITE_CODE_PATTERN.source,
+            },
+            referralCode: {
+              type: "string",
+              maxLength: 256,
             },
           },
         },

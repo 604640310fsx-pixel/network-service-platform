@@ -260,7 +260,7 @@ function assertExactMigrationFiles(directory, label) {
   ) {
     throw new ReleaseValidationError(
       "SCHEMA_BOUNDARY_MISMATCH",
-      `${label} migrations must be the exact frozen 001-017 sequence`,
+      `${label} migrations must be the exact frozen 001-018 sequence`,
     );
   }
 }
@@ -1062,7 +1062,7 @@ export function validateBundle({
     Object.keys(manifest.schemaBoundary).sort().join(",") !==
       "candidate,rollback" ||
     manifest.schemaBoundary?.rollback !== 16 ||
-    manifest.schemaBoundary?.candidate !== 17 ||
+    manifest.schemaBoundary?.candidate !== 18 ||
     !Array.isArray(manifest.migrations) ||
     manifest.migrations.length !== RELEASE_MIGRATIONS.length ||
     manifest.migrations.some(

@@ -2,6 +2,7 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import {
   completeRegistration,
+  referralSourceCodeFromSearch,
   RegistrationApiError,
   resendRegistrationCode,
   startRegistration,
@@ -63,6 +64,9 @@ export function RegisterPage() {
   const [registrationToken, setRegistrationToken] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [countdown, setCountdown] = useState(0);
+  const [referralSourceCode] = useState(() =>
+    referralSourceCodeFromSearch(window.location.search),
+  );
 
   const busy = status !== "idle";
   const identityLocked = phase !== "not_started";
@@ -97,6 +101,7 @@ export function RegisterPage() {
         const token = await startRegistration(
           canonicalEmail,
           canonicalInvite,
+          referralSourceCode,
         );
         setEmail(canonicalEmail);
         setInviteCode(canonicalInvite);
@@ -182,6 +187,11 @@ export function RegisterPage() {
 
   return (
     <AuthShell title="注册客户中心" subtitle="创建账号后进入服务管理页面。" wide>
+      {referralSourceCode !== null && (
+        <AuthNotice tone="neutral">
+          已携带推荐来源。注册完成后仅保存为待确认的来源候选，不代表正式推荐归属或佣金资格。
+        </AuthNotice>
+      )}
       {notice && <AuthNotice tone={notice.tone} id={noticeId}>{notice.text}</AuthNotice>}
 
       <form className="auth-form" onSubmit={handleSubmit} noValidate>
