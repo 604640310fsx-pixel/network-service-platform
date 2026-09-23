@@ -5,6 +5,11 @@ export {
 } from "./ReferralCenter";
 export type { ReferralCenterNotice, ReferralCenterProps } from "./ReferralCenter";
 export {
+  ReferralCenterAdapter,
+  type ReferralCenterAdapterProps,
+  type ReferralStateLoader,
+} from "./ReferralCenterAdapter";
+export {
   REFERRAL_DATA_PENDING,
   REFERRAL_LINK_PENDING,
   REFERRAL_TIERS,

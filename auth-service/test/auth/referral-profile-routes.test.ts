@@ -1,0 +1,326 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { buildApp } from "../../src/app.js";
+import type { DatabaseConnection } from "../../src/db.js";
+import type { ReferralHttpDependencies } from "../../src/http/referral-routes.js";
+import { issueCsrfToken } from "../../src/http/csrf.js";
+import {
+  ensureReferralProfile,
+  readReferralProfile,
+} from "../../src/referral/profile.js";
+import {
+  computeSessionTokenHash,
+  type TokenHmacKeyring,
+} from "../../src/session/session-token.js";
+import {
+  insertAuthenticationUser,
+  withAuthenticationDatabase,
+} from "./helpers.js";
+
+const NOW = new Date("2026-09-22T03:04:05.678Z");
+const TOKEN_KEYRING: TokenHmacKeyring = {
+  version: 1,
+  keys: { "1": Buffer.alloc(32, 0x21).toString("base64") },
+};
+const CSRF_SIGNING_KEY = Buffer.alloc(32, 0x41);
+const ORIGIN = "http://localhost:5173";
+
+function byteSource(...bytes: readonly number[]): (size: number) => Buffer {
+  let index = 0;
+  return (size) => {
+    const byte = bytes[index];
+    index += 1;
+    if (byte === undefined) throw new Error("unexpected random source call");
+    return Buffer.alloc(size, byte);
+  };
+}
+
+function insertSession(
+  database: DatabaseConnection,
+  userId: number,
+  familyId: string,
+  tokenByte: number,
+): { readonly rawToken: string; readonly tokenHash: string } {
+  const rawToken = `v1.${Buffer.alloc(32, tokenByte).toString("base64url")}`;
+  const token = computeSessionTokenHash(rawToken, TOKEN_KEYRING);
+  database
+    .prepare(
+      `INSERT INTO session_families (id, user_id, created_at)
+       VALUES (?, ?, ?)`,
+    )
+    .run(familyId, userId, new Date(NOW.getTime() - 60_000).toISOString());
+  database
+    .prepare(
+      `INSERT INTO sessions (
+         token_hash, hmac_key_version, user_id, session_family_id, audience,
+         created_at, expires_at, last_seen_at, revoked_at
+       ) VALUES (?, ?, ?, ?, 'web', ?, ?, ?, NULL)`,
+    )
+    .run(
+      token.tokenHash,
+      token.hmacKeyVersion,
+      userId,
+      familyId,
+      new Date(NOW.getTime() - 60_000).toISOString(),
+      new Date(NOW.getTime() + 60_000).toISOString(),
+      new Date(NOW.getTime() - 30_000).toISOString(),
+    );
+  return { rawToken, tokenHash: token.tokenHash };
+}
+
+function referralDependencies(
+  database: DatabaseConnection,
+  overrides: Partial<ReferralHttpDependencies> = {},
+): ReferralHttpDependencies {
+  return {
+    database,
+    nodeEnv: "test",
+    tokenHmacKeyring: TOKEN_KEYRING,
+    csrfSigningKey: CSRF_SIGNING_KEY,
+    now: () => new Date(NOW),
+    randomBytes: byteSource(0x51, 0x52, 0x53, 0x54),
+    ...overrides,
+  };
+}
+
+function totalChanges(database: DatabaseConnection): number {
+  const row = database.prepare("SELECT total_changes() AS count").all()[0] as
+    | { readonly count: number }
+    | undefined;
+  assert.ok(row !== undefined);
+  return row.count;
+}
+
+function stateRequest(rawToken?: string) {
+  return {
+    method: "GET" as const,
+    url: "/api/me/referral",
+    headers:
+      rawToken === undefined
+        ? undefined
+        : { cookie: `__Host-web_session=${rawToken}` },
+  };
+}
+
+function createRequest(rawToken: string, csrfToken?: string) {
+  return {
+    method: "POST" as const,
+    url: "/api/me/referral/profile",
+    headers: {
+      origin: ORIGIN,
+      "content-type": "application/json",
+      "x-requested-with": "XMLHttpRequest",
+      cookie: `__Host-web_session=${rawToken}`,
+      ...(csrfToken === undefined ? {} : { "x-csrf-token": csrfToken }),
+    },
+    payload: {},
+  };
+}
+
+test("profile issuance is retry-idempotent and retries opaque-code collisions", async () => {
+  await withAuthenticationDatabase((database) => {
+    const firstUserId = insertAuthenticationUser(database, {
+      email: "first-referral@example.test",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const secondUserId = insertAuthenticationUser(database, {
+      email: "second-referral@example.test",
+      passwordHash: "hash",
+      status: "active",
+    });
+
+    const first = ensureReferralProfile(database, firstUserId, {
+      now: () => new Date(NOW),
+      randomBytes: byteSource(0x61),
+    });
+    const retry = ensureReferralProfile(database, firstUserId, {
+      now: () => {
+        throw new Error("retry must not replace created_at");
+      },
+      randomBytes: () => {
+        throw new Error("retry must not allocate another code");
+      },
+    });
+    assert.deepEqual(retry, first);
+
+    const second = ensureReferralProfile(database, secondUserId, {
+      now: () => new Date(NOW),
+      randomBytes: byteSource(0x61, 0x62),
+    });
+    assert.notEqual(second.publicCode, first.publicCode);
+    assert.match(first.publicCode, /^[A-Za-z0-9_-]{24}$/);
+    assert.match(second.publicCode, /^[A-Za-z0-9_-]{24}$/);
+    assert.equal(first.publicCode.includes("first-referral"), false);
+    assert.equal(second.publicCode.includes("second-referral"), false);
+    assert.equal(
+      (database
+        .prepare("SELECT COUNT(*) AS count FROM referral_profiles")
+        .all()[0] as { readonly count: number }).count,
+      2,
+    );
+  });
+});
+
+test("GET is authenticated, session-isolated, and performs zero database writes", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const firstUserId = insertAuthenticationUser(database, {
+      email: "get-first@example.test",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const secondUserId = insertAuthenticationUser(database, {
+      email: "get-second@example.test",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const firstSession = insertSession(
+      database,
+      firstUserId,
+      "123e4567-e89b-42d3-a456-426614174001",
+      0x31,
+    );
+    const secondSession = insertSession(
+      database,
+      secondUserId,
+      "123e4567-e89b-42d3-a456-426614174002",
+      0x32,
+    );
+    const firstProfile = ensureReferralProfile(database, firstUserId, {
+      now: () => new Date(NOW),
+      randomBytes: byteSource(0x71),
+    });
+    const app = buildApp({ referral: referralDependencies(database) });
+
+    try {
+      const unauthenticated = await app.inject(stateRequest());
+      assert.equal(unauthenticated.statusCode, 401);
+      assert.deepEqual(unauthenticated.json(), {
+        error: { code: "unauthorized" },
+      });
+
+      const before = totalChanges(database);
+      const first = await app.inject(stateRequest(firstSession.rawToken));
+      assert.equal(first.statusCode, 200);
+      assert.equal(first.headers["cache-control"], "no-store");
+      assert.equal(totalChanges(database), before);
+      assert.deepEqual(first.json().profile, firstProfile);
+      assert.deepEqual(first.json().link, {
+        status: "unavailable",
+        reason: "public_route_not_integrated",
+      });
+
+      const second = await app.inject(stateRequest(secondSession.rawToken));
+      assert.equal(second.statusCode, 200);
+      assert.equal(second.json().profile, null);
+      assert.equal(totalChanges(database), before);
+      assert.equal(
+        (database
+          .prepare("SELECT COUNT(*) AS count FROM referral_profiles")
+          .all()[0] as { readonly count: number }).count,
+        1,
+      );
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+test("POST requires exact origin, XHR, authenticated CSRF and is concurrent-idempotent", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const userId = insertAuthenticationUser(database, {
+      email: "post-referral@example.test",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const session = insertSession(
+      database,
+      userId,
+      "123e4567-e89b-42d3-a456-426614174003",
+      0x33,
+    );
+    const csrfToken = issueCsrfToken(CSRF_SIGNING_KEY, session.tokenHash);
+    const app = buildApp({ referral: referralDependencies(database) });
+
+    try {
+      const unauthenticated = await app.inject(
+        createRequest(
+          `v1.${Buffer.alloc(32, 0x7a).toString("base64url")}`,
+          "A".repeat(43),
+        ),
+      );
+      assert.equal(unauthenticated.statusCode, 401);
+      assert.deepEqual(unauthenticated.json(), {
+        error: { code: "unauthorized" },
+      });
+
+      const noCsrf = await app.inject(createRequest(session.rawToken));
+      assert.equal(noCsrf.statusCode, 403);
+      assert.equal(readReferralProfile(database, userId), null);
+
+      const noXhrRequest = createRequest(session.rawToken, csrfToken);
+      const { "x-requested-with": _discarded, ...noXhrHeaders } =
+        noXhrRequest.headers;
+      const noXhr = await app.inject({
+        ...noXhrRequest,
+        headers: noXhrHeaders,
+      });
+      assert.equal(noXhr.statusCode, 400);
+      assert.deepEqual(noXhr.json(), { error: { code: "invalid_request" } });
+      assert.equal(readReferralProfile(database, userId), null);
+
+      const wrongOriginRequest = createRequest(session.rawToken, csrfToken);
+      const wrongOrigin = await app.inject({
+        ...wrongOriginRequest,
+        headers: { ...wrongOriginRequest.headers, origin: "https://wrong.example" },
+      });
+      assert.equal(wrongOrigin.statusCode, 400);
+      assert.equal(readReferralProfile(database, userId), null);
+
+      const responses = await Promise.all(
+        Array.from({ length: 16 }, () =>
+          app.inject(createRequest(session.rawToken, csrfToken)),
+        ),
+      );
+      const bodies = responses.map((response) => {
+        assert.equal(response.statusCode, 200);
+        assert.equal(response.headers["cache-control"], "no-store");
+        return response.json();
+      });
+      assert.ok(bodies.every((body) => body.profile.publicCode === bodies[0].profile.publicCode));
+      assert.equal(
+        (database
+          .prepare("SELECT COUNT(*) AS count FROM referral_profiles")
+          .all()[0] as { readonly count: number }).count,
+        1,
+      );
+
+      const responseText = JSON.stringify(bodies[0]);
+      assert.equal(responseText.includes("post-referral@example.test"), false);
+      assert.equal(responseText.includes(session.rawToken), false);
+      assert.equal(responseText.includes(session.tokenHash), false);
+      assert.equal(responseText.includes(csrfToken), false);
+      assert.deepEqual(bodies[0].program.productCap, { status: "unconfigured" });
+      assert.deepEqual(bodies[0].program.withdrawn, { status: "not_integrated" });
+      assert.deepEqual(bodies[0].program.commission, { status: "not_integrated" });
+      assert.deepEqual(bodies[0].program.refunds, { status: "not_integrated" });
+      assert.deepEqual(bodies[0].program.settlement, { status: "not_integrated" });
+      assert.equal("withdrawnFen" in bodies[0].program, false);
+      assert.deepEqual(
+        bodies[0].program.tiers.map(
+          (tier: { minSalesFen: number; maxSalesFen: number | null; rateBps: number }) => tier,
+        ),
+        [
+          { minSalesFen: 5_900, maxSalesFen: 99_899, rateBps: 1_000 },
+          { minSalesFen: 99_900, maxSalesFen: 199_899, rateBps: 1_500 },
+          { minSalesFen: 199_900, maxSalesFen: 399_899, rateBps: 2_000 },
+          { minSalesFen: 399_900, maxSalesFen: null, rateBps: 3_000 },
+        ],
+      );
+      assert.equal(bodies[0].program.withdrawalThresholdFen, 100_000);
+    } finally {
+      await app.close();
+    }
+  });
+});

@@ -62,8 +62,8 @@ const RELEASE_SEQUENCE = Object.freeze([
 const REQUIRED_RUNBOOK_FRAGMENTS = Object.freeze([
   "IMPLEMENTATION_BASE_SHA: 7b79139133fe912088bfe3ae9e1321bb8bc379de",
   "IMPLEMENTATION_BASE_IS_RELEASE_CANDIDATE: NO",
-  "PRE_RELEASE_SCHEMA_BOUNDARY: 15",
-  "CANDIDATE_SCHEMA_BOUNDARY: 16",
+  "PRE_RELEASE_SCHEMA_BOUNDARY: 16",
+  "CANDIDATE_SCHEMA_BOUNDARY: 17",
   "BACKGROUND_WRITERS: DISABLED",
   "ROLLBACK_ARTIFACT_COMPATIBILITY: MATCHED",
   "DATABASE_RESTORE_ELIGIBILITY: ENDED",
@@ -260,7 +260,7 @@ function assertExactMigrationFiles(directory, label) {
   ) {
     throw new ReleaseValidationError(
       "SCHEMA_BOUNDARY_MISMATCH",
-      `${label} migrations must be the exact frozen 001-016 sequence`,
+      `${label} migrations must be the exact frozen 001-017 sequence`,
     );
   }
 }
@@ -593,7 +593,7 @@ export function validateRepository({ source, expectedSha }) {
     [
       "BINDING_VALUES_IN_REPOSITORY: FORBIDDEN",
       "MONITOR_AUTH_PROJECTION_STATUS: CONDITIONAL_BLOCKER",
-      "Snapshot mode 0600, bytes, SHA-256, quick check, foreign keys, and boundary 001-015 independently verify.",
+      "Snapshot mode 0600, bytes, SHA-256, quick check, foreign keys, and boundary 001-016 independently verify.",
     ],
     "release bindings",
   );
@@ -1061,8 +1061,8 @@ export function validateBundle({
     Array.isArray(manifest.schemaBoundary) ||
     Object.keys(manifest.schemaBoundary).sort().join(",") !==
       "candidate,rollback" ||
-    manifest.schemaBoundary?.rollback !== 15 ||
-    manifest.schemaBoundary?.candidate !== 16 ||
+    manifest.schemaBoundary?.rollback !== 16 ||
+    manifest.schemaBoundary?.candidate !== 17 ||
     !Array.isArray(manifest.migrations) ||
     manifest.migrations.length !== RELEASE_MIGRATIONS.length ||
     manifest.migrations.some(

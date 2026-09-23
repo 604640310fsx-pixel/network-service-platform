@@ -75,7 +75,7 @@ export function ReferralCenter({
           <div className="rfc-sec-head">
             <div className="rfc-sec-title">
               <h2 id="rfc-level-title">伙伴等级</h2>
-              <span className="rfc-tag">候选费率 · 待批准</span>
+              <span className="rfc-tag">正式费率</span>
             </div>
             <p>当月等级由当月有效月销决定，不沿用上月结果。</p>
           </div>
@@ -155,12 +155,12 @@ function PageNotice({ variant }: { variant: ReferralCenterNotice }) {
         {variant === "fixture"
           ? <span className="rfc-demo-mark">演示数据 · 非报价</span>
           : <span className="rfc-demo-mark">数据待接入</span>}
-        <span className="rfc-demo-mark">候选规则待审批</span>
+        <span className="rfc-demo-mark">未接入项保持待确认</span>
         <span className="rfc-demo-toggle">说明</span>
       </summary>
       <p>
         {text}提现申请资格门槛已确认：已结算佣金余额满 ¥1,000.00 才可申请。
-        候选费率、等级门槛、商品上限、结算天数与战略合作条件等尚未冻结的细则，仍以批准方案为准；本页不构成报价或已生效合同。
+        四档费率与等级门槛已经批准；商品上限、低于 ¥59 的计佣方式、结算天数与战略合作条件等未冻结细则仍保持待确认。本页不构成报价或已生效合同。
       </p>
     </details>
   );
@@ -172,7 +172,7 @@ const NOTE_CASH = "只包含已结算期间的佣金；本月预估与待结算�
   "不申请则留在佣金余额，不会自动转出。提现功能待接入。";
 const NOTE_EST = "实际比例 = min（当期等级比例，该商品佣金上限）。“预估”只是准确性提示，不是账务状态；" +
   "月内预估不可提现，月末核算后才进入待结算。";
-const NOTE_TIER = "等级按当月有效月销确定，月内为预估；月末核算并经观察期后结算。四档比例为候选参数，尚未批准；" +
+const NOTE_TIER = "等级按当月有效月销确定，月内为预估；四档比例与月销门槛已经批准；" +
   "月销低于 ¥59 的计佣方式待确认。";
 
 function EarningsCards({ data, onRetry }: { data: ReferralCenterData; onRetry?: () => void }) {
@@ -494,7 +494,7 @@ function StrategicDialogBody() {
             <h3>普通伙伴</h3>
             <ul>
               <li>自由推荐，无需申请</li>
-              <li>按当月有效月销自动确定候选档位（10% / 15% / 20% / 30%）</li>
+              <li>按当月有效月销自动确定正式档位（10% / 15% / 20% / 30%）</li>
               <li>受商品佣金上限约束</li>
             </ul>
           </article>
@@ -551,9 +551,9 @@ function FaqCard() {
       <details className="rfc-faq">
         <summary>等级和比例怎么确定？</summary>
         <div className="rfc-faq-body">
-          <p>按<b>当月有效月销</b>确定当月预估等级，不使用“上月决定下月”。以下为候选参数，尚未批准：</p>
+          <p>按<b>当月有效月销</b>确定当月等级，不使用“上月决定下月”。以下四档费率与门槛已经批准：</p>
           <table className="rfc-faq-table">
-            <thead><tr><th>当月有效月销</th><th>等级</th><th className="is-num">候选佣金率</th></tr></thead>
+            <thead><tr><th>当月有效月销</th><th>等级</th><th className="is-num">佣金率</th></tr></thead>
             <tbody>
               <tr className="is-unknown"><td>月销 &lt; ¥59.00</td><td>未达入门门槛</td><td className="is-num">待确认</td></tr>
               <tr><td>¥59.00 ≤ 月销 &lt; ¥999.00</td><td>入门伙伴</td><td className="is-num">10%</td></tr>
@@ -613,12 +613,12 @@ function FaqCard() {
         <div className="rfc-faq-body">
           <ul>
             <li>月销低于 ¥59 的计佣方式：<b>待确认</b></li>
-            <li>正式费率与各档门槛：候选参数，待批准</li>
+            <li>四档费率与各档门槛：<b>已批准</b></li>
             <li>商品佣金上限清单：待批准</li>
             <li>结算天数与观察期：待批准（提现申请门槛 ¥1,000.00 已冻结，不在此列）</li>
             <li>战略推广合作的准入、保级与退出契约：待批准</li>
           </ul>
-          <p>在批准前，候选数值只用于界面说明，不写入计佣配置，也不作为已生效合同文案。</p>
+          <p>未批准参数继续显示“待确认”，不写入计佣配置，也不以 0 或其他推测数值替代。</p>
         </div>
       </details>
     </div>
