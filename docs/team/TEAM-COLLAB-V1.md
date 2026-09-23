@@ -134,7 +134,7 @@ RISKS_OR_UNKNOWNS: [<item-or-NONE>]
 NEXT_ACTION: <one-authorized-action-or-NONE>
 ```
 
-原始命令、日志、失败、退出码和测试证据必须保留在获准的 task、PR、CI 或 evidence 位置，不得为节省 token 而删除或隐藏；主管摘要提供可复核的精确引用。项目经理只在最终/高风险验收或正式升级时读取必要证据。状态、base/branch、handoff、CI run/job ID、浏览器视口、主题、视觉偏差、迁移矩阵、外部状态、ledger、行数或其他字段只在当前 Packet、PR、具体事件或 handoff 确实要求时追加。
+原始命令、日志、失败、退出码和测试证据必须保留在获准的 task、PR、CI 或 evidence 位置，不得为节省 token 而删除或隐藏；主管摘要提供可复核的精确引用。项目经理只在最终/高风险验收、正式升级或实际工作中断时读取必要证据。状态、base/branch、handoff、CI run/job ID、浏览器视口、主题、视觉偏差、迁移矩阵、外部状态、ledger、行数或其他字段只在当前 Packet、PR、具体事件或 handoff 确实要求时追加。
 
 条件证据仍必须使用真实的 `PASS/FAIL/NOT_RUN/N/A/UNVERIFIED`；required 项没有运行就是 `NOT_RUN` 或 `UNVERIFIED`，不得写成 `N/A`，也不得用重复 boilerplate 隐藏缺失项。token/成本只使用当前可见的完整任务证据；不可见或不完整时报告 `UNKNOWN`，不得推断单次调用成本、声称零成本或另建成本监控系统。
 
