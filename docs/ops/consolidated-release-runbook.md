@@ -231,7 +231,31 @@ the bare and canonical names and returns 301 to the same host and request URI
 on HTTPS. Its single HTTPS server owns exactly those names and serves the same
 verified website root and API upstream without a cross-host redirect. The bare
 redirect fragment must not be loaded with this mode. All routing, cache, TLS,
-security, HSTS, compression, and closed-traffic checks above still apply.
+security, HSTS, compression, and closed-traffic checks above still apply in the
+ordinary dual-direct mode. A separately approved dual-direct
+`preserve-existing` render may retain a target with no explicit
+`X-Frame-Options` or HSTS declaration in its two site blocks. It never creates
+either header. The renderer must replace the existing template placeholders
+with `# OPEN_FRAMING_POLICY: preserve-existing` and
+`# OPEN_HSTS_OWNER: preserve-existing`, and set all three metadata fields
+`framingPolicy`, `hstsOwner`, and `hstsValue` to `preserve-existing`. Canonical
+and ordinary dual-direct renders continue to require their original explicit
+policies. A target that already declares either protected header cannot use
+this opt-in path to accept an invalid value or silently remove it.
+
+The opt-in rendered validator additionally requires `--existing-context` and
+`--candidate-context`: complete, separately bound Nginx configuration inputs
+before and after substitution. It compares non-target and inherited directives,
+target security headers and includes, and TLS references, and checks that the
+assembled target is exactly the validated dual-direct open configuration.
+The two target blocks must not gain an explicit framing or HSTS header.
+`effectiveInheritedSecurityPolicy: UNVERIFIED` remains in a successful result:
+parsing two supplied configurations cannot prove the active include bytes,
+Nginx header inheritance, or effective browser responses. The operator must
+bind the inputs to the actual target, preserve every other server block and
+include, and separately test the isolated complete configuration with
+`nginx -t`; this repository result alone is not a security-equivalence or
+deployment acceptance proof.
 The target proof matrix must show bare HTTP to bare HTTPS, canonical HTTP to
 canonical HTTPS, and direct HTTPS application responses on both names. No DNS,
 TLS certificate, alternate ingress, or other virtual host is changed by this

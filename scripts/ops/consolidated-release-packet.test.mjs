@@ -33,6 +33,7 @@ import {
 import {
   createSanitizedSyntheticRender,
   OPEN_HTTP_PLACEHOLDERS,
+  run as runOpenHttpContract,
   validateRenderedSources,
   validateTemplateSources,
   validateDualDirectTemplateSources,
@@ -374,6 +375,140 @@ test("dual-direct is opt-in and preserves both hostnames", () => {
       closedCandidate: baseline.closedCandidate.replace("return 503;", "return 200;"),
     }),
     "OPEN_CLOSED_CONFLICT",
+  );
+});
+
+test("dual-direct can explicitly preserve absent framing and HSTS declarations with context proof", () => {
+  const sources = contractSources();
+  const synthetic = createSanitizedSyntheticRender();
+  const openConfig = replaceTokens(sources.dualTemplate, {
+    ...synthetic.replacements,
+    [OPEN_HTTP_PLACEHOLDERS.framingDirective]: "# OPEN_FRAMING_POLICY: preserve-existing",
+    [OPEN_HTTP_PLACEHOLDERS.hstsDirective]: "# OPEN_HSTS_OWNER: preserve-existing",
+  });
+  const otherServer = "\nserver { listen 8080; server_name unrelated.example.invalid; return 204; }\n";
+  const expected = {
+    ...synthetic.expected,
+    framingPolicy: "preserve-existing",
+    hstsOwner: "preserve-existing",
+    hstsValue: "preserve-existing",
+  };
+  const input = {
+    openConfig,
+    closedCandidate: sources.closedCandidate,
+    expected,
+    mode: "dual-direct",
+    existingContext: openConfig + otherServer,
+    candidateContext: openConfig + otherServer,
+  };
+  assert.equal(validateRenderedSources(input).effectiveInheritedSecurityPolicy, "UNVERIFIED");
+  assert.equal(validateRenderedSources({
+    ...input,
+    existingContext: `http {\n${input.existingContext}\n}`,
+    candidateContext: `http {\n${input.candidateContext}\n}`,
+  }).effectiveInheritedSecurityPolicy, "UNVERIFIED");
+  const parent = mkdtempSync(join(tmpdir(), "dual-direct-preserve-"));
+  try {
+    for (const [name, content] of Object.entries({
+      "open.conf": openConfig,
+      "closed.conf": sources.closedCandidate,
+      "expected.json": JSON.stringify(expected),
+      "existing.conf": input.existingContext,
+      "candidate.conf": input.candidateContext,
+    })) {
+      writeFileSync(join(parent, name), content);
+    }
+    assert.equal(runOpenHttpContract([
+      "--mode", "dual-direct",
+      "--open-config", join(parent, "open.conf"),
+      "--closed-config", join(parent, "closed.conf"),
+      "--expected-metadata", join(parent, "expected.json"),
+      "--existing-context", join(parent, "existing.conf"),
+      "--candidate-context", join(parent, "candidate.conf"),
+    ]).effectiveInheritedSecurityPolicy, "UNVERIFIED");
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+  expectContractFailure(
+    () => validateRenderedSources({ ...input, existingContext: undefined }),
+    "ARGUMENT_ERROR",
+  );
+  expectContractFailure(
+    () => validateRenderedSources({ ...input, expected: synthetic.expected, existingContext: undefined, candidateContext: undefined }),
+    "OPEN_SECURITY_INVALID",
+  );
+  expectContractFailure(
+    () => validateRenderedSources({ ...input, mode: "canonical", bareConfig: openConfig }),
+    "ARGUMENT_ERROR",
+  );
+  expectContractFailure(
+    () => validateRenderedSources({ ...input, expected: { ...expected, hstsValue: synthetic.expected.hstsValue } }),
+    "ARGUMENT_ERROR",
+  );
+  for (const directive of [
+    'add_header X-Frame-Options "SAMEORIGIN" always;',
+    'add_header Strict-Transport-Security "max-age=31536000" always;',
+  ]) {
+    const mutated = openConfig.replace("    location = /api {", `    ${directive}\n    location = /api {`);
+    expectContractFailure(
+      () => validateRenderedSources({ ...input, openConfig: mutated, candidateContext: mutated + otherServer }),
+      "PRESERVED_SECURITY_DRIFT",
+    );
+    expectContractFailure(
+      () => validateRenderedSources({ ...input, existingContext: mutated + otherServer }),
+      "PRESERVED_SECURITY_DRIFT",
+    );
+  }
+});
+
+test("preserve-existing rejects changed security, TLS, non-target, or inherited context", () => {
+  const sources = contractSources();
+  const synthetic = createSanitizedSyntheticRender();
+  const openConfig = replaceTokens(sources.dualTemplate, {
+    ...synthetic.replacements,
+    [OPEN_HTTP_PLACEHOLDERS.framingDirective]: "# OPEN_FRAMING_POLICY: preserve-existing",
+    [OPEN_HTTP_PLACEHOLDERS.hstsDirective]: "# OPEN_HSTS_OWNER: preserve-existing",
+  });
+  const otherServer = "\nserver { listen 8080; server_name unrelated.example.invalid; return 204; }\n";
+  const input = {
+    openConfig,
+    closedCandidate: sources.closedCandidate,
+    expected: {
+      ...synthetic.expected,
+      framingPolicy: "preserve-existing",
+      hstsOwner: "preserve-existing",
+      hstsValue: "preserve-existing",
+    },
+    mode: "dual-direct",
+    existingContext: openConfig + otherServer,
+    candidateContext: openConfig + otherServer,
+  };
+  const changedCsp = openConfig.replace("frame-ancestors 'self'", "frame-ancestors 'none'");
+  expectContractFailure(
+    () => validateRenderedSources({
+      ...input,
+      openConfig: changedCsp,
+      candidateContext: changedCsp + otherServer,
+      expected: { ...input.expected, cspPolicy: input.expected.cspPolicy.replace("frame-ancestors 'self'", "frame-ancestors 'none'") },
+    }),
+    "PRESERVED_SECURITY_DRIFT",
+  );
+  const changedCertificate = openConfig.replace("cert.pem", "different-cert.pem");
+  expectContractFailure(
+    () => validateRenderedSources({ ...input, openConfig: changedCertificate, candidateContext: changedCertificate + otherServer }),
+    "PRESERVED_SECURITY_DRIFT",
+  );
+  expectContractFailure(
+    () => validateRenderedSources({ ...input, candidateContext: openConfig + otherServer.replace("return 204", "return 200") }),
+    "PRESERVED_CONTEXT_DRIFT",
+  );
+  expectContractFailure(
+    () => validateRenderedSources({ ...input, candidateContext: `add_header X-Test inherited;\n${input.candidateContext}` }),
+    "PRESERVED_CONTEXT_DRIFT",
+  );
+  expectContractFailure(
+    () => validateRenderedSources({ ...input, candidateContext: input.candidateContext.replace("return 301", "return 302") }),
+    "PRESERVED_CONTEXT_DRIFT",
   );
 });
 

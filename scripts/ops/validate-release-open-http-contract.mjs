@@ -84,6 +84,7 @@ const EXPECTED_METADATA_KEYS = Object.freeze([
   "tlsBinding",
   "websiteRoot",
 ]);
+const PRESERVE_EXISTING = "preserve-existing";
 
 const SYNTHETIC_CSP =
   "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; " +
@@ -493,7 +494,7 @@ function equalStringArrays(actual, expected) {
   );
 }
 
-function validateSecurity(server, expected) {
+function validateSecurity(server, expected, preserveExisting = false) {
   requireSingleDirective(
     server,
     "include",
@@ -540,17 +541,19 @@ function validateSecurity(server, expected) {
       "rendered CSP allowlists do not match expected metadata",
     );
   }
-  const xFrameOptions = header(server, "X-Frame-Options", "OPEN_SECURITY_INVALID");
-  const frameAncestors = directives.get("frame-ancestors");
-  if (
-    (expected.framingPolicy === "same-origin" &&
-      (xFrameOptions !== "SAMEORIGIN" ||
-        !equalStringArrays(frameAncestors, ["'self'"]))) ||
-    (expected.framingPolicy === "deny" &&
-      (xFrameOptions !== "DENY" ||
-        !equalStringArrays(frameAncestors, ["'none'"])))
-  ) {
-    fail("OPEN_SECURITY_INVALID", "framing policies are inconsistent");
+  if (!preserveExisting) {
+    const xFrameOptions = header(server, "X-Frame-Options", "OPEN_SECURITY_INVALID");
+    const frameAncestors = directives.get("frame-ancestors");
+    if (
+      (expected.framingPolicy === "same-origin" &&
+        (xFrameOptions !== "SAMEORIGIN" ||
+          !equalStringArrays(frameAncestors, ["'self'"]))) ||
+      (expected.framingPolicy === "deny" &&
+        (xFrameOptions !== "DENY" ||
+          !equalStringArrays(frameAncestors, ["'none'"])))
+    ) {
+      fail("OPEN_SECURITY_INVALID", "framing policies are inconsistent");
+    }
   }
 }
 
@@ -803,7 +806,7 @@ function validateCompression(canonicalHttps, otherServers) {
   }
 }
 
-function validateExpectedMetadata(expected) {
+function validateExpectedMetadata(expected, mode) {
   if (
     typeof expected !== "object" ||
     expected === null ||
@@ -880,16 +883,23 @@ function validateExpectedMetadata(expected) {
       fail("ARGUMENT_ERROR", "expected CSP allowlist metadata is invalid");
     }
   }
-  if (!["same-origin", "deny"].includes(expected.framingPolicy)) {
-    fail("ARGUMENT_ERROR", "expected framing metadata is invalid");
-  }
-  if (
-    !/^max-age=[1-9][0-9]*(?:;\s*includeSubDomains)?(?:;\s*preload)?$/i.test(
-      expected.hstsValue,
-    )
+  const preserveExisting = [expected.framingPolicy, expected.hstsOwner, expected.hstsValue]
+    .some((value) => value === PRESERVE_EXISTING);
+  if (preserveExisting) {
+    if (
+      mode !== "dual-direct" ||
+      [expected.framingPolicy, expected.hstsOwner, expected.hstsValue]
+        .some((value) => value !== PRESERVE_EXISTING)
+    ) {
+      fail("ARGUMENT_ERROR", "preserve-existing requires all dual-direct security metadata");
+    }
+  } else if (
+    !["same-origin", "deny"].includes(expected.framingPolicy) ||
+    !/^max-age=[1-9][0-9]*(?:;\s*includeSubDomains)?(?:;\s*preload)?$/i.test(expected.hstsValue)
   ) {
-    fail("ARGUMENT_ERROR", "expected HSTS metadata is invalid");
+    fail("ARGUMENT_ERROR", "expected framing or HSTS metadata is invalid");
   }
+  return preserveExisting;
 }
 
 function validateClosedCandidate(closedCandidate) {
@@ -922,12 +932,116 @@ function validateClosedCandidate(closedCandidate) {
   }
 }
 
+function validatePreservedContext({ existingContext, candidateContext, expected, openServers }) {
+  if (
+    typeof existingContext !== "string" || existingContext.trim() === "" ||
+    typeof candidateContext !== "string" || candidateContext.trim() === ""
+  ) {
+    fail("ARGUMENT_ERROR", "preserve-existing requires both complete context inputs");
+  }
+  const approved = [expected.bareHost, expected.canonicalHost].sort().join("\u0000");
+  const targets = (nodes) => {
+    const matches = [];
+    for (const node of descendants(nodes)) {
+      if (node.name !== "server" || node.children === null) continue;
+      const names = direct(node, "server_name").flatMap((entry) => argsOf(entry));
+      if (names.some((name) => [expected.bareHost, expected.canonicalHost].includes(name))) {
+        if (names.sort().join("\u0000") !== approved) {
+          fail("OPEN_TOPOLOGY_INVALID", "context has overlapping target ownership");
+        }
+        matches.push(node);
+      }
+    }
+    if (matches.length !== 2) {
+      fail("OPEN_TOPOLOGY_INVALID", "context must contain exactly two target servers");
+    }
+    return matches;
+  };
+  const before = parseNginx(existingContext);
+  const after = parseNginx(candidateContext);
+  const oldTargets = targets(before);
+  const newTargets = targets(after);
+  const openTargetNodes = [...openServers.values()];
+  const nodeSet = (nodes) => nodes.map((node) => JSON.stringify(node)).sort().join("\u0000");
+  if (nodeSet(newTargets) !== nodeSet(openTargetNodes)) {
+    fail("PRESERVED_CONTEXT_DRIFT", "assembled target does not match validated open configuration");
+  }
+  const withoutTargets = (nodes) => nodes
+    .filter((node) => !oldTargets.includes(node) && !newTargets.includes(node))
+    .map((node) => ({
+      name: node.name,
+      args: node.args,
+      children: node.children === null ? null : withoutTargets(node.children),
+    }));
+  if (JSON.stringify(withoutTargets(before)) !== JSON.stringify(withoutTargets(after))) {
+    fail("PRESERVED_CONTEXT_DRIFT", "non-target or inherited configuration changed");
+  }
+  const https = (nodes) => {
+    const matches = nodes.filter((node) =>
+      directArgumentStrings(node, "listen").some((value) => /^(?:\[::\]:)?443\s+ssl$/.test(value)));
+    if (matches.length !== 1) {
+      fail("OPEN_TOPOLOGY_INVALID", "preserved context requires one target HTTPS server");
+    }
+    return matches[0];
+  };
+  const protectedNames = new Set([
+    "content-security-policy", "x-content-type-options", "referrer-policy",
+    "permissions-policy", "x-frame-options", "strict-transport-security",
+  ]);
+  const scopedDirectives = (node, predicate) => {
+    const entries = [];
+    const visit = (children, scope) => {
+      for (const entry of children) {
+        if (predicate(entry)) entries.push([scope, entry.name, argsOf(entry)]);
+        if (entry.children !== null) {
+          visit(entry.children, [...scope, entry.name, ...argsOf(entry)]);
+        }
+      }
+    };
+    visit(node.children ?? [], []);
+    return entries;
+  };
+  const securityHeaders = (node) => scopedDirectives(node, (entry) =>
+    entry.name === "add_header" &&
+    protectedNames.has((argsOf(entry)[0] ?? "").toLowerCase()));
+  const protectedHeaders = new Set(["x-frame-options", "strict-transport-security"]);
+  for (const node of [...oldTargets, ...newTargets]) {
+    if (securityHeaders(node).some(([, , args]) => protectedHeaders.has((args[0] ?? "").toLowerCase()))) {
+      fail("PRESERVED_SECURITY_DRIFT", "preserve-existing cannot add or accept explicit framing or HSTS headers");
+    }
+  }
+  const byPort = (nodes, port) => {
+    const matches = nodes.filter((node) => directArgumentStrings(node, "listen")
+      .some((value) => new RegExp(`^(?:\\[::\\]:)?${port}(?:\\s|$)`).test(value)));
+    if (matches.length !== 1) {
+      fail("OPEN_TOPOLOGY_INVALID", "preserved context requires one target server per port");
+    }
+    return matches[0];
+  };
+  for (const port of [80, 443]) {
+    const oldServer = byPort(oldTargets, port);
+    const newServer = byPort(newTargets, port);
+    if (JSON.stringify(securityHeaders(oldServer)) !== JSON.stringify(securityHeaders(newServer)) ||
+      JSON.stringify(scopedDirectives(oldServer, (entry) => entry.name === "include")) !==
+        JSON.stringify(scopedDirectives(newServer, (entry) => entry.name === "include"))) {
+      fail("PRESERVED_SECURITY_DRIFT", "target security headers or includes changed");
+    }
+  }
+  const tlsDirectives = (node) => scopedDirectives(node, (entry) => entry.name.startsWith("ssl_"));
+  if (JSON.stringify(tlsDirectives(https(oldTargets))) !==
+    JSON.stringify(tlsDirectives(https(newTargets)))) {
+    fail("PRESERVED_SECURITY_DRIFT", "target TLS references changed");
+  }
+}
+
 export function validateRenderedSources({
   openConfig,
   bareConfig,
   closedCandidate,
   expected,
   mode = "canonical",
+  existingContext,
+  candidateContext,
 }) {
   if (!["canonical", "dual-direct"].includes(mode)) {
     fail("ARGUMENT_ERROR", "unsupported open HTTP mode");
@@ -937,7 +1051,10 @@ export function validateRenderedSources({
       fail("ARGUMENT_ERROR", "rendered validation requires nonempty inputs");
     }
   }
-  validateExpectedMetadata(expected);
+  const preserveExisting = validateExpectedMetadata(expected, mode);
+  if (!preserveExisting && (existingContext !== undefined || candidateContext !== undefined)) {
+    fail("ARGUMENT_ERROR", "context inputs require dual-direct preserve-existing metadata");
+  }
   if (/__[A-Z0-9_]+__/.test(openConfig) || (mode === "canonical" && /__[A-Z0-9_]+__/.test(bareConfig))) {
     fail("UNRESOLVED_PLACEHOLDER", "rendered configuration contains a placeholder");
   }
@@ -1058,12 +1175,12 @@ export function validateRenderedSources({
     fail("OPEN_SECURITY_INVALID", "TLS directives must remain HTTPS-only");
   }
 
-  validateSecurity(openHttps, expected);
-  if (
+  validateSecurity(openHttps, expected, preserveExisting);
+  if (!preserveExisting && (
     header(openHttps, "Strict-Transport-Security", "OPEN_SECURITY_INVALID") !==
       expected.hstsValue ||
     (mode === "canonical" && header(bareHttps, "Strict-Transport-Security", "OPEN_SECURITY_INVALID") !== expected.hstsValue)
-  ) {
+  )) {
     fail(
       "RENDERED_METADATA_MISMATCH",
       "HSTS value does not match expected metadata",
@@ -1093,11 +1210,15 @@ export function validateRenderedSources({
   validateRouting(openHttps, expected);
   validateCompression(openHttps, mode === "dual-direct" ? [openHttp] : [openHttp, bareHttp, bareHttps]);
   validateClosedCandidate(closedCandidate);
+  if (preserveExisting) {
+    validatePreservedContext({ existingContext, candidateContext, expected, openServers });
+  }
 
   return Object.freeze({
     status: "ok",
     mode: "rendered",
     topology: mode === "dual-direct" ? "open-dual-direct" : "open-canonical-plus-bare",
+    ...(preserveExisting ? { effectiveInheritedSecurityPolicy: "UNVERIFIED" } : {}),
   });
 }
 
@@ -1286,6 +1407,8 @@ export function run(arguments_) {
     "--bare-config",
     "--closed-config",
     "--expected-metadata",
+    "--existing-context",
+    "--candidate-context",
     "--mode",
   ]);
   if ([...options.keys()].some((name) => !allowed.has(name))) {
@@ -1298,7 +1421,7 @@ export function run(arguments_) {
     return validateTemplateRoot(requiredOption(options, "--source"), options.get("--mode") ?? "canonical");
   }
   const mode = options.get("--mode") ?? "canonical";
-  if (!["canonical", "dual-direct"].includes(mode) || options.size !== (mode === "dual-direct" ? 4 : 4 + Number(options.has("--mode")))) {
+  if (!["canonical", "dual-direct"].includes(mode)) {
     fail("ARGUMENT_ERROR", "rendered validation requires the selected mode's input options");
   }
   let expected;
@@ -1313,6 +1436,10 @@ export function run(arguments_) {
     if (error instanceof OpenHttpContractError) throw error;
     fail("ARGUMENT_ERROR", "expected metadata must contain valid JSON");
   }
+  const preserveExisting = validateExpectedMetadata(expected, mode);
+  if (options.size !== (mode === "dual-direct" ? 4 + (preserveExisting ? 2 : 0) : 4 + Number(options.has("--mode")))) {
+    fail("ARGUMENT_ERROR", "rendered validation requires the selected mode's input options");
+  }
   return validateRenderedSources({
     openConfig: readRegularFile(
       resolve(requiredOption(options, "--open-config")),
@@ -1325,6 +1452,8 @@ export function run(arguments_) {
     ),
     expected,
     mode,
+    existingContext: preserveExisting ? readRegularFile(resolve(requiredOption(options, "--existing-context")), "existing expanded context") : undefined,
+    candidateContext: preserveExisting ? readRegularFile(resolve(requiredOption(options, "--candidate-context")), "candidate expanded context") : undefined,
   });
 }
 
