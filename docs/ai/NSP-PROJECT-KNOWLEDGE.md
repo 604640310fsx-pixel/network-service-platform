@@ -62,7 +62,7 @@
 
 ## 4. 固定管理绑定与责任矩阵
 
-固定项目经理的行政绑定是 GPT-5.6 Sol / max / thread `01a06904-8db3-71e1-ba22-fd7c59d0afef`；固定执行主管是 GPT-5.6 Sol / high / thread `01a0697a-2459-7530-bf38-e29c89b47313`。完整职责和模型路由只以 `GPT-CONTROL-V2` 为准。
+本快照记录的固定项目经理行政绑定曾为 GPT-5.6 Sol / max / thread `01a06904-8db3-71e1-ba22-fd7c59d0afef`，固定执行主管曾为 GPT-5.6 Sol / high / thread `01a0697a-2459-7530-bf38-e29c89b47313`；这些是历史证据。当前绑定、职责和模型路由只以 [`GPT-CONTROL-V2.md`](GPT-CONTROL-V2.md) 为准。
 
 这些模型、thread、session、message 或 nonce 标识只用于行政定位和证据关联，不是来源认证、技术锁、队列授权或身份安全边界。
 
