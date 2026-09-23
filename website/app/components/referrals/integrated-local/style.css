@@ -1,0 +1,8 @@
+.ril-controls { position: relative; z-index: 100; padding: 12px 18px; background: #17202b; color: #edf4ff; font: 14px/1.5 system-ui, sans-serif; overflow-wrap: anywhere; }
+.ril-controls p { margin: 6px 0; }
+.ril-controls form, .ril-controls label { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.ril-controls form { margin: 8px 0; }
+.ril-controls input, .ril-controls select, .ril-controls button { font: inherit; padding: 5px 8px; max-width: 100%; }
+.ril-controls button { cursor: pointer; }
+.ril-controls code { color: #b9e6ff; user-select: all; }
+.ril-visitors { display: flex; flex-wrap: wrap; column-gap: 24px; }
