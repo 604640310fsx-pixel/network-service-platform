@@ -445,11 +445,17 @@ For this route only, every preflight, snapshot, and rollback reference to the
 old 001-016 boundary in the default sequence means the verified 001-014
 boundary. Its candidate boundary remains 001-019.
 
-Before the window, prove the running old Auth and website binaries belong to
-one recorded rollback release, the old Auth accepts continuous migrations
-001-014, and the current database has exactly that prefix. Capture the old
-runtime/configuration binding names, active ingress topology, service manager,
-and an atomic restore plan without emitting secrets or private configuration.
+Before the window, identify the matching old Auth, website, configuration, and
+runtime artifacts from the current running paths, record their identities and
+integrity hashes, and prove old Auth accepts continuous migrations 001-014 and
+the current database has exactly that prefix. Record an old source SHA only if
+independently verifiable; otherwise record `UNKNOWN`, without inventing a Git
+linkage. Bind active ingress topology, service manager, and an atomic restore
+plan without emitting secrets or private configuration. For this route only,
+captured old-unit identity and integrity evidence substitutes for the default
+sequence's historical-source-SHA proof; no old artifact or schema proof is
+waived.
+
 The direct14 candidate must be the separately retained integration-push
 artifact `consolidated-release-direct14-<RELEASE_CANDIDATE_SHA>`. Validate its
 manifest and live GitHub artifact proof with the candidate command above plus
@@ -468,9 +474,12 @@ the frozen sequence above, with these explicit substitutions only:
 1. Close **every** public and alternate ingress, stop the matched old service,
    prove its PID absent, and prove all database writers zero before backup.
 2. Create a new owner-only SQLite snapshot and independently verify its hash,
-   size, integrity, foreign keys, and continuous migrations 001-014. Prove the
-   old Auth, website, runtime/configuration bindings, and this snapshot form one
-   restorable rollback unit before switching either artifact.
+   size, integrity, foreign keys, and continuous migrations 001-014. Using the
+   captured exact old Auth, website, configuration, and runtime bytes, perform
+   an independent isolated restore test with this snapshot and prove the
+   restored old unit accepts Schema 14. Keep live ingress closed and writers
+   zero throughout. Do not switch either artifact without the matched hashes,
+   isolated restore result, and rollback owner recorded.
 3. Atomically switch the consolidated Auth/website pointer to the exact
    direct14 candidate. Start quiescent with payment, mail dispatch,
    registration, background writers, and monitor projection disabled. Startup
