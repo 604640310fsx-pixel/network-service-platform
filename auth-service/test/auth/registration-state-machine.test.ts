@@ -209,6 +209,18 @@ function latestOtp(database: DatabaseConnection): string {
 
 test("runs start, resend, verify, and complete through the frozen HTTP state machine", async () => {
   await withAuthenticationDatabase(async (database) => {
+    const sourceUserId = insertAuthenticationUser(database, {
+      email: "referral.source@example.com",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const referralCode = "R".repeat(24);
+    database
+      .prepare(
+        `INSERT INTO referral_profiles (user_id, public_code, created_at)
+         VALUES (?, ?, ?)`,
+      )
+      .run(sourceUserId, referralCode, "2026-08-20T00:00:00.000Z");
     insertInvite(database);
     let now = new Date("2026-08-20T12:00:00.000Z");
     let tokenCounter = 0x50;
@@ -232,7 +244,11 @@ test("runs start, resend, verify, and complete through the frozen HTTP state mac
         method: "POST",
         url: "/api/auth/register/start",
         headers: HEADERS,
-        payload: { email: `  ${EMAIL.toUpperCase()}  `, inviteCode: INVITE_CODE },
+        payload: {
+          email: `  ${EMAIL.toUpperCase()}  `,
+          inviteCode: INVITE_CODE,
+          referralCode,
+        },
       });
       assert.equal(start.statusCode, 200);
       assert.equal(start.headers["cache-control"], "no-store");
@@ -240,6 +256,16 @@ test("runs start, resend, verify, and complete through the frozen HTTP state mac
         .registrationToken;
       assert.match(firstToken, /^v2\.[A-Za-z0-9_-]{43}$/);
       assert.equal(firstNumber(database, "SELECT COUNT(*) FROM pending_registrations"), 1);
+      assert.equal(
+        firstNumber(
+          database,
+          `SELECT COUNT(*) FROM pending_registrations
+           WHERE referral_source_profile_id = (
+             SELECT id FROM referral_profiles WHERE public_code = '${referralCode}'
+           )`,
+        ),
+        1,
+      );
       assert.equal(firstNumber(database, "SELECT COUNT(*) FROM mail_outbox"), 1);
       assert.equal(latestOtp(database), "123456");
 
@@ -319,6 +345,25 @@ test("runs start, resend, verify, and complete through the frozen HTTP state mac
       assert.equal(
         firstNumber(database, "SELECT COUNT(*) FROM invite_code_redemptions"),
         1,
+      );
+      assert.deepEqual(
+        database
+          .prepare(
+            `SELECT source_profile_id, status, created_at
+             FROM referral_attribution_candidates`,
+          )
+          .all(),
+        [
+          {
+            source_profile_id: firstNumber(
+              database,
+              "SELECT id FROM referral_profiles WHERE public_code = ?",
+              referralCode,
+            ),
+            status: "pending",
+            created_at: now.toISOString(),
+          },
+        ],
       );
       assert.equal(firstNumber(database, "SELECT COUNT(*) FROM audit_log"), 1);
       assert.deepEqual(
@@ -412,6 +457,52 @@ test("returns a format-valid fake token for an unusable invite without persisten
   });
 });
 
+test("ignores an invalid referral code without changing invite-gated registration", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    insertInvite(database);
+    const app = buildApp({
+      registration: {
+        database,
+        nodeEnv: "test",
+        ...KEYRINGS,
+        serviceDependencies: {
+          now: () => new Date("2026-08-20T12:00:00.000Z"),
+          randomBytes: (size) => Buffer.alloc(size, 0x74),
+          randomInt: () => 123_456,
+          outboxRandomBytes: (size) => Buffer.alloc(size, 0x75),
+        },
+      },
+    });
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/auth/register/start",
+        headers: HEADERS,
+        payload: {
+          email: EMAIL,
+          inviteCode: INVITE_CODE,
+          referralCode: "not-a-public-code",
+        },
+      });
+      assert.equal(response.statusCode, 200);
+      assert.equal(firstNumber(database, "SELECT COUNT(*) FROM pending_registrations"), 1);
+      assert.equal(
+        firstNumber(
+          database,
+          "SELECT COUNT(*) FROM pending_registrations WHERE referral_source_profile_id IS NULL",
+        ),
+        1,
+      );
+      assert.equal(
+        firstNumber(database, "SELECT COUNT(*) FROM referral_attribution_candidates"),
+        0,
+      );
+    } finally {
+      await app.close();
+    }
+  });
+});
+
 test("rejects mutation contract violations before registration state changes", async () => {
   await withAuthenticationDatabase(async (database) => {
     insertInvite(database);
@@ -441,6 +532,17 @@ test("rejects mutation contract violations before registration state changes", a
         payload: { email: EMAIL, inviteCode: INVITE_CODE.toLowerCase() },
       });
       assert.equal(malformedInvite.statusCode, 400);
+      const injectedIdentity = await app.inject({
+        method: "POST",
+        url: "/api/auth/register/start",
+        headers: HEADERS,
+        payload: {
+          email: EMAIL,
+          inviteCode: INVITE_CODE,
+          referrer_user_id: 1,
+        },
+      });
+      assert.equal(injectedIdentity.statusCode, 400);
       assert.equal(firstNumber(database, "SELECT COUNT(*) FROM pending_registrations"), 0);
     } finally {
       await app.close();

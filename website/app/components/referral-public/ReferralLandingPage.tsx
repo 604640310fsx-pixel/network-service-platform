@@ -20,11 +20,14 @@ function initialTheme(): Theme {
 export function ReferralLandingPage() {
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const [state, setState] = useState<LandingState>("loading");
+  const [publicCode] = useState(() =>
+    referralCodeFromSearch(window.location.search),
+  );
 
   useEffect(() => {
     const controller = new AbortController();
     resolvePublicReferral(
-      referralCodeFromSearch(window.location.search),
+      publicCode,
       controller.signal,
     )
       .then((result) => setState(result.valid ? "valid" : "invalid"))
@@ -37,7 +40,7 @@ export function ReferralLandingPage() {
         );
       });
     return () => controller.abort();
-  }, []);
+  }, [publicCode]);
 
   const title =
     state === "loading"
@@ -91,11 +94,14 @@ export function ReferralLandingPage() {
 
           {state === "valid" && (
             <div className="referral-public-actions">
-              <a className="referral-public-primary" href="/register">
+              <a
+                className="referral-public-primary"
+                href={`/register?referralCode=${encodeURIComponent(publicCode ?? "")}`}
+              >
                 前往注册
               </a>
               <p>
-                注册仍需填写有效邀请码。本链接不会自动带入或替代邀请码，也不会记录推荐归属或佣金资格。
+                注册仍需填写有效邀请码。注册完成后仅保存待确认的推荐来源候选，不代表正式推荐归属或佣金资格。
               </p>
             </div>
           )}
