@@ -541,6 +541,54 @@ test("the NULL-safe unique index rejects a duplicate fixed-price plan (spec_id I
   });
 });
 
+test("continuous Schema 14 upgrades directly through 15-19 with legacy rows", async () => {
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), "auth-direct14-upgrade-"));
+  const database = openAndVerifyDatabase(join(temporaryDirectory, "auth.sqlite"));
+  try {
+    applyMigrationPrefix(database, 14);
+    database.prepare(
+      `INSERT INTO invite_codes (
+         id, code_hash, is_bootstrap, created_by_admin_id, max_uses,
+         used_count, expires_at, revoked_at, note, created_at
+       ) VALUES (1, ?, 1, NULL, 1, 0, ?, NULL, NULL, ?)`,
+    ).run("D".repeat(43), LATER, NOW);
+    database.prepare(
+      `INSERT INTO pending_registrations (
+         id, email, registration_token_hash, registration_token_key_version,
+         invite_code_id, otp_hash, otp_key_version, otp_generation, phase,
+         verified_at, attempts, resend_count, last_sent_at, expires_at,
+         consumed_at, superseded_at, created_at
+       ) VALUES (1, 'direct14@example.com', 'direct14-token', 1, 1,
+                 'direct14-otp', 1, 1, 'awaiting_verification',
+                 NULL, 0, 1, ?, ?, NULL, NULL, ?)`,
+    ).run(NOW, LATER, NOW);
+    database.prepare(
+      `INSERT INTO mail_outbox (
+         idempotency_key, to_email, template, key_version, nonce,
+         ciphertext, tag, status, attempts, next_attempt_at, created_at
+       ) VALUES ('register-otp-v1:1:1', 'direct14@example.com',
+                 'verification_code', 1, X'00', X'00', X'00',
+                 'pending', 0, ?, ?)`,
+    ).run(NOW, NOW);
+
+    runMigrations(database);
+    assert.deepEqual(
+      (database.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as Array<{ readonly version: number }>).map((row) => row.version),
+      Array.from({ length: 19 }, (_, index) => index + 1),
+    );
+    assert.equal(objectNames(database, "table").includes("diagnosis_request_idempotency"), true);
+    assert.equal(objectNames(database, "index").includes("idx_referral_candidate_owner_page"), true);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM pending_registrations WHERE id = 1 AND superseded_at IS NOT NULL"), 1);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM mail_outbox"), 0);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM invite_codes WHERE id = 1 AND revoked_at IS NOT NULL"), 1);
+    runMigrations(database);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 19);
+  } finally {
+    database.close();
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
 test("Migration 016 revokes legacy codes without guessing email and preserves historical users and redemptions", async () => {
   const temporaryDirectory = await mkdtemp(
     join(tmpdir(), "auth-service-migration-016-upgrade-"),

@@ -20,6 +20,8 @@ import { fileURLToPath } from "node:url";
 
 import {
   assembleReleaseBundle,
+  createReleaseProvenance,
+  DIRECT14_RELEASE_SCHEMA_ROUTE,
   isForbiddenBundlePath,
   RELEASE_HTTP_CONTRACT_PATHS,
   RELEASE_MIGRATIONS,
@@ -688,6 +690,103 @@ test("two independent assemblies produce one deterministic, complete manifest", 
     assert.ok(files.includes("release-manifest.json"));
     assert.equal(files.some((path) => isForbiddenBundlePath(path)), false);
     assert.equal(files.includes("customer-notes.txt"), false);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("direct14 bundle requires an explicit matching route and distinct artifact name", () => {
+  const parent = mkdtempSync(join(tmpdir(), "consolidated-direct14-test-"));
+  try {
+    const fixture = createFixtureRepository(parent);
+    const direct = join(parent, "direct14");
+    const standard = join(parent, "standard16");
+    assembleReleaseBundle({
+      source: fixture.root,
+      destination: direct,
+      expectedSha: fixture.sha,
+      provenanceMode: LOCAL_PROVENANCE_MODE,
+      schemaRoute: DIRECT14_RELEASE_SCHEMA_ROUTE,
+    });
+    assembleReleaseBundle({
+      source: fixture.root,
+      destination: standard,
+      expectedSha: fixture.sha,
+      provenanceMode: LOCAL_PROVENANCE_MODE,
+    });
+    const manifest = JSON.parse(readFileSync(join(direct, "release-manifest.json"), "utf8"));
+    assert.equal(manifest.schemaRoute, DIRECT14_RELEASE_SCHEMA_ROUTE);
+    assert.deepEqual(manifest.schemaBoundary, { rollback: 14, candidate: 19 });
+    assert.equal(
+      validateBundle({
+        bundle: direct,
+        expectedSha: fixture.sha,
+        validationMode: "local-dry-run",
+        schemaRoute: DIRECT14_RELEASE_SCHEMA_ROUTE,
+      }).status,
+      "ok",
+    );
+    for (const [bundle, schemaRoute] of [
+      [direct, undefined],
+      [standard, DIRECT14_RELEASE_SCHEMA_ROUTE],
+    ]) {
+      assert.throws(
+        () => validateBundle({ bundle, expectedSha: fixture.sha, validationMode: "local-dry-run", schemaRoute }),
+        (error) => error?.code === "BUNDLE_INTEGRITY_FAILED",
+      );
+    }
+    manifest.schemaBoundary.rollback = 16;
+    writeFileSync(join(direct, "release-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+    assert.throws(
+      () => validateBundle({ bundle: direct, expectedSha: fixture.sha, validationMode: "local-dry-run", schemaRoute: DIRECT14_RELEASE_SCHEMA_ROUTE }),
+      (error) => error?.code === "BUNDLE_INTEGRITY_FAILED",
+    );
+    const environment = githubEnvironment({ sha: fixture.sha, candidate: true });
+    assert.equal(
+      createReleaseProvenance({ mode: "github-actions", expectedSha: fixture.sha, environment }).artifactName,
+      `consolidated-release-${fixture.sha}`,
+    );
+    assert.equal(
+      createReleaseProvenance({ mode: "github-actions", expectedSha: fixture.sha, environment, schemaRoute: DIRECT14_RELEASE_SCHEMA_ROUTE }).artifactName,
+      `consolidated-release-direct14-${fixture.sha}`,
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("direct14 CI provenance validates only its route-specific artifact identity", () => {
+  const parent = mkdtempSync(join(tmpdir(), "consolidated-direct14-ci-"));
+  try {
+    const fixture = createFixtureRepository(parent);
+    const environment = githubEnvironment({ sha: fixture.sha, candidate: true });
+    const bundle = join(parent, "candidate");
+    assembleReleaseBundle({
+      source: fixture.root,
+      destination: bundle,
+      expectedSha: fixture.sha,
+      provenanceMode: "github-actions",
+      schemaRoute: DIRECT14_RELEASE_SCHEMA_ROUTE,
+      environment,
+    });
+    assert.equal(
+      validateBundle({
+        bundle,
+        expectedSha: fixture.sha,
+        validationMode: "ci-build",
+        schemaRoute: DIRECT14_RELEASE_SCHEMA_ROUTE,
+        environment,
+      }).artifactName,
+      `consolidated-release-direct14-${fixture.sha}`,
+    );
+    const manifestPath = join(bundle, "release-manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.provenance.artifactName = `consolidated-release-${fixture.sha}`;
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    assert.throws(
+      () => validateBundle({ bundle, expectedSha: fixture.sha, validationMode: "ci-build", schemaRoute: DIRECT14_RELEASE_SCHEMA_ROUTE, environment }),
+      (error) => error?.code === "PROVENANCE_REQUIRED",
+    );
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

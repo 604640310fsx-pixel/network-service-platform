@@ -97,6 +97,12 @@ candidate artifact. That job checks `GITHUB_SHA === expectedSha`, builds auth
 and website first, assembles twice, compares the manifests, validates both
 inventories, and uploads only the first bundle under the exact name
 `consolidated-release-<RELEASE_CANDIDATE_SHA>`.
+The same job also independently assembles and validates an explicit
+`direct14-19` bundle twice, then retains its first bundle as
+`consolidated-release-direct14-<RELEASE_CANDIDATE_SHA>`. The two artifact names
+and manifest schema boundaries are distinct; neither route can validate the
+other route's bundle. The default command and the sequence below remain the
+001-016 rollback route.
 
 The upload alone does not authorize release. After the merge and integration
 push are separately authorized, the future candidate SHA must still be frozen
@@ -428,6 +434,73 @@ Rollback is a matched database-and-artifact operation:
 If any business or background write occurred after the snapshot, if the closed
 gate was interrupted, or if any compatibility proof is missing, database
 restore is prohibited. Keep ingress closed and obtain a forward-fix decision.
+
+## Explicit DIRECT14 to 19 route
+
+This route is available only when a separate release execution packet selects
+`direct14-19` and binds the additional `DIRECT14_*` proofs in the binding
+checklist. It does not convert a schema-14 observation into release authority.
+The default `standard16-19` route above remains strict and unchanged.
+For this route only, every preflight, snapshot, and rollback reference to the
+old 001-016 boundary in the default sequence means the verified 001-014
+boundary. Its candidate boundary remains 001-019.
+
+Before the window, identify the matching old Auth, website, configuration, and
+runtime artifacts from the current running paths, record their identities and
+integrity hashes, and prove old Auth accepts continuous migrations 001-014 and
+the current database has exactly that prefix. Record an old source SHA only if
+independently verifiable; otherwise record `UNKNOWN`, without inventing a Git
+linkage. Bind active ingress topology, service manager, and an atomic restore
+plan without emitting secrets or private configuration. For this route only,
+captured old-unit identity and integrity evidence substitutes for the default
+sequence's historical-source-SHA proof; no old artifact or schema proof is
+waived.
+
+The direct14 candidate must be the separately retained integration-push
+artifact `consolidated-release-direct14-<RELEASE_CANDIDATE_SHA>`. Validate its
+manifest and live GitHub artifact proof with the candidate command above plus
+`--schema-route direct14-19`. The manifest must state
+`"schemaRoute":"direct14-19"` and `rollback: 14, candidate: 19`.
+
+Recheck the read-only impact counts immediately before closing traffic:
+pending registrations that migration 016 would supersede, matching mail outbox
+items it would delete, invite audit rows it would redact, and active invite
+codes it would revoke. Record counts and the approval for their exact effects,
+without row values. A changed count or unapproved effect stops this route.
+
+During the separately approved window, follow the same ordered checkpoints as
+the frozen sequence above, with these explicit substitutions only:
+
+1. Close **every** public and alternate ingress, stop the matched old service,
+   prove its PID absent, and prove all database writers zero before backup.
+2. Create a new owner-only SQLite snapshot and independently verify its hash,
+   size, integrity, foreign keys, and continuous migrations 001-014. Using the
+   captured exact old Auth, website, configuration, and runtime bytes, perform
+   an independent isolated restore test with this snapshot and prove the
+   restored old unit accepts Schema 14. Keep live ingress closed and writers
+   zero throughout. Do not switch either artifact without the matched hashes,
+   isolated restore result, and rollback owner recorded.
+3. Atomically switch the consolidated Auth/website pointer to the exact
+   direct14 candidate. Start quiescent with payment, mail dispatch,
+   registration, background writers, and monitor projection disabled. Startup
+   may apply migrations **015, 016, 017, 018, and 019**. Keep ingress closed;
+   verify exact candidate identity, schema 001-019, database integrity,
+   loopback health, website inventory, and disabled workers without business
+   requests.
+4. Decide rollback eligibility before normal startup. Restore the verified
+   001-014 snapshot and matched old Auth/website/runtime unit only while
+   ingress has remained closed, all writers remain zero, no post-snapshot
+   business or background write has occurred, and the bound restore deadline
+   remains open. Never start the old binary against a database containing any
+   migration 015-019.
+5. If moving forward, end restore eligibility explicitly before enabling
+   workers. Apply the existing normal readiness, closed-ingress acceptance,
+   and open-ingress checkpoints unchanged. If a post-snapshot business or
+   background write occurred, keep ingress closed and seek a separately
+   authorized forward fix; do not restore the snapshot.
+
+No step here authorizes production access, a database write, restore, pointer
+switch, traffic change, deployment, or release by itself.
 
 ## Monitor boundary
 

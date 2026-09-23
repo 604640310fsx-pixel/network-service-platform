@@ -31,8 +31,24 @@ export const RELEASE_REPOSITORY =
   "604640310fsx-pixel/network-service-platform";
 export const RELEASE_WORKFLOW_JOB = "consolidated-release-packet";
 export const RELEASE_ARTIFACT_PREFIX = "consolidated-release-";
+export const DIRECT14_RELEASE_ARTIFACT_PREFIX = "consolidated-release-direct14-";
 export const RELEASE_INTEGRATION_REF =
   "refs/heads/integration/consolidate-project";
+export const DEFAULT_RELEASE_SCHEMA_ROUTE = "standard16-19";
+export const DIRECT14_RELEASE_SCHEMA_ROUTE = "direct14-19";
+export const RELEASE_SCHEMA_BOUNDARIES = Object.freeze({
+  [DEFAULT_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 16, candidate: 19 }),
+  [DIRECT14_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 14, candidate: 19 }),
+});
+export function releaseArtifactNameForRoute(sha, schemaRoute) {
+  if (!Object.hasOwn(RELEASE_SCHEMA_BOUNDARIES, schemaRoute)) {
+    throw new ReleaseAssemblyError(
+      "ARGUMENT_ERROR",
+      "--schema-route must be standard16-19 or direct14-19",
+    );
+  }
+  return `${schemaRoute === DIRECT14_RELEASE_SCHEMA_ROUTE ? DIRECT14_RELEASE_ARTIFACT_PREFIX : RELEASE_ARTIFACT_PREFIX}${sha}`;
+}
 export const RELEASE_MIGRATIONS = Object.freeze([
   "001_users_and_invite_codes.sql",
   "002_invite_code_redemptions.sql",
@@ -240,9 +256,11 @@ function requiredEnvironment(environment, name) {
 export function createReleaseProvenance({
   mode,
   expectedSha,
+  schemaRoute = DEFAULT_RELEASE_SCHEMA_ROUTE,
   environment = process.env,
 }) {
   const sha = normalizedExpectedSha(expectedSha);
+  const artifactName = releaseArtifactNameForRoute(sha, schemaRoute);
   if (mode === "local-dry-run") {
     return Object.freeze({
       kind: "local-dry-run",
@@ -327,7 +345,7 @@ export function createReleaseProvenance({
     eventName,
     ref,
     githubSha,
-    artifactName: `${RELEASE_ARTIFACT_PREFIX}${sha}`,
+    artifactName,
   });
 }
 
@@ -533,13 +551,22 @@ export function assembleReleaseBundle({
   destination,
   expectedSha,
   provenanceMode,
+  schemaRoute = DEFAULT_RELEASE_SCHEMA_ROUTE,
   environment = process.env,
 }) {
+  if (!Object.hasOwn(RELEASE_SCHEMA_BOUNDARIES, schemaRoute)) {
+    throw new ReleaseAssemblyError(
+      "ARGUMENT_ERROR",
+      "--schema-route must be standard16-19 or direct14-19",
+    );
+  }
+  const schemaBoundary = RELEASE_SCHEMA_BOUNDARIES[schemaRoute];
   const sourceRoot = existingDirectory(source, "source");
   const sha = normalizedExpectedSha(expectedSha);
   const provenance = createReleaseProvenance({
     mode: provenanceMode,
     expectedSha: sha,
+    schemaRoute,
     environment,
   });
   const destinationRoot = newDestination(destination, sourceRoot);
@@ -583,7 +610,8 @@ export function assembleReleaseBundle({
     const manifest = {
       format: RELEASE_BUNDLE_FORMAT,
       sourceSha: sha,
-      schemaBoundary: { rollback: 16, candidate: 19 },
+      ...(schemaRoute === DIRECT14_RELEASE_SCHEMA_ROUTE ? { schemaRoute } : {}),
+      schemaBoundary,
       migrations: RELEASE_MIGRATIONS,
       entrypoints: {
         auth: "auth-service/dist/src/server.js",
@@ -630,6 +658,7 @@ export function run(arguments_) {
       "--destination",
       "--expected-sha",
       "--provenance-mode",
+      "--schema-route",
     ]),
   );
   return assembleReleaseBundle({
@@ -637,6 +666,7 @@ export function run(arguments_) {
     destination: requireOption(options, "--destination"),
     expectedSha: requireOption(options, "--expected-sha"),
     provenanceMode: requireOption(options, "--provenance-mode"),
+    schemaRoute: options.get("--schema-route") ?? DEFAULT_RELEASE_SCHEMA_ROUTE,
   });
 }
 
