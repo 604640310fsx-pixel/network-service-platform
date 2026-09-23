@@ -133,6 +133,15 @@ test("withdrawal stays disabled and pending integration in every state", () => {
   assert.match(button, /提现功能待接入/);
 });
 
+test("formal guidance preserves retained balance without promising unconfigured finance", () => {
+  const center = source("../app/components/referrals/ReferralCenter.tsx");
+  assert.match(center, /未申请的已结算余额保留，不会自动转出/);
+  assert.match(center, /提现门槛：已结算余额满 ¥1,000.00（功能开放后适用）/);
+  assert.match(center, /计佣方式、商品上限及结算安排尚未配置或确认/);
+  assert.match(center, /战略推广伙伴.*比例待确认/);
+  assert.doesNotMatch(center, /实际返佣比例 = min|月末核算后|月度核算并经观察期后|最高 50%/);
+});
+
 test("approved customer route and public build entry use the formal referral components", () => {
   const sections = source("../app/lib/sections.ts");
   const app = source("../src/App.tsx");
