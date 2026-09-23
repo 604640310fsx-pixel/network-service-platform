@@ -106,6 +106,21 @@ export type ReferralCenterData =
   | { readonly status: "error" }
   | { readonly status: "ready"; readonly snapshot: ReferralSnapshot };
 
+export type ReferralCandidate = {
+  readonly displayId: string;
+  readonly status: "pending";
+  readonly createdAt: string;
+};
+
+export type ReferralCandidatesState =
+  | { readonly status: "pending" | "loading" | "error" }
+  | {
+      readonly status: "ready";
+      readonly items: readonly ReferralCandidate[];
+      readonly page: number;
+      readonly hasMore: boolean;
+    };
+
 export type ReferralLinkState =
   | { readonly status: "pending" }
   | { readonly status: "unavailable" }

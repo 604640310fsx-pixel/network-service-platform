@@ -291,6 +291,11 @@
 .rfc-mini { min-height: 34px; padding: 0 12px; border: 1px solid var(--cc-line); border-radius: 9px; background: transparent; color: var(--cc-text-2); font-size: 13.5px; cursor: pointer; }
 .rfc-mini:hover { border-color: var(--cc-text-4); color: var(--cc-text); }
 .rfc-privacy { margin: 12px 0 0; color: var(--rfc-note-2); font-size: 13.5px; line-height: 1.65; }
+.rfc-candidates { min-width: 0; padding-bottom: 18px; margin-bottom: 18px; border-bottom: 1px solid var(--cc-hairline); }
+.rfc-candidates h3 { margin: 0; font-size: 16px; font-weight: 600; }
+.rfc-candidates .rfc-table-wrap { margin-top: 12px; }
+.rfc-candidate-pages { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; color: var(--rfc-note-2); font-size: 13.5px; }
+.rfc-mini:disabled { opacity: 0.5; cursor: not-allowed; }
 .rfc-adjust-note { margin: 14px 0 0; padding: 12px 14px; border-radius: 10px; background: var(--rfc-danger-tint); color: var(--rfc-note); font-size: 14px; line-height: 1.7; }
 .rfc-adjust-note b { color: var(--rfc-danger); }
 

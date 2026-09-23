@@ -14,6 +14,7 @@ import {
   type ClipboardWriter,
   type CopyOutcome,
   type ReferralCenterData,
+  type ReferralCandidatesState,
   type ReferralLinkState,
 } from "./referralModel";
 import { ReferralDialog } from "./ReferralDialog";
@@ -30,6 +31,8 @@ export type ReferralCenterNotice = "pending" | "fixture";
 
 export type ReferralCenterProps = {
   readonly data?: ReferralCenterData;
+  readonly candidates?: ReferralCandidatesState;
+  readonly onCandidatePageChange?: (page: number) => void;
   readonly link?: ReferralLinkState;
   /** 未传入时在点击时读取 navigator.clipboard；传 null 表示当前环境不可写入。 */
   readonly clipboard?: ClipboardWriter | null;
@@ -42,6 +45,8 @@ export const REFERRAL_CENTER_DESCRIPTION = "客户首次有效成交后推荐归
 
 export function ReferralCenter({
   data = REFERRAL_DATA_PENDING,
+  candidates = { status: "pending" },
+  onCandidatePageChange,
   link = REFERRAL_LINK_PENDING,
   clipboard,
   notice = "pending",
@@ -87,7 +92,7 @@ export function ReferralCenter({
             <div className="rfc-sec-title"><h2 id="rfc-records-title">佣金记录</h2></div>
             <p>每笔计算可展开查看；客户仅显示脱敏标识。</p>
           </div>
-          <ReferralRecords data={data} />
+          <ReferralRecords data={data} candidates={candidates} onCandidatePageChange={onCandidatePageChange} />
         </section>
 
         <div className="rfc-bottom">
