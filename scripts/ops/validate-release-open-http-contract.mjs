@@ -458,7 +458,7 @@ function parseCsp(policy, preserveExisting = false) {
     const fields = part.trim().split(/\s+/).filter(Boolean);
     if (fields.length === 0) continue;
     const [name, ...sources] = fields;
-    if (name.toLowerCase() === "connect-src" && name !== "connect-src") {
+    if (preserveExisting && name.toLowerCase() === "connect-src" && name !== "connect-src") {
       fail("OPEN_SECURITY_INVALID", "CSP connect-src directive must use its canonical name");
     }
     if (directives.has(name) || sources.length === 0) {

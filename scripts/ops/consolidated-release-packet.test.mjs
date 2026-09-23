@@ -352,6 +352,15 @@ test("dual-direct is opt-in and preserves both hostnames", () => {
     mode: "dual-direct",
   };
   assert.equal(validateRenderedSources(input).topology, "open-dual-direct");
+  const additionalCaseVariant = synthetic.expected.cspPolicy.replace(
+    "frame-src",
+    "Connect-Src 'self'; frame-src",
+  );
+  assert.equal(validateRenderedSources({
+    ...input,
+    openConfig: openConfig.replace(synthetic.expected.cspPolicy, additionalCaseVariant),
+    expected: { ...synthetic.expected, cspPolicy: additionalCaseVariant },
+  }).topology, "open-dual-direct");
   for (const mutated of [
     openConfig.replace("return 301 https://$host$request_uri;", "return 308 https://$host$request_uri;"),
     openConfig.replace("return 301 https://$host$request_uri;", "return 301 https://" + synthetic.expected.canonicalHost + "$request_uri;"),
