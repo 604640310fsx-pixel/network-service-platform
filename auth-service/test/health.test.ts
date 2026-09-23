@@ -36,6 +36,7 @@ test("loopback configuration is accepted", () => {
     nodeEnv: "test",
     registrationEnabled: false,
     paymentEnabled: false,
+    referralPublicLink: { enabled: false },
   });
 });
 

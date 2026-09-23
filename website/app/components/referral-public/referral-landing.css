@@ -1,0 +1,50 @@
+.referral-public-card { text-align: center; }
+.referral-public-card .auth-brand { margin-right: auto; }
+
+.referral-public-status {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 17px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--cc-line);
+  border-radius: 50%;
+  background: var(--cc-inset);
+  color: var(--cc-text-3);
+  font-size: 20px;
+  font-weight: 600;
+}
+.referral-public-status.is-valid {
+  border-color: var(--cc-accent-line);
+  background: var(--cc-accent-tint);
+  color: var(--cc-accent);
+}
+.referral-public-status.is-loading { animation: referral-public-pulse 0.9s ease-in-out infinite alternate; }
+
+.referral-public-card .auth-subtitle { line-height: 1.75; }
+.referral-public-actions { margin-top: 24px; }
+.referral-public-primary {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: #f59e0b;
+  color: var(--cc-accent-ink);
+  text-decoration: none;
+  font-size: 15px;
+  font-weight: 600;
+}
+.referral-public-primary:hover { filter: brightness(1.05); }
+.referral-public-actions p {
+  margin: 15px 0 0;
+  color: var(--cc-text-3);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+@keyframes referral-public-pulse { to { opacity: 0.45; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .referral-public-status.is-loading { animation: none; }
+}

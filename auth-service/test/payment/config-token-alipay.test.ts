@@ -10,6 +10,7 @@ import {
   loadDeliveryCredentialConfig,
   loadMonitorCredentialConfig,
   loadMonitorRuntimeConfig,
+  loadReferralPublicLinkConfig,
 } from "../../src/config.js";
 import { issueCsrfToken, verifyCsrfToken } from "../../src/http/csrf.js";
 import {
@@ -42,10 +43,119 @@ test("disabled payment config does not require or read Alipay keys", () => {
     ALIPAY_PUBLIC_KEY_FILE: "/path/that/does/not/exist",
   });
   assert.equal(config.paymentEnabled, false);
+  assert.deepEqual(config.referralPublicLink, { enabled: false });
   assert.throws(
     () => loadAlipayConfig({ PAYMENT_ENABLED: "false" }),
     /Alipay configuration is disabled/,
   );
+});
+
+test("referral public link configuration is explicit and rejects unsafe targets", () => {
+  assert.deepEqual(loadReferralPublicLinkConfig({}, "production"), {
+    enabled: false,
+  });
+  assert.deepEqual(
+    loadReferralPublicLinkConfig(
+      {
+        REFERRAL_PUBLIC_ORIGIN: "https://referral.example.test",
+        REFERRAL_PUBLIC_PATH: "/referral.html",
+      },
+      "production",
+    ),
+    {
+      enabled: true,
+      origin: "https://referral.example.test",
+      path: "/referral.html",
+    },
+  );
+  assert.deepEqual(
+    loadReferralPublicLinkConfig(
+      {
+        REFERRAL_PUBLIC_ORIGIN: "http://127.0.0.1:41783",
+        REFERRAL_PUBLIC_PATH: "/referral.html",
+      },
+      "test",
+    ),
+    {
+      enabled: true,
+      origin: "http://127.0.0.1:41783",
+      path: "/referral.html",
+    },
+  );
+
+  const unsafe: readonly [NodeJS.ProcessEnv, "test" | "production"][] = [
+    [{ REFERRAL_PUBLIC_ORIGIN: "https://referral.example.test" }, "production"],
+    [{ REFERRAL_PUBLIC_PATH: "/referral.html" }, "production"],
+    [
+      {
+        REFERRAL_PUBLIC_ORIGIN: "http://referral.example.test",
+        REFERRAL_PUBLIC_PATH: "/referral.html",
+      },
+      "test",
+    ],
+    [
+      {
+        REFERRAL_PUBLIC_ORIGIN: "http://127.0.0.1:41783",
+        REFERRAL_PUBLIC_PATH: "/referral.html",
+      },
+      "production",
+    ],
+    [
+      {
+        REFERRAL_PUBLIC_ORIGIN: "https://user:pass@referral.example.test",
+        REFERRAL_PUBLIC_PATH: "/referral.html",
+      },
+      "production",
+    ],
+    [
+      {
+        REFERRAL_PUBLIC_ORIGIN: "https://referral.example.test?next=evil",
+        REFERRAL_PUBLIC_PATH: "/referral.html",
+      },
+      "production",
+    ],
+    [
+      {
+        REFERRAL_PUBLIC_ORIGIN: "https://referral.example.test#fragment",
+        REFERRAL_PUBLIC_PATH: "/referral.html",
+      },
+      "production",
+    ],
+    [
+      {
+        REFERRAL_PUBLIC_ORIGIN: "https://referral.example.test/",
+        REFERRAL_PUBLIC_PATH: "/referral.html",
+      },
+      "production",
+    ],
+    [
+      {
+        REFERRAL_PUBLIC_ORIGIN: "https://referral.example.test",
+        REFERRAL_PUBLIC_PATH: "//attacker.example/referral.html",
+      },
+      "production",
+    ],
+    [
+      {
+        REFERRAL_PUBLIC_ORIGIN: "https://referral.example.test",
+        REFERRAL_PUBLIC_PATH: "/referral.html?next=https://attacker.example",
+      },
+      "production",
+    ],
+    [
+      {
+        REFERRAL_PUBLIC_ORIGIN: "https://referral.example.test",
+        REFERRAL_PUBLIC_PATH: "/../referral.html",
+      },
+      "production",
+    ],
+  ];
+  for (const [environment, nodeEnv] of unsafe) {
+    assert.throws(
+      () => loadReferralPublicLinkConfig(environment, nodeEnv),
+      /Referral public link configuration is invalid/,
+    );
+  }
 });
 
 test("delivery credential loader reads only the frozen independent keyring", async () => {

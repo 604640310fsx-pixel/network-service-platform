@@ -17,7 +17,7 @@ const RESPONSE: ReferralStateResponse = {
   },
   link: {
     status: "unavailable",
-    reason: "public_route_not_integrated",
+    reason: "public_route_unconfigured",
   },
   program: {
     tiers: [
@@ -58,6 +58,27 @@ test("parses only the frozen identity/program response without fake financial ze
     (error: unknown) =>
       error instanceof ReferralApiError && error.code === "invalid_response",
   );
+  const ready: ReferralStateResponse = {
+    ...RESPONSE,
+    link: {
+      status: "ready",
+      url: `http://127.0.0.1:41783/referral.html?code=${"B".repeat(24)}`,
+    },
+  };
+  assert.deepEqual(parseReferralStateResponse(ready), ready);
+  for (const url of [
+    "javascript:alert(1)",
+    `https://user:pass@example.test/referral.html?code=${"B".repeat(24)}`,
+    `https://example.test/referral.html?code=${"B".repeat(24)}#fragment`,
+    `https://example.test/referral.html?code=${"B".repeat(24)}&next=https://attacker.example`,
+    `https://example.test/referral.html?code=${"B".repeat(24)}&code=${"B".repeat(24)}`,
+  ]) {
+    assert.throws(
+      () => parseReferralStateResponse({ ...RESPONSE, link: { status: "ready", url } }),
+      (error: unknown) =>
+        error instanceof ReferralApiError && error.code === "invalid_response",
+    );
+  }
 });
 
 test("adapter covers pending/loading/error/ready and never enables an unavailable link", () => {
@@ -79,6 +100,18 @@ test("adapter covers pending/loading/error/ready and never enables an unavailabl
   assert.deepEqual(adaptReferralState({ status: "ready", response: RESPONSE }), {
     data: { status: "pending" },
     link: { status: "unavailable" },
+    profile: RESPONSE.profile,
+  });
+  const readyResponse: ReferralStateResponse = {
+    ...RESPONSE,
+    link: {
+      status: "ready",
+      url: `http://127.0.0.1:41783/referral.html?code=${"B".repeat(24)}`,
+    },
+  };
+  assert.deepEqual(adaptReferralState({ status: "ready", response: readyResponse }), {
+    data: { status: "pending" },
+    link: readyResponse.link,
     profile: RESPONSE.profile,
   });
 });

@@ -27,10 +27,12 @@ export type ReferralProgramContract = {
 
 export type ReferralStateResponse = {
   readonly profile: ReferralProfileIdentity | null;
-  readonly link: {
-    readonly status: "unavailable";
-    readonly reason: "public_route_not_integrated";
-  };
+  readonly link:
+    | {
+        readonly status: "unavailable";
+        readonly reason: "public_route_unconfigured";
+      }
+    | { readonly status: "ready"; readonly url: string };
   readonly program: ReferralProgramContract;
 };
 
@@ -105,14 +107,46 @@ function isStatusObject(value: unknown, status: string): boolean {
   );
 }
 
+function parseLink(value: unknown): ReferralStateResponse["link"] {
+  if (!isRecord(value)) throw new ReferralApiError("invalid_response");
+  if (
+    hasExactKeys(value, ["status", "reason"]) &&
+    value.status === "unavailable" &&
+    value.reason === "public_route_unconfigured"
+  ) {
+    return { status: "unavailable", reason: "public_route_unconfigured" };
+  }
+  if (
+    !hasExactKeys(value, ["status", "url"]) ||
+    value.status !== "ready" ||
+    typeof value.url !== "string"
+  ) {
+    throw new ReferralApiError("invalid_response");
+  }
+  let url: URL;
+  try {
+    url = new URL(value.url);
+  } catch {
+    throw new ReferralApiError("invalid_response");
+  }
+  if (
+    (url.protocol !== "https:" && url.protocol !== "http:") ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.hash !== "" ||
+    [...url.searchParams.keys()].some((key) => key !== "code") ||
+    url.searchParams.getAll("code").length !== 1 ||
+    !/^[A-Za-z0-9_-]{24}$/.test(url.searchParams.get("code") ?? "")
+  ) {
+    throw new ReferralApiError("invalid_response");
+  }
+  return { status: "ready", url: value.url };
+}
+
 export function parseReferralStateResponse(value: unknown): ReferralStateResponse {
   if (
     !isRecord(value) ||
     !hasExactKeys(value, ["profile", "link", "program"]) ||
-    !isRecord(value.link) ||
-    !hasExactKeys(value.link, ["status", "reason"]) ||
-    value.link.status !== "unavailable" ||
-    value.link.reason !== "public_route_not_integrated" ||
     !isRecord(value.program) ||
     !hasExactKeys(value.program, [
       "tiers",
@@ -148,10 +182,7 @@ export function parseReferralStateResponse(value: unknown): ReferralStateRespons
 
   return {
     profile: parseProfile(value.profile),
-    link: {
-      status: "unavailable",
-      reason: "public_route_not_integrated",
-    },
+    link: parseLink(value.link),
     program: {
       tiers: EXPECTED_TIERS,
       withdrawalThresholdFen: 100_000,
@@ -232,9 +263,8 @@ export function ensureReferralProfile(
   );
 }
 
-/** Financial systems and the public landing route are not integrated in this
- * packet. A successful identity read therefore remains honest pending data and
- * an unavailable (non-copyable) link; it never synthesizes zero balances. */
+/** Financial systems remain unintegrated. Identity and trusted-link readiness
+ * are mapped independently, and no financial zero values are synthesized. */
 export function adaptReferralState(state: ReferralAdapterState): ReferralComponentState {
   if (state.status === "pending") {
     return { data: { status: "pending" }, link: { status: "pending" }, profile: null };
@@ -247,7 +277,10 @@ export function adaptReferralState(state: ReferralAdapterState): ReferralCompone
   }
   return {
     data: { status: "pending" },
-    link: { status: "unavailable" },
+    link:
+      state.response.link.status === "ready"
+        ? { status: "ready", url: state.response.link.url }
+        : { status: "unavailable" },
     profile: state.response.profile,
   };
 }

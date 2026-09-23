@@ -5,10 +5,12 @@ import { buildApp } from "../../src/app.js";
 import type { DatabaseConnection } from "../../src/db.js";
 import type { ReferralHttpDependencies } from "../../src/http/referral-routes.js";
 import { issueCsrfToken } from "../../src/http/csrf.js";
+import type { RateLimitKeyring } from "../../src/http/rate-limit.js";
 import {
   ensureReferralProfile,
   readReferralProfile,
 } from "../../src/referral/profile.js";
+import { createReferralPublicRateLimiter } from "../../src/referral/public-resolution.js";
 import {
   computeSessionTokenHash,
   type TokenHmacKeyring,
@@ -22,6 +24,10 @@ const NOW = new Date("2026-09-22T03:04:05.678Z");
 const TOKEN_KEYRING: TokenHmacKeyring = {
   version: 1,
   keys: { "1": Buffer.alloc(32, 0x21).toString("base64") },
+};
+const RATE_LIMIT_KEYRING: RateLimitKeyring = {
+  version: 1,
+  keys: { "1": Buffer.alloc(32, 0x31).toString("base64") },
 };
 const CSRF_SIGNING_KEY = Buffer.alloc(32, 0x41);
 const ORIGIN = "http://localhost:5173";
@@ -77,7 +83,9 @@ function referralDependencies(
     database,
     nodeEnv: "test",
     tokenHmacKeyring: TOKEN_KEYRING,
+    rateLimitKeyring: RATE_LIMIT_KEYRING,
     csrfSigningKey: CSRF_SIGNING_KEY,
+    publicLink: { enabled: false },
     now: () => new Date(NOW),
     randomBytes: byteSource(0x51, 0x52, 0x53, 0x54),
     ...overrides,
@@ -208,7 +216,7 @@ test("GET is authenticated, session-isolated, and performs zero database writes"
       assert.deepEqual(first.json().profile, firstProfile);
       assert.deepEqual(first.json().link, {
         status: "unavailable",
-        reason: "public_route_not_integrated",
+        reason: "public_route_unconfigured",
       });
 
       const second = await app.inject(stateRequest(secondSession.rawToken));
@@ -221,6 +229,173 @@ test("GET is authenticated, session-isolated, and performs zero database writes"
           .all()[0] as { readonly count: number }).count,
         1,
       );
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+test("trusted public configuration issues a ready link without using request host or origin", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const userId = insertAuthenticationUser(database, {
+      email: "trusted-referral@example.test",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const session = insertSession(
+      database,
+      userId,
+      "123e4567-e89b-42d3-a456-426614174004",
+      0x34,
+    );
+    const profile = ensureReferralProfile(database, userId, {
+      now: () => new Date(NOW),
+      randomBytes: byteSource(0x72),
+    });
+    const app = buildApp({
+      referral: referralDependencies(database, {
+        publicLink: {
+          enabled: true,
+          origin: "http://127.0.0.1:41783",
+          path: "/referral.html",
+        },
+      }),
+    });
+
+    try {
+      const response = await app.inject({
+        ...stateRequest(session.rawToken),
+        headers: {
+          cookie: `__Host-web_session=${session.rawToken}`,
+          host: "attacker.example",
+          origin: "https://attacker.example",
+        },
+      });
+      assert.equal(response.statusCode, 200);
+      assert.deepEqual(response.json().link, {
+        status: "ready",
+        url: `http://127.0.0.1:41783/referral.html?code=${profile.publicCode}`,
+      });
+      assert.equal(response.body.includes("attacker.example"), false);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+test("public resolution is read-only, non-enumerating beyond validity, and returns no PII", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const email = "public-resolution@example.test";
+    const userId = insertAuthenticationUser(database, {
+      email,
+      passwordHash: "hash",
+      status: "active",
+    });
+    const profile = ensureReferralProfile(database, userId, {
+      now: () => new Date(NOW),
+      randomBytes: byteSource(0x73),
+    });
+    database.prepare("UPDATE users SET status = 'disabled' WHERE id = ?").run(userId);
+    const app = buildApp({ referral: referralDependencies(database) });
+
+    try {
+      const before = totalChanges(database);
+      const valid = await app.inject({
+        method: "GET",
+        url: `/api/public/referral?code=${profile.publicCode}`,
+        headers: {
+          host: "attacker.example",
+          origin: "https://attacker.example",
+        },
+      });
+      assert.equal(valid.statusCode, 200);
+      assert.equal(valid.headers["cache-control"], "no-store");
+      assert.deepEqual(valid.json(), { valid: true });
+      assert.equal(valid.headers.location, undefined);
+      assert.equal(valid.headers["set-cookie"], undefined);
+      assert.equal(valid.body.includes(email), false);
+      assert.equal(valid.body.includes(profile.publicCode), false);
+      assert.equal(valid.body.includes(NOW.toISOString()), false);
+
+      const invalidRequests = [
+        "/api/public/referral",
+        "/api/public/referral?code=short",
+        `/api/public/referral?code=${"Z".repeat(24)}`,
+        `/api/public/referral?code=${profile.publicCode}&next=https%3A%2F%2Fattacker.example`,
+        `/api/public/referral?code=${profile.publicCode}&code=${profile.publicCode}`,
+      ];
+      const invalidResponses = await Promise.all(
+        invalidRequests.map((url) =>
+          app.inject({ method: "GET", url, headers: { host: "attacker.example" } }),
+        ),
+      );
+      for (const response of invalidResponses) {
+        assert.equal(response.statusCode, 200);
+        assert.deepEqual(response.json(), { valid: false });
+        assert.equal(response.headers["cache-control"], "no-store");
+        assert.equal(response.headers.location, undefined);
+        assert.equal(response.headers["set-cookie"], undefined);
+      }
+      assert.equal(totalChanges(database), before);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+test("public resolution rate limit is identical for valid and invalid codes and writes no database rows", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const userId = insertAuthenticationUser(database, {
+      email: "public-rate-limit@example.test",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const profile = ensureReferralProfile(database, userId, {
+      now: () => new Date(NOW),
+      randomBytes: byteSource(0x74),
+    });
+    const limiter = createReferralPublicRateLimiter(RATE_LIMIT_KEYRING, {
+      limit: 2,
+      now: () => new Date(NOW),
+    });
+    const app = buildApp({
+      referral: referralDependencies(database, { publicRateLimiter: limiter }),
+    });
+
+    try {
+      const before = totalChanges(database);
+      const headers = { "x-forwarded-for": "192.0.2.10" };
+      assert.equal(
+        (await app.inject({
+          method: "GET",
+          url: `/api/public/referral?code=${profile.publicCode}`,
+          headers,
+        })).statusCode,
+        200,
+      );
+      assert.equal(
+        (await app.inject({
+          method: "GET",
+          url: "/api/public/referral?code=malformed",
+          headers,
+        })).statusCode,
+        200,
+      );
+      const limitedValid = await app.inject({
+        method: "GET",
+        url: `/api/public/referral?code=${profile.publicCode}`,
+        headers,
+      });
+      const limitedInvalid = await app.inject({
+        method: "GET",
+        url: "/api/public/referral?code=malformed",
+        headers,
+      });
+      assert.equal(limitedValid.statusCode, 429);
+      assert.equal(limitedInvalid.statusCode, 429);
+      assert.deepEqual(limitedValid.json(), { error: { code: "rate_limited" } });
+      assert.deepEqual(limitedInvalid.json(), limitedValid.json());
+      assert.equal(totalChanges(database), before);
     } finally {
       await app.close();
     }

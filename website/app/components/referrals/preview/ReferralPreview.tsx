@@ -82,7 +82,7 @@ function apiResponse(issued: boolean): ReferralStateResponse {
       : null,
     link: {
       status: "unavailable",
-      reason: "public_route_not_integrated",
+      reason: "public_route_unconfigured",
     },
     program: API_PROGRAM,
   };

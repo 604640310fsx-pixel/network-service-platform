@@ -309,7 +309,9 @@ async function start(): Promise<void> {
           database,
           nodeEnv: config.nodeEnv,
           tokenHmacKeyring: credentials.tokenHmacKeyring,
+          rateLimitKeyring: credentials.rateLimitKeyring,
           csrfSigningKey: credentials.csrfSigningKey,
+          publicLink: config.referralPublicLink,
         },
         monitor: {
           database,
