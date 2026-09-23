@@ -5,12 +5,17 @@ const REGISTRATION_TOKEN_PATTERN =
 const REFERRAL_PUBLIC_CODE_PATTERN = /^[A-Za-z0-9_-]{24}$/;
 
 export class RegistrationApiError extends Error {
+  readonly code: string;
+  readonly status: number | null;
+
   constructor(
-    readonly code: string,
-    readonly status: number | null = null,
+    code: string,
+    status: number | null = null,
   ) {
     super(code);
     this.name = "RegistrationApiError";
+    this.code = code;
+    this.status = status;
   }
 }
 

@@ -271,11 +271,11 @@ function allFiles(root, relative = "") {
   return entries.sort();
 }
 
-test("release migrations independently pin the exact continuous 001-017 sequence", () => {
-  assert.equal(RELEASE_MIGRATIONS.length, 17);
+test("release migrations independently pin the exact continuous 001-018 sequence", () => {
+  assert.equal(RELEASE_MIGRATIONS.length, 18);
   assert.equal(
     RELEASE_MIGRATIONS.at(-1),
-    "017_referral_profiles.sql",
+    "018_referral_attribution_candidates.sql",
   );
   assert.deepEqual(
     RELEASE_MIGRATIONS.map((migration, index) => {
@@ -286,7 +286,7 @@ test("release migrations independently pin the exact continuous 001-017 sequence
       );
       return version;
     }),
-    Array.from({ length: 17 }, (_, index) => index + 1),
+    Array.from({ length: 18 }, (_, index) => index + 1),
   );
 });
 
@@ -656,7 +656,7 @@ test("two independent assemblies produce one deterministic, complete manifest", 
     assert.deepEqual(manifest.migrations, RELEASE_MIGRATIONS);
     assert.deepEqual(manifest.schemaBoundary, {
       rollback: 16,
-      candidate: 17,
+      candidate: 18,
     });
     for (const relativePath of RELEASE_HTTP_CONTRACT_PATHS) {
       const entry = manifest.inventory.find(
@@ -693,7 +693,7 @@ test("two independent assemblies produce one deterministic, complete manifest", 
   }
 });
 
-test("assembler rejects missing, extra, or wrong Migration 017 inputs", () => {
+test("assembler rejects missing, extra, or wrong Migration 018 inputs", () => {
   const parent = mkdtempSync(join(tmpdir(), "consolidated-release-schema-"));
   const cases = [
     {
@@ -702,7 +702,7 @@ test("assembler rejects missing, extra, or wrong Migration 017 inputs", () => {
         rmSync(
           join(
             root,
-            "auth-service/src/migrations/017_referral_profiles.sql",
+            "auth-service/src/migrations/018_referral_attribution_candidates.sql",
           ),
         );
       },
@@ -712,7 +712,7 @@ test("assembler rejects missing, extra, or wrong Migration 017 inputs", () => {
       mutate(root) {
         writeFixtureFile(
           root,
-          "auth-service/src/migrations/018_unexpected.sql",
+          "auth-service/src/migrations/019_unexpected.sql",
           "-- unexpected migration\n",
         );
       },
@@ -723,12 +723,12 @@ test("assembler rejects missing, extra, or wrong Migration 017 inputs", () => {
         rmSync(
           join(
             root,
-            "auth-service/src/migrations/017_referral_profiles.sql",
+            "auth-service/src/migrations/018_referral_attribution_candidates.sql",
           ),
         );
         writeFixtureFile(
           root,
-          "auth-service/src/migrations/017_wrong.sql",
+          "auth-service/src/migrations/018_wrong.sql",
           "-- wrong migration\n",
         );
       },
@@ -894,7 +894,7 @@ test("bundle validation rejects omitted, replaced, added, or symlinked HTTP cont
   }
 });
 
-test("bundle validation rejects Migration 017 drift and every old 15/16 boundary", () => {
+test("bundle validation rejects Migration 018 drift and old schema boundaries", () => {
   const parent = mkdtempSync(join(tmpdir(), "consolidated-release-bundle-schema-"));
   try {
     const fixture = createFixtureRepository(parent);
@@ -907,7 +907,7 @@ test("bundle validation rejects Migration 017 drift and every old 15/16 boundary
     });
 
     const migrationRelative =
-      "auth-service/src/migrations/017_referral_profiles.sql";
+      "auth-service/src/migrations/018_referral_attribution_candidates.sql";
     const bundleCases = [
       {
         name: "missing",
@@ -920,7 +920,7 @@ test("bundle validation rejects Migration 017 drift and every old 15/16 boundary
         mutate(bundle) {
           writeFixtureFile(
             bundle,
-            "auth-service/src/migrations/018_unexpected.sql",
+            "auth-service/src/migrations/019_unexpected.sql",
             "-- unexpected migration\n",
           );
         },
@@ -931,7 +931,7 @@ test("bundle validation rejects Migration 017 drift and every old 15/16 boundary
           rmSync(join(bundle, migrationRelative));
           writeFixtureFile(
             bundle,
-            "auth-service/src/migrations/017_wrong.sql",
+            "auth-service/src/migrations/018_wrong.sql",
             "-- wrong migration\n",
           );
         },
@@ -953,8 +953,8 @@ test("bundle validation rejects Migration 017 drift and every old 15/16 boundary
     }
 
     for (const [name, schemaBoundary] of [
-      ["wrong-rollback", { rollback: 15, candidate: 17 }],
-      ["wrong-candidate", { rollback: 16, candidate: 16 }],
+      ["wrong-rollback", { rollback: 15, candidate: 18 }],
+      ["wrong-candidate", { rollback: 16, candidate: 17 }],
       ["old-shared-boundary", { rollback: 15, candidate: 16 }],
     ]) {
       const bundle = join(parent, `bundle-${name}`);
@@ -978,26 +978,26 @@ test("bundle validation rejects Migration 017 drift and every old 15/16 boundary
   }
 });
 
-test("runbook and bindings describe rollback 016 and candidate 017 consistently", () => {
+test("runbook and bindings describe rollback 016 and candidate 018 consistently", () => {
   const runbook = readFileSync(RUNBOOK_PATH, "utf8");
   for (const fragment of [
     "PRE_RELEASE_SCHEMA_BOUNDARY: 16",
     "CANDIDATE_SCHEMA_BOUNDARY: 17",
-    "migrations 001-017",
+    "migrations 001-018",
     "continuous prefix 001-016",
     "continuous migrations through 016",
-    "Startup may apply migration 017",
-    "migration prefix 001-017",
-    "Never open the old binary on a database containing migration 017",
+    "Startup may apply migrations 017 and 018",
+    "migration prefix 001-018",
+    "Never open the old binary on a database containing migration 017 or 018",
   ]) {
     assert.equal(runbook.includes(fragment), true, fragment);
   }
 
   const bindings = readFileSync(BINDINGS_PATH, "utf8");
   for (const fragment of [
-    "migrations 001-017 match inventory",
+    "migrations 001-018 match inventory",
     "compatible with continuous migrations 001-016",
-    "loopback health, schema 001-017",
+    "loopback health, schema 001-018",
     SQLITE_BACKUP_SHA256_PROOF,
   ]) {
     assert.equal(bindings.includes(fragment), true, fragment);

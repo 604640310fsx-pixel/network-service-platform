@@ -34,7 +34,7 @@ previous release record or dashboard observation is not current proof.
 | Binding name | Required proof |
 | --- | --- |
 | `CANDIDATE_BUNDLE_MANIFEST_SHA256` | Two independent assemblies have identical manifests; the retained manifest hash and inventory validate. |
-| `CANDIDATE_AUTH_BUNDLE_SHA256` | Compiled auth entrypoint, runtime files, package manifests, and migrations 001-017 match inventory. |
+| `CANDIDATE_AUTH_BUNDLE_SHA256` | Compiled auth entrypoint, runtime files, package manifests, and migrations 001-018 match inventory. |
 | `CANDIDATE_WEBSITE_BUNDLE_SHA256` | Website `dist` and entrypoint match the same candidate inventory. |
 | `AUTH_RUNTIME_DEPENDENCY_PROOF` | Prebuilt dependency layer matches the candidate lockfile, Node version, OS/architecture/libc, and native-module ABI; it is ready before the window and is not stored in the bundle. |
 | `ROLLBACK_AUTH_BUNDLE_SHA256` | Old auth artifact hash matches the old source SHA and accepts the rollback schema boundary. |
@@ -62,9 +62,9 @@ previous release record or dashboard observation is not current proof.
 | Binding name | Required proof |
 | --- | --- |
 | `QUIESCENT_FEATURE_FLAG_PROOF` | Candidate starts with payment, mail dispatch, and registration disabled and monitor origin absent; values are checked without printing them. |
-| `QUIESCENT_HEALTH_PROOF` | Exact candidate, loopback health, schema 001-017, database integrity, static website, manifest, and closed ingress pass without business requests; loopback health is the exact `GET /health` liveness response `200 {"status":"ok"}` and is not traffic readiness. |
+| `QUIESCENT_HEALTH_PROOF` | Exact candidate, loopback health, schema 001-018, database integrity, static website, manifest, and closed ingress pass without business requests; loopback health is the exact `GET /health` liveness response `200 {"status":"ok"}` and is not traffic readiness. |
 | `NORMAL_FEATURE_FLAG_PROOF` | Included/excluded registration, payment, mail, public monitor, and monitor-linked fulfillment capabilities have separate acceptance. |
-| `NORMAL_WORKER_READINESS_PROOF` | Loopback `GET /ready` is the normal aggregate readiness proof: exact `200 {"status":"ready"}` with `Cache-Control: no-store` proves the serving lifecycle phase, the schema 001-017 database probe, and every enabled local payment-expiry or mail-dispatch handle. It performs no provider reachability probe. |
+| `NORMAL_WORKER_READINESS_PROOF` | Loopback `GET /ready` is the normal aggregate readiness proof: exact `200 {"status":"ready"}` with `Cache-Control: no-store` proves the serving lifecycle phase, the schema 001-018 database probe, and every enabled local payment-expiry or mail-dispatch handle. It performs no provider reachability probe. |
 | `HEALTH_OBSERVATION_PROOF` | Exact loopback `GET /health` URL/body, candidate PID, observation interval, and failure threshold are frozen as liveness evidence. |
 | `CREDENTIAL_INJECTION_PROOF` | Credential source, ownership, readability, rotation owner, and non-logging behavior are validated without recording values. |
 
