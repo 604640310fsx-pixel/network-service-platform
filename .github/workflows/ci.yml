@@ -180,12 +180,48 @@ jobs:
             --expected-sha "$EXPECTED_SHA" \
             --bundle "$BUNDLE_PARENT/second" \
             --validation-mode "$VALIDATION_MODE"
+          node scripts/ops/assemble-consolidated-release.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --destination "$BUNDLE_PARENT/direct14-first" \
+            --expected-sha "$EXPECTED_SHA" \
+            --provenance-mode "$PROVENANCE_MODE" \
+            --schema-route direct14-19
+          node scripts/ops/assemble-consolidated-release.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --destination "$BUNDLE_PARENT/direct14-second" \
+            --expected-sha "$EXPECTED_SHA" \
+            --provenance-mode "$PROVENANCE_MODE" \
+            --schema-route direct14-19
+          cmp "$BUNDLE_PARENT/direct14-first/release-manifest.json" \
+            "$BUNDLE_PARENT/direct14-second/release-manifest.json"
+          node scripts/ops/validate-release-open-http-contract.mjs \
+            --source "$BUNDLE_PARENT/direct14-first"
+          node scripts/ops/validate-consolidated-release-packet.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --expected-sha "$EXPECTED_SHA" \
+            --bundle "$BUNDLE_PARENT/direct14-first" \
+            --validation-mode "$VALIDATION_MODE" \
+            --schema-route direct14-19
+          node scripts/ops/validate-consolidated-release-packet.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --expected-sha "$EXPECTED_SHA" \
+            --bundle "$BUNDLE_PARENT/direct14-second" \
+            --validation-mode "$VALIDATION_MODE" \
+            --schema-route direct14-19
           if find "$BUNDLE_PARENT/first" \
             \( -type l -o -name node_modules -o -name '.env*' \
                -o -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
                -o -name '*.pem' -o -name '*.key' \) \
             -print -quit | grep -q .; then
             echo "forbidden release bundle entry detected" >&2
+            exit 1
+          fi
+          if find "$BUNDLE_PARENT/direct14-first" \
+            \( -type l -o -name node_modules -o -name '.env*' \
+               -o -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
+               -o -name '*.pem' -o -name '*.key' \) \
+            -print -quit | grep -q .; then
+            echo "forbidden direct14 release bundle entry detected" >&2
             exit 1
           fi
 
@@ -219,6 +255,36 @@ jobs:
           {
             printf 'Release candidate SHA: `%s`\n' "$EXPECTED_SHA"
             printf 'Artifact name: `consolidated-release-%s`\n' "$EXPECTED_SHA"
+            printf 'Artifact ID: `%s`\n' "$ARTIFACT_ID"
+            printf 'Artifact digest: `sha256:%s`\n' "$ARTIFACT_DIGEST"
+            printf 'Workflow run: `%s`, attempt `%s`\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain exact integration direct14 release candidate
+        id: upload-direct14-release-candidate
+        if: github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && github.sha == env.EXPECTED_SHA
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-release-direct14-${{ env.EXPECTED_SHA }}
+          path: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}/direct14-first/
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Record direct14 candidate artifact proof
+        if: github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && github.sha == env.EXPECTED_SHA
+        env:
+          ARTIFACT_ID: ${{ steps.upload-direct14-release-candidate.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload-direct14-release-candidate.outputs.artifact-digest }}
+          ARTIFACT_URL: ${{ steps.upload-direct14-release-candidate.outputs.artifact-url }}
+        run: |
+          test "$GITHUB_SHA" = "$EXPECTED_SHA"
+          test -n "$ARTIFACT_ID"
+          test -n "$ARTIFACT_URL"
+          printf '%s\n' "$ARTIFACT_DIGEST" | grep -Eq '^[a-f0-9]{64}$'
+          {
+            printf 'Direct14 release candidate SHA: `%s`\n' "$EXPECTED_SHA"
+            printf 'Artifact name: `consolidated-release-direct14-%s`\n' "$EXPECTED_SHA"
             printf 'Artifact ID: `%s`\n' "$ARTIFACT_ID"
             printf 'Artifact digest: `sha256:%s`\n' "$ARTIFACT_DIGEST"
             printf 'Workflow run: `%s`, attempt `%s`\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"

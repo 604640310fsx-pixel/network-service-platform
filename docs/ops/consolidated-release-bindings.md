@@ -57,6 +57,21 @@ previous release record or dashboard observation is not current proof.
 | `POST_SNAPSHOT_WRITE_PROOF` | Closed-ingress continuity and writer observations prove whether any post-snapshot write occurred. |
 | `DATABASE_RESTORE_DEADLINE` | Owner can determine before normal worker startup whether restore eligibility remains open. |
 
+### Additional bindings for the explicit DIRECT14 to 19 route
+
+These proofs are required only when a separately authorized execution packet
+selects `direct14-19`. They do not replace or weaken the default 001-016
+route's proofs above.
+
+| Binding name | Required proof |
+| --- | --- |
+| `DIRECT14_ROUTE_AUTHORIZATION` | Approved execution packet explicitly selects `direct14-19`, its operator, window, rollback owner, restore deadline, and evidence destination. |
+| `DIRECT14_CANDIDATE_ARTIFACT_PROOF` | Exact successful integration-push SHA, live workflow run, retained artifact ID/name `consolidated-release-direct14-<RELEASE_CANDIDATE_SHA>`, GitHub digest, archive bytes, and manifest `schemaRoute` plus boundary 14→19 all agree. |
+| `DIRECT14_OLD_RELEASE_UNIT_PROOF` | Current old Auth and website artifacts, source SHA, service manager, runtime/configuration binding names, ingress topology, and old Auth compatibility with continuous migrations 001-014 form one restorable unit. |
+| `DIRECT14_SCHEMA_AND_IMPACT_PROOF` | Current database has exactly continuous migrations 001-014; fresh read-only counts of pending registration supersession, matching outbox deletion, invite audit redaction, and active invite revocation are approved for the migration 016 effect. |
+| `DIRECT14_SQLITE_SNAPSHOT_PROOF` | After closed ingress and zero writers, a new owner-only snapshot independently verifies mode, bytes, SHA-256, quick check, foreign keys, and continuous boundary 001-014; restore procedure and old release compatibility are proven. |
+| `DIRECT14_RESTORE_ELIGIBILITY_PROOF` | Closed-ingress continuity, zero writers, no post-snapshot business or background write, valid snapshot, and restore deadline are all proven before restoring old Auth, website, runtime bindings, and database together. Otherwise only a separately approved forward fix is eligible. |
+
 ## Runtime modes and workers
 
 | Binding name | Required proof |

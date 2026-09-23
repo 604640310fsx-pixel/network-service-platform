@@ -14,13 +14,16 @@ import { fileURLToPath } from "node:url";
 
 import {
   createReleaseProvenance,
+  releaseArtifactNameForRoute,
+  DEFAULT_RELEASE_SCHEMA_ROUTE,
+  DIRECT14_RELEASE_SCHEMA_ROUTE,
   isForbiddenBundlePath,
-  RELEASE_ARTIFACT_PREFIX,
   RELEASE_BUNDLE_FORMAT,
   RELEASE_INTEGRATION_REF,
   RELEASE_HTTP_CONTRACT_PATHS,
   RELEASE_MIGRATIONS,
   RELEASE_REPOSITORY,
+  RELEASE_SCHEMA_BOUNDARIES,
   RELEASE_WORKFLOW_JOB,
 } from "./assemble-consolidated-release.mjs";
 import { validateTemplateRoot } from "./validate-release-open-http-contract.mjs";
@@ -581,6 +584,16 @@ export function validateRepository({ source, expectedSha }) {
     "consolidated runbook",
   );
   assertFragments(runbook, REQUIRED_RUNBOOK_FRAGMENTS, "consolidated runbook");
+  assertFragments(
+    runbook,
+    [
+      "## Explicit DIRECT14 to 19 route",
+      "--schema-route direct14-19",
+      "consolidated-release-direct14-<RELEASE_CANDIDATE_SHA>",
+      "continuous migrations 001-014",
+    ],
+    "consolidated runbook",
+  );
   assertOrderedFragments(runbook, RELEASE_SEQUENCE, "consolidated runbook");
 
   const bindings = readText(
@@ -594,6 +607,11 @@ export function validateRepository({ source, expectedSha }) {
       "BINDING_VALUES_IN_REPOSITORY: FORBIDDEN",
       "MONITOR_AUTH_PROJECTION_STATUS: CONDITIONAL_BLOCKER",
       "Snapshot mode 0600, bytes, SHA-256, quick check, foreign keys, and boundary 001-016 independently verify.",
+      "DIRECT14_CANDIDATE_ARTIFACT_PROOF",
+      "DIRECT14_OLD_RELEASE_UNIT_PROOF",
+      "DIRECT14_SCHEMA_AND_IMPACT_PROOF",
+      "DIRECT14_SQLITE_SNAPSHOT_PROOF",
+      "DIRECT14_RESTORE_ELIGIBILITY_PROOF",
     ],
     "release bindings",
   );
@@ -638,6 +656,8 @@ export function validateRepository({ source, expectedSha }) {
       '--validation-mode "$VALIDATION_MODE"',
       "actions/upload-artifact@v4",
       "consolidated-release-${{ env.EXPECTED_SHA }}",
+      "consolidated-release-direct14-${{ env.EXPECTED_SHA }}",
+      "--schema-route direct14-19",
       "github.sha == env.EXPECTED_SHA",
       'test "$GITHUB_SHA" = "$EXPECTED_SHA"',
       "artifact-digest",
@@ -726,6 +746,7 @@ function validateProvenance({
   provenance,
   expectedSha,
   validationMode,
+  schemaRoute,
   environment,
 }) {
   const isObject =
@@ -772,7 +793,7 @@ function validateProvenance({
     provenance.eventName === "push" &&
     provenance.ref === RELEASE_INTEGRATION_REF &&
     provenance.githubSha === expectedSha &&
-    provenance.artifactName === `${RELEASE_ARTIFACT_PREFIX}${expectedSha}` &&
+    provenance.artifactName === releaseArtifactNameForRoute(expectedSha, schemaRoute) &&
     typeof provenance.runId === "string" &&
     /^[1-9][0-9]*$/.test(provenance.runId) &&
     typeof provenance.runAttempt === "string" &&
@@ -803,6 +824,7 @@ function validateProvenance({
       expectedProvenance = createReleaseProvenance({
         mode: "github-actions-test",
         expectedSha,
+        schemaRoute,
         environment,
       });
     } catch {
@@ -839,6 +861,7 @@ function validateProvenance({
       expectedProvenance = createReleaseProvenance({
         mode: "github-actions",
         expectedSha,
+        schemaRoute,
         environment,
       });
     } catch {
@@ -1043,17 +1066,29 @@ export function validateBundle({
   bundle,
   expectedSha,
   validationMode,
+  schemaRoute = DEFAULT_RELEASE_SCHEMA_ROUTE,
   githubArtifactId,
   artifactArchive,
   environment = process.env,
 }) {
+  if (!Object.hasOwn(RELEASE_SCHEMA_BOUNDARIES, schemaRoute)) {
+    throw new ReleaseValidationError(
+      "ARGUMENT_ERROR",
+      "--schema-route must be standard16-19 or direct14-19",
+    );
+  }
+  const expectedBoundary = RELEASE_SCHEMA_BOUNDARIES[schemaRoute];
   const bundleRoot = existingDirectory(bundle, "bundle");
   const sha = normalizedExpectedSha(expectedSha);
   const manifest = parsedManifest(bundleRoot);
 
   if (
     Object.keys(manifest).sort().join(",") !==
-      "entrypoints,format,inventory,migrations,provenance,schemaBoundary,sourceSha" ||
+      (schemaRoute === DIRECT14_RELEASE_SCHEMA_ROUTE
+        ? "entrypoints,format,inventory,migrations,provenance,schemaBoundary,schemaRoute,sourceSha"
+        : "entrypoints,format,inventory,migrations,provenance,schemaBoundary,sourceSha") ||
+    (schemaRoute === DIRECT14_RELEASE_SCHEMA_ROUTE &&
+      manifest.schemaRoute !== DIRECT14_RELEASE_SCHEMA_ROUTE) ||
     manifest.format !== RELEASE_BUNDLE_FORMAT ||
     manifest.sourceSha !== sha ||
     typeof manifest.schemaBoundary !== "object" ||
@@ -1061,8 +1096,8 @@ export function validateBundle({
     Array.isArray(manifest.schemaBoundary) ||
     Object.keys(manifest.schemaBoundary).sort().join(",") !==
       "candidate,rollback" ||
-    manifest.schemaBoundary?.rollback !== 16 ||
-    manifest.schemaBoundary?.candidate !== 19 ||
+    manifest.schemaBoundary?.rollback !== expectedBoundary.rollback ||
+    manifest.schemaBoundary?.candidate !== expectedBoundary.candidate ||
     !Array.isArray(manifest.migrations) ||
     manifest.migrations.length !== RELEASE_MIGRATIONS.length ||
     manifest.migrations.some(
@@ -1086,6 +1121,7 @@ export function validateBundle({
     provenance: manifest.provenance,
     expectedSha: sha,
     validationMode,
+    schemaRoute,
     environment,
   });
 
@@ -1234,6 +1270,7 @@ export function run(arguments_) {
         "--validation-mode",
         "--github-artifact-id",
         "--artifact-archive",
+        "--schema-route",
       ].includes(name)
     ) {
       throw new ReleaseValidationError(
@@ -1250,7 +1287,8 @@ export function run(arguments_) {
     if (
       options.has("--validation-mode") ||
       options.has("--github-artifact-id") ||
-      options.has("--artifact-archive")
+      options.has("--artifact-archive") ||
+      options.has("--schema-route")
     ) {
       throw new ReleaseValidationError(
         "ARGUMENT_ERROR",
@@ -1273,6 +1311,7 @@ export function run(arguments_) {
     bundle,
     expectedSha,
     validationMode,
+    schemaRoute: options.get("--schema-route") ?? DEFAULT_RELEASE_SCHEMA_ROUTE,
     githubArtifactId: options.get("--github-artifact-id"),
     artifactArchive: options.get("--artifact-archive"),
   });
