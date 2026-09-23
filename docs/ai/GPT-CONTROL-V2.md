@@ -48,13 +48,13 @@
 
 | 责任 | 当前路由 | 使用条件 |
 | --- | --- | --- |
-| 普通工程 | GPT-6 Sol / high | 边界清晰的正常实施、测试和修复 |
+| 普通工程 | GPT-6 Sol / medium | 边界清晰的正常实施、测试和修复 |
 | 复杂正式工程 | GPT-6 Sol / xhigh / 标准串行 | 复杂后端、Migration、多文件或多模块实施、难 Bug 或完整测试闭环 |
-| 低风险机械工程 | GPT-6 Luna / medium，必要时 high | 仅局部、可回滚、低冲突、可独立验收的机械任务；关键安全、数据或生产裁决仍回管理链 |
+| 低风险机械工程 | GPT-6 Luna / medium；必要时 max | 仅局部、可回滚、低冲突、可独立验收的机械任务；max 须由当前 Packet 针对具体需要明确选择，不自动升级所有 Luna 任务；关键安全、数据或生产裁决仍回管理链 |
 | Codex Ultra | 当前 Packet 明确选择的 Ultra workflow | 仅 T4、至少两个独立可验收且无共享写入的子任务，最后串行整合；不用于单链路、Auth/Session、同一 Migration/事务、生产、交易或 Git 收尾 |
 | Claude Design | 当前 Packet 明确选择的 Claude 模型/effort | 探索性新视觉方向、视觉母版和未冻结关键交互；输出默认是 `PROPOSAL` |
 | Claude Sonnet | 当前 Packet 明确选择的已验证候选 | 边界清楚的普通内容、分析或工程任务 |
-| Claude Opus | Opus 5.5；派发前按实际环境验证精确模型 ID、effort 和可用性 | 复杂 UI、创意、RCA 或复杂实施；保留 Claude Design 的探索自由度 |
+| Claude Opus | Opus 5.5 / medium；派发前按实际环境验证精确模型 ID、effort 和可用性 | 复杂 UI、创意、RCA 或复杂实施；保留 Claude Design 的探索自由度 |
 | Claude Fable | 当前 Packet 明确批准的已验证候选 | 仅有证据证明异常困难或长链路任务确有需要，并明确范围、预算和可用性 |
 | 执行任务使用 Astra | 默认排除 | 只有精确 Task Packet 明确批准才可使用；不得因排名或任务困难自动加入 |
 
