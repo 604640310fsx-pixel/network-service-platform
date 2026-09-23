@@ -57,12 +57,12 @@
 | Claude Design | 当前 Packet 明确选择的 Claude 模型/effort | 探索性新视觉方向、视觉母版和未冻结关键交互；输出默认是 `PROPOSAL` |
 | Claude Sonnet | Sonnet 5 / high | 快速的普通 Claude 任务 |
 | Claude Opus | Opus 5.5，CLI/model ID `claude-opus-5-5`；默认 medium；复杂工程和关键 UI 使用 xhigh；架构探索按当前 Packet 显式选择 high 或 xhigh | 复杂 UI、创意、RCA 或复杂实施；保留 Claude Design 的探索自由度 |
-| Claude Fable | 当前 Packet 明确批准的已验证候选 | 仅有证据证明异常困难或长链路任务确有需要，并明确范围、预算和可用性 |
+| Claude Fable | Fable 5.1；精确模型 ID 与 effort 由当前 Packet 明确批准，并在派发前按目标环境核实可用性 | 仅在有证据证明异常困难或长链路任务确有需要时使用；由当前 Packet 按需授权，并明确范围与预算 |
 | Astra 执行任务 | 仅按本表的 specialist transfer 路径 | 其他执行任务默认排除；不得因排名、一般任务困难或单次失败自动加入 |
 
 Claude Design、Claude Code 与 Codex 的 handoff 由剩余责任和证据决定，不机械交替、不重复已经验收的工作。关键视觉需要探索时走 Claude Design；冻结后普通接线、测试和机械修复通常走 Codex。任何推荐都不是已经切换；未知可用性不允许静默降级或替换。更新本文件只更新路由政策，不会自动修改项目设置或切换任何已运行任务的模型。
 
-**用户报告的环境观察（2026-09-23，未由本任务独立验证）：** 用户报告 `claude --model claude-opus-5-5` 可用、effort `low`/`medium`/`high`/`xhigh`/`max` 均可用，context 为 1M；Claude Code 需 `>=2.1.280`，官方签名桌面版 `2.7032.0` 内嵌 `2.1.280`。这些观察不是本任务对目标环境的验证；无需安装或逐档探测。若未来目标环境不支持所需能力，只报告受影响的调用，不自行升级或回退到旧 Opus。Fable 5 与 Haiku 4.5 的既有路由保持不变；本次不为它们新增精确 ID 或职责。
+**用户报告的环境观察（2026-09-23，未由本任务独立验证）：** 用户报告 `claude --model claude-opus-5-5` 可用、effort `low`/`medium`/`high`/`xhigh`/`max` 均可用，context 为 1M；Claude Code 需 `>=2.1.280`，官方签名桌面版 `2.7032.0` 内嵌 `2.1.280`。这些观察不是本任务对目标环境的验证；无需安装或逐档探测。若未来目标环境不支持所需能力，只报告受影响的调用，不自行升级或回退到旧 Opus。Fable 5.1 与 Haiku 4.5 的既有路由保持不变；本次不为它们新增精确模型 ID 或 effort。
 
 ## 3. 目标、事实和裁决
 
