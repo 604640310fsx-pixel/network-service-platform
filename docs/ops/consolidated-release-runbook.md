@@ -255,6 +255,28 @@ The rendered CSP must also omit that directive, and the complete CSP text must
 remain equal across the before and candidate contexts. An empty or malformed
 `connect-src` directive is invalid; canonical and ordinary dual-direct modes
 still require a nonempty `cspConnectSources` list.
+Preserve-existing also permits an unchanged CSP containing only `frame-src`;
+missing directives must be represented by empty expected allowlists, and every
+present directive must remain unique, nonempty, and free of forbidden sources.
+The complete CSP and its declared scope must match before and after. This
+preservation does not establish policy adequacy, so the result reports
+`securityPolicyAdequacy: UNVERIFIED`. Ordinary modes still require all eleven
+CSP directives.
+In the same preserve-existing mode, compression and Vary declarations may
+remain in their existing inherited scope. The validator compares the complete
+before and candidate contexts, including target compression, Vary, and include
+placement; a new declaration or changed scope fails validation. It reports
+`effectiveInheritedCompressionPolicy: UNVERIFIED` because configuration text
+alone cannot establish effective inheritance or the HTTP response. Canonical
+and ordinary dual-direct modes retain the explicit HTTPS compression check.
+For preserve-existing rendering, remove the two marked blocks in the
+dual-direct template for direct MIME mapping/default type and the three new
+security headers. Keep the bound target TLS include and existing security
+headers exactly as they were. The validator compares target and inherited
+MIME directives, includes, and protected headers before and after, and reports
+`effectiveInheritedMimePolicy: UNVERIFIED`; configuration text does not prove
+the effective MIME mapping or response headers. Ordinary modes retain their
+required direct MIME mapping and security headers.
 `effectiveInheritedSecurityPolicy: UNVERIFIED` remains in a successful result:
 parsing two supplied configurations cannot prove the active include bytes,
 Nginx header inheritance, or effective browser responses. The operator must

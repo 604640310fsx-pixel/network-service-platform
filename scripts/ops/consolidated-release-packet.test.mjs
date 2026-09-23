@@ -584,6 +584,159 @@ test("preserve-existing keeps an explicitly absent connect-src without weakening
   }), "OPEN_SECURITY_INVALID");
 });
 
+test("preserve-existing keeps inherited compression and Vary in their original scope", () => {
+  const sources = contractSources();
+  const synthetic = createSanitizedSyntheticRender();
+  const csp = synthetic.expected.cspPolicy.replace("connect-src 'self'; ", "");
+  const replacements = {
+    ...synthetic.replacements,
+    [OPEN_HTTP_PLACEHOLDERS.cspPolicy]: `"${csp}"`,
+    [OPEN_HTTP_PLACEHOLDERS.framingDirective]: "# OPEN_FRAMING_POLICY: preserve-existing",
+    [OPEN_HTTP_PLACEHOLDERS.hstsDirective]: "# OPEN_HSTS_OWNER: preserve-existing",
+    [OPEN_HTTP_PLACEHOLDERS.compressionDirectives]: "# OPEN_COMPRESSION_OWNER: preserve-existing",
+  };
+  const openConfig = replaceTokens(sources.dualTemplate, replacements);
+  const otherServer = "server { listen 8080; server_name unrelated.example.invalid; return 204; }";
+  const context = (target) => `http {\n gzip on;\n gzip_vary on;\n ${target}\n ${otherServer}\n}`;
+  const input = {
+    openConfig,
+    closedCandidate: sources.closedCandidate,
+    expected: {
+      ...synthetic.expected,
+      cspPolicy: csp,
+      cspConnectSources: [],
+      framingPolicy: "preserve-existing",
+      hstsOwner: "preserve-existing",
+      hstsValue: "preserve-existing",
+      compressionOwner: "preserve-existing",
+    },
+    mode: "dual-direct",
+    existingContext: context(openConfig),
+    candidateContext: context(openConfig),
+  };
+  assert.equal(validateRenderedSources(input).effectiveInheritedCompressionPolicy, "UNVERIFIED");
+  const withGzip = openConfig.replace("    location = /api {", "    gzip on;\n    location = /api {");
+  expectContractFailure(() => validateRenderedSources({
+    ...input,
+    openConfig: withGzip,
+    candidateContext: context(withGzip),
+  }), "PRESERVED_COMPRESSION_DRIFT");
+  const withVary = openConfig.replace("    location = /api {", '    add_header Vary "Accept-Encoding" always;\n    location = /api {');
+  expectContractFailure(() => validateRenderedSources({
+    ...input,
+    openConfig: withVary,
+    candidateContext: context(withVary),
+  }), "PRESERVED_COMPRESSION_DRIFT");
+  expectContractFailure(() => validateRenderedSources({
+    ...input,
+    candidateContext: input.candidateContext.replace("gzip on;", "gzip off;"),
+  }), "PRESERVED_CONTEXT_DRIFT");
+  const ordinaryWithoutCompression = replaceTokens(sources.dualTemplate, {
+    ...synthetic.replacements,
+    [OPEN_HTTP_PLACEHOLDERS.compressionDirectives]: "# OPEN_COMPRESSION_OWNER: canonical-https",
+  });
+  expectContractFailure(() => validateRenderedSources({
+    openConfig: ordinaryWithoutCompression,
+    closedCandidate: sources.closedCandidate,
+    expected: synthetic.expected,
+    mode: "dual-direct",
+  }), "OPEN_COMPRESSION_INVALID");
+});
+
+test("preserve-existing keeps MIME and security headers in their bound scope", () => {
+  const sources = contractSources();
+  const synthetic = createSanitizedSyntheticRender();
+  const csp = "frame-src 'none'";
+  const withPreserveBlocks = replaceTokens(sources.dualTemplate, {
+    ...synthetic.replacements,
+    [OPEN_HTTP_PLACEHOLDERS.tlsDirectives]:
+      synthetic.replacements[OPEN_HTTP_PLACEHOLDERS.tlsDirectives] + "\n    include /synthetic/tls.conf;",
+    [OPEN_HTTP_PLACEHOLDERS.cspPolicy]: `"${csp}"`,
+    [OPEN_HTTP_PLACEHOLDERS.framingDirective]: "# OPEN_FRAMING_POLICY: preserve-existing",
+    [OPEN_HTTP_PLACEHOLDERS.hstsDirective]: "# OPEN_HSTS_OWNER: preserve-existing",
+    [OPEN_HTTP_PLACEHOLDERS.compressionDirectives]: "# OPEN_COMPRESSION_OWNER: preserve-existing",
+  });
+  const omitBlock = (source, name) => source.replace(
+    new RegExp(`^    # OPEN_PRESERVE_${name}_BEGIN:[^\\n]*\\n[\\s\\S]*?^    # OPEN_PRESERVE_${name}_END\\n`, "m"),
+    "",
+  );
+  const openConfig = omitBlock(omitBlock(withPreserveBlocks, "MIME"), "SECURITY_HEADERS");
+  assert.doesNotMatch(openConfig, /OPEN_PRESERVE_(?:MIME|SECURITY_HEADERS)_BEGIN/);
+  const context = (target) => `http {\n include mime.types;\n default_type text/plain;\n ${target}\n}`;
+  const input = {
+    openConfig,
+    closedCandidate: sources.closedCandidate,
+    expected: {
+      ...synthetic.expected,
+      cspPolicy: csp,
+      cspConnectSources: [],
+      framingPolicy: "preserve-existing",
+      hstsOwner: "preserve-existing",
+      hstsValue: "preserve-existing",
+      compressionOwner: "preserve-existing",
+    },
+    mode: "dual-direct",
+    existingContext: context(openConfig),
+    candidateContext: context(openConfig),
+  };
+  const preserved = validateRenderedSources(input);
+  assert.equal(preserved.effectiveInheritedMimePolicy, "UNVERIFIED");
+  assert.equal(preserved.securityPolicyAdequacy, "UNVERIFIED");
+  for (const [directive, failure] of [
+    ["include mime.types;", "PRESERVED_SECURITY_DRIFT"],
+    ["default_type application/octet-stream;", "PRESERVED_MIME_DRIFT"],
+    ['add_header X-Content-Type-Options "nosniff" always;', "PRESERVED_SECURITY_DRIFT"],
+  ]) {
+    const changed = openConfig.replace("    location = /api {", `    ${directive}\n    location = /api {`);
+    expectContractFailure(() => validateRenderedSources({
+      ...input,
+      openConfig: changed,
+      candidateContext: context(changed),
+    }), failure);
+  }
+  expectContractFailure(() => validateRenderedSources({
+    ...input,
+    candidateContext: input.candidateContext.replace("default_type text/plain;", "default_type application/octet-stream;"),
+  }), "PRESERVED_CONTEXT_DRIFT");
+  const changeCsp = (policy) => openConfig.replace(csp, policy);
+  for (const [policy, frameSources] of [
+    ["frame-src 'self'", ["'self'"]],
+    ["default-src 'self'; frame-src 'none'", ["'none'"]],
+    ["default-src 'self'", []],
+  ]) {
+    const changed = changeCsp(policy);
+    expectContractFailure(() => validateRenderedSources({
+      ...input,
+      openConfig: changed,
+      candidateContext: context(changed),
+      expected: { ...input.expected, cspPolicy: policy, cspFrameSources: frameSources },
+    }), "PRESERVED_SECURITY_DRIFT");
+  }
+  expectContractFailure(() => validateRenderedSources({
+    ...input,
+    expected: { ...input.expected, cspFrameSources: [] },
+  }), "RENDERED_METADATA_MISMATCH");
+  for (const policy of ["frame-src;", "frame-src *", "Frame-Src 'none'"]) {
+    const changed = changeCsp(policy);
+    expectContractFailure(() => validateRenderedSources({
+      ...input,
+      openConfig: changed,
+      candidateContext: context(changed),
+      expected: { ...input.expected, cspPolicy: policy },
+    }), "OPEN_SECURITY_INVALID");
+  }
+  const ordinary = replaceTokens(sources.dualTemplate, {
+    ...synthetic.replacements,
+    [OPEN_HTTP_PLACEHOLDERS.cspPolicy]: `"${csp}"`,
+  });
+  expectContractFailure(() => validateRenderedSources({
+    openConfig: ordinary,
+    closedCandidate: sources.closedCandidate,
+    expected: { ...synthetic.expected, cspPolicy: csp },
+    mode: "dual-direct",
+  }), "OPEN_SECURITY_INVALID");
+});
+
 test("preserve-existing rejects changed security, TLS, non-target, or inherited context", () => {
   const sources = contractSources();
   const synthetic = createSanitizedSyntheticRender();

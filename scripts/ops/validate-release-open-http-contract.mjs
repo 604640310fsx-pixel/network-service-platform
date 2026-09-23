@@ -458,18 +458,22 @@ function parseCsp(policy, preserveExisting = false) {
     const fields = part.trim().split(/\s+/).filter(Boolean);
     if (fields.length === 0) continue;
     const [name, ...sources] = fields;
-    if (preserveExisting && name.toLowerCase() === "connect-src" && name !== "connect-src") {
-      fail("OPEN_SECURITY_INVALID", "CSP connect-src directive must use its canonical name");
+    if (preserveExisting && ["connect-src", "frame-src"].includes(name.toLowerCase()) && name !== name.toLowerCase()) {
+      fail("OPEN_SECURITY_INVALID", "CSP allowlist directive must use its canonical name");
     }
     if (directives.has(name) || sources.length === 0) {
       fail("OPEN_SECURITY_INVALID", "CSP directives must be unique and nonempty");
     }
     directives.set(name, sources);
   }
-  for (const name of REQUIRED_CSP_DIRECTIVES) {
-    if (preserveExisting && name === "connect-src") continue;
-    if (!directives.has(name)) {
-      fail("OPEN_SECURITY_INVALID", "CSP is missing a required directive");
+  if (directives.size === 0) {
+    fail("OPEN_SECURITY_INVALID", "CSP must contain a directive");
+  }
+  if (!preserveExisting) {
+    for (const name of REQUIRED_CSP_DIRECTIVES) {
+      if (!directives.has(name)) {
+        fail("OPEN_SECURITY_INVALID", "CSP is missing a required directive");
+      }
     }
   }
   for (const sources of directives.values()) {
@@ -484,7 +488,7 @@ function parseCsp(policy, preserveExisting = false) {
   if (
     directives
       .get("script-src")
-      .some((source) => source.toLowerCase().startsWith("data:"))
+      ?.some((source) => source.toLowerCase().startsWith("data:"))
   ) {
     fail("OPEN_SECURITY_INVALID", "script-src must not allow data sources");
   }
@@ -499,48 +503,51 @@ function equalStringArrays(actual, expected) {
 }
 
 function validateSecurity(server, expected, preserveExisting = false) {
-  requireSingleDirective(
-    server,
-    "include",
-    ["mime.types"],
-    "OPEN_SECURITY_INVALID",
-    "production MIME mapping is missing",
-  );
-  requireSingleDirective(
-    server,
-    "default_type",
-    ["application/octet-stream"],
-    "OPEN_SECURITY_INVALID",
-    "safe default MIME type is missing",
-  );
-  if (header(server, "X-Content-Type-Options", "OPEN_SECURITY_INVALID") !== "nosniff") {
-    fail("OPEN_SECURITY_INVALID", "nosniff policy is not exact");
-  }
-  if (
-    header(server, "Referrer-Policy", "OPEN_SECURITY_INVALID") !==
-    "strict-origin-when-cross-origin"
-  ) {
-    fail("OPEN_SECURITY_INVALID", "referrer policy is not exact");
-  }
-  if (
-    header(server, "Permissions-Policy", "OPEN_SECURITY_INVALID") !==
-    "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
-  ) {
-    fail("OPEN_SECURITY_INVALID", "permissions policy is not exact");
+  if (!preserveExisting) {
+    requireSingleDirective(
+      server,
+      "include",
+      ["mime.types"],
+      "OPEN_SECURITY_INVALID",
+      "production MIME mapping is missing",
+    );
+    requireSingleDirective(
+      server,
+      "default_type",
+      ["application/octet-stream"],
+      "OPEN_SECURITY_INVALID",
+      "safe default MIME type is missing",
+    );
+    if (header(server, "X-Content-Type-Options", "OPEN_SECURITY_INVALID") !== "nosniff") {
+      fail("OPEN_SECURITY_INVALID", "nosniff policy is not exact");
+    }
+    if (
+      header(server, "Referrer-Policy", "OPEN_SECURITY_INVALID") !==
+      "strict-origin-when-cross-origin"
+    ) {
+      fail("OPEN_SECURITY_INVALID", "referrer policy is not exact");
+    }
+    if (
+      header(server, "Permissions-Policy", "OPEN_SECURITY_INVALID") !==
+      "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    ) {
+      fail("OPEN_SECURITY_INVALID", "permissions policy is not exact");
+    }
   }
   const csp = header(server, "Content-Security-Policy", "OPEN_SECURITY_INVALID");
   if (csp !== expected.cspPolicy) {
     fail("RENDERED_METADATA_MISMATCH", "rendered CSP does not match expected metadata");
   }
   const directives = parseCsp(csp, preserveExisting);
-  const connectSources = directives.get("connect-src");
-  const connectMatches = preserveExisting && expected.cspConnectSources.length === 0
-    ? connectSources === undefined
-    : connectSources !== undefined &&
-      equalStringArrays(connectSources, expected.cspConnectSources);
+  const allowlistMatches = (name, expectedSources) => {
+    const actualSources = directives.get(name);
+    return preserveExisting && expectedSources.length === 0
+      ? actualSources === undefined
+      : actualSources !== undefined && equalStringArrays(actualSources, expectedSources);
+  };
   if (
-    !connectMatches ||
-    !equalStringArrays(directives.get("frame-src"), expected.cspFrameSources)
+    !allowlistMatches("connect-src", expected.cspConnectSources) ||
+    !allowlistMatches("frame-src", expected.cspFrameSources)
   ) {
     fail(
       "RENDERED_METADATA_MISMATCH",
@@ -762,7 +769,34 @@ function compressionNodes(nodes) {
   );
 }
 
-function validateCompression(canonicalHttps, otherServers) {
+function validateCompression(canonicalHttps, otherServers, preservedPairs = null) {
+  if (preservedPairs !== null) {
+    const scoped = (server) => {
+      const entries = [];
+      const visit = (children, scope) => {
+        for (const node of children) {
+          const args = argsOf(node);
+          if (
+            /^(?:gzip|brotli|zstd|gunzip)(?:_|$)/.test(node.name) ||
+            node.name === "include" ||
+            (node.name === "add_header" && (args[0] ?? "").toLowerCase() === "vary") ||
+            (node.name === "proxy_set_header" && (args[0] ?? "").toLowerCase() === "accept-encoding")
+          ) {
+            entries.push([scope, node.name, args]);
+          }
+          if (node.children !== null) visit(node.children, [...scope, node.name, ...args]);
+        }
+      };
+      visit(server.children ?? [], []);
+      return entries;
+    };
+    for (const [before, after] of preservedPairs) {
+      if (JSON.stringify(scoped(before)) !== JSON.stringify(scoped(after))) {
+        fail("PRESERVED_COMPRESSION_DRIFT", "target compression, Vary, or include scope changed");
+      }
+    }
+    return;
+  }
   const owned = compressionNodes(canonicalHttps.children ?? []);
   const active = owned.filter(
     (node) =>
@@ -880,7 +914,7 @@ function validateExpectedMetadata(expected, mode) {
   for (const name of ["cspConnectSources", "cspFrameSources"]) {
     if (
       !Array.isArray(expected[name]) ||
-      (expected[name].length === 0 && !(preserveExisting && mode === "dual-direct" && name === "cspConnectSources")) ||
+      (expected[name].length === 0 && !(preserveExisting && mode === "dual-direct")) ||
       expected[name].some(
         (value) =>
           typeof value !== "string" ||
@@ -998,7 +1032,7 @@ function validatePreservedContext({ existingContext, candidateContext, expected,
     const entries = [];
     const visit = (children, scope) => {
       for (const entry of children) {
-        if (predicate(entry)) entries.push([scope, entry.name, argsOf(entry)]);
+        if (predicate(entry, scope)) entries.push([scope, entry.name, argsOf(entry)]);
         if (entry.children !== null) {
           visit(entry.children, [...scope, entry.name, ...argsOf(entry)]);
         }
@@ -1032,12 +1066,18 @@ function validatePreservedContext({ existingContext, candidateContext, expected,
         JSON.stringify(scopedDirectives(newServer, (entry) => entry.name === "include"))) {
       fail("PRESERVED_SECURITY_DRIFT", "target security headers or includes changed");
     }
+    const mime = (node) => scopedDirectives(node, (entry, scope) =>
+      ["include", "default_type", "types", "charset"].includes(entry.name) || scope.includes("types"));
+    if (JSON.stringify(mime(oldServer)) !== JSON.stringify(mime(newServer))) {
+      fail("PRESERVED_MIME_DRIFT", "target MIME declarations or include scope changed");
+    }
   }
   const tlsDirectives = (node) => scopedDirectives(node, (entry) => entry.name.startsWith("ssl_"));
   if (JSON.stringify(tlsDirectives(https(oldTargets))) !==
     JSON.stringify(tlsDirectives(https(newTargets)))) {
     fail("PRESERVED_SECURITY_DRIFT", "target TLS references changed");
   }
+  return [80, 443].map((port) => [byPort(oldTargets, port), byPort(newTargets, port)]);
 }
 
 export function validateRenderedSources({
@@ -1214,17 +1254,25 @@ export function validateRenderedSources({
   );
 
   validateRouting(openHttps, expected);
-  validateCompression(openHttps, mode === "dual-direct" ? [openHttp] : [openHttp, bareHttp, bareHttps]);
+  if (!preserveExisting) {
+    validateCompression(openHttps, mode === "dual-direct" ? [openHttp] : [openHttp, bareHttp, bareHttps]);
+  }
   validateClosedCandidate(closedCandidate);
   if (preserveExisting) {
-    validatePreservedContext({ existingContext, candidateContext, expected, openServers });
+    const preservedPairs = validatePreservedContext({ existingContext, candidateContext, expected, openServers });
+    validateCompression(openHttps, [openHttp], preservedPairs);
   }
 
   return Object.freeze({
     status: "ok",
     mode: "rendered",
     topology: mode === "dual-direct" ? "open-dual-direct" : "open-canonical-plus-bare",
-    ...(preserveExisting ? { effectiveInheritedSecurityPolicy: "UNVERIFIED" } : {}),
+    ...(preserveExisting ? {
+      effectiveInheritedSecurityPolicy: "UNVERIFIED",
+      effectiveInheritedCompressionPolicy: "UNVERIFIED",
+      effectiveInheritedMimePolicy: "UNVERIFIED",
+      securityPolicyAdequacy: "UNVERIFIED",
+    } : {}),
   });
 }
 

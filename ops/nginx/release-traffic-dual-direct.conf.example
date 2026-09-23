@@ -22,14 +22,18 @@ server {
     index index.html;
     autoindex off;
 
+    # OPEN_PRESERVE_MIME_BEGIN: omit this block only when preserving the bound MIME scope.
     include mime.types;
     default_type application/octet-stream;
+    # OPEN_PRESERVE_MIME_END
 
     set $open_cache_control "no-cache, no-store, must-revalidate";
     add_header Cache-Control $open_cache_control always;
+    # OPEN_PRESERVE_SECURITY_HEADERS_BEGIN: omit this block only when preserving bound headers.
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
+    # OPEN_PRESERVE_SECURITY_HEADERS_END
     add_header Content-Security-Policy __OPEN_CSP_POLICY__ always;
     __OPEN_X_FRAME_OPTIONS_DIRECTIVE__
     __OPEN_HSTS_DIRECTIVE__
