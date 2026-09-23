@@ -41,7 +41,7 @@ export type ReferralCenterProps = {
 };
 
 export const REFERRAL_CENTER_TITLE = "推荐返佣中心";
-export const REFERRAL_CENTER_DESCRIPTION = "客户首次有效成交后推荐归属永久绑定，有效消费持续返佣";
+export const REFERRAL_CENTER_DESCRIPTION = "推荐来源与客户记录";
 
 export function ReferralCenter({
   data = REFERRAL_DATA_PENDING,
@@ -71,7 +71,7 @@ export function ReferralCenter({
               <h2 id="rfc-share-title">推荐链接</h2>
               {notice === "fixture" ? <span className="rfc-tag">演示链接 · 不可访问</span> : null}
             </div>
-            <p>客户经此链接完成首次有效成交后，推荐归属永久绑定到你。</p>
+            <p>访客可通过此链接进入现有注册流程；推荐注册先记录为待确认候选。</p>
           </div>
           <ShareCard link={link} dataStatus={data.status} clipboard={clipboard} />
         </section>
@@ -90,7 +90,7 @@ export function ReferralCenter({
         <section className="rfc-sec" aria-labelledby="rfc-records-title">
           <div className="rfc-sec-head">
             <div className="rfc-sec-title"><h2 id="rfc-records-title">佣金记录</h2></div>
-            <p>每笔计算可展开查看；客户仅显示脱敏标识。</p>
+            <p>待确认推荐仅显示匿名标识；正式佣金与结算记录尚未接入。</p>
           </div>
           <ReferralRecords data={data} candidates={candidates} onCandidatePageChange={onCandidatePageChange} />
         </section>
@@ -153,7 +153,7 @@ export function ReferralCenter({
 function PageNotice({ variant }: { variant: ReferralCenterNotice }) {
   const text = variant === "fixture"
     ? "本页客户、订单、金额与比例均为合成演示数据，仅用于界面验证。"
-    : "推荐链接、佣金余额与记录尚未接入，页面以“—”或“待接入”占位，不展示任何示例数值。";
+    : "推荐链接与待确认推荐按实际接口展示；佣金余额、明细与结算数据尚未接入，不展示示例数值。";
   return (
     <details className="rfc-demo">
       <summary>
@@ -187,7 +187,7 @@ function EarningsCards({ data, onRetry }: { data: ReferralCenterData; onRetry?: 
   const salesInfo = useInfoToggle(
     "有效月销",
     (snapshot ? `本月指 ${snapshot.month}。` : "") +
-      "有效月销包含首购、续费与加购等有效消费；退款与拒付冲减当月业绩，并触发当月等级与全月佣金重算。",
+      "有效月销数据尚未接入；退款与拒付的具体调整展示待确认。",
   );
   const tierInfo = useInfoToggle("当前等级", NOTE_TIER);
 
@@ -390,8 +390,8 @@ function ShareCard({
         ) : ready ? null : reason}
       </p>
       <p className="rfc-share-meta">
-        <span>单层推荐 · 首次有效成交后<b>永久归属</b></span>
-        <span>邀请码与推广二维码 <b className="is-pending">待接入</b></span>
+        <span>推荐注册仅生成<b>待确认候选</b></span>
+        <span>注册仍需邀请码 · 推广二维码 <b className="is-pending">待接入</b></span>
       </p>
     </div>
   );
@@ -452,7 +452,7 @@ function LevelCard({ data }: { data: ReferralCenterData }) {
       ) : null}
 
       <p className="rfc-level-foot">
-        轨道按四档分段展示，不是等比例坐标；退款与拒付会冲减当月有效月销，可能使当月等级与全月佣金重新核算。最高 50% 的战略推广合作是独立合作，不在本路径内。
+        轨道按四档分段展示，不是等比例坐标；有效月销与佣金数据尚未接入，退款与拒付的调整方式待确认。最高 50% 的战略推广合作是独立合作，不在本路径内。
       </p>
     </div>
   );
@@ -595,15 +595,15 @@ function FaqCard() {
       <details className="rfc-faq">
         <summary>退款或拒付会怎样调整？</summary>
         <div className="rfc-faq-body">
-          <p>退款与拒付会冲减当月有效月销，可能使当月等级与全月佣金重新核算。</p>
-          <p>原始记录<b>保留不删除</b>，差额以独立的调整记录说明；不会只扣退款订单自身的佣金，也不会把已支付历史改写成从未支付。</p>
+          <p>退款与拒付不计入有效消费；具体佣金调整方式待确认。</p>
+          <p>当前没有接入正式佣金与调整记录，不展示推测金额。</p>
         </div>
       </details>
       <details className="rfc-faq">
         <summary>推荐归属怎么算？我能看到客户什么信息？</summary>
         <div className="rfc-faq-body">
-          <p>单层推荐，不设下级团队。客户首次有效成交后，推荐归属<b>永久</b>绑定到你，后续首购、续费、加购等有效消费持续计入。</p>
-          <p>永久的是<b>归属</b>，不是佣金比例。可见信息仅限返佣所需的最小范围：脱敏客户标识、商品、有效计佣金额与状态；不含姓名、手机号、邮箱、真实资源或网络配置。</p>
+          <p>当前仅记录推荐注册候选；正式客户归属与后续计佣规则尚待确认。</p>
+          <p>待确认候选只显示匿名标识、状态与注册时间，不含姓名、手机号、邮箱、真实资源或网络配置。</p>
         </div>
       </details>
       <details className="rfc-faq">

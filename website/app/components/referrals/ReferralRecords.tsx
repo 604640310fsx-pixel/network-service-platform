@@ -160,8 +160,10 @@ function RecordsPanel({ tab, data }: { tab: TabKey; data: ReferralCenterData }) 
   if (data.status === "pending") {
     return (
       <div className="rfc-notice">
-        <h3>记录数据尚未接入</h3>
-        <p>接入后此处显示真实的佣金明细、推荐客户与结算记录；在此之前显示“—”而不是 0。</p>
+        <h3>{tab === "customers" ? "正式客户记录尚未接入" : "正式佣金与结算记录尚未接入"}</h3>
+        <p>{tab === "customers"
+          ? "上方展示待确认推荐候选；正式客户归属仍待确认。"
+          : "正式金额尚未接入，此处显示“—”而不是 0。"}</p>
       </div>
     );
   }
@@ -338,8 +340,7 @@ function calculation(order: ReferralOrder, snapshot: ReferralSnapshot): { code: 
     const adjustment = order.adjustment;
     return {
       code: `${formatYuan(adjustment.original)} − ${formatYuan(adjustment.recalculated)} = ${formatYuan(Math.abs(order.commission))}`,
-      note: `其中退款订单自身佣金 ${formatYuan(adjustment.refundedOwn)}，其余订单因当月等级重算调整 ${formatYuan(adjustment.retiered)}；` +
-        "调整不是只扣退款订单自身佣金，而是按新的当月等级重算全月。",
+      note: "此处为隔离预览的合成调整示例；正式退款调整方式待确认。",
     };
   }
   return {
@@ -413,7 +414,7 @@ function CustomersPanel({ snapshot }: { snapshot: ReferralSnapshot }) {
             <col style={{ width: "17%" }} /><col style={{ width: "13%" }} />
           </colgroup>
           <thead>
-            <tr><th>客户（脱敏）</th><th>归属建立（首次有效成交）</th><th>归属状态</th><th className="is-num">本月有效消费</th><th className="is-num">本月订单数</th></tr>
+            <tr><th>客户（脱敏）</th><th>演示记录时间</th><th>演示状态</th><th className="is-num">本月有效消费</th><th className="is-num">本月订单数</th></tr>
           </thead>
           <tbody>
             {snapshot.customers.map((customer) => (
@@ -422,8 +423,8 @@ function CustomersPanel({ snapshot }: { snapshot: ReferralSnapshot }) {
                   <span className="rfc-cell-main">{customer.id}</span>
                   {customer.hint ? <span className="rfc-cell-sub">{customer.hint}</span> : null}
                 </td>
-                <td data-label="归属建立">{customer.since}</td>
-                <td data-label="归属状态"><span className="rfc-status is-ok">永久归属</span></td>
+                <td data-label="演示记录时间">{customer.since}</td>
+                <td data-label="演示状态"><span className="rfc-status is-ok">合成示例</span></td>
                 <td className="is-num" data-label="本月有效消费">{formatYuan(customer.monthAmount)}</td>
                 <td className="is-num" data-label="本月订单数">{customer.monthOrders}</td>
               </tr>
