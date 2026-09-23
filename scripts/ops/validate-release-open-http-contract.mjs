@@ -762,7 +762,34 @@ function compressionNodes(nodes) {
   );
 }
 
-function validateCompression(canonicalHttps, otherServers) {
+function validateCompression(canonicalHttps, otherServers, preservedPairs = null) {
+  if (preservedPairs !== null) {
+    const scoped = (server) => {
+      const entries = [];
+      const visit = (children, scope) => {
+        for (const node of children) {
+          const args = argsOf(node);
+          if (
+            /^(?:gzip|brotli|zstd|gunzip)(?:_|$)/.test(node.name) ||
+            node.name === "include" ||
+            (node.name === "add_header" && (args[0] ?? "").toLowerCase() === "vary") ||
+            (node.name === "proxy_set_header" && (args[0] ?? "").toLowerCase() === "accept-encoding")
+          ) {
+            entries.push([scope, node.name, args]);
+          }
+          if (node.children !== null) visit(node.children, [...scope, node.name, ...args]);
+        }
+      };
+      visit(server.children ?? [], []);
+      return entries;
+    };
+    for (const [before, after] of preservedPairs) {
+      if (JSON.stringify(scoped(before)) !== JSON.stringify(scoped(after))) {
+        fail("PRESERVED_COMPRESSION_DRIFT", "target compression, Vary, or include scope changed");
+      }
+    }
+    return;
+  }
   const owned = compressionNodes(canonicalHttps.children ?? []);
   const active = owned.filter(
     (node) =>
@@ -1038,6 +1065,7 @@ function validatePreservedContext({ existingContext, candidateContext, expected,
     JSON.stringify(tlsDirectives(https(newTargets)))) {
     fail("PRESERVED_SECURITY_DRIFT", "target TLS references changed");
   }
+  return [80, 443].map((port) => [byPort(oldTargets, port), byPort(newTargets, port)]);
 }
 
 export function validateRenderedSources({
@@ -1214,17 +1242,23 @@ export function validateRenderedSources({
   );
 
   validateRouting(openHttps, expected);
-  validateCompression(openHttps, mode === "dual-direct" ? [openHttp] : [openHttp, bareHttp, bareHttps]);
+  if (!preserveExisting) {
+    validateCompression(openHttps, mode === "dual-direct" ? [openHttp] : [openHttp, bareHttp, bareHttps]);
+  }
   validateClosedCandidate(closedCandidate);
   if (preserveExisting) {
-    validatePreservedContext({ existingContext, candidateContext, expected, openServers });
+    const preservedPairs = validatePreservedContext({ existingContext, candidateContext, expected, openServers });
+    validateCompression(openHttps, [openHttp], preservedPairs);
   }
 
   return Object.freeze({
     status: "ok",
     mode: "rendered",
     topology: mode === "dual-direct" ? "open-dual-direct" : "open-canonical-plus-bare",
-    ...(preserveExisting ? { effectiveInheritedSecurityPolicy: "UNVERIFIED" } : {}),
+    ...(preserveExisting ? {
+      effectiveInheritedSecurityPolicy: "UNVERIFIED",
+      effectiveInheritedCompressionPolicy: "UNVERIFIED",
+    } : {}),
   });
 }
 

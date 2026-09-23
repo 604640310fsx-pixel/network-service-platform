@@ -584,6 +584,65 @@ test("preserve-existing keeps an explicitly absent connect-src without weakening
   }), "OPEN_SECURITY_INVALID");
 });
 
+test("preserve-existing keeps inherited compression and Vary in their original scope", () => {
+  const sources = contractSources();
+  const synthetic = createSanitizedSyntheticRender();
+  const csp = synthetic.expected.cspPolicy.replace("connect-src 'self'; ", "");
+  const replacements = {
+    ...synthetic.replacements,
+    [OPEN_HTTP_PLACEHOLDERS.cspPolicy]: `"${csp}"`,
+    [OPEN_HTTP_PLACEHOLDERS.framingDirective]: "# OPEN_FRAMING_POLICY: preserve-existing",
+    [OPEN_HTTP_PLACEHOLDERS.hstsDirective]: "# OPEN_HSTS_OWNER: preserve-existing",
+    [OPEN_HTTP_PLACEHOLDERS.compressionDirectives]: "# OPEN_COMPRESSION_OWNER: preserve-existing",
+  };
+  const openConfig = replaceTokens(sources.dualTemplate, replacements);
+  const otherServer = "server { listen 8080; server_name unrelated.example.invalid; return 204; }";
+  const context = (target) => `http {\n gzip on;\n gzip_vary on;\n ${target}\n ${otherServer}\n}`;
+  const input = {
+    openConfig,
+    closedCandidate: sources.closedCandidate,
+    expected: {
+      ...synthetic.expected,
+      cspPolicy: csp,
+      cspConnectSources: [],
+      framingPolicy: "preserve-existing",
+      hstsOwner: "preserve-existing",
+      hstsValue: "preserve-existing",
+      compressionOwner: "preserve-existing",
+    },
+    mode: "dual-direct",
+    existingContext: context(openConfig),
+    candidateContext: context(openConfig),
+  };
+  assert.equal(validateRenderedSources(input).effectiveInheritedCompressionPolicy, "UNVERIFIED");
+  const withGzip = openConfig.replace("    location = /api {", "    gzip on;\n    location = /api {");
+  expectContractFailure(() => validateRenderedSources({
+    ...input,
+    openConfig: withGzip,
+    candidateContext: context(withGzip),
+  }), "PRESERVED_COMPRESSION_DRIFT");
+  const withVary = openConfig.replace("    location = /api {", '    add_header Vary "Accept-Encoding" always;\n    location = /api {');
+  expectContractFailure(() => validateRenderedSources({
+    ...input,
+    openConfig: withVary,
+    candidateContext: context(withVary),
+  }), "PRESERVED_COMPRESSION_DRIFT");
+  expectContractFailure(() => validateRenderedSources({
+    ...input,
+    candidateContext: input.candidateContext.replace("gzip on;", "gzip off;"),
+  }), "PRESERVED_CONTEXT_DRIFT");
+  const ordinaryWithoutCompression = replaceTokens(sources.dualTemplate, {
+    ...synthetic.replacements,
+    [OPEN_HTTP_PLACEHOLDERS.compressionDirectives]: "# OPEN_COMPRESSION_OWNER: canonical-https",
+  });
+  expectContractFailure(() => validateRenderedSources({
+    openConfig: ordinaryWithoutCompression,
+    closedCandidate: sources.closedCandidate,
+    expected: synthetic.expected,
+    mode: "dual-direct",
+  }), "OPEN_COMPRESSION_INVALID");
+});
+
 test("preserve-existing rejects changed security, TLS, non-target, or inherited context", () => {
   const sources = contractSources();
   const synthetic = createSanitizedSyntheticRender();

@@ -255,6 +255,13 @@ The rendered CSP must also omit that directive, and the complete CSP text must
 remain equal across the before and candidate contexts. An empty or malformed
 `connect-src` directive is invalid; canonical and ordinary dual-direct modes
 still require a nonempty `cspConnectSources` list.
+In the same preserve-existing mode, compression and Vary declarations may
+remain in their existing inherited scope. The validator compares the complete
+before and candidate contexts, including target compression, Vary, and include
+placement; a new declaration or changed scope fails validation. It reports
+`effectiveInheritedCompressionPolicy: UNVERIFIED` because configuration text
+alone cannot establish effective inheritance or the HTTP response. Canonical
+and ordinary dual-direct modes retain the explicit HTTPS compression check.
 `effectiveInheritedSecurityPolicy: UNVERIFIED` remains in a successful result:
 parsing two supplied configurations cannot prove the active include bytes,
 Nginx header inheritance, or effective browser responses. The operator must
