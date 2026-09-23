@@ -452,18 +452,22 @@ function header(server, name, code) {
   return args[1];
 }
 
-function parseCsp(policy) {
+function parseCsp(policy, preserveExisting = false) {
   const directives = new Map();
   for (const part of policy.split(";")) {
     const fields = part.trim().split(/\s+/).filter(Boolean);
     if (fields.length === 0) continue;
     const [name, ...sources] = fields;
+    if (preserveExisting && name.toLowerCase() === "connect-src" && name !== "connect-src") {
+      fail("OPEN_SECURITY_INVALID", "CSP connect-src directive must use its canonical name");
+    }
     if (directives.has(name) || sources.length === 0) {
       fail("OPEN_SECURITY_INVALID", "CSP directives must be unique and nonempty");
     }
     directives.set(name, sources);
   }
   for (const name of REQUIRED_CSP_DIRECTIVES) {
+    if (preserveExisting && name === "connect-src") continue;
     if (!directives.has(name)) {
       fail("OPEN_SECURITY_INVALID", "CSP is missing a required directive");
     }
@@ -528,12 +532,14 @@ function validateSecurity(server, expected, preserveExisting = false) {
   if (csp !== expected.cspPolicy) {
     fail("RENDERED_METADATA_MISMATCH", "rendered CSP does not match expected metadata");
   }
-  const directives = parseCsp(csp);
+  const directives = parseCsp(csp, preserveExisting);
+  const connectSources = directives.get("connect-src");
+  const connectMatches = preserveExisting && expected.cspConnectSources.length === 0
+    ? connectSources === undefined
+    : connectSources !== undefined &&
+      equalStringArrays(connectSources, expected.cspConnectSources);
   if (
-    !equalStringArrays(
-      directives.get("connect-src"),
-      expected.cspConnectSources,
-    ) ||
+    !connectMatches ||
     !equalStringArrays(directives.get("frame-src"), expected.cspFrameSources)
   ) {
     fail(
@@ -869,10 +875,12 @@ function validateExpectedMetadata(expected, mode) {
   ) {
     fail("ARGUMENT_ERROR", "expected API upstream metadata is invalid");
   }
+  const preserveExisting = [expected.framingPolicy, expected.hstsOwner, expected.hstsValue]
+    .some((value) => value === PRESERVE_EXISTING);
   for (const name of ["cspConnectSources", "cspFrameSources"]) {
     if (
       !Array.isArray(expected[name]) ||
-      expected[name].length === 0 ||
+      (expected[name].length === 0 && !(preserveExisting && mode === "dual-direct" && name === "cspConnectSources")) ||
       expected[name].some(
         (value) =>
           typeof value !== "string" ||
@@ -883,8 +891,6 @@ function validateExpectedMetadata(expected, mode) {
       fail("ARGUMENT_ERROR", "expected CSP allowlist metadata is invalid");
     }
   }
-  const preserveExisting = [expected.framingPolicy, expected.hstsOwner, expected.hstsValue]
-    .some((value) => value === PRESERVE_EXISTING);
   if (preserveExisting) {
     if (
       mode !== "dual-direct" ||

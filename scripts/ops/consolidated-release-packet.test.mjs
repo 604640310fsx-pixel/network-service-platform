@@ -352,6 +352,15 @@ test("dual-direct is opt-in and preserves both hostnames", () => {
     mode: "dual-direct",
   };
   assert.equal(validateRenderedSources(input).topology, "open-dual-direct");
+  const additionalCaseVariant = synthetic.expected.cspPolicy.replace(
+    "frame-src",
+    "Connect-Src 'self'; frame-src",
+  );
+  assert.equal(validateRenderedSources({
+    ...input,
+    openConfig: openConfig.replace(synthetic.expected.cspPolicy, additionalCaseVariant),
+    expected: { ...synthetic.expected, cspPolicy: additionalCaseVariant },
+  }).topology, "open-dual-direct");
   for (const mutated of [
     openConfig.replace("return 301 https://$host$request_uri;", "return 308 https://$host$request_uri;"),
     openConfig.replace("return 301 https://$host$request_uri;", "return 301 https://" + synthetic.expected.canonicalHost + "$request_uri;"),
@@ -459,6 +468,120 @@ test("dual-direct can explicitly preserve absent framing and HSTS declarations w
       "PRESERVED_SECURITY_DRIFT",
     );
   }
+});
+
+test("preserve-existing keeps an explicitly absent connect-src without weakening other modes", () => {
+  const sources = contractSources();
+  const synthetic = createSanitizedSyntheticRender();
+  const withoutConnect = synthetic.expected.cspPolicy.replace("connect-src 'self'; ", "");
+  const render = (csp) => replaceTokens(sources.dualTemplate, {
+    ...synthetic.replacements,
+    [OPEN_HTTP_PLACEHOLDERS.cspPolicy]: `"${csp}"`,
+    [OPEN_HTTP_PLACEHOLDERS.framingDirective]: "# OPEN_FRAMING_POLICY: preserve-existing",
+    [OPEN_HTTP_PLACEHOLDERS.hstsDirective]: "# OPEN_HSTS_OWNER: preserve-existing",
+  });
+  const otherServer = "\nserver { listen 8080; server_name unrelated.example.invalid; return 204; }\n";
+  const absentOpen = render(withoutConnect);
+  const expected = {
+    ...synthetic.expected,
+    cspPolicy: withoutConnect,
+    cspConnectSources: [],
+    framingPolicy: "preserve-existing",
+    hstsOwner: "preserve-existing",
+    hstsValue: "preserve-existing",
+  };
+  const input = {
+    openConfig: absentOpen,
+    closedCandidate: sources.closedCandidate,
+    expected,
+    mode: "dual-direct",
+    existingContext: absentOpen + otherServer,
+    candidateContext: absentOpen + otherServer,
+  };
+  assert.equal(validateRenderedSources(input).effectiveInheritedSecurityPolicy, "UNVERIFIED");
+  const parent = mkdtempSync(join(tmpdir(), "dual-direct-absent-connect-"));
+  try {
+    for (const [name, content] of Object.entries({
+      "open.conf": absentOpen,
+      "closed.conf": sources.closedCandidate,
+      "expected.json": JSON.stringify(expected),
+      "before.conf": input.existingContext,
+      "candidate.conf": input.candidateContext,
+    })) {
+      writeFileSync(join(parent, name), content);
+    }
+    assert.equal(runOpenHttpContract([
+      "--mode", "dual-direct",
+      "--open-config", join(parent, "open.conf"),
+      "--closed-config", join(parent, "closed.conf"),
+      "--expected-metadata", join(parent, "expected.json"),
+      "--existing-context", join(parent, "before.conf"),
+      "--candidate-context", join(parent, "candidate.conf"),
+    ]).effectiveInheritedSecurityPolicy, "UNVERIFIED");
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+
+  const presentOpen = render(synthetic.expected.cspPolicy);
+  expectContractFailure(() => validateRenderedSources({
+    ...input,
+    openConfig: presentOpen,
+    expected: { ...expected, cspPolicy: synthetic.expected.cspPolicy },
+    existingContext: presentOpen + otherServer,
+    candidateContext: presentOpen + otherServer,
+  }), "RENDERED_METADATA_MISMATCH");
+  expectContractFailure(() => validateRenderedSources({
+    ...input,
+    openConfig: presentOpen,
+    expected: {
+      ...expected,
+      cspPolicy: synthetic.expected.cspPolicy,
+      cspConnectSources: ["'self'"],
+    },
+    candidateContext: presentOpen + otherServer,
+  }), "PRESERVED_SECURITY_DRIFT");
+  const changedCsp = synthetic.expected.cspPolicy.replace("connect-src 'self'", "connect-src 'none'");
+  const changedOpen = render(changedCsp);
+  expectContractFailure(() => validateRenderedSources({
+    ...input,
+    openConfig: changedOpen,
+    expected: { ...expected, cspPolicy: changedCsp, cspConnectSources: ["'none'"] },
+    existingContext: presentOpen + otherServer,
+    candidateContext: changedOpen + otherServer,
+  }), "PRESERVED_SECURITY_DRIFT");
+  const malformedCsp = withoutConnect.replace("frame-src", "connect-src; frame-src");
+  const malformedOpen = render(malformedCsp);
+  expectContractFailure(() => validateRenderedSources({
+    ...input,
+    openConfig: malformedOpen,
+    expected: { ...expected, cspPolicy: malformedCsp },
+    existingContext: malformedOpen + otherServer,
+    candidateContext: malformedOpen + otherServer,
+  }), "OPEN_SECURITY_INVALID");
+  const disguisedCsp = withoutConnect.replace("frame-src", "Connect-Src 'self'; frame-src");
+  const disguisedOpen = render(disguisedCsp);
+  expectContractFailure(() => validateRenderedSources({
+    ...input,
+    openConfig: disguisedOpen,
+    expected: { ...expected, cspPolicy: disguisedCsp },
+    existingContext: disguisedOpen + otherServer,
+    candidateContext: disguisedOpen + otherServer,
+  }), "OPEN_SECURITY_INVALID");
+  for (const mode of ["dual-direct", "canonical"]) {
+    expectContractFailure(() => validateRenderedSources({
+      ...input,
+      mode,
+      bareConfig: mode === "canonical" ? presentOpen : undefined,
+      expected: { ...synthetic.expected, cspConnectSources: [] },
+    }), "ARGUMENT_ERROR");
+  }
+  expectContractFailure(() => validateRenderedSources({
+    ...input,
+    openConfig: absentOpen,
+    expected: { ...synthetic.expected, cspPolicy: withoutConnect },
+    existingContext: undefined,
+    candidateContext: undefined,
+  }), "OPEN_SECURITY_INVALID");
 });
 
 test("preserve-existing rejects changed security, TLS, non-target, or inherited context", () => {
