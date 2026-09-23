@@ -1,3 +1,5 @@
+import { createHmac } from "node:crypto";
+
 import type {
   FastifyError,
   FastifyInstance,
@@ -65,6 +67,24 @@ interface ReferralStateBody {
     readonly withdrawn: { readonly status: "not_integrated" };
   };
 }
+
+interface ReferralCandidateCollection {
+  readonly items: readonly {
+    readonly displayId: string;
+    readonly status: "pending";
+    readonly createdAt: string;
+  }[];
+  readonly page: number;
+  readonly hasMore: boolean;
+}
+
+interface ReferralReadBody extends ReferralStateBody {
+  readonly candidates: ReferralCandidateCollection;
+}
+
+const CANDIDATE_PAGE_SIZE = 20;
+const CANDIDATE_MAX_PAGE_SIZE = 50;
+const CANDIDATE_MAX_PAGE = 1000;
 
 export interface ReferralHttpDependencies extends ReferralProfileDependencies {
   readonly database: DatabaseConnection;
@@ -203,6 +223,37 @@ const STATE_RESPONSE_SCHEMA = {
   },
 } as const;
 
+const CANDIDATE_RESPONSE_SCHEMA = {
+  ...STATE_RESPONSE_SCHEMA,
+  required: ["profile", "link", "program", "candidates"],
+  properties: {
+    ...STATE_RESPONSE_SCHEMA.properties,
+    candidates: {
+      type: "object",
+      additionalProperties: false,
+      required: ["items", "page", "hasMore"],
+      properties: {
+        items: {
+          type: "array",
+          maxItems: CANDIDATE_MAX_PAGE_SIZE,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["displayId", "status", "createdAt"],
+            properties: {
+              displayId: { type: "string", pattern: "^R-[A-Za-z0-9_-]{16}$" },
+              status: { type: "string", const: "pending" },
+              createdAt: { type: "string" },
+            },
+          },
+        },
+        page: { type: "integer", minimum: 1, maximum: CANDIDATE_MAX_PAGE },
+        hasMore: { type: "boolean" },
+      },
+    },
+  },
+} as const;
+
 const PUBLIC_RESOLUTION_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -292,6 +343,59 @@ function publicCodeFromQuery(query: unknown): string | null {
   return value.code;
 }
 
+function candidatePagination(query: unknown): { page: number; limit: number } | null {
+  if (typeof query !== "object" || query === null || Array.isArray(query)) return null;
+  const values = query as Record<string, unknown>;
+  if (Object.keys(values).some((key) => key !== "page" && key !== "limit")) return null;
+  const parse = (value: unknown, fallback: number, maximum: number): number | null => {
+    if (value === undefined) return fallback;
+    if (typeof value !== "string" || !/^[1-9][0-9]*$/.test(value)) return null;
+    const number = Number(value);
+    return Number.isSafeInteger(number) && number <= maximum ? number : null;
+  };
+  const page = parse(values.page, 1, CANDIDATE_MAX_PAGE);
+  const limit = parse(values.limit, CANDIDATE_PAGE_SIZE, CANDIDATE_MAX_PAGE_SIZE);
+  return page === null || limit === null ? null : { page, limit };
+}
+
+function readCandidates(
+  dependencies: ReferralHttpDependencies,
+  userId: number,
+  page: number,
+  limit: number,
+): ReferralCandidateCollection {
+  const rows = dependencies.database.prepare(
+    `SELECT candidates.referred_user_id, candidates.source_profile_id,
+            candidates.created_at
+     FROM referral_attribution_candidates AS candidates
+     JOIN referral_profiles AS profiles
+       ON profiles.id = candidates.source_profile_id
+     WHERE profiles.user_id = ? AND candidates.status = 'pending'
+     ORDER BY candidates.created_at DESC, candidates.referred_user_id DESC
+     LIMIT ? OFFSET ?`,
+  ).all(userId, limit + 1, (page - 1) * limit) as Array<{
+    readonly referred_user_id: number;
+    readonly source_profile_id: number;
+    readonly created_at: string;
+  }>;
+  const items = rows.slice(0, limit).map((row) => {
+    if (
+      !Number.isSafeInteger(row.referred_user_id) || row.referred_user_id <= 0 ||
+      !Number.isSafeInteger(row.source_profile_id) || row.source_profile_id <= 0 ||
+      typeof row.created_at !== "string" ||
+      new Date(row.created_at).toISOString() !== row.created_at
+    ) {
+      throw new Error("Referral candidate row is invalid");
+    }
+    const displayId = createHmac("sha256", dependencies.csrfSigningKey)
+      .update(`referral-candidate-display-v1:${row.source_profile_id}:${row.referred_user_id}`)
+      .digest("base64url")
+      .slice(0, 16);
+    return { displayId: `R-${displayId}`, status: "pending" as const, createdAt: row.created_at };
+  });
+  return { items, page, hasMore: rows.length > limit };
+}
+
 function readSession(request: FastifyRequest, dependencies: ReferralHttpDependencies) {
   return readReferralSessionReadOnly(request, dependencies);
 }
@@ -343,13 +447,14 @@ export function registerReferralHttpRoutes(
     },
   );
 
-  app.get<{ Reply: ReferralStateBody | ErrorBody }>(
+  app.get<{ Querystring: Record<string, unknown>; Reply: ReferralReadBody | ErrorBody }>(
     "/api/me/referral",
     {
       onRequest: async (_request, reply) => setNoStore(reply),
       schema: {
         response: {
-          200: STATE_RESPONSE_SCHEMA,
+          200: CANDIDATE_RESPONSE_SCHEMA,
+          400: ERROR_RESPONSE_SCHEMA,
           401: ERROR_RESPONSE_SCHEMA,
           503: ERROR_RESPONSE_SCHEMA,
         },
@@ -361,17 +466,12 @@ export function registerReferralHttpRoutes(
         if (session === null) {
           return reply.code(401).send(errorBody("unauthorized"));
         }
-        return reply
-          .code(200)
-          .send(
-            stateBody(
-              readReferralProfile(
-                dependencies.database,
-                session.userId,
-              ),
-              dependencies.publicLink,
-            ),
-          );
+        const pagination = candidatePagination(request.query);
+        if (pagination === null) return reply.code(400).send(errorBody("invalid_request"));
+        return reply.code(200).send({
+          ...stateBody(readReferralProfile(dependencies.database, session.userId), dependencies.publicLink),
+          candidates: readCandidates(dependencies, session.userId, pagination.page, pagination.limit),
+        });
       } catch {
         return reply.code(503).send(errorBody("referral_unavailable"));
       }

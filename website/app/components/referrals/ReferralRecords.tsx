@@ -8,6 +8,7 @@ import {
   monthFilterModel,
   ordersMonths,
   type ReferralCenterData,
+  type ReferralCandidatesState,
   type ReferralOrder,
   type ReferralOrderStatus,
   type ReferralSnapshot,
@@ -38,7 +39,11 @@ export function nextTabIndex(key: string, index: number, count: number): number 
   return null;
 }
 
-export function ReferralRecords({ data }: { data: ReferralCenterData }) {
+export function ReferralRecords({ data, candidates = { status: "pending" }, onCandidatePageChange }: {
+  data: ReferralCenterData;
+  candidates?: ReferralCandidatesState;
+  onCandidatePageChange?: (page: number) => void;
+}) {
   const baseId = useId();
   const [tab, setTab] = useState<TabKey>("commission");
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -81,10 +86,58 @@ export function ReferralRecords({ data }: { data: ReferralCenterData }) {
           tabIndex={0}
           hidden={tab !== item.key}
         >
-          {tab === item.key ? <RecordsPanel tab={item.key} data={data} /> : null}
+          {tab === item.key ? (
+            <>
+              {item.key === "customers" ? (
+                <CandidatePanel candidates={candidates} onPageChange={onCandidatePageChange} />
+              ) : null}
+              <RecordsPanel tab={item.key} data={data} />
+            </>
+          ) : null}
         </div>
       ))}
     </div>
+  );
+}
+
+function CandidatePanel({ candidates, onPageChange }: {
+  candidates: ReferralCandidatesState;
+  onPageChange?: (page: number) => void;
+}) {
+  return (
+    <section className="rfc-candidates" aria-label="待确认推荐">
+      <h3>待确认推荐</h3>
+      <p className="rfc-privacy">仅表示推荐注册候选，尚未建立正式客户归属，不计入月销、等级、佣金或余额。</p>
+      {candidates.status === "pending" ? <p className="rfc-privacy">候选记录尚未接入。</p> : null}
+      {candidates.status === "loading" ? <p className="rfc-privacy" aria-busy="true">正在读取候选记录…</p> : null}
+      {candidates.status === "error" ? <p className="rfc-privacy" role="alert">候选记录读取失败，请重试。</p> : null}
+      {candidates.status === "ready" && candidates.items.length === 0 ? (
+        <p className="rfc-privacy">暂无待确认推荐。</p>
+      ) : null}
+      {candidates.status === "ready" && candidates.items.length > 0 ? (
+        <div className="rfc-table-wrap">
+          <table className="rfc-table">
+            <thead><tr><th>推荐标识</th><th>状态</th><th>注册时间</th></tr></thead>
+            <tbody>
+              {candidates.items.map((candidate) => (
+                <tr key={candidate.displayId}>
+                  <td data-label="推荐标识">{candidate.displayId}</td>
+                  <td data-label="状态"><span className="rfc-status is-pending">待确认推荐</span></td>
+                  <td data-label="注册时间">{new Date(candidate.createdAt).toLocaleString("zh-CN")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {candidates.status === "ready" && (candidates.page > 1 || candidates.hasMore) ? (
+        <div className="rfc-candidate-pages">
+          <button type="button" className="rfc-mini" disabled={candidates.page === 1} onClick={() => onPageChange?.(candidates.page - 1)}>上一页</button>
+          <span>第 {candidates.page} 页</span>
+          <button type="button" className="rfc-mini" disabled={!candidates.hasMore} onClick={() => onPageChange?.(candidates.page + 1)}>下一页</button>
+        </div>
+      ) : null}
+    </section>
   );
 }
 

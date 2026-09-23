@@ -235,6 +235,82 @@ test("GET is authenticated, session-isolated, and performs zero database writes"
   });
 });
 
+test("pending candidate pages are session-owned, bounded, private, and financially isolated", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const ownerA = insertAuthenticationUser(database, { email: "owner-a@example.test", passwordHash: "hash", status: "active" });
+    const ownerB = insertAuthenticationUser(database, { email: "owner-b@example.test", passwordHash: "hash", status: "active" });
+    const noProfile = insertAuthenticationUser(database, { email: "no-profile@example.test", passwordHash: "hash", status: "active" });
+    const sessions = [ownerA, ownerB, noProfile].map((id, index) => insertSession(
+      database, id, `123e4567-e89b-42d3-a456-42661417401${index}`, 0x61 + index,
+    ));
+    const profileA = ensureReferralProfile(database, ownerA, { now: () => new Date(NOW), randomBytes: byteSource(0x71) });
+    const profileB = ensureReferralProfile(database, ownerB, { now: () => new Date(NOW), randomBytes: byteSource(0x72) });
+    const profileId = (publicCode: string) => (database.prepare("SELECT id FROM referral_profiles WHERE public_code = ?").all(publicCode)[0] as { id: number }).id;
+    const add = (source: number, email: string, createdAt: string) => {
+      const userId = insertAuthenticationUser(database, { email, passwordHash: "hash", status: "active" });
+      database.prepare("INSERT INTO referral_attribution_candidates (referred_user_id, source_profile_id, status, created_at) VALUES (?, ?, 'pending', ?)")
+        .run(userId, source, createdAt);
+      return userId;
+    };
+    const firstId = add(profileId(profileA.publicCode), "first-private@example.test", "2026-09-20T00:00:00.000Z");
+    const secondId = add(profileId(profileA.publicCode), "second-private@example.test", "2026-09-21T00:00:00.000Z");
+    add(profileId(profileA.publicCode), "third-private@example.test", "2026-09-21T00:00:00.000Z");
+    add(profileId(profileB.publicCode), "other-private@example.test", "2026-09-22T00:00:00.000Z");
+    const app = buildApp({ referral: referralDependencies(database) });
+    const request = (token: string, suffix = "") => app.inject({ method: "GET", url: `/api/me/referral${suffix}`, headers: { cookie: `__Host-web_session=${token}` } });
+    try {
+      const before = totalChanges(database);
+      assert.equal((await app.inject({ method: "GET", url: "/api/me/referral?page=1" })).statusCode, 401);
+      const first = await request(sessions[0]!.rawToken, "?page=1&limit=2");
+      assert.equal(first.statusCode, 200);
+      assert.equal(first.headers["cache-control"], "no-store");
+      assert.equal(first.json().candidates.items.length, 2);
+      assert.equal(first.json().candidates.hasMore, true);
+      assert.equal(first.json().candidates.page, 1);
+      const second = await request(sessions[0]!.rawToken, "?page=2&limit=2");
+      assert.equal(second.statusCode, 200);
+      assert.equal(second.json().candidates.items.length, 1);
+      assert.equal(second.json().candidates.hasMore, false);
+      assert.equal(second.json().candidates.items[0].createdAt, "2026-09-20T00:00:00.000Z");
+      const repeat = await request(sessions[0]!.rawToken, "?page=1&limit=2");
+      assert.deepEqual(repeat.json().candidates, first.json().candidates);
+      const ownerIds = new Set(first.json().candidates.items.concat(second.json().candidates.items).map((item: { displayId: string }) => item.displayId));
+      assert.equal(ownerIds.size, 3);
+      for (const item of first.json().candidates.items) {
+        assert.deepEqual(Object.keys(item).sort(), ["createdAt", "displayId", "status"]);
+        assert.match(item.displayId, /^R-[A-Za-z0-9_-]{16}$/);
+        assert.equal(item.status, "pending");
+      }
+      const ownerBResponse = await request(sessions[1]!.rawToken);
+      assert.equal(ownerBResponse.statusCode, 200);
+      assert.equal(ownerBResponse.json().candidates.items.length, 1);
+      assert.equal(ownerIds.has(ownerBResponse.json().candidates.items[0].displayId), false);
+      const noProfileResponse = await request(sessions[2]!.rawToken);
+      assert.equal(noProfileResponse.statusCode, 200);
+      assert.equal(noProfileResponse.json().profile, null);
+      assert.deepEqual(noProfileResponse.json().candidates, { items: [], page: 1, hasMore: false });
+      const farPage = await request(sessions[0]!.rawToken, "?page=1000&limit=50");
+      assert.deepEqual(farPage.json().candidates, { items: [], page: 1000, hasMore: false });
+      for (const suffix of ["?page=0", "?page=1001", "?limit=0", "?limit=51", "?page=1&page=2", "?ownerId=1"]) {
+        assert.equal((await request(sessions[0]!.rawToken, suffix)).statusCode, 400, suffix);
+      }
+      for (const response of [first, second, ownerBResponse, noProfileResponse]) {
+        const body = response.body;
+        assert.equal(body.includes("private@example.test"), false);
+        assert.equal(body.includes("referred_user_id"), false);
+        assert.equal(body.includes("source_profile_id"), false);
+        assert.equal(body.includes(`\"${firstId}\"`), false);
+        assert.equal(body.includes(`\"${secondId}\"`), false);
+        assert.deepEqual(response.json().program.commission, { status: "not_integrated" });
+        assert.deepEqual(response.json().program.settlement, { status: "not_integrated" });
+      }
+      assert.equal(totalChanges(database), before);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
 test("trusted public configuration issues a ready link without using request host or origin", async () => {
   await withAuthenticationDatabase(async (database) => {
     const userId = insertAuthenticationUser(database, {

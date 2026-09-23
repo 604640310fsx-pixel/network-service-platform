@@ -1,4 +1,5 @@
 import type {
+  ReferralCandidatesState,
   ReferralCenterData,
   ReferralLinkState,
 } from "../components/referrals/referralModel";
@@ -34,6 +35,11 @@ export type ReferralStateResponse = {
       }
     | { readonly status: "ready"; readonly url: string };
   readonly program: ReferralProgramContract;
+  readonly candidates?: {
+    readonly items: readonly { readonly displayId: string; readonly status: "pending"; readonly createdAt: string }[];
+    readonly page: number;
+    readonly hasMore: boolean;
+  };
 };
 
 export type ReferralAdapterState =
@@ -44,6 +50,7 @@ export type ReferralAdapterState =
 
 export type ReferralComponentState = {
   readonly data: ReferralCenterData;
+  readonly candidates: ReferralCandidatesState;
   readonly link: ReferralLinkState;
   readonly profile: ReferralProfileIdentity | null;
 };
@@ -143,10 +150,29 @@ function parseLink(value: unknown): ReferralStateResponse["link"] {
   return { status: "ready", url: value.url };
 }
 
+function parseCandidates(value: unknown): NonNullable<ReferralStateResponse["candidates"]> {
+  if (
+    !isRecord(value) || !hasExactKeys(value, ["items", "page", "hasMore"]) ||
+    !Array.isArray(value.items) || value.items.length > 50 ||
+    !Number.isSafeInteger(value.page) || (value.page as number) < 1 || (value.page as number) > 1000 ||
+    typeof value.hasMore !== "boolean"
+  ) throw new ReferralApiError("invalid_response");
+  const items = value.items.map((item: unknown) => {
+    if (
+      !isRecord(item) || !hasExactKeys(item, ["displayId", "status", "createdAt"]) ||
+      typeof item.displayId !== "string" || !/^R-[A-Za-z0-9_-]{16}$/.test(item.displayId) ||
+      item.status !== "pending" || !isCanonicalInstant(item.createdAt)
+    ) throw new ReferralApiError("invalid_response");
+    return { displayId: item.displayId, status: "pending" as const, createdAt: item.createdAt };
+  });
+  return { items, page: value.page as number, hasMore: value.hasMore };
+}
+
 export function parseReferralStateResponse(value: unknown): ReferralStateResponse {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, ["profile", "link", "program"]) ||
+    !(hasExactKeys(value, ["profile", "link", "program"]) ||
+      hasExactKeys(value, ["profile", "link", "program", "candidates"])) ||
     !isRecord(value.program) ||
     !hasExactKeys(value.program, [
       "tiers",
@@ -183,6 +209,7 @@ export function parseReferralStateResponse(value: unknown): ReferralStateRespons
   return {
     profile: parseProfile(value.profile),
     link: parseLink(value.link),
+    ...(value.candidates === undefined ? {} : { candidates: parseCandidates(value.candidates) }),
     program: {
       tiers: EXPECTED_TIERS,
       withdrawalThresholdFen: 100_000,
@@ -236,9 +263,9 @@ async function requestReferralState(
   return parseReferralStateResponse(value);
 }
 
-export function getReferralState(signal?: AbortSignal): Promise<ReferralStateResponse> {
+export function getReferralState(signal?: AbortSignal, page = 1): Promise<ReferralStateResponse> {
   return requestReferralState(
-    "/api/me/referral",
+    page === 1 ? "/api/me/referral" : `/api/me/referral?page=${page}`,
     { method: "GET" },
     signal,
   );
@@ -267,16 +294,19 @@ export function ensureReferralProfile(
  * are mapped independently, and no financial zero values are synthesized. */
 export function adaptReferralState(state: ReferralAdapterState): ReferralComponentState {
   if (state.status === "pending") {
-    return { data: { status: "pending" }, link: { status: "pending" }, profile: null };
+    return { data: { status: "pending" }, candidates: { status: "pending" }, link: { status: "pending" }, profile: null };
   }
   if (state.status === "loading") {
-    return { data: { status: "loading" }, link: { status: "pending" }, profile: null };
+    return { data: { status: "loading" }, candidates: { status: "loading" }, link: { status: "pending" }, profile: null };
   }
   if (state.status === "error") {
-    return { data: { status: "error" }, link: { status: "pending" }, profile: null };
+    return { data: { status: "error" }, candidates: { status: "error" }, link: { status: "pending" }, profile: null };
   }
   return {
     data: { status: "pending" },
+    candidates: state.response.candidates === undefined
+      ? { status: "pending" }
+      : { status: "ready", ...state.response.candidates },
     link:
       state.response.link.status === "ready"
         ? { status: "ready", url: state.response.link.url }

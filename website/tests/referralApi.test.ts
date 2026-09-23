@@ -84,21 +84,25 @@ test("parses only the frozen identity/program response without fake financial ze
 test("adapter covers pending/loading/error/ready and never enables an unavailable link", () => {
   assert.deepEqual(adaptReferralState({ status: "pending" }), {
     data: { status: "pending" },
+    candidates: { status: "pending" },
     link: { status: "pending" },
     profile: null,
   });
   assert.deepEqual(adaptReferralState({ status: "loading" }), {
     data: { status: "loading" },
+    candidates: { status: "loading" },
     link: { status: "pending" },
     profile: null,
   });
   assert.deepEqual(adaptReferralState({ status: "error" }), {
     data: { status: "error" },
+    candidates: { status: "error" },
     link: { status: "pending" },
     profile: null,
   });
   assert.deepEqual(adaptReferralState({ status: "ready", response: RESPONSE }), {
     data: { status: "pending" },
+    candidates: { status: "pending" },
     link: { status: "unavailable" },
     profile: RESPONSE.profile,
   });
@@ -111,9 +115,32 @@ test("adapter covers pending/loading/error/ready and never enables an unavailabl
   };
   assert.deepEqual(adaptReferralState({ status: "ready", response: readyResponse }), {
     data: { status: "pending" },
+    candidates: { status: "pending" },
     link: readyResponse.link,
     profile: RESPONSE.profile,
   });
+});
+
+test("candidate collection is validated separately from financial state", () => {
+  const response: ReferralStateResponse = {
+    ...RESPONSE,
+    candidates: {
+      items: [{ displayId: `R-${"A".repeat(16)}`, status: "pending", createdAt: "2026-09-22T03:04:05.678Z" }],
+      page: 2,
+      hasMore: false,
+    },
+  };
+  assert.deepEqual(parseReferralStateResponse(response), response);
+  const adapted = adaptReferralState({ status: "ready", response });
+  assert.deepEqual(adapted.data, { status: "pending" });
+  assert.deepEqual(adapted.candidates, { status: "ready", ...response.candidates });
+  for (const item of [
+    { displayId: "R-1", status: "pending", createdAt: "2026-09-22T03:04:05.678Z" },
+    { displayId: `R-${"A".repeat(16)}`, status: "confirmed", createdAt: "2026-09-22T03:04:05.678Z" },
+    { displayId: `R-${"A".repeat(16)}`, status: "pending", createdAt: "2026-09-22T03:04:05.678Z", email: "hidden@example.test" },
+  ]) {
+    assert.throws(() => parseReferralStateResponse({ ...response, candidates: { ...response.candidates, items: [item] } }));
+  }
 });
 
 test("GET and CSRF POST use same-origin credentials and the exact referral endpoints", async () => {

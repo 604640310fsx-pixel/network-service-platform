@@ -143,7 +143,7 @@ test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", 
   await withTemporaryDatabase((database) => {
     assert.equal(
       MIGRATION_FILES.at(-1),
-      "018_referral_attribution_candidates.sql",
+      "019_referral_candidate_owner_page_index.sql",
     );
     const migrationRows = database
       .prepare("SELECT version, applied_at FROM schema_migrations ORDER BY version")
@@ -151,7 +151,7 @@ test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", 
 
     assert.deepEqual(
       migrationRows.map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
     );
     for (const row of migrationRows) {
       assert.match(row.applied_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
@@ -267,6 +267,7 @@ test("creates every frozen table and named index", async () => {
       "idx_rate_limit_window",
       "idx_redemptions_code",
       "idx_redemptions_user",
+      "idx_referral_candidate_owner_page",
       "idx_reset_tokens_expiry",
       "idx_reset_tokens_user",
       "idx_sellable_plans_active",
@@ -431,6 +432,35 @@ test("Migration 018 adds only a server-linked pending referral candidate", async
       /referral_candidate_self_attribution/,
     );
   });
+});
+
+test("Migration 019 upgrades an 018 database with the bounded owner-page query index", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "auth-referral-index-"));
+  const database = openAndVerifyDatabase(join(directory, "auth.sqlite"));
+  try {
+    applyMigrationPrefix(database, 18);
+    assert.equal(objectNames(database, "index").includes("idx_referral_candidate_owner_page"), false);
+    runMigrations(database);
+    runMigrations(database);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 19);
+    assert.equal(objectNames(database, "index").filter((name) => name === "idx_referral_candidate_owner_page").length, 1);
+    const queryPlan = database.prepare(
+      `EXPLAIN QUERY PLAN
+       SELECT candidates.referred_user_id, candidates.source_profile_id, candidates.created_at
+       FROM referral_attribution_candidates AS candidates
+       JOIN referral_profiles AS profiles ON profiles.id = candidates.source_profile_id
+       WHERE profiles.user_id = ? AND candidates.status = 'pending'
+       ORDER BY candidates.created_at DESC, candidates.referred_user_id DESC
+       LIMIT ? OFFSET ?`,
+    ).all(1, 21, 0) as Array<{ readonly detail: string }>;
+    const details = queryPlan.map((row) => row.detail);
+    assert.ok(details.some((detail) => detail.includes("SEARCH candidates USING COVERING INDEX idx_referral_candidate_owner_page")), details.join("; "));
+    assert.equal(details.some((detail) => detail.includes("SCAN candidates")), false);
+    assert.equal(details.some((detail) => detail.includes("USE TEMP B-TREE")), false);
+  } finally {
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("Migration 012 seeds exactly 255 sellable plans with 29 initialized off-sale above the single-transaction cap", async () => {
@@ -623,7 +653,7 @@ test("Migration 016 revokes legacy codes without guessing email and preserves hi
           .prepare("SELECT version FROM schema_migrations ORDER BY version")
           .all() as Array<{ readonly version: number }>
       ).map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
     );
     assert.deepEqual(
       database
@@ -702,7 +732,7 @@ test("Migration 016 revokes legacy codes without guessing email and preserves hi
     );
 
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 18);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 19);
     assert.equal(firstNumber(database, "SELECT COUNT(*) FROM invite_code_redemptions"), 2);
   } finally {
     database.close();
@@ -1119,12 +1149,12 @@ test("missing, extra, and unknown migration registry states fail closed", async 
     try {
       await mkdir(migrationsDirectory);
       for (const file of MIGRATION_FILES) {
-        if (scenario === "missing" && file.startsWith("018_")) continue;
+        if (scenario === "missing" && file.startsWith("019_")) continue;
         await writeFile(join(migrationsDirectory, file), "SELECT 1;", "utf8");
       }
       if (scenario === "extra") {
         await writeFile(
-          join(migrationsDirectory, "019_unexpected.sql"),
+          join(migrationsDirectory, "020_unexpected.sql"),
           "SELECT 1;",
           "utf8",
         );
@@ -1160,15 +1190,15 @@ test("missing, extra, and unknown migration registry states fail closed", async 
         applied_at TEXT NOT NULL
       );
       INSERT INTO schema_migrations (version, applied_at)
-      VALUES (19, '${NOW}');
+      VALUES (20, '${NOW}');
     `);
     assert.throws(
       () => runMigrations(database),
-      /database contains unknown migration version 19/,
+      /database contains unknown migration version 20/,
     );
     assert.deepEqual(
       database.prepare("SELECT version FROM schema_migrations").all(),
-      [{ version: 19 }],
+      [{ version: 20 }],
     );
   } finally {
     database.close();

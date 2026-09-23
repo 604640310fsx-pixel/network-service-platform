@@ -52,6 +52,7 @@ export const RELEASE_MIGRATIONS = Object.freeze([
   "016_invite_codes_prebound_single_use.sql",
   "017_referral_profiles.sql",
   "018_referral_attribution_candidates.sql",
+  "019_referral_candidate_owner_page_index.sql",
 ]);
 export const RELEASE_HTTP_CONTRACT_PATHS = Object.freeze([
   "ops/nginx/release-traffic-open.conf.example",
@@ -522,7 +523,7 @@ function verifyMigrationInputs(source) {
   ) {
     throw new ReleaseAssemblyError(
       "SCHEMA_BOUNDARY_MISMATCH",
-      "migration inputs must be the exact frozen 001-018 sequence",
+      "migration inputs must be the exact frozen 001-019 sequence",
     );
   }
 }
@@ -582,7 +583,7 @@ export function assembleReleaseBundle({
     const manifest = {
       format: RELEASE_BUNDLE_FORMAT,
       sourceSha: sha,
-      schemaBoundary: { rollback: 16, candidate: 18 },
+      schemaBoundary: { rollback: 16, candidate: 19 },
       migrations: RELEASE_MIGRATIONS,
       entrypoints: {
         auth: "auth-service/dist/src/server.js",

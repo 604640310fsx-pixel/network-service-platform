@@ -59,11 +59,12 @@ export const MIGRATION_FILES = [
   "016_invite_codes_prebound_single_use.sql",
   "017_referral_profiles.sql",
   "018_referral_attribution_candidates.sql",
+  "019_referral_candidate_owner_page_index.sql",
 ] as const;
 
 const DATABASE_READINESS_SQL =
   "SELECT version FROM schema_migrations ORDER BY version LIMIT ?";
-const DATABASE_READINESS_ROW_LIMIT = 19;
+const DATABASE_READINESS_ROW_LIMIT = 20;
 const EXPECTED_MIGRATION_VERSIONS = Object.freeze(
   MIGRATION_FILES.map((file) => Number.parseInt(file.slice(0, 3), 10)),
 );

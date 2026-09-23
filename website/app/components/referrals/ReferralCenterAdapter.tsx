@@ -11,6 +11,7 @@ import type { ClipboardWriter } from "./referralModel";
 
 export type ReferralStateLoader = (
   signal: AbortSignal,
+  page: number,
 ) => Promise<ReferralStateResponse>;
 
 export type ReferralCenterAdapterProps = {
@@ -28,11 +29,12 @@ export function ReferralCenterAdapter({
     status: "pending",
   });
   const [retry, setRetry] = useState(0);
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     const controller = new AbortController();
     setRequestState({ status: "loading" });
-    void loadState(controller.signal).then(
+    void loadState(controller.signal, page).then(
       (response) => {
         if (!controller.signal.aborted) {
           setRequestState({ status: "ready", response });
@@ -48,12 +50,14 @@ export function ReferralCenterAdapter({
       },
     );
     return () => controller.abort();
-  }, [loadState, retry]);
+  }, [loadState, page, retry]);
 
   const component = adaptReferralState(requestState);
   return (
     <ReferralCenter
       data={component.data}
+      candidates={component.candidates}
+      onCandidatePageChange={setPage}
       link={component.link}
       clipboard={clipboard}
       notice={notice}

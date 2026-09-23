@@ -10,7 +10,7 @@ import {
   type ReferralStateLoader,
 } from "../ReferralCenterAdapter";
 import type { ClipboardWriter, ReferralCenterData, ReferralLinkState } from "../referralModel";
-import type { ReferralStateResponse } from "../../../lib/referral-api";
+import { getReferralState, type ReferralStateResponse } from "../../../lib/referral-api";
 import { FIXTURE_LINK, FIXTURE_LONG_LINK, REFERRAL_FIXTURES, type ReferralFixtureKey } from "./referralFixtures";
 import "./referral-preview.css";
 
@@ -26,6 +26,7 @@ type Scenario =
   | "apiError"
   | "apiUnissued"
   | "apiIssued"
+  | "apiLive"
   | ReferralFixtureKey;
 type ClipboardMode = "browser" | "reject" | "unsupported";
 
@@ -38,6 +39,7 @@ const SCENARIOS: readonly { value: Scenario; label: string }[] = [
   { value: "apiError", label: "API 适配 · 读取失败" },
   { value: "apiUnissued", label: "API 适配 · 尚未签发身份" },
   { value: "apiIssued", label: "API 适配 · 已签发但链接不可用" },
+  { value: "apiLive", label: "本地 API · 待确认推荐" },
   { value: "normal", label: "演示 · 正常有数据" },
   { value: "zero", label: "演示 · 真实零值" },
   { value: "long", label: "演示 · 长文本 / 大金额" },
@@ -89,6 +91,7 @@ function apiResponse(issued: boolean): ReferralStateResponse {
 }
 
 function injectedApiLoader(scenario: Scenario): ReferralStateLoader | null {
+  if (scenario === "apiLive") return getReferralState;
   if (scenario === "apiLoading") {
     return (signal) =>
       new Promise((_resolve, reject) => {
@@ -121,7 +124,7 @@ export function ReferralPreview() {
       <div className={`rfc-preview-bar${collapsed ? " is-collapsed" : ""}`} role="region" aria-label="隔离预览控制（不属于客户界面）">
         <div className="rfc-preview-head">
           <b>隔离预览 · REFERRAL-UI-PRODUCT-VISUAL-INTEGRATION-01</b>
-          <span>仅开发环境独立入口；非客户路由，不发起真实返佣请求</span>
+          <span>{scenario === "apiLive" ? "仅开发环境独立入口；连接本地临时 API，非客户路由" : "仅开发环境独立入口；非客户路由，不发起真实返佣请求"}</span>
           <button type="button" onClick={() => setCollapsed((value) => !value)} aria-expanded={!collapsed}>
             {collapsed ? "展开" : "收起"}
           </button>
@@ -151,7 +154,7 @@ export function ReferralPreview() {
             key={scenario}
             loadState={apiLoader}
             clipboard={clipboard}
-            notice="fixture"
+            notice={scenario === "apiLive" ? "pending" : "fixture"}
           />
         ) : (
           <ReferralCenter
@@ -179,7 +182,8 @@ function resolve(scenario: Scenario): { data: ReferralCenterData; link: Referral
     scenario === "apiLoading" ||
     scenario === "apiError" ||
     scenario === "apiUnissued" ||
-    scenario === "apiIssued"
+    scenario === "apiIssued" ||
+    scenario === "apiLive"
   ) {
     return { data: { status: "pending" }, link: { status: "pending" }, fixture: true };
   }

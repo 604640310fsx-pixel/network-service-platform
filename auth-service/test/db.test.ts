@@ -105,7 +105,7 @@ test("database readiness prepares the exact bounded statement once", () => {
   assert.deepEqual(calls.prepare, [
     "SELECT version FROM schema_migrations ORDER BY version LIMIT ?",
   ]);
-  assert.deepEqual(calls.all, [[19], [19]]);
+  assert.deepEqual(calls.all, [[20], [20]]);
   assert.deepEqual(
     { exec: calls.exec, run: calls.run, pragma: calls.pragma, provider: calls.provider },
     { exec: 0, run: 0, pragma: 0, provider: 0 },
@@ -134,8 +134,8 @@ test("database readiness fails closed for incomplete, malformed, unknown, and th
       ),
     },
     {
-      name: "unknown 019",
-      rows: [...exactRows, { version: 19 }],
+      name: "unknown 020",
+      rows: [...exactRows, { version: 20 }],
     },
     { name: "query throws", throwOnAll: true },
     { name: "prepare throws", throwOnPrepare: true },
@@ -153,7 +153,7 @@ test("database readiness fails closed for incomplete, malformed, unknown, and th
         return {
           all: (...parameters: readonly unknown[]): unknown[] => {
             allCalls += 1;
-            assert.deepEqual(parameters, [19]);
+            assert.deepEqual(parameters, [20]);
             if (scenario.throwOnAll === true) {
               throw new Error("closed after prepare");
             }
