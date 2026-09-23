@@ -249,6 +249,12 @@ before and after substitution. It compares non-target and inherited directives,
 target security headers and includes, and TLS references, and checks that the
 assembled target is exactly the validated dual-direct open configuration.
 The two target blocks must not gain an explicit framing or HSTS header.
+Only in dual-direct preserve-existing mode, `cspConnectSources: []` in the
+expected metadata records that the preserved CSP has no explicit `connect-src`.
+The rendered CSP must also omit that directive, and the complete CSP text must
+remain equal across the before and candidate contexts. An empty or malformed
+`connect-src` directive is invalid; canonical and ordinary dual-direct modes
+still require a nonempty `cspConnectSources` list.
 `effectiveInheritedSecurityPolicy: UNVERIFIED` remains in a successful result:
 parsing two supplied configurations cannot prove the active include bytes,
 Nginx header inheritance, or effective browser responses. The operator must
