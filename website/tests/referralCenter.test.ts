@@ -133,7 +133,7 @@ test("withdrawal stays disabled and pending integration in every state", () => {
   assert.match(button, /提现功能待接入/);
 });
 
-test("customer navigation stays disabled and no customer route or build entry is introduced", () => {
+test("approved customer route and public build entry use the formal referral components", () => {
   const sections = source("../app/lib/sections.ts");
   const app = source("../src/App.tsx");
   const shell = source("../app/components/customer/CustomerCenterShell.tsx");
@@ -141,13 +141,16 @@ test("customer navigation stays disabled and no customer route or build entry is
   const viteConfig = source("../vite.config.ts");
   const indexHtml = source("../index.html");
 
-  assert.doesNotMatch(sections, /referral/);
+  assert.match(sections, /"referrals"/);
   assert.doesNotMatch(app, /referral|Referral/);
-  assert.doesNotMatch(dashboard, /referral|Referral/);
+  assert.match(dashboard, /section === "referrals"/);
+  assert.match(dashboard, /<ReferralCenterAdapter \/>/);
   const migrated = shell.slice(shell.indexOf("const migratedPaths"), shell.indexOf("]);", shell.indexOf("const migratedPaths")));
-  assert.doesNotMatch(migrated, /\/referrals/);
+  assert.match(migrated, /"\/referrals"/);
   assert.match(shell, /\["\/referrals", "邀请\/推广"\]/);
-  assert.doesNotMatch(viteConfig, /referral|rollupOptions/);
+  assert.match(viteConfig, /rollupOptions/);
+  assert.match(viteConfig, /"referral\.html"/);
+  assert.match(source("../referral.html"), /referral-public\/main\.tsx/);
   assert.doesNotMatch(indexHtml, /referral/);
 
   const preview = source("../referral-preview.html");

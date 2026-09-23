@@ -35,6 +35,7 @@ import {
   OPEN_HTTP_PLACEHOLDERS,
   validateRenderedSources,
   validateTemplateSources,
+  validateDualDirectTemplateSources,
 } from "./validate-release-open-http-contract.mjs";
 
 const ASSEMBLER_PATH = fileURLToPath(
@@ -145,6 +146,10 @@ function contractSources() {
       join(REPOSITORY_ROOT, "ops/nginx/release-traffic-open.conf.example"),
       "utf8",
     ),
+    dualTemplate: readFileSync(
+      join(REPOSITORY_ROOT, "ops/nginx/release-traffic-dual-direct.conf.example"),
+      "utf8",
+    ),
     bareTemplate: readFileSync(
       join(REPOSITORY_ROOT, "ops/nginx/bare-domain-redirect.conf.example"),
       "utf8",
@@ -232,6 +237,12 @@ function createFixtureRepository(parent) {
     "website/dist/index.html",
     "<!doctype html><title>fixture</title>\n",
   );
+  writeFixtureFile(
+    root,
+    "website/dist/referral.html",
+    '<!doctype html><script type="module" src="/assets/referral-12345678.js"></script>\n',
+  );
+  writeFixtureFile(root, "website/dist/assets/referral-12345678.js", "export {};\n");
   writeFixtureFile(root, "website/dist/assets/app.js", "export {};\n");
   writeFixtureFile(root, "website/package.json", '{"type":"module"}\n');
   writeFixtureFile(root, "website/package-lock.json", '{"lockfileVersion":3}\n');
@@ -324,6 +335,45 @@ test("open HTTP templates freeze the exact value-free placeholder inventory", ()
   expectContractFailure(
     () => validateTemplateSources(excess),
     "TEMPLATE_PLACEHOLDER_INVALID",
+  );
+});
+
+test("dual-direct is opt-in and preserves both hostnames", () => {
+  const baseline = contractSources();
+  assert.equal(validateTemplateSources(baseline).status, "ok");
+  assert.equal(validateDualDirectTemplateSources(baseline).status, "ok");
+  const synthetic = createSanitizedSyntheticRender();
+  const openConfig = replaceTokens(baseline.dualTemplate, synthetic.replacements);
+  const input = {
+    openConfig,
+    closedCandidate: baseline.closedCandidate,
+    expected: synthetic.expected,
+    mode: "dual-direct",
+  };
+  assert.equal(validateRenderedSources(input).topology, "open-dual-direct");
+  for (const mutated of [
+    openConfig.replace("return 301 https://$host$request_uri;", "return 308 https://$host$request_uri;"),
+    openConfig.replace("return 301 https://$host$request_uri;", "return 301 https://" + synthetic.expected.canonicalHost + "$request_uri;"),
+    openConfig.replace("server_name " + synthetic.expected.bareHost + " " + synthetic.expected.canonicalHost + ";", "server_name " + synthetic.expected.canonicalHost + ";"),
+  ]) {
+    expectContractFailure(
+      () => validateRenderedSources({ ...input, openConfig: mutated }),
+      "OPEN_TOPOLOGY_INVALID",
+    );
+  }
+  expectContractFailure(
+    () => validateDualDirectTemplateSources({
+      ...baseline,
+      dualTemplate: baseline.dualTemplate.replace(OPEN_HTTP_PLACEHOLDERS.bareHost, "bare.example.invalid"),
+    }),
+    "TEMPLATE_PLACEHOLDER_INVALID",
+  );
+  expectContractFailure(
+    () => validateRenderedSources({
+      ...input,
+      closedCandidate: baseline.closedCandidate.replace("return 503;", "return 200;"),
+    }),
+    "OPEN_CLOSED_CONFLICT",
   );
 });
 
@@ -687,6 +737,7 @@ test("two independent assemblies produce one deterministic, complete manifest", 
     const files = allFiles(first);
     assert.ok(files.includes("auth-service/dist/src/server.js"));
     assert.ok(files.includes("website/dist/index.html"));
+    assert.ok(files.includes("website/dist/referral.html"));
     assert.ok(files.includes("release-manifest.json"));
     assert.equal(files.some((path) => isForbiddenBundlePath(path)), false);
     assert.equal(files.includes("customer-notes.txt"), false);

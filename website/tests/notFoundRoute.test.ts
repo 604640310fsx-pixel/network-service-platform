@@ -11,7 +11,7 @@ const app = source("../src/App.tsx");
 const dashboardShell = source("../app/components/DashboardShell.tsx");
 const notFoundPage = source("../app/components/not-found/NotFoundPage.tsx");
 
-test("known public and protected route classifications remain unchanged", () => {
+test("known public and protected routes include authenticated referrals", () => {
   for (const publicPath of ["/", "/login", "/register", "/diagnosis", "/subscribe/request"]) {
     assert.match(app, new RegExp(`path=["']${publicPath.replace("/", "\\/")}["']`));
   }
@@ -26,9 +26,12 @@ test("known public and protected route classifications remain unchanged", () => 
     "subscribe",
     "docs",
     "profile",
+    "referrals",
   ]);
   assert.match(app, /section === "subscribe" \|\| section === "monitor"/);
   assert.match(app, /status === "unauthenticated"\) return <Navigate to="\/login" replace/);
+  assert.match(dashboardShell, /section === "referrals"/);
+  assert.match(dashboardShell, /<ReferralCenterAdapter \/>/);
 });
 
 test("unknown single-segment routes become NotFound before auth redirects", () => {

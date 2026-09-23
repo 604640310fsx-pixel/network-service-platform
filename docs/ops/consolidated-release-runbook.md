@@ -167,9 +167,9 @@ configuration test stops the release before traffic changes.
 
 ## Nginx invariants
 
-The repository carries three candidate fragments and one validator in the
-release inventory: the value-free open template, the value-free bare redirect
-template, the existing closed candidate, and
+The repository carries four candidate fragments and one validator in the
+release inventory: the default value-free open template, the value-free bare redirect
+template, the opt-in value-free dual-direct template, the existing closed candidate, and
 `scripts/ops/validate-release-open-http-contract.mjs`. A repository template is
 not a target-rendered configuration. It cannot pass `nginx -t`, must not be
 installed, and contains no target hostname, website root, upstream, TLS path,
@@ -191,6 +191,13 @@ The exact repository placeholder inventory is:
 | `__OPEN_X_FRAME_OPTIONS_DIRECTIVE__` | 1 | 0 | 1 |
 | `__OPEN_HSTS_DIRECTIVE__` | 1 | 1 | 2 |
 | `__OPEN_COMPRESSION_DIRECTIVES__` | 1 | 0 | 1 |
+
+The opt-in dual-direct template has two canonical and two bare host tokens,
+one website root, two API upstreams, and one each of the TLS, CSP, framing,
+HSTS, and compression tokens. Its source validator is invoked with
+--source . --mode dual-direct. Omitting --mode keeps the canonical contract.
+Rendered dual-direct validation uses --mode dual-direct with open, closed,
+and expected metadata inputs, without the bare redirect fragment.
 
 An unknown, missing, excess, or unresolved token is a hard failure. A concrete
 host, root, upstream, TLS/certificate path, credential, wildcard origin, or
@@ -217,6 +224,29 @@ the two fragments may not duplicate host/listener ownership. The open root must
 contain no release-closed 503 or `Retry-After`, and it must have no alternate
 ingress that bypasses the approved application path. Alternate-ingress absence
 is target evidence, never a repository assumption.
+
+OPEN_DUAL_DIRECT_INVARIANT is an explicit alternative for a target already
+serving both approved hostnames directly. Its single HTTP server owns exactly
+the bare and canonical names and returns 301 to the same host and request URI
+on HTTPS. Its single HTTPS server owns exactly those names and serves the same
+verified website root and API upstream without a cross-host redirect. The bare
+redirect fragment must not be loaded with this mode. All routing, cache, TLS,
+security, HSTS, compression, and closed-traffic checks above still apply.
+The target proof matrix must show bare HTTP to bare HTTPS, canonical HTTP to
+canonical HTTPS, and direct HTTPS application responses on both names. No DNS,
+TLS certificate, alternate ingress, or other virtual host is changed by this
+repository template.
+
+The approved public recommendation landing is website/dist/referral.html.
+The build and release inventory must contain that file and its built script
+asset; Nginx's file-like 404 rule serves the actual file without SPA fallback.
+The documented target values are REFERRAL_PUBLIC_ORIGIN=https://www.siqiapparel.com
+and REFERRAL_PUBLIC_PATH=/referral.html, for local synthetic validation only.
+Production configuration is not set by this packet. With
+REGISTRATION_ENABLED=false, the landing says “注册暂未开放”; link validity
+does not promise registration, attribution, commission, settlement, or
+withdrawal. The authenticated /referrals page uses real read-only API state
+and keeps cap and financial integrations in their returned unconfigured state.
 
 Exact `/api` and the `^~ /api/` prefix outrank every static and SPA location.
 They disable proxy caching and error interception and do not hide upstream

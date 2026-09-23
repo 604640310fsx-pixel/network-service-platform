@@ -57,6 +57,17 @@ const TEMPLATE_COUNTS = Object.freeze({
     [OPEN_HTTP_PLACEHOLDERS.hstsDirective]: 1,
     [OPEN_HTTP_PLACEHOLDERS.compressionDirectives]: 0,
   }),
+  dual: Object.freeze({
+    [OPEN_HTTP_PLACEHOLDERS.canonicalHost]: 2,
+    [OPEN_HTTP_PLACEHOLDERS.bareHost]: 2,
+    [OPEN_HTTP_PLACEHOLDERS.websiteRoot]: 1,
+    [OPEN_HTTP_PLACEHOLDERS.apiUpstream]: 2,
+    [OPEN_HTTP_PLACEHOLDERS.tlsDirectives]: 1,
+    [OPEN_HTTP_PLACEHOLDERS.cspPolicy]: 1,
+    [OPEN_HTTP_PLACEHOLDERS.framingDirective]: 1,
+    [OPEN_HTTP_PLACEHOLDERS.hstsDirective]: 1,
+    [OPEN_HTTP_PLACEHOLDERS.compressionDirectives]: 1,
+  }),
 });
 
 const EXPECTED_METADATA_KEYS = Object.freeze([
@@ -916,14 +927,18 @@ export function validateRenderedSources({
   bareConfig,
   closedCandidate,
   expected,
+  mode = "canonical",
 }) {
-  for (const source of [openConfig, bareConfig, closedCandidate]) {
+  if (!["canonical", "dual-direct"].includes(mode)) {
+    fail("ARGUMENT_ERROR", "unsupported open HTTP mode");
+  }
+  for (const source of mode === "dual-direct" ? [openConfig, closedCandidate] : [openConfig, bareConfig, closedCandidate]) {
     if (typeof source !== "string" || source.trim() === "") {
-      fail("ARGUMENT_ERROR", "rendered validation requires three nonempty inputs");
+      fail("ARGUMENT_ERROR", "rendered validation requires nonempty inputs");
     }
   }
   validateExpectedMetadata(expected);
-  if (/__[A-Z0-9_]+__/.test(openConfig) || /__[A-Z0-9_]+__/.test(bareConfig)) {
+  if (/__[A-Z0-9_]+__/.test(openConfig) || (mode === "canonical" && /__[A-Z0-9_]+__/.test(bareConfig))) {
     fail("UNRESOLVED_PLACEHOLDER", "rendered configuration contains a placeholder");
   }
   const normalizedOpen = stripComments(openConfig);
@@ -932,33 +947,30 @@ export function validateRenderedSources({
   }
 
   const openServers = requireServers(parseNginx(openConfig), "open configuration");
-  const bareServers = requireServers(parseNginx(bareConfig), "bare configuration");
+  const bareServers = mode === "canonical" ? requireServers(parseNginx(bareConfig), "bare configuration") : null;
   const openHttp = openServers.get("http");
   const openHttps = openServers.get("https");
-  const bareHttp = bareServers.get("http");
-  const bareHttps = bareServers.get("https");
+  const bareHttp = bareServers?.get("http");
+  const bareHttps = bareServers?.get("https");
 
-  requireServerName(openHttp, expected.canonicalHost);
-  requireServerName(openHttps, expected.canonicalHost);
-  requireServerName(bareHttp, expected.bareHost);
-  requireServerName(bareHttps, expected.bareHost);
-  requireReturn(openHttp, [
-    "308",
-    `https://${expected.canonicalHost}$request_uri`,
-  ]);
-  requireReturn(bareHttp, [
-    "308",
-    `https://${expected.canonicalHost}$request_uri`,
-  ]);
-  requireReturn(bareHttps, [
-    "308",
-    `https://${expected.canonicalHost}$request_uri`,
-  ]);
+  if (mode === "dual-direct") {
+    for (const server of [openHttp, openHttps]) {
+      requireSingleDirective(server, "server_name", [expected.bareHost, expected.canonicalHost], "OPEN_TOPOLOGY_INVALID", "dual-direct host ownership is not exact");
+    }
+    requireReturn(openHttp, ["301", "https://$host$request_uri"]);
+  } else {
+    requireServerName(openHttp, expected.canonicalHost);
+    requireServerName(openHttps, expected.canonicalHost);
+    requireServerName(bareHttp, expected.bareHost);
+    requireServerName(bareHttps, expected.bareHost);
+    for (const server of [openHttp, bareHttp, bareHttps]) {
+      requireReturn(server, ["308", `https://${expected.canonicalHost}$request_uri`]);
+    }
+  }
   if (
     direct(openHttps, "return").length !== 0 ||
     direct(openHttp, "location").length !== 0 ||
-    direct(bareHttp, "location").length !== 0 ||
-    direct(bareHttps, "location").length !== 0
+    (mode === "canonical" && (direct(bareHttp, "location").length !== 0 || direct(bareHttps, "location").length !== 0))
   ) {
     fail("OPEN_TOPOLOGY_INVALID", "server responsibilities overlap");
   }
@@ -973,7 +985,7 @@ export function validateRenderedSources({
     "try_files",
   ]);
   if (
-    [openHttp, bareHttp, bareHttps].some((server) =>
+    (mode === "dual-direct" ? [openHttp] : [openHttp, bareHttp, bareHttps]).some((server) =>
       descendants(server.children ?? []).some(
         (node) => node.children !== null || redirectForbidden.has(node.name),
       ),
@@ -1014,13 +1026,7 @@ export function validateRenderedSources({
     1,
     "OPEN_SECURITY_INVALID",
   );
-  requireMarker(
-    bareConfig,
-    "OPEN_TLS_BINDING",
-    expected.tlsBinding,
-    1,
-    "OPEN_SECURITY_INVALID",
-  );
+  if (mode === "canonical") requireMarker(bareConfig, "OPEN_TLS_BINDING", expected.tlsBinding, 1, "OPEN_SECURITY_INVALID");
   requireMarker(
     openConfig,
     "OPEN_FRAMING_POLICY",
@@ -1035,13 +1041,7 @@ export function validateRenderedSources({
     1,
     "OPEN_SECURITY_INVALID",
   );
-  requireMarker(
-    bareConfig,
-    "OPEN_HSTS_OWNER",
-    expected.hstsOwner,
-    1,
-    "OPEN_SECURITY_INVALID",
-  );
+  if (mode === "canonical") requireMarker(bareConfig, "OPEN_HSTS_OWNER", expected.hstsOwner, 1, "OPEN_SECURITY_INVALID");
   requireMarker(
     openConfig,
     "OPEN_COMPRESSION_OWNER",
@@ -1050,10 +1050,10 @@ export function validateRenderedSources({
     "OPEN_COMPRESSION_INVALID",
   );
   assertTlsBinding(openHttps, "OPEN_SECURITY_INVALID");
-  assertTlsBinding(bareHttps, "OPEN_SECURITY_INVALID");
+  if (mode === "canonical") assertTlsBinding(bareHttps, "OPEN_SECURITY_INVALID");
   if (
     descendants(openHttp.children ?? []).some((node) => node.name.startsWith("ssl_")) ||
-    descendants(bareHttp.children ?? []).some((node) => node.name.startsWith("ssl_"))
+    (mode === "canonical" && descendants(bareHttp.children ?? []).some((node) => node.name.startsWith("ssl_")))
   ) {
     fail("OPEN_SECURITY_INVALID", "TLS directives must remain HTTPS-only");
   }
@@ -1062,8 +1062,7 @@ export function validateRenderedSources({
   if (
     header(openHttps, "Strict-Transport-Security", "OPEN_SECURITY_INVALID") !==
       expected.hstsValue ||
-    header(bareHttps, "Strict-Transport-Security", "OPEN_SECURITY_INVALID") !==
-      expected.hstsValue
+    (mode === "canonical" && header(bareHttps, "Strict-Transport-Security", "OPEN_SECURITY_INVALID") !== expected.hstsValue)
   ) {
     fail(
       "RENDERED_METADATA_MISMATCH",
@@ -1074,9 +1073,9 @@ export function validateRenderedSources({
     direct(openHttp, "add_header").some(
       (node) => argsOf(node)[0] === "Strict-Transport-Security",
     ) ||
-    direct(bareHttp, "add_header").some(
+    (mode === "canonical" && direct(bareHttp, "add_header").some(
       (node) => argsOf(node)[0] === "Strict-Transport-Security",
-    )
+    ))
   ) {
     fail("OPEN_SECURITY_INVALID", "HSTS must remain HTTPS-only");
   }
@@ -1092,13 +1091,13 @@ export function validateRenderedSources({
   );
 
   validateRouting(openHttps, expected);
-  validateCompression(openHttps, [openHttp, bareHttp, bareHttps]);
+  validateCompression(openHttps, mode === "dual-direct" ? [openHttp] : [openHttp, bareHttp, bareHttps]);
   validateClosedCandidate(closedCandidate);
 
   return Object.freeze({
     status: "ok",
     mode: "rendered",
-    topology: "open-canonical-plus-bare",
+    topology: mode === "dual-direct" ? "open-dual-direct" : "open-canonical-plus-bare",
   });
 }
 
@@ -1190,6 +1189,28 @@ export function validateTemplateSources({
   });
 }
 
+export function validateDualDirectTemplateSources({
+  dualTemplate,
+  closedCandidate,
+  syntheticWebsiteRoot,
+}) {
+  for (const source of [dualTemplate, closedCandidate]) {
+    if (typeof source !== "string" || source.trim() === "") {
+      fail("ARGUMENT_ERROR", "dual-direct validation requires two nonempty inputs");
+    }
+  }
+  validatePlaceholderInventory(dualTemplate, TEMPLATE_COUNTS.dual, "dual-direct");
+  validateValueFreeTemplate(dualTemplate, "dual-direct");
+  const synthetic = createSanitizedSyntheticRender({ websiteRoot: syntheticWebsiteRoot });
+  validateRenderedSources({
+    openConfig: renderTemplate(dualTemplate, synthetic.replacements),
+    closedCandidate,
+    expected: synthetic.expected,
+    mode: "dual-direct",
+  });
+  return Object.freeze({ status: "ok", mode: "dual-direct-template-and-synthetic-render" });
+}
+
 function existingDirectory(input) {
   try {
     const directory = realpathSync(resolve(input));
@@ -1210,8 +1231,15 @@ function readRegularFile(path, label) {
   }
 }
 
-export function validateTemplateRoot(source) {
+export function validateTemplateRoot(source, mode = "canonical") {
   const root = existingDirectory(source);
+  if (mode === "dual-direct") {
+    return validateDualDirectTemplateSources({
+      dualTemplate: readRegularFile(join(root, "ops/nginx/release-traffic-dual-direct.conf.example"), "dual-direct template"),
+      closedCandidate: readRegularFile(join(root, "ops/nginx/release-traffic-closed.conf.example"), "closed candidate"),
+    });
+  }
+  if (mode !== "canonical") fail("ARGUMENT_ERROR", "unsupported open HTTP mode");
   return validateTemplateSources({
     openTemplate: readRegularFile(
       join(root, "ops/nginx/release-traffic-open.conf.example"),
@@ -1258,18 +1286,20 @@ export function run(arguments_) {
     "--bare-config",
     "--closed-config",
     "--expected-metadata",
+    "--mode",
   ]);
   if ([...options.keys()].some((name) => !allowed.has(name))) {
     fail("ARGUMENT_ERROR", "unsupported option");
   }
   if (options.has("--source")) {
-    if (options.size !== 1) {
+    if (options.size !== (options.has("--mode") ? 2 : 1)) {
       fail("ARGUMENT_ERROR", "--source cannot be combined with rendered inputs");
     }
-    return validateTemplateRoot(requiredOption(options, "--source"));
+    return validateTemplateRoot(requiredOption(options, "--source"), options.get("--mode") ?? "canonical");
   }
-  if (options.size !== 4) {
-    fail("ARGUMENT_ERROR", "rendered validation requires four input options");
+  const mode = options.get("--mode") ?? "canonical";
+  if (!["canonical", "dual-direct"].includes(mode) || options.size !== (mode === "dual-direct" ? 4 : 4 + Number(options.has("--mode")))) {
+    fail("ARGUMENT_ERROR", "rendered validation requires the selected mode's input options");
   }
   let expected;
   try {
@@ -1288,15 +1318,13 @@ export function run(arguments_) {
       resolve(requiredOption(options, "--open-config")),
       "rendered open configuration",
     ),
-    bareConfig: readRegularFile(
-      resolve(requiredOption(options, "--bare-config")),
-      "rendered bare configuration",
-    ),
+    bareConfig: mode === "canonical" ? readRegularFile(resolve(requiredOption(options, "--bare-config")), "rendered bare configuration") : undefined,
     closedCandidate: readRegularFile(
       resolve(requiredOption(options, "--closed-config")),
       "closed candidate",
     ),
     expected,
+    mode,
   });
 }
 

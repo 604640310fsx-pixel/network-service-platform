@@ -8,6 +8,7 @@ import { PublicMonitorPage } from "./monitor/PublicMonitorPage";
 import { BuyerNetworkPage } from "./network/BuyerNetworkPage";
 import { NotFoundPage } from "./not-found/NotFoundPage";
 import { ProfilePage } from "./profile/ProfilePage";
+import { ReferralCenterAdapter } from "./referrals/ReferralCenterAdapter";
 import { BuyerServerStatusPage } from "./status/BuyerServerStatusPage";
 import { SubscribePage } from "./subscribe/SubscribePage";
 import type { SectionKey } from "../lib/sections";
@@ -70,6 +71,13 @@ export function DashboardShell() {
     return (
       <CustomerCenterShell title="个人中心" description="查看当前登录账户的只读资料">
         <ProfilePage />
+      </CustomerCenterShell>
+    );
+  }
+  if (section === "referrals") {
+    return (
+      <CustomerCenterShell title="邀请/推广" description="查看推荐链接、待确认来源和当前接入状态">
+        <ReferralCenterAdapter />
       </CustomerCenterShell>
     );
   }

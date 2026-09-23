@@ -71,7 +71,7 @@ export function ReferralCenter({
               <h2 id="rfc-share-title">推荐链接</h2>
               {notice === "fixture" ? <span className="rfc-tag">演示链接 · 不可访问</span> : null}
             </div>
-            <p>访客可通过此链接进入现有注册流程；推荐注册先记录为待确认候选。</p>
+            <p>推荐链接状态以实际接口为准；注册暂未开放。</p>
           </div>
           <ShareCard link={link} dataStatus={data.status} clipboard={clipboard} />
         </section>
@@ -164,7 +164,7 @@ function PageNotice({ variant }: { variant: ReferralCenterNotice }) {
         <span className="rfc-demo-toggle">说明</span>
       </summary>
       <p>
-        {text}提现申请资格门槛已确认：已结算佣金余额满 ¥1,000.00 才可申请。
+        {text}提现门槛：已结算余额满 ¥1,000.00（功能开放后适用）。
         四档费率与等级门槛已经批准；商品上限、低于 ¥59 的计佣方式、结算天数与战略合作条件等未冻结细则仍保持待确认。本页不构成报价或已生效合同。
       </p>
     </details>
@@ -173,8 +173,8 @@ function PageNotice({ variant }: { variant: ReferralCenterNotice }) {
 
 /* ---------------- 收益：余额卡 + 本月卡 ---------------- */
 
-const NOTE_CASH = "只包含已结算期间的佣金；本月预估与待结算都不计入。余额达到 ¥1,000.00 才具备申请提现资格；" +
-  "不申请则留在佣金余额，不会自动转出。提现功能待接入。";
+const NOTE_CASH = "只包含已结算期间的佣金；本月预估与待结算都不计入。提现门槛：已结算余额满 ¥1,000.00（功能开放后适用）。" +
+  "提现功能暂未开放。";
 const NOTE_EST = "实际比例 = min（当期等级比例，该商品佣金上限）。“预估”只是准确性提示，不是账务状态；" +
   "月内预估不可提现，月末核算后才进入待结算。";
 const NOTE_TIER = "等级按当月有效月销确定，月内为预估；四档比例与月销门槛已经批准；" +
@@ -245,8 +245,8 @@ function EarningsCards({ data, onRetry }: { data: ReferralCenterData; onRetry?: 
             role="img"
             aria-label={ledger && gate
               ? gate.met
-                ? `已结算佣金余额 ${formatYuan(ledger.withdrawable)}，已达申请门槛 ${formatYuan(WITHDRAW_MIN_FEN)}`
-                : `已结算佣金余额 ${formatYuan(ledger.withdrawable)}，距申请门槛 ${formatYuan(WITHDRAW_MIN_FEN)} 还差 ${formatYuan(gate.shortfall)}`
+                ? `已结算佣金余额 ${formatYuan(ledger.withdrawable)}，已达提现门槛 ${formatYuan(WITHDRAW_MIN_FEN)}，功能暂未开放`
+                : `已结算佣金余额 ${formatYuan(ledger.withdrawable)}，距提现门槛 ${formatYuan(WITHDRAW_MIN_FEN)} 还差 ${formatYuan(gate.shortfall)}，功能暂未开放`
               : "佣金余额数据尚未接入"}
           >
             <i style={{ width: `${gate ? gate.fill.toFixed(2) : 0}%` }} />
@@ -254,8 +254,8 @@ function EarningsCards({ data, onRetry }: { data: ReferralCenterData; onRetry?: 
           <div className="rfc-meter-legend">
             {ledger && gate ? (
               gate.met
-                ? <span>已达 <b>{formatYuan(WITHDRAW_MIN_FEN)}</b> 申请门槛 · 提现功能待接入</span>
-                : <span>还差 <b>{formatYuan(gate.shortfall)}</b> 可申请提现</span>
+                ? <span>已达 <b>{formatYuan(WITHDRAW_MIN_FEN)}</b> 门槛 · 提现功能暂未开放</span>
+                : <span>距门槛还差 <b>{formatYuan(gate.shortfall)}</b> · 提现功能暂未开放</span>
             ) : (
               <span>佣金余额数据尚未接入</span>
             )}
@@ -390,8 +390,8 @@ function ShareCard({
         ) : ready ? null : reason}
       </p>
       <p className="rfc-share-meta">
-        <span>推荐注册仅生成<b>待确认候选</b></span>
-        <span>注册仍需邀请码 · 推广二维码 <b className="is-pending">待接入</b></span>
+        <span>实际接口仅展示<b>待确认候选</b></span>
+        <span>注册暂未开放 · 推广二维码 <b className="is-pending">待接入</b></span>
       </p>
     </div>
   );
@@ -585,11 +585,10 @@ function FaqCard() {
         </div>
       </details>
       <details className="rfc-faq">
-        <summary>什么时候可以申请提现？</summary>
+        <summary>提现门槛是什么？</summary>
         <div className="rfc-faq-body">
-          <p><b>已结算佣金余额达到 ¥1,000.00 才具备申请提现资格。</b>本月预估与待结算金额不计入该余额。</p>
-          <p>未达到 ¥1,000.00 时，申请入口保持不可用，并显示还差多少；<b>不申请则留在佣金余额中，不会自动转出。</b></p>
-          <p>提现功能尚未接入：当前不能提交申请，也不会创建任何提现单。</p>
+          <p><b>提现门槛：已结算余额满 ¥1,000.00（功能开放后适用）。</b>本月预估与待结算金额不计入该余额。</p>
+          <p>提现功能暂未开放：当前不能提交申请，也不会创建任何提现单。</p>
         </div>
       </details>
       <details className="rfc-faq">
@@ -602,7 +601,7 @@ function FaqCard() {
       <details className="rfc-faq">
         <summary>推荐归属怎么算？我能看到客户什么信息？</summary>
         <div className="rfc-faq-body">
-          <p>当前仅记录推荐注册候选；正式客户归属与后续计佣规则尚待确认。</p>
+          <p>当前仅展示实际接口返回的待确认候选；正式客户归属与后续计佣规则尚待确认。</p>
           <p>待确认候选只显示匿名标识、状态与注册时间，不含姓名、手机号、邮箱、真实资源或网络配置。</p>
         </div>
       </details>
