@@ -34,6 +34,7 @@ const REQUIRED_BUNDLE_PATHS = Object.freeze([
   "auth-service/package-lock.json",
   "auth-service/package.json",
   "website/dist/index.html",
+  "website/dist/referral.html",
   "website/package-lock.json",
   "website/package.json",
   ...RELEASE_HTTP_CONTRACT_PATHS,
@@ -677,6 +678,7 @@ export function validateRepository({ source, expectedSha }) {
 
   runTrafficGateValidation(sourceRoot);
   validateTemplateRoot(sourceRoot);
+  validateTemplateRoot(sourceRoot, "dual-direct");
   return Object.freeze({ status: "ok", sourceSha: sha, bundleValidated: false });
 }
 
@@ -1195,6 +1197,19 @@ export function validateBundle({
       );
     }
   }
+  const referralHtml = readText(
+    join(bundleRoot, "website/dist/referral.html"),
+    "built public referral entrypoint",
+  );
+  const referralScript = referralHtml.match(/src="\/assets\/([A-Za-z0-9._-]+\.js)"/);
+  if (!referralScript ||
+      !inventoryPaths.includes("website/dist/assets/" + referralScript[1]) ||
+      /src="\/app\/|href="\/register/.test(referralHtml)) {
+    throw new ReleaseValidationError(
+      "BUNDLE_INTEGRITY_FAILED",
+      "public referral entrypoint must reference built assets and keep registration closed",
+    );
+  }
   for (const migration of RELEASE_MIGRATIONS) {
     if (!inventoryPaths.includes(`auth-service/src/migrations/${migration}`)) {
       throw new ReleaseValidationError(
@@ -1229,6 +1244,7 @@ export function validateBundle({
     "bundled open HTTP contract validator",
   );
   validateTemplateRoot(bundleRoot);
+  validateTemplateRoot(bundleRoot, "dual-direct");
 
   const githubArtifactProof =
     validationMode === "candidate"

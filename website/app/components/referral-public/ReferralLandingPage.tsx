@@ -52,7 +52,7 @@ export function ReferralLandingPage() {
           : "暂时无法确认推荐链接";
   const subtitle =
     state === "valid"
-      ? "你可以继续了解服务，或前往现有注册入口。"
+      ? "推荐链接有效，你可以先了解服务。"
       : state === "invalid"
         ? "请检查链接是否完整，或向分享者重新获取链接。"
         : state === "rate_limited"
@@ -92,19 +92,9 @@ export function ReferralLandingPage() {
           <h1>{title}</h1>
           <p className="auth-subtitle">{subtitle}</p>
 
-          {state === "valid" && (
-            <div className="referral-public-actions">
-              <a
-                className="referral-public-primary"
-                href={`/register?referralCode=${encodeURIComponent(publicCode ?? "")}`}
-              >
-                前往注册
-              </a>
-              <p>
-                注册仍需填写有效邀请码。注册完成后仅保存待确认的推荐来源候选，不代表正式推荐归属或佣金资格。
-              </p>
-            </div>
-          )}
+          <div className="referral-public-actions">
+            <p>注册暂未开放。此页面只确认链接状态，不代表推荐归属或佣金资格。</p>
+          </div>
         </section>
       </main>
     </div>

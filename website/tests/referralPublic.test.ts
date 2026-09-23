@@ -68,7 +68,7 @@ test("public client omits credentials and sends no redirect target or tracking d
   }
 });
 
-test("landing carries only an opaque code into invite-gated registration", () => {
+test("landing keeps registration closed and does not claim attribution", () => {
   const landing = readFileSync(
     new URL("../app/components/referral-public/ReferralLandingPage.tsx", import.meta.url),
     "utf8",
@@ -81,8 +81,9 @@ test("landing carries only an opaque code into invite-gated registration", () =>
     new URL("../app/components/auth/RegisterPage.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(landing, /href=\{`\/register\?referralCode=/);
-  assert.match(landing, /仍需填写有效邀请码/);
+  assert.match(landing, /注册暂未开放/);
+  assert.doesNotMatch(landing, /href=\{`\/register\?referralCode=/);
+  assert.match(landing, /不代表推荐归属或佣金资格/);
   assert.match(registration, /name="inviteCode"/);
   assert.match(registration, /startRegistration\([\s\S]*canonicalInvite/);
   assert.match(registration, /referralSourceCodeFromSearch\(window\.location\.search\)/);
@@ -93,6 +94,22 @@ test("landing carries only an opaque code into invite-gated registration", () =>
     assert.equal(source.includes("navigator.sendBeacon"), false);
     assert.equal(source.includes("referrer_user_id"), false);
   }
+});
+
+test("formal referral center states closed actions and leaves withdrawal disabled", () => {
+  const center = readFileSync(
+    new URL("../app/components/referrals/ReferralCenter.tsx", import.meta.url),
+    "utf8",
+  );
+  const parts = readFileSync(
+    new URL("../app/components/referrals/referralParts.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(center, /注册暂未开放/);
+  assert.match(center, /提现门槛：已结算余额满 ¥1,000.00（功能开放后适用）/);
+  assert.match(center, /提现功能暂未开放/);
+  assert.doesNotMatch(center, /才具备申请提现资格|可申请提现|进入现有注册流程/);
+  assert.match(parts, /className="rfc-quiet-btn" disabled aria-disabled="true"/);
 });
 
 test("registration query accepts exactly one opaque code", () => {

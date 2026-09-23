@@ -71,7 +71,7 @@ export function ReferralCenter({
               <h2 id="rfc-share-title">推荐链接</h2>
               {notice === "fixture" ? <span className="rfc-tag">演示链接 · 不可访问</span> : null}
             </div>
-            <p>访客可通过此链接进入现有注册流程；推荐注册先记录为待确认候选。</p>
+            <p>推荐链接状态以实际接口为准；注册暂未开放。</p>
           </div>
           <ShareCard link={link} dataStatus={data.status} clipboard={clipboard} />
         </section>
@@ -106,7 +106,7 @@ export function ReferralCenter({
               </div>
               <div className="rfc-card rfc-strategic">
                 <p className="rfc-strategic-kicker">独立合作 · 需人工审核</p>
-                <p className="rfc-strategic-title">战略推广伙伴<em>最高 50%</em></p>
+                <p className="rfc-strategic-title">战略推广伙伴<em>比例待确认</em></p>
                 <p className="rfc-strategic-lead">
                   面向拥有真实推广渠道、愿意开展持续推广合作的伙伴。具体比例、适用商品及合作要求以批准方案为准。合作方案筹备中，暂未开放资格授予。
                 </p>
@@ -139,7 +139,7 @@ export function ReferralCenter({
         open={strategicOpen}
         onClose={() => setStrategicOpen(false)}
         eyebrow="独立合作 · 需人工审核"
-        title="战略推广伙伴｜最高 50%"
+        title="战略推广伙伴｜比例待确认"
         wide
       >
         <StrategicDialogBody />
@@ -164,7 +164,7 @@ function PageNotice({ variant }: { variant: ReferralCenterNotice }) {
         <span className="rfc-demo-toggle">说明</span>
       </summary>
       <p>
-        {text}提现申请资格门槛已确认：已结算佣金余额满 ¥1,000.00 才可申请。
+        {text}提现门槛：已结算余额满 ¥1,000.00（功能开放后适用）。
         四档费率与等级门槛已经批准；商品上限、低于 ¥59 的计佣方式、结算天数与战略合作条件等未冻结细则仍保持待确认。本页不构成报价或已生效合同。
       </p>
     </details>
@@ -173,10 +173,9 @@ function PageNotice({ variant }: { variant: ReferralCenterNotice }) {
 
 /* ---------------- 收益：余额卡 + 本月卡 ---------------- */
 
-const NOTE_CASH = "只包含已结算期间的佣金；本月预估与待结算都不计入。余额达到 ¥1,000.00 才具备申请提现资格；" +
-  "不申请则留在佣金余额，不会自动转出。提现功能待接入。";
-const NOTE_EST = "实际比例 = min（当期等级比例，该商品佣金上限）。“预估”只是准确性提示，不是账务状态；" +
-  "月内预估不可提现，月末核算后才进入待结算。";
+const NOTE_CASH = "只包含已结算期间的佣金；本月预估与待结算都不计入。提现门槛：已结算余额满 ¥1,000.00（功能开放后适用）。" +
+  "未申请的已结算余额保留，不会自动转出。提现功能暂未开放。";
+const NOTE_EST = "预估与待结算金额不计入已结算佣金余额；计佣方式、商品上限及结算安排尚未配置或确认。";
 const NOTE_TIER = "等级按当月有效月销确定，月内为预估；四档比例与月销门槛已经批准；" +
   "月销低于 ¥59 的计佣方式待确认。";
 
@@ -245,8 +244,8 @@ function EarningsCards({ data, onRetry }: { data: ReferralCenterData; onRetry?: 
             role="img"
             aria-label={ledger && gate
               ? gate.met
-                ? `已结算佣金余额 ${formatYuan(ledger.withdrawable)}，已达申请门槛 ${formatYuan(WITHDRAW_MIN_FEN)}`
-                : `已结算佣金余额 ${formatYuan(ledger.withdrawable)}，距申请门槛 ${formatYuan(WITHDRAW_MIN_FEN)} 还差 ${formatYuan(gate.shortfall)}`
+                ? `已结算佣金余额 ${formatYuan(ledger.withdrawable)}，已达提现门槛 ${formatYuan(WITHDRAW_MIN_FEN)}，功能暂未开放`
+                : `已结算佣金余额 ${formatYuan(ledger.withdrawable)}，距提现门槛 ${formatYuan(WITHDRAW_MIN_FEN)} 还差 ${formatYuan(gate.shortfall)}，功能暂未开放`
               : "佣金余额数据尚未接入"}
           >
             <i style={{ width: `${gate ? gate.fill.toFixed(2) : 0}%` }} />
@@ -254,8 +253,8 @@ function EarningsCards({ data, onRetry }: { data: ReferralCenterData; onRetry?: 
           <div className="rfc-meter-legend">
             {ledger && gate ? (
               gate.met
-                ? <span>已达 <b>{formatYuan(WITHDRAW_MIN_FEN)}</b> 申请门槛 · 提现功能待接入</span>
-                : <span>还差 <b>{formatYuan(gate.shortfall)}</b> 可申请提现</span>
+                ? <span>已达 <b>{formatYuan(WITHDRAW_MIN_FEN)}</b> 门槛 · 提现功能暂未开放</span>
+                : <span>距门槛还差 <b>{formatYuan(gate.shortfall)}</b> · 提现功能暂未开放</span>
             ) : (
               <span>佣金余额数据尚未接入</span>
             )}
@@ -390,8 +389,8 @@ function ShareCard({
         ) : ready ? null : reason}
       </p>
       <p className="rfc-share-meta">
-        <span>推荐注册仅生成<b>待确认候选</b></span>
-        <span>注册仍需邀请码 · 推广二维码 <b className="is-pending">待接入</b></span>
+        <span>实际接口仅展示<b>待确认候选</b></span>
+        <span>注册暂未开放 · 推广二维码 <b className="is-pending">待接入</b></span>
       </p>
     </div>
   );
@@ -452,7 +451,7 @@ function LevelCard({ data }: { data: ReferralCenterData }) {
       ) : null}
 
       <p className="rfc-level-foot">
-        轨道按四档分段展示，不是等比例坐标；有效月销与佣金数据尚未接入，退款与拒付的调整方式待确认。最高 50% 的战略推广合作是独立合作，不在本路径内。
+        轨道按四档分段展示，不是等比例坐标；有效月销与佣金数据尚未接入，退款与拒付的调整方式待确认。战略推广合作是独立候选方案，不在本路径内。
       </p>
     </div>
   );
@@ -492,7 +491,7 @@ function StrategicDialogBody() {
       <div role="tabpanel" id="rfc-spanel-0" aria-labelledby="rfc-stab-0" tabIndex={0} hidden={tab !== 0}>
         <div className="rfc-block">
           <h3>当前状态</h3>
-          <p>战略推广伙伴｜最高 50%。面向拥有真实推广渠道、愿意开展持续推广合作的伙伴。具体比例、适用商品及合作要求以批准方案为准。<br /><b>合作方案筹备中，暂未开放资格授予。</b></p>
+          <p>战略推广伙伴方案筹备中。具体比例、适用商品及合作要求以未来批准方案为准。<br /><b>暂未开放资格授予。</b></p>
         </div>
         <div className="rfc-compare">
           <article>
@@ -500,7 +499,7 @@ function StrategicDialogBody() {
             <ul>
               <li>自由推荐，无需申请</li>
               <li>按当月有效月销自动确定正式档位（10% / 15% / 20% / 30%）</li>
-              <li>受商品佣金上限约束</li>
+              <li>商品佣金上限尚待批准</li>
             </ul>
           </article>
           <article className="is-strategic">
@@ -508,7 +507,7 @@ function StrategicDialogBody() {
             <ul>
               <li>通过明确、持续、可核验的推广合作获得单独合作待遇</li>
               <li>需人工审核与合作协议，不由月销自动升级</li>
-              <li>最高 50%；具体比例与适用商品以批准方案为准</li>
+              <li>具体比例与适用商品待批准</li>
             </ul>
           </article>
         </div>
@@ -533,7 +532,7 @@ function StrategicDialogBody() {
           <ul>
             <li>不是月销四档之外的“第五档”，不会因月销达到某个数值自动获得。</li>
             <li>不可通过缴费购买资格。</li>
-            <li>提交申请不等于获得资格，需人工审核并签署合作协议。</li>
+            <li>未来若开放申请，仍需人工审核并签署合作协议。</li>
             <li>适用商品与比例按批准方案执行，并非所有商品统一同一比例。</li>
           </ul>
         </div>
@@ -573,23 +572,21 @@ function FaqCard() {
       <details className="rfc-faq">
         <summary>商品佣金上限如何影响实际比例？</summary>
         <div className="rfc-faq-body">
-          <p>每个商品有独立佣金上限。<b>实际返佣比例 = min（当期等级比例，该商品上限）</b>，所以高等级不一定对所有商品都按等级比例计佣。</p>
-          <p>例：当月核心伙伴 20%，某续费商品上限 15%，该单按 15% 计佣（¥1,000.00 × 15% = ¥150.00）。</p>
+          <p>商品佣金上限尚未配置，实际计佣方式仍待确认；暂不展示推测比例或金额。</p>
         </div>
       </details>
       <details className="rfc-faq">
         <summary>预估、待结算、可提现、已提现有什么区别？</summary>
         <div className="rfc-faq-body">
-          <p>“预估”只是准确性提示，不是新的账务状态。账务状态仍为<b>待结算 → 可提现 → 已提现</b>。</p>
-          <p>月内金额随有效消费变化，因此标注为预估；月度核算并经观察期后进入待结算，结算完成后才计入可提现的佣金余额。<b>本月预估与待结算都不计入佣金余额。</b>结算天数与观察期仍待批准。</p>
+          <p>“预估”只是准确性提示，不是新的账务状态；正式佣金与结算数据尚未接入。</p>
+          <p>本月预估与待结算金额不计入已结算佣金余额；结算安排与观察期仍待批准。</p>
         </div>
       </details>
       <details className="rfc-faq">
-        <summary>什么时候可以申请提现？</summary>
+        <summary>提现门槛是什么？</summary>
         <div className="rfc-faq-body">
-          <p><b>已结算佣金余额达到 ¥1,000.00 才具备申请提现资格。</b>本月预估与待结算金额不计入该余额。</p>
-          <p>未达到 ¥1,000.00 时，申请入口保持不可用，并显示还差多少；<b>不申请则留在佣金余额中，不会自动转出。</b></p>
-          <p>提现功能尚未接入：当前不能提交申请，也不会创建任何提现单。</p>
+          <p><b>提现门槛：已结算余额满 ¥1,000.00（功能开放后适用）。</b>本月预估与待结算金额不计入该余额。</p>
+          <p>未申请的已结算余额保留，不会自动转出。提现功能暂未开放：当前不能提交申请，也不会创建任何提现单。</p>
         </div>
       </details>
       <details className="rfc-faq">
@@ -602,15 +599,15 @@ function FaqCard() {
       <details className="rfc-faq">
         <summary>推荐归属怎么算？我能看到客户什么信息？</summary>
         <div className="rfc-faq-body">
-          <p>当前仅记录推荐注册候选；正式客户归属与后续计佣规则尚待确认。</p>
+          <p>当前仅展示实际接口返回的待确认候选；正式客户归属与后续计佣规则尚待确认。</p>
           <p>待确认候选只显示匿名标识、状态与注册时间，不含姓名、手机号、邮箱、真实资源或网络配置。</p>
         </div>
       </details>
       <details className="rfc-faq">
         <summary>战略推广伙伴和普通四档有什么不同？</summary>
         <div className="rfc-faq-body">
-          <p>普通四档按当月有效月销自动确定，无需申请；战略推广伙伴｜最高 50% 是<b>独立的合作关系</b>，需要真实可核验的推广渠道、约定的持续推广内容、人工审核与合作协议。</p>
-          <p>它不是月销的第五档，不会自动获得，也不能通过缴费购买；提交申请不等于获得资格。</p>
+          <p>普通四档按当月有效月销确定，无需申请；战略推广伙伴是<b>独立的候选合作方案</b>，具体比例与条件待批准。</p>
+          <p>它不是月销的第五档，不会自动获得，也不能通过缴费购买；目前没有申请入口。</p>
         </div>
       </details>
       <details className="rfc-faq">
@@ -620,7 +617,7 @@ function FaqCard() {
             <li>月销低于 ¥59 的计佣方式：<b>待确认</b></li>
             <li>四档费率与各档门槛：<b>已批准</b></li>
             <li>商品佣金上限清单：待批准</li>
-            <li>结算天数与观察期：待批准（提现申请门槛 ¥1,000.00 已冻结，不在此列）</li>
+            <li>结算天数与观察期：待批准（提现门槛 ¥1,000.00 已冻结，不在此列）</li>
             <li>战略推广合作的准入、保级与退出契约：待批准</li>
           </ul>
           <p>未批准参数继续显示“待确认”，不写入计佣配置，也不以 0 或其他推测数值替代。</p>

@@ -8,6 +8,7 @@ export const sectionKeys = [
   "subscribe",
   "docs",
   "profile",
+  "referrals",
 ] as const;
 
 export type SectionKey = (typeof sectionKeys)[number];

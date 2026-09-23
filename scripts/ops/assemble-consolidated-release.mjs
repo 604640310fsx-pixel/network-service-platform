@@ -72,6 +72,7 @@ export const RELEASE_MIGRATIONS = Object.freeze([
 ]);
 export const RELEASE_HTTP_CONTRACT_PATHS = Object.freeze([
   "ops/nginx/release-traffic-open.conf.example",
+  "ops/nginx/release-traffic-dual-direct.conf.example",
   "ops/nginx/bare-domain-redirect.conf.example",
   "ops/nginx/release-traffic-closed.conf.example",
   "scripts/ops/validate-release-open-http-contract.mjs",
@@ -88,6 +89,10 @@ const FILE_MAPPINGS = Object.freeze([
   [
     "ops/nginx/release-traffic-open.conf.example",
     "ops/nginx/release-traffic-open.conf.example",
+  ],
+  [
+    "ops/nginx/release-traffic-dual-direct.conf.example",
+    "ops/nginx/release-traffic-dual-direct.conf.example",
   ],
   [
     "ops/nginx/bare-domain-redirect.conf.example",
@@ -109,6 +114,7 @@ const REQUIRED_PAYLOAD_PATHS = Object.freeze([
   "auth-service/package-lock.json",
   "auth-service/package.json",
   "website/dist/index.html",
+  "website/dist/referral.html",
   "website/package-lock.json",
   "website/package.json",
   ...RELEASE_HTTP_CONTRACT_PATHS,
