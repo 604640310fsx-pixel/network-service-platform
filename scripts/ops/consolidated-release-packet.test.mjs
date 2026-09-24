@@ -682,6 +682,29 @@ test("preserve-existing keeps MIME and security headers in their bound scope", (
   const preserved = validateRenderedSources(input);
   assert.equal(preserved.effectiveInheritedMimePolicy, "UNVERIFIED");
   assert.equal(preserved.securityPolicyAdequacy, "UNVERIFIED");
+  for (const name of ["Content-Type", "cOnTeNt-TyPe", "Content-Encoding", "Vary", "Cache-Control"]) {
+    const hiddenApiHeader = openConfig.replace(
+      "    location = /api {",
+      `    proxy_hide_header ${name};\n    location = /api {`,
+    );
+    expectContractFailure(() => validateRenderedSources({
+      ...input,
+      openConfig: hiddenApiHeader,
+      candidateContext: context(hiddenApiHeader),
+    }), "OPEN_ROUTING_INVALID");
+  }
+  for (const directive of [
+    "proxy_hide_header X-Synthetic-Internal;",
+    "proxy_ignore_headers Cache-Control;",
+  ]) {
+    const unchanged = openConfig.replace("    location = /api {", `    ${directive}\n    location = /api {`);
+    assert.equal(validateRenderedSources({
+      ...input,
+      openConfig: unchanged,
+      existingContext: context(unchanged),
+      candidateContext: context(unchanged),
+    }).status, "ok");
+  }
   const withCsp = (policy) => {
     const changed = openConfig.replace(csp, policy);
     return {
