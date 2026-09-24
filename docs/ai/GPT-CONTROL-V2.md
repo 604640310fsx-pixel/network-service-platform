@@ -51,7 +51,7 @@
 | 普通工程 | GPT-6 Sol / medium | 边界清晰的正常实施、测试和修复 |
 | 复杂正式工程 | GPT-6 Sol / high / 标准串行 | 复杂后端、Migration、多文件或多模块实施、难 Bug 或完整测试闭环；由原 Sol 作者持续负责。不得自动切换模型、并行增加第二作者，或在一次失败后更换作者 |
 | 复杂技术 specialist transfer | GPT-6 Astra / medium | 仅当原 Sol 作者无法解决一个明确的复杂技术问题时，项目经理可裁决转交。转交前原作者必须停止写入，并以经项目经理批准的已 push 精确 SHA 和 diff 完成交接；接手作者复核后才可写入。不得自动转交、并行写入或仅因一次失败更换作者 |
-| 低风险机械工程 | GPT-6 Luna / medium；必要时 max | 仅局部、可回滚、低冲突、可独立验收的机械任务；max 须由当前 Packet 针对具体需要明确选择，不自动升级所有 Luna 任务；关键安全、数据或生产裁决仍回管理链 |
+| 低风险机械工程 | GPT-6 Luna / max | 仅局部、可回滚、低冲突、可独立验收的机械任务；不做 low/medium effort 试用；关键安全、数据或生产裁决仍回管理链 |
 | 低成本来源研究、基础检查与聚焦式幻觉控制 | GPT-6 Luna / max | 对已授权任务中的低成本来源研究、基础核查和针对具体易错点的验证使用；结论须引用并核对来源和证据。不得声称该模型/档位保证零幻觉，也不得把模型自述当作准确性证据；此路由本身不授权新建研究任务 |
 | Codex Ultra | 当前 Packet 明确选择的 Ultra workflow | 仅 T4、至少两个独立可验收且无共享写入的子任务，最后串行整合；不用于单链路、Auth/Session、同一 Migration/事务、生产、交易或 Git 收尾 |
 | Claude Design | 当前 Packet 明确选择的 Claude 模型/effort | 探索性新视觉方向、视觉母版和未冻结关键交互；输出默认是 `PROPOSAL` |
@@ -59,6 +59,10 @@
 | Claude Opus | Opus 5.5，CLI/model ID `claude-opus-5-5`；默认 medium；复杂工程和关键 UI 使用 xhigh；架构探索按当前 Packet 显式选择 high 或 xhigh | 复杂 UI、创意、RCA 或复杂实施；保留 Claude Design 的探索自由度 |
 | Claude Fable | Fable 5.1；精确模型 ID 与 effort 由当前 Packet 明确批准，并在派发前按目标环境核实可用性 | 仅在有证据证明异常困难或长链路任务确有需要时使用；由当前 Packet 按需授权，并明确范围与预算 |
 | Astra 执行任务 | 仅按本表的 specialist transfer 路径 | 其他执行任务默认排除；不得因排名、一般任务困难或单次失败自动加入 |
+
+Luna 路由统一使用 max；该调整不扩展岗位、权限、写入职责或最终验收责任。
+
+**SWE-2/MAX 独立只读聚焦审计候选（当前未派发）：** 只有 Devin 的真实入口、effort、计费与私有代码授权范围均经核验并获批准后，才可派发只读聚焦审计。Claude Max/Devin 的购买或开通状态，以及 Devin 原生 GPT/Claude 模型能力，均为 `UNKNOWN`，不得写成已开通或已核实；该候选不改变既有岗位、权限、写入职责或模型路由。
 
 Claude Design、Claude Code 与 Codex 的 handoff 由剩余责任和证据决定，不机械交替、不重复已经验收的工作。关键视觉需要探索时走 Claude Design；冻结后普通接线、测试和机械修复通常走 Codex。任何推荐都不是已经切换；未知可用性不允许静默降级或替换。更新本文件只更新路由政策，不会自动修改项目设置或切换任何已运行任务的模型。
 
