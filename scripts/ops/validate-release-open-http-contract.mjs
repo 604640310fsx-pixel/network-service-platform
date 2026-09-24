@@ -458,13 +458,14 @@ function parseCsp(policy, preserveExisting = false) {
     const fields = part.trim().split(/\s+/).filter(Boolean);
     if (fields.length === 0) continue;
     const [name, ...sources] = fields;
-    if (preserveExisting && ["connect-src", "frame-src"].includes(name.toLowerCase()) && name !== name.toLowerCase()) {
+    const canonicalName = name.toLowerCase();
+    if (preserveExisting && ["connect-src", "frame-src"].includes(canonicalName) && name !== canonicalName) {
       fail("OPEN_SECURITY_INVALID", "CSP allowlist directive must use its canonical name");
     }
-    if (directives.has(name) || sources.length === 0) {
+    if (directives.has(canonicalName) || sources.length === 0) {
       fail("OPEN_SECURITY_INVALID", "CSP directives must be unique and nonempty");
     }
-    directives.set(name, sources);
+    directives.set(canonicalName, sources);
   }
   if (directives.size === 0) {
     fail("OPEN_SECURITY_INVALID", "CSP must contain a directive");
@@ -479,7 +480,7 @@ function parseCsp(policy, preserveExisting = false) {
   for (const sources of directives.values()) {
     if (
       sources.some(
-        (source) => source.includes("*") || source === "'unsafe-eval'",
+        (source) => source.includes("*") || source.toLowerCase() === "'unsafe-eval'",
       )
     ) {
       fail("OPEN_SECURITY_INVALID", "CSP contains a forbidden source expression");
