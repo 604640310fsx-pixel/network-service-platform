@@ -1062,6 +1062,12 @@ function validatePreservedContext({ existingContext, candidateContext, expected,
   for (const port of [80, 443]) {
     const oldServer = byPort(oldTargets, port);
     const newServer = byPort(newTargets, port);
+    if (
+      JSON.stringify(directArgumentStrings(oldServer, "listen").sort()) !==
+      JSON.stringify(directArgumentStrings(newServer, "listen").sort())
+    ) {
+      fail("OPEN_TOPOLOGY_INVALID", "target listen declarations changed");
+    }
     if (JSON.stringify(securityHeaders(oldServer)) !== JSON.stringify(securityHeaders(newServer)) ||
       JSON.stringify(scopedDirectives(oldServer, (entry) => entry.name === "include")) !==
         JSON.stringify(scopedDirectives(newServer, (entry) => entry.name === "include"))) {

@@ -830,6 +830,83 @@ test("preserve-existing rejects changed security, TLS, non-target, or inherited 
   );
 });
 
+test("preserve-existing compares complete target listen declarations before and after", () => {
+  const sources = contractSources();
+  const synthetic = createSanitizedSyntheticRender();
+  const openConfig = replaceTokens(sources.dualTemplate, {
+    ...synthetic.replacements,
+    [OPEN_HTTP_PLACEHOLDERS.framingDirective]: "# OPEN_FRAMING_POLICY: preserve-existing",
+    [OPEN_HTTP_PLACEHOLDERS.hstsDirective]: "# OPEN_HSTS_OWNER: preserve-existing",
+  });
+  const otherServer = "\nserver { listen 8080; server_name unrelated.example.invalid; return 204; }\n";
+  const input = {
+    openConfig,
+    closedCandidate: sources.closedCandidate,
+    expected: {
+      ...synthetic.expected,
+      framingPolicy: "preserve-existing",
+      hstsOwner: "preserve-existing",
+      hstsValue: "preserve-existing",
+    },
+    mode: "dual-direct",
+    existingContext: openConfig + otherServer,
+    candidateContext: openConfig + otherServer,
+  };
+  const extraListen = input.existingContext.replace(
+    "listen 80;",
+    "listen 80;\n    listen 8080;",
+  );
+  assert.notEqual(extraListen, input.existingContext);
+  expectContractFailure(
+    () => validateRenderedSources({ ...input, existingContext: extraListen }),
+    "OPEN_TOPOLOGY_INVALID",
+  );
+});
+
+test("preserve-existing rejects missing, extra, or changed target listen values and flags", () => {
+  const sources = contractSources();
+  const synthetic = createSanitizedSyntheticRender();
+  const openConfig = replaceTokens(sources.dualTemplate, {
+    ...synthetic.replacements,
+    [OPEN_HTTP_PLACEHOLDERS.framingDirective]: "# OPEN_FRAMING_POLICY: preserve-existing",
+    [OPEN_HTTP_PLACEHOLDERS.hstsDirective]: "# OPEN_HSTS_OWNER: preserve-existing",
+  });
+  const otherServer = "\nserver { listen 8080; server_name unrelated.example.invalid; return 204; }\n";
+  const input = {
+    openConfig,
+    closedCandidate: sources.closedCandidate,
+    expected: {
+      ...synthetic.expected,
+      framingPolicy: "preserve-existing",
+      hstsOwner: "preserve-existing",
+      hstsValue: "preserve-existing",
+    },
+    mode: "dual-direct",
+    existingContext: openConfig + otherServer,
+    candidateContext: openConfig + otherServer,
+  };
+  for (const mutated of [
+    input.existingContext.replace("\n    listen [::]:80;", ""),
+    input.existingContext.replace("    listen 443 ssl;", "    listen 443 ssl;\n    listen 8443 ssl;"),
+    input.existingContext.replace("listen 80;", "listen 80 default_server;"),
+    input.existingContext.replace("listen [::]:443 ssl;", "listen [::]:443;"),
+  ]) {
+    assert.notEqual(mutated, input.existingContext);
+    expectContractFailure(
+      () => validateRenderedSources({ ...input, existingContext: mutated }),
+      "OPEN_TOPOLOGY_INVALID",
+    );
+  }
+  const reordered = input.existingContext
+    .replace("    listen 80;\n    listen [::]:80;", "    listen [::]:80;\n    listen 80;")
+    .replace("    listen 443 ssl;\n    listen [::]:443 ssl;", "    listen [::]:443 ssl;\n    listen 443 ssl;");
+  assert.notEqual(reordered, input.existingContext);
+  assert.equal(
+    validateRenderedSources({ ...input, existingContext: reordered }).status,
+    "ok",
+  );
+});
+
 test("open HTTP templates reject concrete host, root, upstream, TLS, and certificate values", () => {
   const baseline = contractSources();
   const cases = [
