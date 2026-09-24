@@ -754,7 +754,7 @@ function validateRouting(server, expected) {
       const args = argsOf(node);
       return (
         node.name === "proxy_hide_header" &&
-        ["cache-control", "content-encoding", "vary"].includes(
+        ["cache-control", "content-encoding", "content-type", "vary"].includes(
           (args[0] ?? "").toLowerCase(),
         )
       );
