@@ -695,7 +695,7 @@ test("preserve-existing keeps MIME and security headers in their bound scope", (
   for (const policy of [
     "frame-src 'none'; Script-Src data:",
     "frame-src 'none'; script-src 'Unsafe-Eval'",
-    "frame-src 'none'; Frame-Src 'none'",
+    "frame-src 'none'; script-src 'self'; Script-Src 'self'",
   ]) {
     expectContractFailure(() => validateRenderedSources(withCsp(policy)), "OPEN_SECURITY_INVALID");
   }
