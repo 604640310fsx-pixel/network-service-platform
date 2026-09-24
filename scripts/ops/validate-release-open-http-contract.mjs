@@ -1074,7 +1074,10 @@ function validatePreservedContext({ existingContext, candidateContext, expected,
       fail("PRESERVED_SECURITY_DRIFT", "target security headers or includes changed");
     }
     const mime = (node) => scopedDirectives(node, (entry, scope) =>
-      ["include", "default_type", "types", "charset"].includes(entry.name) || scope.includes("types"));
+      [
+        "include", "default_type", "types", "charset",
+        "charset_types", "source_charset", "override_charset",
+      ].includes(entry.name) || scope.includes("types"));
     if (JSON.stringify(mime(oldServer)) !== JSON.stringify(mime(newServer))) {
       fail("PRESERVED_MIME_DRIFT", "target MIME declarations or include scope changed");
     }
