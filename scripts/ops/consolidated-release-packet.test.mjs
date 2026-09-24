@@ -356,11 +356,11 @@ test("dual-direct is opt-in and preserves both hostnames", () => {
     "frame-src",
     "Connect-Src 'self'; frame-src",
   );
-  assert.equal(validateRenderedSources({
+  expectContractFailure(() => validateRenderedSources({
     ...input,
     openConfig: openConfig.replace(synthetic.expected.cspPolicy, additionalCaseVariant),
     expected: { ...synthetic.expected, cspPolicy: additionalCaseVariant },
-  }).topology, "open-dual-direct");
+  }), "OPEN_SECURITY_INVALID");
   for (const mutated of [
     openConfig.replace("return 301 https://$host$request_uri;", "return 308 https://$host$request_uri;"),
     openConfig.replace("return 301 https://$host$request_uri;", "return 301 https://" + synthetic.expected.canonicalHost + "$request_uri;"),
@@ -682,6 +682,25 @@ test("preserve-existing keeps MIME and security headers in their bound scope", (
   const preserved = validateRenderedSources(input);
   assert.equal(preserved.effectiveInheritedMimePolicy, "UNVERIFIED");
   assert.equal(preserved.securityPolicyAdequacy, "UNVERIFIED");
+  const withCsp = (policy) => {
+    const changed = openConfig.replace(csp, policy);
+    return {
+      ...input,
+      openConfig: changed,
+      existingContext: context(changed),
+      candidateContext: context(changed),
+      expected: { ...input.expected, cspPolicy: policy },
+    };
+  };
+  for (const policy of [
+    "frame-src 'none'; Script-Src data:",
+    "frame-src 'none'; script-src 'Unsafe-Eval'",
+    "frame-src 'none'; Frame-Src 'none'",
+  ]) {
+    expectContractFailure(() => validateRenderedSources(withCsp(policy)), "OPEN_SECURITY_INVALID");
+  }
+  const mixedCasePolicy = "frame-src 'none'; Script-Src 'self' 'nonce-AbC+/=' https://Example.invalid/CasePath";
+  assert.equal(validateRenderedSources(withCsp(mixedCasePolicy)).securityPolicyAdequacy, "UNVERIFIED");
   for (const [directive, failure] of [
     ["include mime.types;", "PRESERVED_SECURITY_DRIFT"],
     ["default_type application/octet-stream;", "PRESERVED_MIME_DRIFT"],
