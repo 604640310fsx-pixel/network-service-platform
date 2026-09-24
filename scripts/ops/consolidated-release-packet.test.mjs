@@ -779,6 +779,69 @@ test("preserve-existing keeps MIME and security headers in their bound scope", (
   }), "OPEN_SECURITY_INVALID");
 });
 
+test("preserve-existing keeps charset module directives in their bound scope", () => {
+  const sources = contractSources();
+  const synthetic = createSanitizedSyntheticRender();
+  const csp = "frame-src 'none'";
+  const withPreserveBlocks = replaceTokens(sources.dualTemplate, {
+    ...synthetic.replacements,
+    [OPEN_HTTP_PLACEHOLDERS.cspPolicy]: `"${csp}"`,
+    [OPEN_HTTP_PLACEHOLDERS.framingDirective]: "# OPEN_FRAMING_POLICY: preserve-existing",
+    [OPEN_HTTP_PLACEHOLDERS.hstsDirective]: "# OPEN_HSTS_OWNER: preserve-existing",
+    [OPEN_HTTP_PLACEHOLDERS.compressionDirectives]: "# OPEN_COMPRESSION_OWNER: preserve-existing",
+  });
+  const omitBlock = (source, name) => source.replace(
+    new RegExp(`^    # OPEN_PRESERVE_${name}_BEGIN:[^\\n]*\\n[\\s\\S]*?^    # OPEN_PRESERVE_${name}_END\\n`, "m"),
+    "",
+  );
+  const openConfig = omitBlock(omitBlock(withPreserveBlocks, "MIME"), "SECURITY_HEADERS");
+  const context = (target) => `http {\n include mime.types;\n default_type text/plain;\n ${target}\n}`;
+  const input = {
+    openConfig,
+    closedCandidate: sources.closedCandidate,
+    expected: {
+      ...synthetic.expected,
+      cspPolicy: csp,
+      cspConnectSources: [],
+      framingPolicy: "preserve-existing",
+      hstsOwner: "preserve-existing",
+      hstsValue: "preserve-existing",
+      compressionOwner: "preserve-existing",
+    },
+    mode: "dual-direct",
+    existingContext: context(openConfig),
+    candidateContext: context(openConfig),
+  };
+  const withServerDirective = (target, directive) => target.replace(
+    "    location = /api {",
+    `    ${directive}\n    location = /api {`,
+  );
+  for (const [before, after] of [
+    ["charset_types text/html application/json;", "charset_types text/html;"],
+    ["source_charset utf-8;", "source_charset iso-8859-1;"],
+    ["override_charset on;", "override_charset off;"],
+  ]) {
+    const oldTarget = withServerDirective(openConfig, before);
+    const newTarget = withServerDirective(openConfig, after);
+    expectContractFailure(() => validateRenderedSources({
+      ...input,
+      existingContext: context(oldTarget),
+    }), "PRESERVED_MIME_DRIFT");
+    expectContractFailure(() => validateRenderedSources({
+      ...input,
+      openConfig: newTarget,
+      existingContext: context(oldTarget),
+      candidateContext: context(newTarget),
+    }), "PRESERVED_MIME_DRIFT");
+    assert.equal(validateRenderedSources({
+      ...input,
+      openConfig: oldTarget,
+      existingContext: context(oldTarget),
+      candidateContext: context(oldTarget),
+    }).effectiveInheritedMimePolicy, "UNVERIFIED");
+  }
+});
+
 test("preserve-existing rejects changed security, TLS, non-target, or inherited context", () => {
   const sources = contractSources();
   const synthetic = createSanitizedSyntheticRender();
