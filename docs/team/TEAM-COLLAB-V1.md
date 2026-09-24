@@ -1,6 +1,6 @@
 # TEAM-COLLAB-V1
 
-TEAM-COLLAB-V1 是 Network Service Platform 中 GPT、执行主管、Claude、Codex 和人工参与者共享的最小执行协议。它规定任务状态、单一写入者、验证证据、Git、checkpoint、handoff 和报告；不定义模型路由，不扩大产品、生产或 Git 权限。管理和模型路由见 [`../ai/GPT-CONTROL-V2.md`](../ai/GPT-CONTROL-V2.md)。
+TEAM-COLLAB-V1 是 Network Service Platform 中 GPT、执行主管、Claude、Codex、Devin 和人工参与者共享的最小执行协议。它规定任务状态、单一写入者、验证证据、Git、checkpoint、handoff 和报告；不定义模型路由，不扩大产品、生产或 Git 权限。管理和模型路由见 [`../ai/GPT-CONTROL-V2.md`](../ai/GPT-CONTROL-V2.md)。
 
 ## 1. 任务记录与事实源
 
@@ -13,7 +13,7 @@ TEAM-COLLAB-V1 是 Network Service Platform 中 GPT、执行主管、Claude、Co
 - 实际验证、敏感门禁、风险/未知和一个 `NEXT_ACTION`；
 - Packet 指定的 PR、CI、外部和停止规则。
 
-优先级：用户批准的当前 Task Packet > 仓库冻结契约 > 当前 branch/HEAD/diff > 实际验证。目标和现实冲突时标记 `DRIFT` 并停止受影响步骤，不静默选边。GitHub 上已 push 的精确 SHA 才是跨执行器共享代码事实；聊天摘要、本地未提交修改和历史 Packet 都不是当前共享事实。
+授权与目标以用户最新明确决定、有效 Packet 及冻结契约为准；仓库、branch/HEAD/diff 和实际验证描述当前现实，二者不能用一条优先级互相覆盖。冲突标记 `DRIFT`，只暂停受影响步骤。GitHub 已 push 的精确 SHA 是跨执行器共享代码事实；聊天摘要、本地未提交修改和历史 Packet 不能替代它。审查必须说明实际输入版本及相关 dirty 状态；无法绑定时保持 `UNVERIFIED/STATIC_ONLY`，不拿工作区代替冻结 SHA。
 
 ## 2. 状态与 CURRENT_WRITER
 
@@ -24,21 +24,21 @@ BLOCKED -> IN_PROGRESS       仅在阻塞已关闭且授权仍有效时
 HANDOFF_READY -> IN_PROGRESS 接手者复核 handoff 后
 ```
 
-`DONE` 和 `STOPPED` 是终态。`HANDOFF_READY` 不是最终验收；执行器不得自判 `DONE`。
+`DONE` 和 `STOPPED` 是终态。`HANDOFF_READY` 不是最终验收；执行器不得自判 `DONE`。等待普通审批或本人认证使用现有 `BLOCKED` 并注明原因，不因出现提示就结束任务；同一会话/请求仍有效且获准后继续。终态或失效请求不得伪装恢复。作者阶段结束后由主管/经理按既有授权续接，不要求用户重复批准。
 
-- 一个任务、一个阶段和任何重叠文件集合同时只能有一个可定位的 `CURRENT_WRITER`，例如 `CODEX:<task>`、`CLAUDE_CODE:<session>`、`HUMAN:<name>`；无人写入时用 `NONE`。
+- 一个任务、一个阶段和任何重叠文件集合同时只能有一个可定位的 `CURRENT_WRITER`，例如 `CODEX:<task>`、`CLAUDE_CODE:<session>`、`DEVIN:<session>`、`HUMAN:<name>`；无人写入时用 `NONE`。
 - 写入者只获得 Packet 明确授予的权限，不自动获得 commit、push、PR、merge、deploy 或 production 权限。
 - 协调者可审阅和跟进，但不得与作者并行修改重叠文件。
 - 失去联系不等于作者已经停止写入；所有权不明时保持 `BLOCKED`，禁止启动第二作者。
-- 执行主管不可用时，暂停新派发、任务继续和写入者转移；项目经理不得临时兼任执行主管。项目经理可根据已送达的失败事件处理恢复裁决，不因此取得第二作者或主管的日常派发权。
+- 执行主管不可用时，只暂停依赖主管的新派发、任务继续和写入者转移；项目经理不得临时兼任执行主管。项目经理可根据已送达的失败事件处理恢复裁决，不因此取得第二作者或主管的日常派发权。
 - 接手前必须复核 repository、base、branch、HEAD、diff、未提交状态、最后 checkpoint 和授权，然后显式更新写入者。
 - 模型、effort、workflow 或会话变化不重置任务计时、连接/查询/重试次数、`ACTION_COUNTS` 或停止线。
 
 ## 3. Action count 与 Checkpoint
 
-`ACTION_COUNTS` 至少记录 Packet 限制或授权的 fetch、外部连接/查询、文件写入、commit、push、PR 和 CI 检查次数。计数只增不减；失败、未知结果和模型切换也计入实际已发起动作。
+`ACTION_COUNTS` 只记录 Packet 明确限额或具体风险需要的动作，如外部连接、交易、commit/push。普通读取、局部编辑和无副作用测试不逐次建立计数框架。已有明确上限不得绕过；失败、结果未知和模型切换不清零已发起动作。
 
-Checkpoint 是证据，不是新授权。至少在基线核对后、修改完成进入验证前、commit/push/PR 前及 handoff 前记录；Packet 可以指定更少的逻辑 checkpoint，但不能省略最终证据。
+Checkpoint 是证据，不是新授权；按完成的逻辑阶段记录，短任务可合并基线、验证和交接说明，不固定制造多轮检查。push 前及最终交接的必要证据不能省略，执行器不自加无业务目的的门禁。
 
 ```yaml
 CHECKPOINT_ID: CP-<number>
@@ -81,6 +81,8 @@ NEXT_ACTION: <one-authorized-action>
 
 每项证据绑定精确命令/方法、环境和 HEAD/artifact 版本。较高等级不自动授予外部、支付、设备、数据或生产权限；CI 成功不等于浏览器、真实交易、部署或流量完成。
 
+同版本、相关环境和验收未变时复用已有证据，只补受变化影响的检查。主管定向复核具体发现与必要负测，不让 GPT/Claude 全量重复审查 Devin 或其他作者全部内容。静态推断保持 `STATIC_ONLY`；运行时结论须有对应执行证据。辅助工具两轮局部修正仍阻断目标时，交经理选择最小替代方法，不扩建验证框架；必要安全、迁移、支付和 CI 检查不跳过。
+
 ## 5. Git 与用户工作保护
 
 权限链彼此独立：
@@ -89,8 +91,8 @@ NEXT_ACTION: <one-authorized-action>
 read -> test -> edit -> stage -> commit -> push -> PR -> merge -> release -> deploy -> production
 ```
 
-- 所有动作限定到批准的 repository、base、task branch 和文件；stage 只用明确路径，禁止 `git add .` 和 `git add -A`。
-- 不得自动 stash、reset、clean、restore、覆盖用户文件，或切换含冲突修改的 worktree。
+- 所有动作限定到批准的 repository、base、task branch 和文件；stage 只用明确路径，禁止 `git add .` 和 `git add -A`。普通必要可回滚审批在用户已有授权内由经理/主管直接处理，不逐次请用户确认；上述箭头不表示后一动作自动获准。
+- 不得自动 stash、reset、clean、restore、覆盖或移动用户文件，或切换含冲突修改的 worktree。主检出含用户改动时使用获准独立 worktree；worktree 隔离改动而非系统凭据、网络或进程权限，不能称为安全 sandbox。
 - push 前复核 branch、remote target、base/HEAD、范围、最终 diff、敏感门禁及所有 push 前必需验证。
 - 失败代码不得仅为满足 PR 模板或形成 handoff SHA 而 push。
 - PR 默认 Draft，base 必须匹配 Packet。push main/长期 integration、force push、PR Ready、merge、branch 删除、release、deploy 和 production 必须分别授权。
@@ -100,6 +102,7 @@ read -> test -> edit -> stage -> commit -> push -> PR -> merge -> release -> dep
 Handoff 的 mandatory core：
 
 - `TASK_ID`、`STATUS`、来源/目标和 `CURRENT_WRITER`；
+- 请求模型/effort、可见的实际值，以及实际任务链接或可验证 session ID；无链接时写 `UNAVAILABLE`，不得编造；已知请求选错须标 `ROUTE_MISMATCH`，不以 runtime UNKNOWN 掩盖；
 - `BASE_BRANCH`、`BASE_SHA`、当前 branch；
 - 修改文件和简要 diff；
 - 实际验证及对应版本；
@@ -112,15 +115,15 @@ Handoff 的 mandatory core：
 
 ## 7. 材料事件报告与条件证据
 
-执行主管是执行器的唯一日常跟进者；项目经理不得与主管并行轮询或跟进同一作者。跟进优先响应消息事件；确需等待时使用带 cursor 的有界等待，不做短间隔 `wait`/`read_thread` 空轮询。等待超时且无新信息时不复读，不连续播报无变化等待或 ACK。正常更新限于关键进展和最终结果；实际派发/接收按下列规则确认一次，真实停工、失败或需裁决异常及时主动报告，不按 timer、heartbeat 或“仍在运行”状态触发：
+执行主管是执行器的唯一日常跟进者；项目经理不得与主管并行轮询或跟进同一作者。跟进优先响应消息事件；确需等待时使用带 cursor 的有界等待，不做短间隔 `wait`/`read_thread` 空轮询。等待超时且无新信息时不复读，不连续播报无变化等待或 ACK。正常更新限于关键进展和最终结果；实际派发/接收按下列规则确认一次，真实停工、失败或需裁决异常及时主动报告，不按“仍在运行”或计时触发；§10 的已授权 Pro 收件例外只用于取回复，不产生无变化进度广播：
 
 - `DISPATCH_ACK`：只在实际创建任务或确认执行器收到任务后报告一次，不因等待状态重复发送；包含 `TASK_ID`、executor/model、目标与范围、base/branch、`CURRENT_WRITER`，以及执行是否已经实际开始。
 - `MAJOR_PROGRESS`：只在出现材料性新证据时报告；包含当前状态、已完成的主要工作、精确新证据/版本、风险或未知和一个范围内下一动作。多阶段实施在真实实现 checkpoint 或重大验证里程碑后至少报告一次中点；不得发送 timer-only 更新。
 - `RESULT_LEVEL_HANDOFF`：主管完成结果级复核后报告一次；包含可供裁决的结果、精确 SHA/artifact、实际验证、安全收尾、剩余问题和一个下一授权或动作。
 - `ESCALATION`：需项目经理/用户权限或关键决定的异常应及时主动报告；包含影响、根因/证据、已尝试路径及结果、当前安全状态、建议和最小所需决定。
-- `INTERRUPTION`：实际停工、执行失败、额度或平台中断、模型不可用、作者退出，以及权限或单写者卡住时，识别后向项目经理及时主动报告一次 `TASK_ID`、原因、影响、已保存状态、恢复路径和所需裁决（若无则写 `NONE`）；恢复时再报告一次。发送失败应在可记录时保留失败记录，并在下一可执行机会优先补发；平台硬中断不能保证即时发送，恢复后优先补报，项目经理可依据已送达的失败事件补位处理。状态无变化不重复报告，普通可修 Bug 不触发本事件；不为此新建定时器、自动化或哈希框架。
+- `INTERRUPTION`：实际停工、执行失败、额度或平台中断、模型不可用、作者退出，以及权限或单写者卡住时，识别后向项目经理及时主动报告一次 `TASK_ID`、原因、影响、已保存状态、恢复路径和所需裁决（若无则写 `NONE`）；恢复时再报告一次。发送失败应在可记录时保留失败记录，并在下一可执行机会优先补发；平台硬中断不能保证即时发送，恢复后优先补报，项目经理可依据已送达的失败事件补位处理。状态无变化不重复报告，普通可修 Bug 不触发本事件；不得为作者监控新建定时轮询、通用调度框架或哈希框架。
 
-完整 Task Packet 只在派发时发送一次。后续更新引用稳定 `TASK_ID`、精确 version/hash/PR/CI ID，并只报告材料增量；只有范围或权限真实改变时才重发完整 Packet。`DELTA_ONLY` 是报告方法，不表示旧线程上下文已被删除。没有新证据就不重复报告；禁止周期性轮询汇报、重复 readback 和反复重放完整历史。相同版本、相关环境与验收要求未变且证据仍适用时复用既有证据；仅发布制品传输、备份恢复等具体风险需要时补充相应校验，不为同一版本重复运行或生成逐文件哈希/Manifest。
+完整 Task Packet 首次派发一次；先确认消息未截断且关键字段齐全，截断时仅做传输补齐，不重开架构。后续引用稳定 `TASK_ID`、精确 version/hash/PR/CI ID 并只报材料增量；同一目标的范围或权限改变可以精确修订，目标变更才新建 Packet，不为每次普通修复重发全文。`DELTA_ONLY` 是报告方法，不表示旧线程上下文已被删除。没有新证据就不重复报告；禁止周期性轮询汇报、重复 readback 和反复重放完整历史。相同版本、相关环境与验收要求未变且证据仍适用时复用既有证据；仅发布制品传输、备份恢复等具体风险需要时补充相应校验，不为同一版本重复运行或生成逐文件哈希/Manifest。
 
 各事件的常用核心保持精简：
 
@@ -154,13 +157,33 @@ NEXT_ACTION: <one-authorized-action-or-NONE>
 - `SHOULD_FIX`：范围内明确缺陷，应在交付前关闭；
 - `DEFERRED`：范围外或未来优化。
 
-base/repository/作者漂移、范围外必需修改、依赖或 lockfile 未授权、用户修改冲突、secret/账户/权限/真实支付需要人工输入、Auth/安全/Migration/生产无授权、不可修复必要验证失败、merge/deploy/删除/强制更新无授权时停止受影响动作。不得以扩大范围、Mock 回退、跳过检查、伪造 evidence 或 second writer 绕过。
+base/repository/作者漂移、范围外必需修改、依赖或 lockfile 未授权、用户修改冲突、本人认证、Auth/安全/Migration/生产无授权、不可修复必要验证失败及 merge/deploy/删除/强制更新无授权时，暂停受影响动作。普通批准请求不是本人认证，经理/主管按现有授权应答。`FACT_SOURCE_MISSING`/`ARCHITECTURE_GAP` 仅在具体影响成立时阻断相关步骤，不扩大成全项目停工。不得用 Mock、伪造证据或第二作者绕过；当前生产暂停令不因自动续接解除。
 
 ## 10. 自动化边界
 
-当前协议不引入或声称 heartbeat、timer、event callback、Skills、Node0 Dispatcher、第二套状态机、timer 变更、后台唤醒或无人值守队列。材料事件报告只规定人工/现有任务链中的报告时机，不证明任何自动触发能力。未来自动化只能复用这些稳定接口：稳定 `TASK_ID`、单一写入者、状态与动作计数、绑定精确版本的 handoff、幂等去重和显式权限。
+### 10.1 Devin 受管连接与审批
 
-linkage 证据复用遵循 §7，不为证明同一结果重跑或重复哈希。来源认证、S4 完整授权链和后台唤醒在没有独立证据时保持 `UNVERIFIED`，不得从行政绑定或历史结果推导已实现。
+采用官方 CLI ACP 的受管双向连接方向，由固定主管通过实际客户端/适配启动并持有连接；不新建管理链或改迁原主管宿主。配置文本、CLI 已安装/登录和协议文档都不证明客户端/适配已经实现。入口与能力状态放在日期化任务记录，不写成永久可用。
+
+默认采用保留权限请求、主管按授权应答的模式；具体 CLI 参数或 ACP 模式标识以已安装版本的受支持入口为准，不预设协议枚举名。主管依据当前 Packet 直接批准普通必要可回滚且已授权的操作。Desktop Smart 与 CLI/ACP 模式分别记录，不能因名称相似而视为同一配置；工具审批模式不能代替连接或扩大动作范围。Ask 用于静态阅读，Plan 用于未冻结方案；不默认使用 Bypass/Full Access。必须按实际动作、参数和副作用判断，不能把 `git *`、解释器或包管理器整类自动放行。提示词不是强制隔离，worktree 也不是 OS sandbox。
+
+连接内的进展通知、最终 prompt 结果、错误/退出和 `session/request_permission` 分别处理，不把单次工具 completed 当整个任务完成。以协议实际返回的 session ID、工具调用及请求 ID 关联当前 TASK_ID；不猜 ID、不增建另一套任务状态机。普通审批由主管选择该请求实际提供的合规选项并应答原请求；已有授权无需再找用户。需要实质扩权、新费用、不可恢复操作或本人认证时只暂停相应请求；不伪造用户输入，不默认持久化“全部允许”。
+
+批准后在同一有效会话/请求续行，批准不是 STOP。断连、quota、进程失败或请求失效如实报告并保留现有工作；仅在当前协议和实际状态支持时恢复，不重发同目标任务，不复用过期审批。主管在 active 受管连接中收到结果不等于能后台唤醒 inactive Desktop；宿主退出/休眠或连接不存续时不得承诺即时回传。本任务不重开已终止的原 ID/跨宿主迁移实验；未来如有新的明确授权须另行界定，新接收 ID 演示也不算原主管接通。
+
+Devin 完成、失败和权限请求必须经受管连接回到主管；报告落盘、系统通知或用户截图不替代接收。日志仅作为证据。禁止以定时查询 Devin、空轮询或新增通用后台框架补这个链路。接入后仅用一次真实小任务验证版本绑定、必要审批在原请求续行、结果/失败送达和单写者收尾；对确实未覆盖的风险作最小验证，不串行安排一堆演示。
+
+### 10.2 Pro 咨询收件的唯一定时例外
+
+经理对咨询全程负责，发出后必须取回完整 Pro 答复、判断有效性并给主管结论，不要求用户转贴。优先实际消息返回；需要延后收件时，仅复用用户已批准的固定经理线程五分钟收件 heartbeat：存在未完成咨询才启用，取得完整答复或咨询终止后暂停；若一条咨询结束但仍有另一条已登记咨询待收件，不重复创建实例。无新答复不重读全文、不报告“仍在等”。
+
+该例外不是 Devin 轮询许可，也不授权其他计时器、后台监控、任务派发或原主管迁移。实际运行/暂停状态必须以工具结果为准；原始问题计时不随 heartbeat 或新消息重置。若收件机制失效，只报告具体缺口，不重复创建等价自动化。
+
+### 10.3 状态、认证与最小增量
+
+首次实际使用新入口或有失效证据时核实一次必要能力和计费；复用已验证且仍适用的登录/模型信息，不让用户重复登录、不提取 Desktop 凭据、不重复 GitHub token 配置或克隆。未知计费不得自动调用付费路径、充值、启用 auto-reload 或切换 Cloud/API。版本、登录、套餐及 included/on-demand 读数单列日期和证据。
+
+linkage 证据按 §7 复用；行政 thread/session ID 只用于定位，不是认证。只有真实发送、接收、审批应答和结果证据齐全时才声明对应能力已接通。必要的 ACP 适配仍须独立明确实施范围，本规则修改本身不执行安装、权限变更或任何接入代码。
 
 ## 11. Draft PR 作为持久任务面板
 

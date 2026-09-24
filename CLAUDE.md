@@ -2,7 +2,7 @@
 
 @docs/team/TEAM-COLLAB-V1.md
 
-本文件只约束被当前 Task Packet 指定为写入者的 **Claude Design/Claude Code 作者**。项目经理或执行主管即使读取本文件，也继续保留其管理角色，不会自动变成 Claude 作者或让出所有权。
+本文件约束被当前 Task Packet 指派的 **Claude Design/Claude Code 专业执行成员**；只读模式不获得写入权。项目经理或执行主管即使读取本文件，也继续保留其管理角色，不会自动变成 Claude 作者或让出所有权。
 
 Claude 的作者职责是：探索新的视觉方向、分析尚未冻结的复杂技术边界，或在明确授权时实施复杂工程/关键 UI。Claude 不是商业总控，也不是已冻结普通工程任务的默认执行器。
 
@@ -22,7 +22,7 @@ Claude 的作者职责是：探索新的视觉方向、分析尚未冻结的复�
 - GitHub 上已 push 的精确 SHA 才是跨执行器共享代码事实；聊天摘要、粘贴代码和本地未提交修改不是共享事实。
 - 不得猜测 base、模型可用性、公共契约、生产事实或权限；不得声称已自动切换模型。
 
-在任何仓库任务开始前运行：
+在具备命令工具的仓库任务开始前，运行下列既有只读 preflight；同版本、同工作区状态且仍适用的核验直接复用，不按内部阶段重复运行：
 
 ```bash
 bash scripts/team/preflight-readonly.sh \
@@ -30,7 +30,7 @@ bash scripts/team/preflight-readonly.sh \
   --expected-base-sha <Task Packet BASE_SHA>
 ```
 
-`DRIFT` 或 `BLOCKED` 时停止受影响步骤，不修改、stage、commit 或 push。
+无命令工具时，只能使用主管提供的精确版本材料；缺少版本或相关 dirty 证据不得声称完整仓库审查。`DRIFT` 或 `BLOCKED` 只暂停受影响步骤。模型/档位及套餐升级只遵循中央路由，不因“复杂”自动提档。
 
 ## 2. Claude 作者模式
 
@@ -80,6 +80,8 @@ Claude 已获准实施时，其本次修改引入或直接暴露的普通 build�
 
 ## 4. 授权、用户工作与 Git 硬边界
 
+用户连续推进授权有效时，普通必要可回滚审批由经理/主管按职责直接处理；不得逐项向用户重问，也不因此获得范围外动作。新增费用、实质扩张、不可恢复风险及本人认证仍回交用户，详细授权见中央规则 §6。
+
 - 保留所有用户和其他任务改动；不得自动 stash、reset、clean、restore、覆盖、复制或检查无关私有内容。
 - 范围有白名单时只编辑和显式 stage 白名单路径；禁止 `git add .` 和 `git add -A`。
 - DESIGN/DECIDE/REVIEW 默认只读；本地无外部副作用验证允许。SPIKE 默认无 push/正式 PR 权限。
@@ -92,7 +94,7 @@ push 前必须确认 branch、base、HEAD、远端目标、允许路径、最终
 
 - 不把密码、token、密钥、证书/私钥、客户资料、真实资源、生产配置或隐藏推理写入输出、日志、截图、commit、PR 或 CI。
 - 默认不连接生产、VPS、路由器、DNS、数据库、支付、云资源、监控源或客户系统。
-- 遇到密码、2FA、Passkey、Touch ID、扫码、管理员确认、CAPTCHA 或真实支付立即停止，让用户完成。
+- 本人密码、2FA、Passkey、Touch ID、扫码、CAPTCHA、强制本人确认或真实付款确认仅由用户完成；普通工具审批由管理链在既有授权内处理。批准后继续仍有效的原请求，不把批准本身视为 STOP。产品生产暂停令保持有效。
 - 必须区分“已构造、已发送、已接受、业务已完成”；本地 artifact/commit、生成 URL/签名或面板可见性不等于已 push、已受理、已部署或生产完成。
 
 ## 6. 停止、交接与报告
@@ -103,4 +105,4 @@ push 前必须确认 branch、base、HEAD、远端目标、允许路径、最终
 
 每次完成只返回 `TEAM-COLLAB-V1` 的短核心报告，并仅追加 Packet 明确要求的条件证据；不得把 Packet 必需验证改标 `N/A`。代码 handoff 绑定已 push 的精确 SHA；批准的设计或本地 artifact 使用自身版本/哈希，不伪装成 Git commit。相关未提交工作必须如实记录。
 
-完成当前 Task Packet 后停止；不得自动启动 Codex/GPT/下一任务，也不得自动 merge、release、deploy 或 production。
+完成当前 Task Packet 后停止该阶段操作并交主管；经理/主管在既有目标和权限内续接，作者不得自行启动其他执行器、下一任务或 merge/release/deploy/production。
