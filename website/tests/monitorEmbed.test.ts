@@ -5,6 +5,7 @@ import {
   buildMonitorEmbedUrl,
   createMonitorThemeMessage,
   isMonitorFixturePreview,
+  monitorBannerMode,
   monitorPostTargetOrigin,
   normalizeMonitorTheme,
 } from "../app/lib/monitorEmbed.ts";
@@ -95,4 +96,15 @@ test("createMonitorThemeMessage is a narrow, versioned, data-free payload", () =
   assert.deepEqual(createMonitorThemeMessage("dark"), { type: "nsp-monitor-theme:v1", theme: "dark" });
   assert.deepEqual(createMonitorThemeMessage("weird" as never), { type: "nsp-monitor-theme:v1", theme: "dark" });
   assert.deepEqual(Object.keys(createMonitorThemeMessage("light")).sort(), ["theme", "type"]);
+});
+
+test("monitorBannerMode never reports a live embed without a valid public URL", () => {
+  assert.equal(monitorBannerMode(undefined, ORIGIN), "unconfigured");
+  assert.equal(monitorBannerMode("", ORIGIN), "unconfigured");
+  assert.equal(monitorBannerMode("   ", ORIGIN), "unconfigured");
+  assert.equal(monitorBannerMode("ftp://monitor.example", ORIGIN), "unconfigured");
+  assert.equal(monitorBannerMode("https://user:pw@monitor.example", ORIGIN), "unconfigured");
+  assert.equal(monitorBannerMode(MONITOR + "/?preview=fixture", ORIGIN), "fixture");
+  assert.equal(monitorBannerMode(MONITOR + "/?preview=other", ORIGIN), "embed");
+  assert.equal(monitorBannerMode(MONITOR, ORIGIN), "embed");
 });

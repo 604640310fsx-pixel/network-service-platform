@@ -5,11 +5,39 @@ import { SiteHeader } from "../home/SiteHeader";
 import {
   buildMonitorEmbedUrl,
   createMonitorThemeMessage,
-  isMonitorFixturePreview,
+  monitorBannerMode,
   monitorPostTargetOrigin,
+  type MonitorBannerMode,
 } from "../../lib/monitorEmbed";
 import "../home/home.css";
 import "./public-monitor.css";
+
+/* 横幅文案按真实配置状态选择。本页没有网关健康或数据新鲜度证明，因此任何
+   模式都不显示 LIVE / 实时同步；统一复用既有 is-fixture 的非绿色状态点，
+   避免把“地址已配置”读成在线。 */
+const BANNER_COPY: Record<
+  MonitorBannerMode,
+  { description: string; statusLabel: string; badge: string; className?: string }
+> = {
+  unconfigured: {
+    description: "公共监控地址尚未配置，本页不显示任何实时或演示数据",
+    statusLabel: "监控未接入",
+    badge: "NOT CONFIGURED",
+    className: "is-fixture",
+  },
+  fixture: {
+    description: "查看身份无关的三网监控本地演示布局",
+    statusLabel: "本地演示数据",
+    badge: "FIXTURE · 15S",
+    className: "is-fixture",
+  },
+  embed: {
+    description: "监控地址已配置，下方内容由公共监控网关提供；可达性与数据新鲜度未经本页确认",
+    statusLabel: "状态待确认",
+    badge: "CONFIGURED",
+    className: "is-fixture",
+  },
+};
 
 /* 公开 /monitor：官网统一风格的公共实时监控页（游客与登录用户看到同一页面）。
    复用官网 SiteHeader 与既有主题偏好，不使用客户中心 Sidebar / Topbar；专用监控页
@@ -31,10 +59,8 @@ export function PublicMonitorPage() {
     () => buildMonitorEmbedUrl(base, { theme: initialThemeRef.current, embedded: true }, window.location.origin),
     [base],
   );
-  const isFixturePreview = useMemo(
-    () => isMonitorFixturePreview(base, window.location.origin),
-    [base],
-  );
+  const bannerMode = useMemo(() => monitorBannerMode(base, window.location.origin), [base]);
+  const banner = BANNER_COPY[bannerMode];
   const targetOrigin = useMemo(() => monitorPostTargetOrigin(base, window.location.origin), [base]);
 
   const postTheme = useCallback(
@@ -60,14 +86,10 @@ export function PublicMonitorPage() {
             <WorkbenchBanner
               kicker="REAL-TIME OBSERVABILITY"
               title="实时网络监控"
-              description={
-                isFixturePreview
-                  ? "查看身份无关的三网监控本地演示布局"
-                  : "查看当前三网线路与网络运行状态"
-              }
-              statusLabel={isFixturePreview ? "本地演示数据" : "实时数据同步"}
-              badge={isFixturePreview ? "FIXTURE · 15S" : "LIVE · 15S"}
-              className={isFixturePreview ? "is-fixture" : undefined}
+              description={banner.description}
+              statusLabel={banner.statusLabel}
+              badge={banner.badge}
+              className={banner.className}
             />
           </div>
         </section>
