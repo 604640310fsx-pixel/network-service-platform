@@ -87,7 +87,7 @@ push 前必须确认 branch、base、HEAD、远端目标、允许路径、最终
 
 风险只使用 `BLOCKER`、`SHOULD_FIX`、`DEFERRED`。base/仓库/写入者漂移、用户修改冲突、范围外必需修改、敏感授权缺失、不可修复的必要验证失败或不可回滚动作无授权时，按 `TEAM-COLLAB-V1` 停止受影响步骤；不得扩大范围绕过。
 
-普通本地工具、测试、构建、TypeScript、数据接线和机械 UI 问题留在当前作者/执行主管闭环。未冻结架构、安全、Auth/Session/事务/API 边界或关键视觉才按管理链升级，不做 Claude/Codex 机械轮换或重复返工。
+普通本地工具、测试、构建、TypeScript、数据接线和机械 UI 问题留在当前作者/执行主管闭环；先复用既有成果、自检修复后一次交付可用入口与证据，缺能力或越权一次说明，按 `TEAM-COLLAB-V1` §8.1。未冻结架构、安全、Auth/Session/事务/API 边界或关键视觉才按管理链升级，不做 Claude/Codex 机械轮换或重复返工。
 
 每次完成只返回 `TEAM-COLLAB-V1` 的短核心报告：任务、状态、写入者、base/handoff SHA、修改文件、实际验证、风险/未知和一个下一授权动作。仅追加 Task Packet 明确要求的条件证据；不得把 Packet 必需验证改标 `N/A`。代码 handoff 必须绑定已 push 的精确 SHA 且相关未提交工作为 `NONE`。
 
