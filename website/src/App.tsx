@@ -27,7 +27,7 @@ function SectionRoute() {
   const { status } = useAuth();
 
   if (!isSectionKey(section)) return <NotFoundPage />;
-  if (section === "subscribe" || section === "monitor") return <DashboardShell />;
+  if (section === "subscribe" || section === "monitor" || section === "status") return <DashboardShell />;
   if (status === "checking") return <AuthSessionChecking />;
   if (status === "unauthenticated") return <Navigate to="/login" replace />;
   return <DashboardShell />;
