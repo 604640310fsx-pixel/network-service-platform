@@ -47,6 +47,15 @@ export function useCustomerDrawer() {
   return value;
 }
 
+/* 壳层当前主题，供嵌入监控 iframe 的子页面随 topbar 切换同步主题。 */
+const CustomerShellThemeContext = createContext<ThemePreference | null>(null);
+
+export function useCustomerShellTheme(): ThemePreference {
+  const value = useContext(CustomerShellThemeContext);
+  if (!value) throw new Error("useCustomerShellTheme must be used inside CustomerCenterShell");
+  return value;
+}
+
 const navigation = [
   { group: "概览", items: [["/status", "服务器状态"], ["/dashboard", "仪表板"]] },
   { group: "订阅管理", items: [["/subscribe", "套餐订阅"], ["/services", "当前套餐"], ["/network", "节点与流量"], ["/orders", "订单"]] },
@@ -301,7 +310,7 @@ export function CustomerCenterShell({
             </div>
             {logoutFailed && <span className="cc-logout-error" role="alert">退出失败，请重试</span>}
           </header>
-          {children}
+          <CustomerShellThemeContext.Provider value={theme}>{children}</CustomerShellThemeContext.Provider>
         </div>
 
         {activeDrawer && <button type="button" className={`cc-scrim ${activeDrawer === "navigation" ? "is-navigation" : ""}`} onClick={closeDrawer} aria-label="关闭抽屉" />}
