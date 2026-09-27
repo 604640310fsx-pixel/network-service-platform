@@ -9,7 +9,6 @@ import { BuyerNetworkPage } from "./network/BuyerNetworkPage";
 import { NotFoundPage } from "./not-found/NotFoundPage";
 import { ProfilePage } from "./profile/ProfilePage";
 import { ReferralCenterAdapter } from "./referrals/ReferralCenterAdapter";
-import { PublicNodeStatusPage } from "./status/PublicNodeStatusPage";
 import { SubscribePage } from "./subscribe/SubscribePage";
 import type { SectionKey } from "../lib/sections";
 import { sectionKeys } from "../lib/sections";
@@ -22,9 +21,9 @@ export function DashboardShell() {
   }
 
   const section = requestedSection as SectionKey;
-  // /status 是公开官网页面：各节点服务器状态，游客与登录用户看到同一页面。
+  // /status 与 /monitor 相同：公开官网页面，嵌入 3002 实时监控，游客与登录用户看到同一页面。
   if (section === "status") {
-    return <PublicNodeStatusPage />;
+    return <PublicMonitorPage />;
   }
   if (section === "subscribe") {
     return (

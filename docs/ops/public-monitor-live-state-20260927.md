@@ -10,23 +10,22 @@
 
 | 项 | 线上做法 |
 | --- | --- |
-| 官网构建 | 以 `VITE_MONITOR_URL=https://monitor.siqiapparel.com` 构建；`/monitor` iframe、侧栏迷你卡片与 `/status` 都依赖它 |
+| 官网构建 | 以 `VITE_MONITOR_URL=https://monitor.siqiapparel.com` 构建；`/monitor`、`/status`（同一 3002 嵌入页）与侧栏迷你卡片都依赖它 |
 | 官网 root | 指向独立 override 目录中的构建，原 release bundle 未改动（其 manifest 记录了 dist 哈希） |
 | `monitor.siqiapparel.com:80` | 放行 ACME webroot 续期，其余 301 到 HTTPS（原 503 会阻断证书续期） |
 | `monitor.siqiapparel.com:443` | 经私有 tailnet 反代到监控主机的 3002 监控页；仅 GET/HEAD；仅放行 `/`、`/master.css`、`/app.js` 与 8 个 `/api/*`；`frame-ancestors` 只允许官网 www 与裸域 |
 | 侧栏迷你卡片 | 监控主机上的 3002 构建没有 `?view=mini`；`/?view=mini` 及其版本化 `app.js` / `master.css` 由网站主机内部重写到本仓库 `monitoring/dashboard-next/static`（5ab1d68）的静态文件，数据仍取 3002 |
 | 监控 API 缓存 | nginx `proxy_cache`：20 秒有效，过期先回旧值并后台刷新，同 URL 单飞；浏览器侧保持 `no-store`；响应头 `X-Monitor-Cache` |
-| CORS | 监控 API 仅对 `https://www.siqiapparel.com`、`https://siqiapparel.com` 返回 `Access-Control-Allow-Origin`，供公开 `/status` 跨域读取 |
 | 监控主机数据库 | `latency_samples` 新增 3 个只读查询索引（未改数据、代码、服务）；备份与撤销 SQL 在监控主机 backups 目录 |
 
 具体值、上游地址、备份与逐项回滚步骤只记录在网站主机 `/opt/network-service-platform/backups/claude-20260927T-monitor/README.txt` 与监控主机备份目录，不进入仓库。
 
 ## 3. 下一次正式发布必须满足
 
-1. 发布内容包含本分支（公开 `/status` 节点状态页）。
+1. 发布内容包含本分支（`/status` 公开，与 `/monitor` 相同地嵌入 3002 实时监控页）。
 2. 官网构建设置 `VITE_MONITOR_URL=https://monitor.siqiapparel.com`。
-3. 保留网站主机 nginx 中：`monitor.siqiapparel.com` 的 80/443 server 块、`proxy_cache_path` 缓存区、`$monitor_cors_origin` map、迷你视图内部重写与其静态目录。
-4. 发布后验收：`/monitor` 显示实时数据；`/status` 免登录显示节点卡片；登录后侧栏卡片显示 LIVE；`X-Monitor-Cache` 命中；无内网地址出现在官网构建产物中。
+3. 保留网站主机 nginx 中：`monitor.siqiapparel.com` 的 80/443 server 块、`proxy_cache_path` 缓存区、迷你视图内部重写与其静态目录。
+4. 发布后验收：`/monitor` 显示实时数据；`/status` 免登录显示同一 3002 监控页；登录后侧栏卡片显示 LIVE；`X-Monitor-Cache` 命中；无内网地址出现在官网构建产物中。
 
 不满足时的回归：`/monitor` 与侧栏回到「监控地址未配置」，`/status` 回到登录后投影页（当前 `MONITOR_AUTH_PROJECTION_ENABLED=false`，只会显示未配置），监控接口恢复 5–30 秒冷启动。
 
