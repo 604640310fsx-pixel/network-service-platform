@@ -5,8 +5,6 @@ import { CustomerServicesPage } from "./customer/CustomerServicesPage";
 import { DashboardPage } from "./dashboard/DashboardPage";
 import { DocsLibrary } from "./docs/DocsLibrary";
 import { CustomerShellMonitor, PublicMonitorPage } from "./monitor/PublicMonitorPage";
-import { AuthSessionChecking } from "./auth/AuthShell";
-import { useAuth } from "../lib/auth";
 import { BuyerNetworkPage } from "./network/BuyerNetworkPage";
 import { NotFoundPage } from "./not-found/NotFoundPage";
 import { ProfilePage } from "./profile/ProfilePage";
@@ -17,24 +15,19 @@ import { sectionKeys } from "../lib/sections";
 
 export function DashboardShell() {
   const { section: requestedSection = "dashboard" } = useParams();
-  const { status: authStatus } = useAuth();
 
   if (!sectionKeys.includes(requestedSection as SectionKey)) {
     return <NotFoundPage />;
   }
 
   const section = requestedSection as SectionKey;
-  // /status 显示同一公开 3002 监控：已登录客户留在客户中心壳层内，游客使用官网公开页。
+  // /status 显示同一公开 3002 监控，始终在客户中心壳层内；无需登录，也不跳到官网公开页。
   if (section === "status") {
-    if (authStatus === "checking") return <AuthSessionChecking />;
-    if (authStatus === "authenticated") {
-      return (
-        <CustomerCenterShell fill title="服务器状态" description="查看公开运营方三网实时监控">
-          <CustomerShellMonitor />
-        </CustomerCenterShell>
-      );
-    }
-    return <PublicMonitorPage />;
+    return (
+      <CustomerCenterShell fill title="服务器状态" description="查看公开运营方三网实时监控">
+        <CustomerShellMonitor />
+      </CustomerCenterShell>
+    );
   }
   if (section === "subscribe") {
     return (

@@ -13,16 +13,14 @@ test("/status stays public without a login redirect; /monitor unchanged", () => 
   assert.match(shell, /section === "monitor"\) \{\s*return <PublicMonitorPage \/>/);
 });
 
-test("/status: signed-in customers keep the customer shell, visitors get the public page", () => {
+test("/status always renders the monitor inside the customer shell, signed in or not", () => {
   const shell = source("../app/components/DashboardShell.tsx");
   const status = shell.slice(shell.indexOf('if (section === "status")'), shell.indexOf('if (section === "subscribe")'));
-  assert.match(status, /authStatus === "checking"\) return <AuthSessionChecking \/>/);
   assert.match(
     status,
-    /authStatus === "authenticated"\) \{\s*return \(\s*<CustomerCenterShell fill[^>]*>\s*<CustomerShellMonitor \/>\s*<\/CustomerCenterShell>/,
+    /return \(\s*<CustomerCenterShell fill[^>]*>\s*<CustomerShellMonitor \/>\s*<\/CustomerCenterShell>\s*\);\s*\}\s*$/,
   );
-  assert.match(status, /return <PublicMonitorPage \/>;\s*\}\s*$/);
-  assert.doesNotMatch(status, /BuyerServerStatusPage|monitor-status|Navigate/);
+  assert.doesNotMatch(status, /authStatus|PublicMonitorPage|BuyerServerStatusPage|monitor-status|Navigate/);
 });
 
 test("customer-shell /status reuses the same public embed and follows the shell theme", () => {
