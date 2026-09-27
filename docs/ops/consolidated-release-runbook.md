@@ -605,6 +605,56 @@ If the projection is not accepted or any binding is absent, its feature gate
 remains disabled and the capability stays excluded under a separate product
 decision. This runbook cannot infer that decision from repository or CI state.
 
+## Public operator monitor preservation
+
+User decision ruled by the project manager on 2026-09-27 (final acceptance
+still pending): the existing monitor
+subdomain and the public display of the operator-owned 3002 monitor are kept.
+Provider, node, route public IP/ASN, and bandwidth data may be shown without
+redaction; account, order, and credential data stay private. `/monitor` and
+`/status` render the same public 3002 embed for every visitor, including
+signed-in users. This does not accept, configure, or enable the account Monitor
+Auth Projection above; that blocker and the account status UI remain deferred.
+
+The current production state was hand-applied outside this release procedure
+and is recorded in
+[`public-monitor-live-state-20260927.md`](public-monitor-live-state-20260927.md).
+A release that renders or replaces the website-host Nginx root or website build
+must preserve it, or stop:
+
+1. The website build binds `VITE_MONITOR_URL` to the ruled public monitor
+   origin; without it `/monitor`, `/status`, and the customer sidebar card fall
+   back to the unconfigured display.
+2. The monitor-subdomain HTTP server serves only the ACME webroot challenge path
+   and redirects everything else to HTTPS; a blanket 503 blocks certificate
+   renewal.
+3. The monitor-subdomain HTTPS server reverse-proxies the operator monitor over
+   the private tailnet with GET/HEAD only, an exact allowlist of `/`,
+   `/master.css`, `/app.js`, and the eight read-only `/api/*` routes, 404 for
+   every other path, upstream framing headers hidden, and `frame-ancestors`
+   limited to the canonical and bare website origins.
+4. The monitor API edge cache (`proxy_cache_path` zone, 20-second validity,
+   stale-while-background-update, cache lock, browser-side upstream `no-store`)
+   stays in place; without it cold monitor API requests return in 5-30 seconds.
+5. The internal rewrite of `?view=mini` and its two versioned static assets to
+   the host copy of `monitoring/dashboard-next/static` stays in place until the
+   operator monitor build and `monitoring/dashboard-next` are reconciled.
+
+Post-release proof, recorded without values: `/monitor` and `/status` load the
+embed with live data; the mini view reports LIVE; a representative monitor API
+response carries `X-Monitor-Cache`; a disallowed path returns 404 and POST
+returns 405; the ACME challenge path is reachable over HTTP; the website build
+contains no private or loopback address.
+
+Recovery if the preserved state is lost or wrong: restore the website-host
+Nginx configuration from the pre-change backup recorded on the host, run
+`nginx -t`, then reload; point the website root back to the last verified build
+directory; rebuild the website with the ruled `VITE_MONITOR_URL` if the
+bundle lacks it. Rolling back the monitor-host database indexes requires
+separate approval and verification and is not performed by this section. Host-side
+backup locations and step-by-step commands live only in the host notes, not in
+this repository.
+
 ## Stop lines
 
 Stop the affected step, preserve the last proven closed state, and record only
