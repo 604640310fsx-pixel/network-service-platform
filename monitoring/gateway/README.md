@@ -119,13 +119,30 @@ oversized bodies, malformed JSON, and lifecycle inconsistencies fail closed.
 gateway's duplicate banner so the website `/monitor` WorkbenchBanner remains the
 single page header. Neither view changes the data contract.
 
-## Private listener deployment for account `/status`
+## Public operator server status
 
-Website `/status` calls Auth `GET /api/me/monitor-status`; Auth calls this private
+`GET /api/server-status` on the public listener returns exactly
+`{label,status,updatedAt,stale}` for the single operator server named by the
+private listener's `PUBLIC_SERVER_STATUS_TARGET`. It reads the private
+`/api/public-server-status` route, which only the public-BFF identity may call.
+The target key is configured server-side, never accepted from a request and
+never returned; `label` is the target's catalog display label. Missing,
+inactive, invalid or unreachable targets collapse to `monitor_unavailable`
+(`503`, or `504` on timeout) with no fallback. Queries are `404`; the route is
+rate limited and leak-scanned like `/api/summary`. The website's public `/status`
+page reads it and `/api/summary` through same-origin
+`/api/public-monitor/server-status` and `/api/public-monitor/summary`.
+Customer data stays on the authenticated Auth `/api/me/monitor-status`.
+
+## Private listener deployment for the protected customer monitor flow
+
+The authenticated customer flow is separate from the public `/status` page: the
+customer's session-guarded Auth `GET /api/me/monitor-status` calls this private
 listener's `/api/auth-service/targets` and `/api/auth-service/status` over mTLS.
 The private ACL allows those two routes only for the Auth Service identity, so
 `AUTH_SERVICE_IDENTITY_CERT_FILE` is optional for gateway startup but required
-for this path; without it every Auth call is `403` and `/status` shows unavailable.
+for this flow; without it every Auth call is `403` and the customer projection
+reports unavailable.
 
 Repository assets (no values, no deployment authority):
 

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from .auth_projection import AuthProjectionError, validate_private_status
 from .projection import ProjectionError, validate_public_summary
 from .security import SecurityBoundaryError, validate_origin
 
@@ -20,6 +21,7 @@ MAX_JSON_BYTES = 512 * 1024
 RAW_STATUS_MAX_BYTES = 64 * 1024
 RAW_CATALOG_MAX_BYTES = 256 * 1024
 DEFAULT_TIMEOUT_SECONDS = 5.0
+PUBLIC_LABEL_MAX_LENGTH = 200
 PUBLIC_BFF_IDENTITY = "public_bff"
 AUTH_SERVICE_IDENTITY = "auth_service"
 OPERATOR_IDENTITY = "operator"
@@ -238,6 +240,7 @@ class PrivateProjectionClient:
     """Public-BFF mTLS client for the single sanitized private path."""
 
     SUMMARY_PATH = "/api/public-summary"
+    SERVER_STATUS_PATH = "/api/public-server-status"
 
     def __init__(self, client: FixedJsonClient) -> None:
         self._client = client
@@ -248,6 +251,33 @@ class PrivateProjectionClient:
             return validate_public_summary(payload)
         except ProjectionError as exc:
             raise UpstreamSchemaInvalid("private projection schema is invalid") from exc
+
+    def read_public_server_status(self) -> dict[str, Any]:
+        """Exact public projection of the one server-side-configured target."""
+        payload = self._client.get(self.SERVER_STATUS_PATH)
+        if not isinstance(payload, dict) or set(payload) != {
+            "label",
+            "status",
+            "updatedAt",
+            "stale",
+        }:
+            raise UpstreamSchemaInvalid("private server status schema is invalid")
+        label = payload["label"]
+        if (
+            not isinstance(label, str)
+            or not label
+            or len(label) > PUBLIC_LABEL_MAX_LENGTH
+            or label.strip() != label
+            or any(ord(character) < 32 or ord(character) == 127 for character in label)
+        ):
+            raise UpstreamSchemaInvalid("private server status label is invalid")
+        try:
+            status = validate_private_status(
+                {key: payload[key] for key in ("status", "updatedAt", "stale")}
+            )
+        except AuthProjectionError as exc:
+            raise UpstreamSchemaInvalid("private server status schema is invalid") from exc
+        return {"label": label, **status}
 
 
 def certificate_fingerprint(path: Path) -> str:

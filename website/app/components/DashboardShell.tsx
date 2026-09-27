@@ -9,7 +9,7 @@ import { BuyerNetworkPage } from "./network/BuyerNetworkPage";
 import { NotFoundPage } from "./not-found/NotFoundPage";
 import { ProfilePage } from "./profile/ProfilePage";
 import { ReferralCenterAdapter } from "./referrals/ReferralCenterAdapter";
-import { BuyerServerStatusPage } from "./status/BuyerServerStatusPage";
+import { PublicNodeStatusPage } from "./status/PublicNodeStatusPage";
 import { SubscribePage } from "./subscribe/SubscribePage";
 import type { SectionKey } from "../lib/sections";
 import { sectionKeys } from "../lib/sections";
@@ -24,8 +24,8 @@ export function DashboardShell() {
   const section = requestedSection as SectionKey;
   if (section === "status") {
     return (
-      <CustomerCenterShell fill title="服务器状态" description="查看当前账户已开通服务的服务器运行状态">
-        <BuyerServerStatusPage />
+      <CustomerCenterShell fill title="服务器状态" description="运营方节点与三网线路公开状态">
+        <PublicNodeStatusPage />
       </CustomerCenterShell>
     );
   }

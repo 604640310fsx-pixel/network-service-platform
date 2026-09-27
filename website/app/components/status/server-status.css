@@ -293,3 +293,34 @@
     transform: rotate(360deg);
   }
 }
+
+/* Public operator node status: stacks the existing status panels. */
+.cc-public-status {
+  display: grid;
+  gap: 16px;
+  max-width: 620px;
+  width: 100%;
+}
+
+.cc-public-status-note {
+  color: var(--cc-text-3);
+  font-size: 12.5px;
+  line-height: 1.6;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.cc-public-status .cc-status-state {
+  display: grid;
+  gap: 14px;
+  max-width: none;
+}
+
+.cc-public-status-time {
+  color: var(--cc-text-4);
+  font-weight: 500;
+}
+
+.cc-public-status .cc-status-retry {
+  justify-self: start;
+}
