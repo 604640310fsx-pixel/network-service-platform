@@ -40,6 +40,8 @@ test("targets parser rejects bad shapes, skips bad rows, dedupes and caps", () =
       { target_name: "A", display_name: "香港 A" },
       { target_name: "A", display_name: "dup" },
       { target_name: "B" },
+      { target_name: "Disabled", display_name: "香港 Yecaoyun Cloud2", collector_enabled: false },
+      { target_name: "C", collector_enabled: true },
       { target_name: "" },
       { target_name: "bad\u0000name" },
       "junk",
@@ -48,6 +50,7 @@ test("targets parser rejects bad shapes, skips bad rows, dedupes and caps", () =
   assert.deepEqual(parsed, [
     { name: "A", displayName: "香港 A" },
     { name: "B", displayName: "B" },
+    { name: "C", displayName: "C" },
   ]);
   const many = { targets: Array.from({ length: 100 }, (_, i) => ({ target_name: `n${i}` })) };
   assert.equal(parseNodeTargets(many).length, NODE_STATUS_MAX_TARGETS);

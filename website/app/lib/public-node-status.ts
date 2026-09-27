@@ -82,14 +82,15 @@ export function nodeStatusUrl(apiOrigin: string, targetName: string): string {
   return `${apiOrigin}/api/vps-status?target=${encodeURIComponent(targetName)}`;
 }
 
-/** 解析 /api/vps-targets：结构不符时整体拒绝；单条非法记录跳过；按名称去重。 */
+/** 解析 /api/vps-targets：结构不符时整体拒绝；单条非法记录跳过；按名称去重。
+    监控目录中明确停用采集（collector_enabled === false）的节点不展示，与监控页 VPS 选择器一致。 */
 export function parseNodeTargets(value: unknown): NodeStatusTarget[] {
   if (!isRecord(value) || !Array.isArray(value.targets)) throw new NodeStatusResponseError();
   const seen = new Set<string>();
   const targets: NodeStatusTarget[] = [];
   for (const entry of value.targets) {
     if (targets.length >= NODE_STATUS_MAX_TARGETS) break;
-    if (!isRecord(entry)) continue;
+    if (!isRecord(entry) || entry.collector_enabled === false) continue;
     const name = cleanText(entry.target_name);
     if (name === null || seen.has(name)) continue;
     seen.add(name);
