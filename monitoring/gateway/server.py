@@ -63,6 +63,9 @@ AUTH_TARGETS_PATH = "/api/auth-service/targets"
 AUTH_STATUS_PATH = "/api/auth-service/status"
 PUBLIC_SERVER_STATUS_PATH = "/api/server-status"
 PRIVATE_SERVER_STATUS_PATH = "/api/public-server-status"
+# Stable neutral public label for the one operator server. The catalog display
+# label can carry provider identity, so it is never used for public output.
+PUBLIC_SERVER_STATUS_LABEL = "节点01"
 STATIC_PATHS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/master.css": ("master.css", "text/css; charset=utf-8"),
@@ -655,7 +658,7 @@ def make_private_handler(dependencies: PrivateDependencies):
 
         def _public_server_status(self, target: str) -> None:
             try:
-                selected = require_assignable_target(
+                require_assignable_target(
                     project_target_catalog(
                         dependencies.raw_reader.read_target_catalog()
                     ),
@@ -681,7 +684,7 @@ def make_private_handler(dependencies: PrivateDependencies):
                 )
             self._send_private_json(
                 {
-                    "label": selected["label"],
+                    "label": PUBLIC_SERVER_STATUS_LABEL,
                     "status": status["status"],
                     "updatedAt": status["updatedAt"],
                     "stale": status["stale"],

@@ -13,6 +13,8 @@ from monitoring.gateway.client import (
     AUTH_SERVICE_IDENTITY,
     OPERATOR_IDENTITY,
     PUBLIC_BFF_IDENTITY,
+    FixedJsonClient,
+    Origin,
     PrivateProjectionClient,
     UpstreamSchemaInvalid,
     UpstreamTimeout,
@@ -37,7 +39,7 @@ from monitoring.gateway.tests.test_gateway import public_dependencies
 PRIVATE = "/api/public-server-status"
 PUBLIC = "/api/server-status"
 EXPECTED = {
-    "label": "账户服务器 A",
+    "label": "节点01",
     "status": "online",
     "updatedAt": "2030-01-01T00:01:00Z",
     "stale": False,
@@ -74,6 +76,34 @@ class PrivateServerStatusTests(unittest.TestCase):
             self.assertNotIn(leaked, body)
         self.assertEqual(reader.status_calls, ["Target A"])
         self.assertTrue(all("Target A" not in line for line in logs))
+
+    def test_raw_provider_label_never_reaches_public_json(self):
+        provider_label = "香港 ProviderCloud 节点"
+        reader = _RawReader()
+        reader.catalog["targets"][0]["display_name"] = provider_label
+        private, _ = private_handler(reader)
+        with _RunningServer(private) as private_server:
+            status, _, private_body = private_server.request("GET", PRIVATE)
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(private_body)["label"], "节点01")
+            self.assertNotIn(provider_label.encode(), private_body)
+            self.assertNotIn("ProviderCloud".encode(), private_body)
+
+            client = PrivateProjectionClient(
+                FixedJsonClient(
+                    Origin.private(
+                        f"http://127.0.0.1:{private_server.server.server_address[1]}",
+                        require_https=False,
+                    ),
+                    tls_context=None,
+                )
+            )
+            with _RunningServer(public_handler(client)) as public_server:
+                status, _, public_body = public_server.request("GET", PUBLIC)
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(public_body), EXPECTED)
+        self.assertNotIn(provider_label.encode(), public_body)
+        self.assertNotIn("ProviderCloud".encode(), public_body)
 
     def test_only_public_bff_identity_is_allowed(self):
         handler, current = private_handler(_RawReader())

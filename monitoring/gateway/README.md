@@ -126,7 +126,8 @@ single page header. Neither view changes the data contract.
 private listener's `PUBLIC_SERVER_STATUS_TARGET`. It reads the private
 `/api/public-server-status` route, which only the public-BFF identity may call.
 The target key is configured server-side, never accepted from a request and
-never returned; `label` is the target's catalog display label. Missing,
+never returned; `label` is the fixed neutral presentation label `节点01`, never
+the catalog display label (which can carry provider identity). Missing,
 inactive, invalid or unreachable targets collapse to `monitor_unavailable`
 (`503`, or `504` on timeout) with no fallback. Queries are `404`; the route is
 rate limited and leak-scanned like `/api/summary`. The website's public `/status`
