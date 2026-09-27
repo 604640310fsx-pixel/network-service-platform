@@ -16,11 +16,15 @@ test("public monitor uses the dedicated embed view without target identity", () 
   const page = source("../app/components/monitor/PublicMonitorPage.tsx");
   assert.match(page, /embedded:\s*true/);
   assert.match(page, /referrerPolicy="same-origin"/);
-  assert.match(page, /isMonitorFixturePreview/);
   assert.match(page, /本地演示数据/);
   assert.match(page, /FIXTURE · 15S/);
-  assert.match(page, /实时数据同步/);
-  assert.match(page, /LIVE · 15S/);
+  assert.match(page, /monitorBannerMode\(/);
+  assert.match(page, /unconfigured:\s*\{[^}]*statusLabel:\s*"监控未接入"/);
+  assert.match(page, /embed:\s*\{[^}]*statusLabel:\s*"状态待确认"/);
+  // URL validation is not gateway health or freshness proof: no mode may claim live data.
+  const embedCopy = page.match(/\n  embed:\s*\{[^}]*\}/)?.[0];
+  assert.ok(embedCopy, "BANNER_COPY.embed block must exist");
+  assert.doesNotMatch(embedCopy, /LIVE|实时数据同步|15S/);
   assert.doesNotMatch(page, /target\s*:/);
   assert.doesNotMatch(page, /广州三网/);
 });

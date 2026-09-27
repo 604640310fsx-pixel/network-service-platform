@@ -46,6 +46,17 @@ export function isMonitorFixturePreview(base: string | undefined, origin: string
   return url?.searchParams.get("preview") === "fixture";
 }
 
+/** 公开 /monitor 横幅状态：未配置或非法地址时为 "unconfigured"，页面不得显示
+    LIVE / 实时同步；本地 Fixture 为 "fixture"；其余为已配置的公共网关 "embed"。
+    "embed" 只表示已有经校验的公共地址，不证明网关可达或数据新鲜。 */
+export type MonitorBannerMode = "unconfigured" | "fixture" | "embed";
+
+export function monitorBannerMode(base: string | undefined, origin: string): MonitorBannerMode {
+  const url = toMonitorUrl(base, origin);
+  if (!url) return "unconfigured";
+  return url.searchParams.get("preview") === "fixture" ? "fixture" : "embed";
+}
+
 /** 构造公共 iframe src：清除已有查询参数，只写入 theme 与受控 view；唯一保留项
     是值精确等于 fixture 的 preview 标记，用于本地演示数据保持可见标识。
     compact=true 使用侧栏 mini；embedded=true 使用去掉重复标题带的官网嵌入视图。
