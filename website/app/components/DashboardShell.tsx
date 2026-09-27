@@ -4,7 +4,7 @@ import { CustomerOrdersPage } from "./customer/CustomerOrdersPage";
 import { CustomerServicesPage } from "./customer/CustomerServicesPage";
 import { DashboardPage } from "./dashboard/DashboardPage";
 import { DocsLibrary } from "./docs/DocsLibrary";
-import { PublicMonitorPage } from "./monitor/PublicMonitorPage";
+import { CustomerShellMonitor, PublicMonitorPage } from "./monitor/PublicMonitorPage";
 import { BuyerNetworkPage } from "./network/BuyerNetworkPage";
 import { NotFoundPage } from "./not-found/NotFoundPage";
 import { ProfilePage } from "./profile/ProfilePage";
@@ -21,9 +21,13 @@ export function DashboardShell() {
   }
 
   const section = requestedSection as SectionKey;
-  // /status 与 /monitor 相同：公开官网页面，嵌入 3002 实时监控，游客与登录用户看到同一页面。
+  // /status 显示同一公开 3002 监控，始终在客户中心壳层内；无需登录，也不跳到官网公开页。
   if (section === "status") {
-    return <PublicMonitorPage />;
+    return (
+      <CustomerCenterShell fill title="服务器状态" description="查看公开运营方三网实时监控">
+        <CustomerShellMonitor />
+      </CustomerCenterShell>
+    );
   }
   if (section === "subscribe") {
     return (

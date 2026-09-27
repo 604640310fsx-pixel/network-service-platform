@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { useThemePreference } from "../../lib/theme";
+import { useThemePreference, type ThemePreference } from "../../lib/theme";
 import { WorkbenchBanner, workbenchBannerLayoutClass } from "../WorkbenchBanner";
 import { SiteHeader } from "../home/SiteHeader";
+import { useCustomerShellTheme } from "../customer/CustomerCenterShell";
 import {
   buildMonitorEmbedUrl,
   createMonitorThemeMessage,
@@ -10,6 +11,7 @@ import {
   type MonitorBannerMode,
 } from "../../lib/monitorEmbed";
 import "../home/home.css";
+import "../status/server-status.css";
 import "./public-monitor.css";
 
 /* 横幅文案按真实配置状态选择。本页没有网关健康或数据新鲜度证明，因此任何
@@ -50,31 +52,9 @@ const BANNER_COPY: Record<
    单向 postMessage 下发，iframe 不重新导航，也不丢失监控内部交互态。 */
 export function PublicMonitorPage() {
   const { theme, toggleTheme } = useThemePreference();
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-
   const base = import.meta.env.VITE_MONITOR_URL;
-  // 初始主题只取一次：src 不随主题变化，主题切换不触发 iframe 重载。
-  const initialThemeRef = useRef(theme);
-  const monitorSource = useMemo(
-    () => buildMonitorEmbedUrl(base, { theme: initialThemeRef.current, embedded: true }, window.location.origin),
-    [base],
-  );
   const bannerMode = useMemo(() => monitorBannerMode(base, window.location.origin), [base]);
   const banner = BANNER_COPY[bannerMode];
-  const targetOrigin = useMemo(() => monitorPostTargetOrigin(base, window.location.origin), [base]);
-
-  const postTheme = useCallback(
-    (next: typeof theme) => {
-      const frameWindow = iframeRef.current?.contentWindow;
-      if (!frameWindow || !targetOrigin) return;
-      frameWindow.postMessage(createMonitorThemeMessage(next), targetOrigin);
-    },
-    [targetOrigin],
-  );
-
-  useEffect(() => {
-    postTheme(theme);
-  }, [theme, postTheme]);
 
   return (
     <div className="cc-shell cc-home pm-shell" data-theme={theme}>
@@ -94,25 +74,63 @@ export function PublicMonitorPage() {
           </div>
         </section>
 
-        <section className="pm-monitor">
-          {monitorSource ? (
-            <iframe
-              ref={iframeRef}
-              className="pm-frame"
-              src={monitorSource}
-              title="三网实时监控"
-              allow="fullscreen"
-              referrerPolicy="same-origin"
-              onLoad={() => postTheme(theme)}
-            />
-          ) : (
-            <div className="pm-empty" role="status" aria-live="polite">
-              <strong>监控地址未配置</strong>
-              <p>监控地址尚未配置，配置后此处将显示实时网络监控。</p>
-            </div>
-          )}
-        </section>
+        <PublicMonitorEmbed theme={theme} />
       </main>
     </div>
+  );
+}
+
+/* 已登录客户在客户中心壳层内访问 /status：同一公开运营方监控嵌入，
+   主题随壳层 topbar 切换；不新增数据源、客户字段或账户投影。 */
+export function CustomerShellMonitor() {
+  const theme = useCustomerShellTheme();
+  return <PublicMonitorEmbed theme={theme} />;
+}
+
+/* 公开监控 iframe 主体：/monitor、匿名 /status 与客户中心 /status 共用。 */
+export function PublicMonitorEmbed({ theme }: { theme: ThemePreference }) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  const base = import.meta.env.VITE_MONITOR_URL;
+  // 初始主题只取一次：src 不随主题变化，主题切换不触发 iframe 重载。
+  const initialThemeRef = useRef(theme);
+  const monitorSource = useMemo(
+    () => buildMonitorEmbedUrl(base, { theme: initialThemeRef.current, embedded: true }, window.location.origin),
+    [base],
+  );
+  const targetOrigin = useMemo(() => monitorPostTargetOrigin(base, window.location.origin), [base]);
+
+  const postTheme = useCallback(
+    (next: typeof theme) => {
+      const frameWindow = iframeRef.current?.contentWindow;
+      if (!frameWindow || !targetOrigin) return;
+      frameWindow.postMessage(createMonitorThemeMessage(next), targetOrigin);
+    },
+    [targetOrigin],
+  );
+
+  useEffect(() => {
+    postTheme(theme);
+  }, [theme, postTheme]);
+
+  return (
+    <section className="pm-monitor">
+      {monitorSource ? (
+        <iframe
+          ref={iframeRef}
+          className="pm-frame"
+          src={monitorSource}
+          title="三网实时监控"
+          allow="fullscreen"
+          referrerPolicy="same-origin"
+          onLoad={() => postTheme(theme)}
+        />
+      ) : (
+        <div className="pm-empty" role="status" aria-live="polite">
+          <strong>监控地址未配置</strong>
+          <p>监控地址尚未配置，配置后此处将显示实时网络监控。</p>
+        </div>
+      )}
+    </section>
   );
 }
