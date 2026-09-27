@@ -143,3 +143,76 @@ export function safeVerifiedDeepLinkHref(value: string | null | undefined): stri
     return null;
   }
 }
+
+/** Only construct documented remote-URL import requests for clients in the display matrix.
+ * The schemes request an app action; they do not prove that the feed is parseable.
+ * Exact source links and format limits are recorded in the task's Draft PR.
+ */
+export function verifiedSubscriptionDeepLink(request: {
+  readonly platform: SubscriptionPlatform;
+  readonly clientId: SubscriptionClientId;
+  readonly subscriptionUrl: string;
+}): string | null {
+  if (
+    safeSubscriptionHref(request.subscriptionUrl) === null ||
+    !clientsForPlatform(request.platform).some((client) => client.id === request.clientId)
+  ) {
+    return null;
+  }
+  const encodedUrl = encodeURIComponent(request.subscriptionUrl);
+  switch (request.clientId) {
+    case "shadowrocket": {
+      // Xboard's safeBase64SubscribeUrl is URL-safe, unpadded UTF-8 Base64.
+      const bytes = new TextEncoder().encode(request.subscriptionUrl);
+      const base64Url = btoa(String.fromCharCode(...bytes))
+        .replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+      return `shadowrocket://add/sub://${base64Url}`;
+    }
+    case "sing-box":
+      return `sing-box://import-remote-profile?url=${encodedUrl}#${encodeURIComponent("订阅")}`;
+    case "loon":
+      return `loon://import?nodelist=${encodedUrl}`;
+    case "quantumult-x":
+      return `quantumult-x:///add-resource?remote-resource=${encodeURIComponent(
+        JSON.stringify({ server_remote: [request.subscriptionUrl] }),
+      )}`;
+    case "stash":
+      return `stash://install-config?url=${encodedUrl}`;
+    case "surge":
+      return `surge:///install-config?url=${encodedUrl}`;
+    case "surfboard":
+      return `surfboard:///install-config?url=${encodedUrl}`;
+    case "flclash":
+      return `flclash://install-config?url=${encodedUrl}`;
+    case "clash":
+      // Clash Meta for Android documents this shared handler; the OS picks its owner.
+      return `clash://install-config?url=${encodedUrl}`;
+    case "clashx":
+      return `clash://install-config?url=${encodedUrl}&name=NSP`;
+  }
+}
+
+export function clientManualImportReason(clientId: SubscriptionClientId): string {
+  switch (clientId) {
+    case "shadowrocket":
+      return "若未唤起或未识别，请在 Shadowrocket 的 Subscribe 入口粘贴地址。";
+    case "sing-box":
+      return "远程入口需要 sing-box 配置；当前订阅内容格式未核实，失败请手动确认。";
+    case "loon":
+      return "若浏览器未能打开 Loon，可复制地址后在客户端手动添加节点订阅。";
+    case "quantumult-x":
+      return "远程服务器资源格式未核实；若客户端未添加，请手动确认。";
+    case "stash":
+      return "此入口需要 Stash 配置；当前订阅内容格式未核实，失败请手动确认。";
+    case "surge":
+      return "此入口需要 Surge 配置；当前订阅内容格式未核实，失败请手动确认。";
+    case "clash":
+      return "系统会交给注册 clash:// 的客户端，可能打开不同应用；订阅格式未核实，失败请复制地址手动导入。";
+    case "surfboard":
+      return "此入口需要 Surfboard 配置；当前订阅内容格式未核实，失败请手动确认。";
+    case "flclash":
+      return "此入口需要 Clash 配置；当前订阅内容格式未核实，失败请手动确认。";
+    case "clashx":
+      return "此入口需要 Clash 配置；当前订阅内容格式未核实，失败请手动确认。";
+  }
+}
