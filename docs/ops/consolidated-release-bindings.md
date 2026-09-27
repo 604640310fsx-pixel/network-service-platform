@@ -222,7 +222,7 @@ the conditional Monitor Auth Projection.
 | --- | --- |
 | `PUBLIC_MONITOR_BUILD_ORIGIN_PROOF` | The website build binds `VITE_MONITOR_URL` to the ruled public monitor origin; the built bundle contains that origin and no private or loopback address. |
 | `PUBLIC_MONITOR_HTTP_SERVER_PROOF` | The monitor-subdomain HTTP server exposes only the ACME webroot challenge path and redirects all other paths to HTTPS. |
-| `PUBLIC_MONITOR_HTTPS_SERVER_PROOF` | The monitor-subdomain HTTPS server proxies only GET/HEAD for `/`, `/master.css`, `/app.js`, and the eight read-only `/api/*` routes; other paths 404, POST 405, and `frame-ancestors` names only the canonical and bare website origins. |
+| `PUBLIC_MONITOR_HTTPS_SERVER_PROOF` | The monitor-subdomain HTTPS server proxies only GET/HEAD for `/`, `/master.css`, `/app.js`, and the explicit deployed allowlist of read-only `/api/*` routes the embedded monitor page requires (upstream handlers alone do not imply public exposure); other paths 404, POST 405, and `frame-ancestors` names only the canonical and bare website origins. |
 | `PUBLIC_MONITOR_EDGE_CACHE_PROOF` | The monitor API cache zone and stale-while-background-update settings are present and a representative API response carries `X-Monitor-Cache`. |
 | `PUBLIC_MONITOR_MINI_VIEW_PROOF` | The `?view=mini` rewrite and its static directory are present and the mini view reports LIVE. |
 | `PUBLIC_MONITOR_RECOVERY_PROOF` | The pre-change Nginx backup and last verified website build directory recorded in the host notes exist and are named in the release record without copying their contents. |

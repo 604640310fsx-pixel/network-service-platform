@@ -629,10 +629,12 @@ must preserve it, or stop:
    and redirects everything else to HTTPS; a blanket 503 blocks certificate
    renewal.
 3. The monitor-subdomain HTTPS server reverse-proxies the operator monitor over
-   the private tailnet with GET/HEAD only, an exact allowlist of `/`,
-   `/master.css`, `/app.js`, and the eight read-only `/api/*` routes, 404 for
-   every other path, upstream framing headers hidden, and `frame-ancestors`
-   limited to the canonical and bare website origins.
+   the private tailnet with GET/HEAD only, an explicit deployed allowlist of
+   `/`, `/master.css`, `/app.js`, and only the read-only `/api/*` routes the
+   embedded monitor page requires, 404 for every other path, upstream framing
+   headers hidden, and `frame-ancestors` limited to the canonical and bare
+   website origins. A route handled by the upstream monitor service is not
+   thereby approved for public exposure; only the explicit allowlist is.
 4. The monitor API edge cache (`proxy_cache_path` zone, 20-second validity,
    stale-while-background-update, cache lock, browser-side upstream `no-store`)
    stays in place; without it cold monitor API requests return in 5-30 seconds.
