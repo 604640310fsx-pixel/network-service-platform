@@ -119,6 +119,40 @@ oversized bodies, malformed JSON, and lifecycle inconsistencies fail closed.
 gateway's duplicate banner so the website `/monitor` WorkbenchBanner remains the
 single page header. Neither view changes the data contract.
 
+## Private listener deployment for account `/status`
+
+Website `/status` calls Auth `GET /api/me/monitor-status`; Auth calls this private
+listener's `/api/auth-service/targets` and `/api/auth-service/status` over mTLS.
+The private ACL allows those two routes only for the Auth Service identity, so
+`AUTH_SERVICE_IDENTITY_CERT_FILE` is optional for gateway startup but required
+for this path; without it every Auth call is `403` and `/status` shows unavailable.
+
+Repository assets (no values, no deployment authority):
+
+- `deploy/systemd/monitor-gateway-private.service`: unprivileged, hardened unit
+  running `python3 -m monitoring.gateway.server private` from
+  `/opt/network-service-platform/monitor-gateway/current` with
+  `EnvironmentFile=/etc/monitor-gateway/private.env`.
+- `deploy/private.env.example`: exactly the private-mode settings for this path.
+  Certificate paths live under `/etc/monitor-gateway/pki/`. The raw source is
+  the loopback-only `dashboard-next` backend that provides `customer_state`.
+  The private bind host and port are empty so the listener fails closed until
+  the approved private-link binding is filled in.
+
+Remaining administrator preconditions, each outside this repository:
+
+1. A `monitor-gateway` system user and the release/`current` layout on the
+   monitor host.
+2. A private CA, the private listener server certificate and key, and the
+   public-BFF and Auth Service client identity certificates, each with a
+   distinct fingerprint, in `/etc/monitor-gateway/pki/`.
+3. The approved private-link address and port that the Auth host reaches; no
+   public listener or public raw HTTP is exposed for this path.
+4. Auth host configuration per `docs/ops/consolidated-release-bindings.md`
+   (`MONITOR_AUTH_PROJECTION_ENABLED`, `MONITOR_AUTH_PRIVATE_ORIGIN`, and the three
+   monitor credential logical names), after manager acceptance.
+5. A customer account with a paid, opened service bound to an active target.
+
 ## Offline checks
 
 These checks do not contact any remote service:
