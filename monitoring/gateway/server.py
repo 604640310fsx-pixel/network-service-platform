@@ -61,6 +61,11 @@ PUBLIC_SUMMARY_PATH = "/api/summary"
 PRIVATE_SUMMARY_PATH = "/api/public-summary"
 AUTH_TARGETS_PATH = "/api/auth-service/targets"
 AUTH_STATUS_PATH = "/api/auth-service/status"
+PUBLIC_SERVER_STATUS_PATH = "/api/server-status"
+PRIVATE_SERVER_STATUS_PATH = "/api/public-server-status"
+# Stable neutral public label for the one operator server. The catalog display
+# label can carry provider identity, so it is never used for public output.
+PUBLIC_SERVER_STATUS_LABEL = "节点01"
 STATIC_PATHS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/master.css": ("master.css", "text/css; charset=utf-8"),
@@ -70,6 +75,10 @@ STATIC_PATHS = {
 
 class PublicSummaryReader(Protocol):
     def read_public_summary(self) -> dict[str, Any]: ...
+
+
+class PublicServerStatusReader(Protocol):
+    def read_public_server_status(self) -> dict[str, Any]: ...
 
 
 class RawProjectionReader(Protocol):
@@ -87,6 +96,8 @@ class PublicDependencies:
     limiter: TokenBucketLimiter
     logger: SafeEventLogger
     static_root: Path = STATIC_ROOT
+    # Optional: public status of the single server-side-configured target.
+    server_status_reader: PublicServerStatusReader | None = None
 
 
 @dataclass(frozen=True)
@@ -95,6 +106,9 @@ class PrivateDependencies:
     identities: IdentityRegistry
     logger: SafeEventLogger
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
+    # Target key for the public server status; never taken from a request and
+    # never returned. None keeps the public server-status route unconfigured.
+    public_status_target: str | None = None
 
 
 def _safe_error(code: str) -> dict[str, dict[str, str]]:
@@ -269,11 +283,55 @@ def make_public_handler(dependencies: PublicDependencies):
                     status=200,
                     event="public_request",
                 )
+            if parsed.path == PUBLIC_SERVER_STATUS_PATH:
+                return self._public_server_status(parsed.query, parsed.fragment)
             return self._serve_static(parsed.path, head_only=False)
+
+        def _public_server_status(self, query: str, fragment: str) -> None:
+            reader = dependencies.server_status_reader
+            if reader is None or query or fragment:
+                return self._send_public_json(
+                    _safe_error("not_found"),
+                    status=404,
+                    event="public_rejected",
+                )
+            if not dependencies.limiter.consume(str(self.client_address[0])):
+                return self._send_public_json(
+                    _safe_error("rate_limited"),
+                    status=429,
+                    event="public_rejected",
+                )
+            try:
+                payload = reader.read_public_server_status()
+            except UpstreamTimeout:
+                return self._send_public_json(
+                    _safe_error("monitor_unavailable"),
+                    status=504,
+                    event="upstream_timeout",
+                )
+            except UpstreamSchemaInvalid:
+                return self._send_public_json(
+                    _safe_error("monitor_unavailable"),
+                    status=502,
+                    event="upstream_schema_invalid",
+                )
+            except Exception:
+                # Unavailable, unconfigured or inactive targets all collapse to
+                # one public state; no private reason or traceback is exposed.
+                return self._send_public_json(
+                    _safe_error("monitor_unavailable"),
+                    status=503,
+                    event="upstream_unavailable",
+                )
+            return self._send_public_json(
+                payload,
+                status=200,
+                event="public_request",
+            )
 
         def do_HEAD(self) -> None:
             parsed = urlsplit(self.path)
-            if parsed.path == PUBLIC_SUMMARY_PATH:
+            if parsed.path in (PUBLIC_SUMMARY_PATH, PUBLIC_SERVER_STATUS_PATH):
                 return self._send_public_json(
                     _safe_error("method_not_allowed"),
                     status=405,
@@ -339,7 +397,11 @@ def make_public_handler(dependencies: PublicDependencies):
 
         def _reject_write(self) -> None:
             parsed = urlsplit(self.path)
-            allow = "GET" if parsed.path == PUBLIC_SUMMARY_PATH else "GET, HEAD"
+            allow = (
+                "GET"
+                if parsed.path in (PUBLIC_SUMMARY_PATH, PUBLIC_SERVER_STATUS_PATH)
+                else "GET, HEAD"
+            )
             self._send_public_json(
                 _safe_error("method_not_allowed"),
                 status=405,
@@ -407,7 +469,7 @@ def make_private_handler(dependencies: PrivateDependencies):
             return dependencies.identities.resolve_der_certificate(certificate)
 
         def _authorized(self, identity: str | None, path: str) -> bool:
-            if path == PRIVATE_SUMMARY_PATH:
+            if path in (PRIVATE_SUMMARY_PATH, PRIVATE_SERVER_STATUS_PATH):
                 return identity == PUBLIC_BFF_IDENTITY
             if path in (AUTH_TARGETS_PATH, AUTH_STATUS_PATH):
                 return identity == AUTH_SERVICE_IDENTITY
@@ -594,6 +656,43 @@ def make_private_handler(dependencies: PrivateDependencies):
                 public_projection=False,
             )
 
+        def _public_server_status(self, target: str) -> None:
+            try:
+                require_assignable_target(
+                    project_target_catalog(
+                        dependencies.raw_reader.read_target_catalog()
+                    ),
+                    target,
+                )
+                status = project_target_status(
+                    dependencies.raw_reader.read_target_status(target),
+                    target,
+                )
+            except UpstreamTimeout:
+                return self._send_private_json(
+                    _safe_error("monitor_unavailable"),
+                    status=504,
+                    event="upstream_timeout",
+                )
+            except Exception:
+                # Missing, inactive, invalid or unreachable targets collapse to
+                # one unavailable state; the target key is never echoed.
+                return self._send_private_json(
+                    _safe_error("monitor_unavailable"),
+                    status=503,
+                    event="upstream_unavailable",
+                )
+            self._send_private_json(
+                {
+                    "label": PUBLIC_SERVER_STATUS_LABEL,
+                    "status": status["status"],
+                    "updatedAt": status["updatedAt"],
+                    "stale": status["stale"],
+                },
+                status=200,
+                event="private_request",
+            )
+
         def do_GET(self) -> None:
             parsed = urlsplit(self.path)
             identity = self._identity()
@@ -603,6 +702,15 @@ def make_private_handler(dependencies: PrivateDependencies):
                     status=403,
                     event="private_rejected",
                 )
+            if parsed.path == PRIVATE_SERVER_STATUS_PATH:
+                target = dependencies.public_status_target
+                if target is None or parsed.query or parsed.fragment or self._has_body():
+                    return self._send_private_json(
+                        _safe_error("not_found"),
+                        status=404,
+                        event="private_rejected",
+                    )
+                return self._public_server_status(target)
             if parsed.path == AUTH_TARGETS_PATH:
                 if parsed.query or parsed.fragment or self._has_body():
                     return self._send_auth_error("invalid_request")
@@ -730,6 +838,19 @@ def _optional_identity_files() -> dict[str, Path]:
     return files
 
 
+def _optional_public_status_target() -> str | None:
+    value = os.environ.get("PUBLIC_SERVER_STATUS_TARGET")
+    if value is None or not value.strip():
+        return None
+    if (
+        value.strip() != value
+        or len(value) > 128
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        raise SecurityBoundaryError("PUBLIC_SERVER_STATUS_TARGET is invalid")
+    return value
+
+
 def _raw_client() -> RawMonitorClient:
     origin = Origin.private(_required("RAW_MONITOR_API_ORIGIN"), require_https=False)
     context: ssl.SSLContext | None = None
@@ -752,10 +873,12 @@ def run_public() -> None:
         certificate_file=_path("MONITOR_PUBLIC_BFF_CLIENT_CERT_FILE"),
         key_file=_path("MONITOR_PUBLIC_BFF_CLIENT_KEY_FILE"),
     )
+    projection_client = PrivateProjectionClient(
+        FixedJsonClient(private_origin, tls_context=client_context)
+    )
     dependencies = PublicDependencies(
-        summary_reader=PrivateProjectionClient(
-            FixedJsonClient(private_origin, tls_context=client_context)
-        ),
+        summary_reader=projection_client,
+        server_status_reader=projection_client,
         parent_origin=parent_origin,
         limiter=TokenBucketLimiter(requests_per_minute=30, burst=10),
         logger=SafeEventLogger(),
@@ -778,6 +901,7 @@ def run_private() -> None:
         raw_reader=_raw_client(),
         identities=IdentityRegistry.from_certificate_files(_optional_identity_files()),
         logger=SafeEventLogger(),
+        public_status_target=_optional_public_status_target(),
     )
     server = ThreadingHTTPServer(
         (host, _required_port("PRIVATE_MONITOR_PORT")),
