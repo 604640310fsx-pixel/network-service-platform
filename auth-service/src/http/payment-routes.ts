@@ -544,6 +544,16 @@ export function registerPaymentHttpRoutes(
       if (!dependencies.enabled) {
         return reply.code(503).send(errorResponse("payment_unavailable"));
       }
+      // 重新支付会生成新订单，同样必须登录；新订单归属当前 Session 用户。
+      let session: PaymentSession | null;
+      try {
+        session = readPaymentSession(request, dependencies);
+      } catch {
+        return reply.code(503).send(errorResponse("payment_unavailable"));
+      }
+      if (session === null) {
+        return reply.code(401).send(errorResponse("unauthorized"));
+      }
       const idempotencyKey = stringHeader(request.headers["idempotency-key"]);
       if (idempotencyKey === null) {
         return reply.code(400).send(errorResponse("idempotency_key_required"));
@@ -556,13 +566,12 @@ export function registerPaymentHttpRoutes(
       }
       const oldToken = stringHeader(request.headers["x-order-access-token"]);
       try {
-        const session = readPaymentSession(request, dependencies);
         const result = retryPaymentOrder(dependencies, {
           oldOrderRef: request.params.orderRef,
           idempotencyKey,
           oldRawAccessToken: oldToken,
           newRawAccessToken: newToken,
-          currentUserId: session?.principal.userId ?? null,
+          currentUserId: session.principal.userId,
         });
         return reply.code(200).send(await publicPaymentResult(dependencies, result));
       } catch (error) {

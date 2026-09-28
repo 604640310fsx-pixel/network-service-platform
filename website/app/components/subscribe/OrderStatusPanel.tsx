@@ -53,6 +53,10 @@ function orderErrorMessage(error: unknown): string {
   }
 }
 
+// 重新支付会生成新订单，必须登录。旧订单查询凭证仍保存在本浏览器，
+// 登录后回到同一订单页即可继续重试；凭证不进入 URL / 日志。
+const RETRY_LOGIN_REQUIRED = "重新支付需先登录；登录后请在本浏览器重新打开本订单页面，再点击“重新支付”。";
+
 function payPageErrorMessage(error: unknown): string {
   if (!(error instanceof PaymentApiError)) return "暂时无法刷新支付页面，请稍后重试。";
   switch (error.code) {
@@ -232,6 +236,11 @@ export function OrderStatusPanel({
 
   async function retryPayment() {
     if (retrying) return;
+    // 未登录时不生成或改动任何重试凭证，只提示先登录。
+    if (authStatus !== "authenticated") {
+      setActionError(RETRY_LOGIN_REQUIRED);
+      return;
+    }
     setRetrying(true);
     setActionError(null);
     setError(null);
@@ -247,6 +256,11 @@ export function OrderStatusPanel({
         state: { paymentResult: result },
       });
     } catch (retryError) {
+      // 登录失效（401）时保留本次重试凭证，重新登录后回到本页可安全重放同一请求。
+      if (retryError instanceof PaymentApiError && retryError.code === "unauthorized") {
+        setActionError(RETRY_LOGIN_REQUIRED);
+        return;
+      }
       if (credentials !== null && shouldClearAttemptAfterError(retryError)) {
         try {
           clearRetryAttempt(credentials);
@@ -323,6 +337,14 @@ export function OrderStatusPanel({
           retrying={retrying}
           actionError={actionError}
         />
+
+        {snapshot.status === "closed" && authStatus === "unauthenticated" && (
+          <div className="pay-requery" role="status">
+            <p>
+              重新支付会生成新订单，需先<Link to="/login">登录</Link>；登录后请在本浏览器重新打开本订单页面，再点击“重新支付”。
+            </p>
+          </div>
+        )}
 
         {snapshot.status !== "closed" && error !== null && queryRetryable && (
           <div className="pay-requery" role="alert">

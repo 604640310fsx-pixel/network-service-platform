@@ -287,11 +287,32 @@ test("retry API authenticates the old order, copies its snapshot, and stores the
       notification: { notifyId: "notify-close", payloadHash: "close-hash" },
     });
     const app = buildApp({ payment: dependencies });
+    const buyerId = insertAuthenticationUser(database, {
+      email: "retry-http-buyer@example.com",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const buyerSession = insertWebSession(database, buyerId);
     try {
+      // Retry creates a new order, so an anonymous caller is rejected even with the valid old token.
+      const anonymous = await app.inject({
+        method: "POST",
+        url: `/api/pay/orders/${old.orderRef}/retry`,
+        headers: {
+          "idempotency-key": "retry-key",
+          "x-order-access-token": ACCESS_TOKEN_A,
+          "x-new-order-access-token": ACCESS_TOKEN_B,
+        },
+      });
+      assert.equal(anonymous.statusCode, 401);
+      assert.deepEqual(anonymous.json(), { error: { code: "unauthorized" } });
+      assert.equal(firstValue(database, "SELECT COUNT(*) FROM orders"), 1);
+
       const unauthorized = await app.inject({
         method: "POST",
         url: `/api/pay/orders/${old.orderRef}/retry`,
         headers: {
+          cookie: buyerSession.cookie,
           "idempotency-key": "retry-key",
           "x-order-access-token": ACCESS_TOKEN_C,
           "x-new-order-access-token": ACCESS_TOKEN_B,
@@ -303,6 +324,7 @@ test("retry API authenticates the old order, copies its snapshot, and stores the
         method: "POST",
         url: `/api/pay/orders/${old.orderRef}/retry`,
         headers: {
+          cookie: buyerSession.cookie,
           "idempotency-key": "retry-key",
           "x-order-access-token": ACCESS_TOKEN_A,
           "x-new-order-access-token": ACCESS_TOKEN_B,
@@ -330,6 +352,8 @@ test("retry API authenticates the old order, copies its snapshot, and stores the
       assert.equal(retried.body.includes(ACCESS_TOKEN_B), false);
       assert.equal(firstValue(database, "SELECT COUNT(*) FROM orders"), 2);
       assert.equal(firstValue(database, "SELECT COUNT(*) FROM order_access_tokens"), 2);
+      assert.equal(firstValue(database, "SELECT user_id FROM orders WHERE order_ref = ?", retriedBody.orderRef), buyerId);
+      assert.equal(firstValue(database, "SELECT user_id FROM orders WHERE order_ref = ?", old.orderRef), null);
       assert.equal(sdk.pageCalls.length, 1);
     } finally {
       await app.close();
