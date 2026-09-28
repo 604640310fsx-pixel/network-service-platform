@@ -228,6 +228,42 @@ jobs:
             echo "forbidden direct14 release bundle entry detected" >&2
             exit 1
           fi
+          node scripts/ops/assemble-consolidated-release.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --destination "$BUNDLE_PARENT/standard19-first" \
+            --expected-sha "$EXPECTED_SHA" \
+            --provenance-mode "$PROVENANCE_MODE" \
+            --schema-route standard19-20
+          node scripts/ops/assemble-consolidated-release.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --destination "$BUNDLE_PARENT/standard19-second" \
+            --expected-sha "$EXPECTED_SHA" \
+            --provenance-mode "$PROVENANCE_MODE" \
+            --schema-route standard19-20
+          cmp "$BUNDLE_PARENT/standard19-first/release-manifest.json" \
+            "$BUNDLE_PARENT/standard19-second/release-manifest.json"
+          node scripts/ops/validate-release-open-http-contract.mjs \
+            --source "$BUNDLE_PARENT/standard19-first"
+          node scripts/ops/validate-consolidated-release-packet.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --expected-sha "$EXPECTED_SHA" \
+            --bundle "$BUNDLE_PARENT/standard19-first" \
+            --validation-mode "$VALIDATION_MODE" \
+            --schema-route standard19-20
+          node scripts/ops/validate-consolidated-release-packet.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --expected-sha "$EXPECTED_SHA" \
+            --bundle "$BUNDLE_PARENT/standard19-second" \
+            --validation-mode "$VALIDATION_MODE" \
+            --schema-route standard19-20
+          if find "$BUNDLE_PARENT/standard19-first" \
+            \( -type l -o -name node_modules -o -name '.env*' \
+               -o -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
+               -o -name '*.pem' -o -name '*.key' \) \
+            -print -quit | grep -q .; then
+            echo "forbidden standard19 release bundle entry detected" >&2
+            exit 1
+          fi
 
       - name: Verify lockfiles are unchanged
         run: |
@@ -289,6 +325,36 @@ jobs:
           {
             printf 'Direct14 release candidate SHA: `%s`\n' "$EXPECTED_SHA"
             printf 'Artifact name: `consolidated-release-direct14-%s`\n' "$EXPECTED_SHA"
+            printf 'Artifact ID: `%s`\n' "$ARTIFACT_ID"
+            printf 'Artifact digest: `sha256:%s`\n' "$ARTIFACT_DIGEST"
+            printf 'Workflow run: `%s`, attempt `%s`\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain exact integration standard19 release candidate
+        id: upload-standard19-release-candidate
+        if: github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && github.sha == env.EXPECTED_SHA
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-release-standard19-${{ env.EXPECTED_SHA }}
+          path: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}/standard19-first/
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Record standard19 candidate artifact proof
+        if: github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && github.sha == env.EXPECTED_SHA
+        env:
+          ARTIFACT_ID: ${{ steps.upload-standard19-release-candidate.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload-standard19-release-candidate.outputs.artifact-digest }}
+          ARTIFACT_URL: ${{ steps.upload-standard19-release-candidate.outputs.artifact-url }}
+        run: |
+          test "$GITHUB_SHA" = "$EXPECTED_SHA"
+          test -n "$ARTIFACT_ID"
+          test -n "$ARTIFACT_URL"
+          printf '%s\n' "$ARTIFACT_DIGEST" | grep -Eq '^[a-f0-9]{64}$'
+          {
+            printf 'Standard19 release candidate SHA: `%s`\n' "$EXPECTED_SHA"
+            printf 'Artifact name: `consolidated-release-standard19-%s`\n' "$EXPECTED_SHA"
             printf 'Artifact ID: `%s`\n' "$ARTIFACT_ID"
             printf 'Artifact digest: `sha256:%s`\n' "$ARTIFACT_DIGEST"
             printf 'Workflow run: `%s`, attempt `%s`\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"

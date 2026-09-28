@@ -103,9 +103,12 @@ inventories, and uploads only the first bundle under the exact name
 `--schema-route standard16-20` explicitly.
 The same job also independently assembles and validates an explicit
 `direct14-20` bundle twice, then retains its first bundle as
-`consolidated-release-direct14-<RELEASE_CANDIDATE_SHA>`. The two artifact names
-and manifest schema boundaries are distinct; neither route can validate the
-other route's bundle. The default command and the sequence below remain the
+`consolidated-release-direct14-<RELEASE_CANDIDATE_SHA>`. It likewise assembles
+and validates an explicit `standard19-20` bundle twice and retains its first
+bundle as `consolidated-release-standard19-<RELEASE_CANDIDATE_SHA>`. Pull-request
+runs only test these routes; nothing is retained outside a successful
+integration push. The artifact names and manifest schema boundaries are
+distinct; no route can validate another route's bundle. The default command and the sequence below remain the
 001-016 rollback route.
 
 The upload alone does not authorize release. After the merge and integration
@@ -616,6 +619,60 @@ a database containing migration 020.
 
 No step here authorizes production access, a database write, restore, pointer
 switch, traffic change, deployment, or release by itself.
+
+## Explicit STANDARD19 to 20 route
+
+Formal route for a site whose live database is already the continuous
+001-019 prefix. The manifest states `"schemaRoute":"standard19-20"` and
+`rollback: 19, candidate: 20`, and lists exactly migrations 001-020; on that
+database the existing loader applies only migration 020. The `standard16-20`,
+`direct14-20`, and historical 019 routes keep their own meanings and cannot
+validate this route's bundle, nor it theirs.
+
+This route is available only when a separate release execution packet selects
+it and binds every `STANDARD19_*` proof in the binding checklist. Nothing in
+this repository proves any of those site facts.
+
+The candidate must be the separately retained integration-push artifact
+`consolidated-release-standard19-<RELEASE_CANDIDATE_SHA>`. Validate its manifest
+and live GitHub artifact proof with the candidate command above plus
+`--schema-route standard19-20`.
+
+Before any quiescent 020 start, the packet must prove, from the site itself:
+
+1. The live database is the continuous 001-019 prefix, read without writes.
+2. The matching old 019 Auth and old website artifacts currently serving the
+   site are identified by their running paths, with identities and integrity
+   hashes recorded. Their roots may differ (for example a website root outside
+   the Auth release bundle); record each root separately and never assume they
+   share a bundle.
+3. Every public and alternate ingress is closed, the old Auth service is
+   stopped with its PID proven absent, and database writers are proven zero.
+4. A new owner-only SQLite snapshot of that 001-019 database is verified for
+   hash, size, integrity, foreign keys, and continuous migrations 001-019, and
+   an isolated restore test proves the matched old 019 Auth unit starts on it.
+   Only then is a restorable 019 snapshot established.
+
+Then switch to the exact standard19 candidate and start quiescent with payment,
+mail dispatch, registration, background writers, and monitor projection
+disabled. Startup may apply only migration **020**; verify schema 001-020,
+database integrity, loopback health, and website inventory without business
+requests, keeping ingress closed.
+
+Pre-open restore of that 019 snapshot together with the matched old 019 Auth
+and website remains unproven until the site checks above are recorded and the
+existing restore-eligibility conditions hold (ingress still closed, writers
+still zero, no post-snapshot business or background write, restore deadline
+open). No step here asserts that eligibility.
+
+After any new business or background write reaches the 020 database, never
+overwrite or restore the database, and never start a 001-019 Auth binary on a
+database containing migration 020. There is no rollback artifact for a
+database at 020, and none may be assumed; the only path is a separately
+authorized forward fix.
+
+No step here authorizes production access, a database write, backup, restore,
+pointer switch, traffic change, deployment, or release by itself.
 
 ## Monitor boundary
 

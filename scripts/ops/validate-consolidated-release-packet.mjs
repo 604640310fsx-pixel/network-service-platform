@@ -614,6 +614,9 @@ export function validateRepository({
             "## Explicit DIRECT14 to 20 route",
             "--schema-route direct14-20",
             "--schema-route standard16-20",
+            "## Explicit STANDARD19 to 20 route",
+            "--schema-route standard19-20",
+            "consolidated-release-standard19-<RELEASE_CANDIDATE_SHA>",
           ]
         : []),
       "consolidated-release-direct14-<RELEASE_CANDIDATE_SHA>",
@@ -639,6 +642,16 @@ export function validateRepository({
       "DIRECT14_SCHEMA_AND_IMPACT_PROOF",
       "DIRECT14_SQLITE_SNAPSHOT_PROOF",
       "DIRECT14_RESTORE_ELIGIBILITY_PROOF",
+      ...(currentSchema
+        ? [
+            "STANDARD19_ROUTE_AUTHORIZATION",
+            "STANDARD19_CANDIDATE_ARTIFACT_PROOF",
+            "STANDARD19_OLD_RELEASE_UNIT_PROOF",
+            "STANDARD19_SCHEMA_PROOF",
+            "STANDARD19_SQLITE_SNAPSHOT_PROOF",
+            "STANDARD19_PRE_OPEN_RESTORE_PROOF",
+          ]
+        : []),
     ],
     "release bindings",
   );
@@ -685,7 +698,12 @@ export function validateRepository({
       "consolidated-release-${{ env.EXPECTED_SHA }}",
       "consolidated-release-direct14-${{ env.EXPECTED_SHA }}",
       ...(currentSchema
-        ? ["--schema-route direct14-20", "--schema-route standard16-20"]
+        ? [
+            "--schema-route direct14-20",
+            "--schema-route standard16-20",
+            "--schema-route standard19-20",
+            "consolidated-release-standard19-${{ env.EXPECTED_SHA }}",
+          ]
         : ["--schema-route direct14-19"]),
       "github.sha == env.EXPECTED_SHA",
       'test "$GITHUB_SHA" = "$EXPECTED_SHA"',

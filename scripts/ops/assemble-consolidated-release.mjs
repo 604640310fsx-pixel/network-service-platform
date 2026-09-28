@@ -32,6 +32,7 @@ export const RELEASE_REPOSITORY =
 export const RELEASE_WORKFLOW_JOB = "consolidated-release-packet";
 export const RELEASE_ARTIFACT_PREFIX = "consolidated-release-";
 export const DIRECT14_RELEASE_ARTIFACT_PREFIX = "consolidated-release-direct14-";
+export const STANDARD19_RELEASE_ARTIFACT_PREFIX = "consolidated-release-standard19-";
 export const RELEASE_INTEGRATION_REF =
   "refs/heads/integration/consolidate-project";
 // Historical routes (001-019) stay recognized so already-built 019 bundles
@@ -40,6 +41,9 @@ export const STANDARD16_19_RELEASE_SCHEMA_ROUTE = "standard16-19";
 export const DIRECT14_19_RELEASE_SCHEMA_ROUTE = "direct14-19";
 export const STANDARD16_20_RELEASE_SCHEMA_ROUTE = "standard16-20";
 export const DIRECT14_20_RELEASE_SCHEMA_ROUTE = "direct14-20";
+// Formal route for a live database that is already continuous 001-019: the
+// candidate loader applies only migration 020 (rollback boundary 19).
+export const STANDARD19_20_RELEASE_SCHEMA_ROUTE = "standard19-20";
 export const DEFAULT_RELEASE_SCHEMA_ROUTE = STANDARD16_20_RELEASE_SCHEMA_ROUTE;
 export const DIRECT14_RELEASE_SCHEMA_ROUTE = DIRECT14_20_RELEASE_SCHEMA_ROUTE;
 export const RELEASE_SCHEMA_BOUNDARIES = Object.freeze({
@@ -47,9 +51,10 @@ export const RELEASE_SCHEMA_BOUNDARIES = Object.freeze({
   [DIRECT14_19_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 14, candidate: 19 }),
   [STANDARD16_20_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 16, candidate: 20 }),
   [DIRECT14_20_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 14, candidate: 20 }),
+  [STANDARD19_20_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 19, candidate: 20 }),
 });
 export const RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE =
-  "--schema-route must be standard16-19, direct14-19, standard16-20, or direct14-20";
+  "--schema-route must be standard16-19, direct14-19, standard16-20, direct14-20, or standard19-20";
 const DIRECT14_RELEASE_SCHEMA_ROUTES = Object.freeze(
   new Set([DIRECT14_19_RELEASE_SCHEMA_ROUTE, DIRECT14_20_RELEASE_SCHEMA_ROUTE]),
 );
@@ -74,7 +79,12 @@ export function releaseArtifactNameForRoute(sha, schemaRoute) {
       RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE,
     );
   }
-  return `${isDirect14ReleaseSchemaRoute(schemaRoute) ? DIRECT14_RELEASE_ARTIFACT_PREFIX : RELEASE_ARTIFACT_PREFIX}${sha}`;
+  const prefix = isDirect14ReleaseSchemaRoute(schemaRoute)
+    ? DIRECT14_RELEASE_ARTIFACT_PREFIX
+    : schemaRoute === STANDARD19_20_RELEASE_SCHEMA_ROUTE
+      ? STANDARD19_RELEASE_ARTIFACT_PREFIX
+      : RELEASE_ARTIFACT_PREFIX;
+  return `${prefix}${sha}`;
 }
 export const RELEASE_MIGRATIONS_001_019 = Object.freeze([
   "001_users_and_invite_codes.sql",
