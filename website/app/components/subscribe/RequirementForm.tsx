@@ -1,5 +1,6 @@
 import { useEffect, useId, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../../lib/auth";
 import {
   PAYMENT_MAX_SINGLE_FEN_FRONTEND,
   PaymentApiError,
@@ -82,6 +83,7 @@ export function RequirementForm({
   selection: CatalogSelection;
 }) {
   const navigate = useNavigate();
+  const { status: authStatus } = useAuth();
   const [contact, setContact] = useState("");
   const [scenarios, setScenarios] = useState<string[]>([]);
   const [notes, setNotes] = useState("");
@@ -308,6 +310,12 @@ export function RequirementForm({
         </div>
 
         <div className="sub-request-submit">
+          {/* 游客下单保留；仅在确认未登录时提示，检查中与已登录均不显示。 */}
+          {authStatus === "unauthenticated" && (
+            <p>
+              建议先<Link to="/login">登录</Link>再下单。未登录下单时，订单只能凭本浏览器保存的查询凭证查看；之后注册的账户不会自动关联此前的订单。
+            </p>
+          )}
           <button type="submit" disabled={!canSubmit} aria-busy={submitting}>
             {submitting
               ? "正在发起付款…"
