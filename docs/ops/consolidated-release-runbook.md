@@ -19,10 +19,10 @@ CANDIDATE_SCHEMA_BOUNDARY: 17
 
 The block above records the historical hardening packet. The current repository
 inventory includes migration 020 (support tickets), and its local candidate
-manifest requires schema boundary 20 through the `standard16-20` or
-`direct14-20` route; neither value authorizes a release candidate. The
-`standard16-19` and `direct14-19` routes remain recognized only for
-already-built 001-019 bundles and cannot assemble the current source.
+manifest requires schema boundary 20 through the `standard16-20`,
+`direct14-20`, or `standard19-20` route; neither value authorizes a release
+candidate. The `standard16-19` and `direct14-19` routes remain recognized only
+for already-built 001-019 bundles and cannot assemble the current source.
 
 The implementation base is only the starting point for this hardening change.
 After this Draft PR is accepted and a merge is separately authorized, a new
