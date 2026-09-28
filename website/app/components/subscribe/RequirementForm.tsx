@@ -313,7 +313,7 @@ export function RequirementForm({
           {/* 游客下单保留；仅在确认未登录时提示，检查中与已登录均不显示。 */}
           {authStatus === "unauthenticated" && (
             <p>
-              建议先<Link to="/login">登录</Link>再下单。未登录下单时，订单只能凭本浏览器保存的查询凭证查看；之后注册的账户不会自动关联此前的订单。
+              建议先<Link to="/login">登录</Link>再下单；登录后需返回“套餐订阅”重新选择套餐。未登录下单时，订单只能凭本浏览器保存的查询凭证查看；之后注册的账户不会自动关联此前的订单。
             </p>
           )}
           <button type="submit" disabled={!canSubmit} aria-busy={submitting}>
