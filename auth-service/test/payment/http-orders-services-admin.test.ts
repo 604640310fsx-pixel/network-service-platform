@@ -166,8 +166,13 @@ test("server pricing rejects changed and over-limit amounts before any SDK pageE
 
 test("create-order API requires a web session, binds the server user, and keeps legacy guest orders payable", async () => {
   await withAuthenticationDatabase(async (database) => {
+    let sequence = 0;
     const sdk = new FakeAlipaySdk();
-    const dependencies = paymentDependencies(database, sdk);
+    // Two orders are created here, so each needs a distinct generated order reference.
+    const dependencies = paymentDependencies(database, sdk, () => {
+      sequence += 1;
+      return `${sequence.toString().padStart(8, "0")}-4444-4444-8444-444444444444`;
+    });
     const legacyGuest = createPaymentOrder(dependencies, {
       idempotencyKey: "legacy-guest-key",
       rawAccessToken: ACCESS_TOKEN_C,
