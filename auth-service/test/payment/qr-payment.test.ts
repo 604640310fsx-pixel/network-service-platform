@@ -4,7 +4,10 @@ import test from "node:test";
 import { buildApp } from "../../src/app.js";
 import { createPaymentOrder } from "../../src/payment/orders.js";
 import { finalizeClosed, finalizePaid } from "../../src/payment/state-machine.js";
-import { withAuthenticationDatabase } from "../auth/helpers.js";
+import {
+  insertAuthenticationUser,
+  withAuthenticationDatabase,
+} from "../auth/helpers.js";
 import {
   ACCESS_TOKEN_A,
   ACCESS_TOKEN_B,
@@ -12,6 +15,7 @@ import {
   TEST_NOW,
   allRows,
   firstValue,
+  insertWebSession,
   localIspSelection,
   paymentDependencies,
   queryResult,
@@ -195,10 +199,17 @@ test("a transient pageExecute failure preserves the order and same-key retry ret
     console.error = (...values: unknown[]) => capturedLogs.push(values.map(String).join(" "));
     console.warn = (...values: unknown[]) => capturedLogs.push(values.map(String).join(" "));
     try {
+      const buyerId = insertAuthenticationUser(database, {
+        email: "page-pay-buyer@example.com",
+        passwordHash: "hash",
+        status: "active",
+      });
+      const buyerSession = insertWebSession(database, buyerId);
       const request = {
         method: "POST" as const,
         url: "/api/pay/orders",
         headers: {
+          cookie: buyerSession.cookie,
           "content-type": "application/json",
           "idempotency-key": "page-pay-retry-key",
           "x-order-access-token": ACCESS_TOKEN_A,

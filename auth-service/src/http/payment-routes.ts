@@ -14,7 +14,10 @@ import {
   resolveQuote,
   type PlanSelection,
 } from "../payment/commerce.js";
-import { readPaymentSession } from "../payment/http-auth.js";
+import {
+  readPaymentSession,
+  type PaymentSession,
+} from "../payment/http-auth.js";
 import {
   auditDeliveryDecryptFailure,
   createPaymentOrder,
@@ -485,6 +488,16 @@ export function registerPaymentHttpRoutes(
     if (!dependencies.enabled) {
       return reply.code(503).send(errorResponse("payment_unavailable"));
     }
+    // 新建订单必须登录；在任何请求校验之前拒绝，订单归属只取服务端 Session。
+    let session: PaymentSession | null;
+    try {
+      session = readPaymentSession(request, dependencies);
+    } catch {
+      return reply.code(503).send(errorResponse("payment_unavailable"));
+    }
+    if (session === null) {
+      return reply.code(401).send(errorResponse("unauthorized"));
+    }
     const body = parseCreateBody(request.body);
     if (body === null) {
       return reply.code(400).send(errorResponse("invalid_selection"));
@@ -500,7 +513,6 @@ export function registerPaymentHttpRoutes(
       return reply.code(400).send(errorResponse("access_token_required"));
     }
     try {
-      const session = readPaymentSession(request, dependencies);
       const selection: OrderSelection = {
         typeId: body.typeId,
         regionId: body.regionId,
@@ -516,7 +528,7 @@ export function registerPaymentHttpRoutes(
         scenarios: body.scenarios,
         notes: body.notes,
         acknowledgedAmountFen: body.acknowledgedAmountFen,
-        userId: session?.principal.userId ?? null,
+        userId: session.principal.userId,
         couponCode: body.couponCode,
       });
       return reply.code(200).send(await publicPaymentResult(dependencies, result));

@@ -28,11 +28,18 @@ test("create-order API stores only the client credential hash and returns the fr
     const sdk = new FakeAlipaySdk();
     const dependencies = paymentDependencies(database, sdk);
     const app = buildApp({ payment: dependencies });
+    const buyerId = insertAuthenticationUser(database, {
+      email: "buyer@example.com",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const buyerSession = insertWebSession(database, buyerId);
     try {
       const response = await app.inject({
         method: "POST",
         url: "/api/pay/orders",
         headers: {
+          cookie: buyerSession.cookie,
           "content-type": "application/json",
           "idempotency-key": "browser-key-1",
           "x-order-access-token": ACCESS_TOKEN_A,
@@ -70,6 +77,7 @@ test("create-order API stores only the client credential hash and returns the fr
         0,
       );
       assert.equal(firstValue(database, "SELECT token_key_version FROM order_access_tokens"), 1);
+      assert.equal(firstValue(database, "SELECT user_id FROM orders"), buyerId);
       assert.equal(sdk.pageCalls.length, 1);
     } finally {
       await app.close();
@@ -82,11 +90,20 @@ test("server pricing rejects changed and over-limit amounts before any SDK pageE
     const sdk = new FakeAlipaySdk();
     const dependencies = paymentDependencies(database, sdk);
     const app = buildApp({ payment: dependencies });
+    const buyerSession = insertWebSession(
+      database,
+      insertAuthenticationUser(database, {
+        email: "pricing-buyer@example.com",
+        passwordHash: "hash",
+        status: "active",
+      }),
+    );
     try {
       const changed = await app.inject({
         method: "POST",
         url: "/api/pay/orders",
         headers: {
+          cookie: buyerSession.cookie,
           "content-type": "application/json",
           "idempotency-key": "price-change-key",
           "x-order-access-token": ACCESS_TOKEN_A,
@@ -108,6 +125,7 @@ test("server pricing rejects changed and over-limit amounts before any SDK pageE
         method: "POST",
         url: "/api/pay/orders",
         headers: {
+          cookie: buyerSession.cookie,
           "content-type": "application/json",
           "idempotency-key": "over-limit-key",
           "x-order-access-token": ACCESS_TOKEN_B,
@@ -136,6 +154,104 @@ test("server pricing rejects changed and over-limit amounts before any SDK pageE
       });
       assert.equal(sdk.pageCalls.length, 0);
       assert.equal(firstValue(database, "SELECT COUNT(*) FROM orders"), 0);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+test("create-order API requires a web session, binds the server user, and keeps legacy guest orders payable", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const sdk = new FakeAlipaySdk();
+    const dependencies = paymentDependencies(database, sdk);
+    const legacyGuest = createPaymentOrder(dependencies, {
+      idempotencyKey: "legacy-guest-key",
+      rawAccessToken: ACCESS_TOKEN_C,
+      selection: localIspSelection(),
+      contact: "legacy-guest",
+      scenarios: [],
+      notes: null,
+      acknowledgedAmountFen: 7_900,
+      userId: null,
+    });
+    const buyerId = insertAuthenticationUser(database, {
+      email: "session-buyer@example.com",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const otherId = insertAuthenticationUser(database, {
+      email: "someone-else@example.com",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const buyerSession = insertWebSession(database, buyerId);
+    const app = buildApp({ payment: dependencies });
+    const payload = {
+      ...localIspSelection(),
+      contact: "session-contact",
+      scenarios: [],
+      notes: null,
+      acknowledgedAmountFen: 7_900,
+    };
+    try {
+      for (const cookie of [undefined, "__Host-web_session=not-a-real-session-token"]) {
+        const rejected = await app.inject({
+          method: "POST",
+          url: "/api/pay/orders",
+          headers: {
+            ...(cookie === undefined ? {} : { cookie }),
+            "content-type": "application/json",
+            "idempotency-key": "anonymous-key",
+            "x-order-access-token": ACCESS_TOKEN_A,
+          },
+          payload,
+        });
+        assert.equal(rejected.statusCode, 401);
+        assert.deepEqual(rejected.json(), { error: { code: "unauthorized" } });
+      }
+      // Unauthenticated requests are rejected before validation, even when malformed.
+      const malformed = await app.inject({ method: "POST", url: "/api/pay/orders", payload: {} });
+      assert.equal(malformed.statusCode, 401);
+      assert.equal(firstValue(database, "SELECT COUNT(*) FROM orders"), 1);
+      assert.equal(sdk.pageCalls.length, 0);
+
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/pay/orders",
+        headers: {
+          cookie: buyerSession.cookie,
+          "content-type": "application/json",
+          "idempotency-key": "session-key",
+          "x-order-access-token": ACCESS_TOKEN_A,
+        },
+        // A client-supplied owner is ignored; ownership comes only from the session.
+        payload: { ...payload, userId: otherId },
+      });
+      assert.equal(created.statusCode, 200);
+      assert.equal(
+        firstValue(database, "SELECT user_id FROM orders WHERE order_ref = ?", created.json().orderRef),
+        buyerId,
+      );
+
+      // A pre-change guest order stays readable and payable with its browser credential alone.
+      const legacyStatus = await app.inject({
+        method: "GET",
+        url: `/api/pay/orders/${legacyGuest.orderRef}`,
+        headers: { "x-order-access-token": ACCESS_TOKEN_C },
+      });
+      assert.equal(legacyStatus.statusCode, 200);
+      assert.equal(legacyStatus.json().status, "pending");
+      const legacyPayPage = await app.inject({
+        method: "POST",
+        url: `/api/pay/orders/${legacyGuest.orderRef}/pay-page`,
+        headers: { "x-order-access-token": ACCESS_TOKEN_C },
+      });
+      assert.equal(legacyPayPage.statusCode, 200);
+      assert.equal(
+        legacyPayPage.json().payUrl,
+        `https://alipay.example.test/pay/${legacyGuest.orderRef}`,
+      );
+      assert.equal(firstValue(database, "SELECT user_id FROM orders WHERE order_ref = ?", legacyGuest.orderRef), null);
     } finally {
       await app.close();
     }
