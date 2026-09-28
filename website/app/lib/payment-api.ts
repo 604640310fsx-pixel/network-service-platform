@@ -680,15 +680,18 @@ export async function getQuote(
   return parseQuoteResult(response);
 }
 
+/* 新建订单与重新支付都会生成新订单：必须登录，并携带 /api/auth/me 下发的 Session 绑定 CSRF 令牌。 */
 export async function createPaymentOrder(
   draft: RequirementDraft,
   credentials: OrderCredentials,
+  csrfToken: string,
 ): Promise<PaymentOrderResult> {
   const response = await requestJson("/api/pay/orders", {
     method: "POST",
     headers: mutationHeaders({
       "Idempotency-Key": credentials.idempotencyKey,
       "X-Order-Access-Token": credentials.accessToken,
+      "X-CSRF-Token": csrfToken,
     }),
     body: JSON.stringify(orderBody(draft)),
   });
@@ -699,10 +702,12 @@ export async function retryPaymentOrder(
   orderRef: string,
   currentAccessToken: string | null,
   newCredentials: OrderCredentials,
+  csrfToken: string,
 ): Promise<PaymentOrderResult> {
   const headers: Record<string, string> = {
     "Idempotency-Key": newCredentials.idempotencyKey,
     "X-New-Order-Access-Token": newCredentials.accessToken,
+    "X-CSRF-Token": csrfToken,
   };
   if (currentAccessToken !== null) headers["X-Order-Access-Token"] = currentAccessToken;
   const response = await requestJson(`/api/pay/orders/${encodeURIComponent(orderRef)}/retry`, {

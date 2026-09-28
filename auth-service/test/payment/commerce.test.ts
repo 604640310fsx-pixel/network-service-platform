@@ -781,13 +781,18 @@ test("retry reuses the original order's redeemed coupon and revalidates it fresh
       sellerId: "seller-456",
     });
     assert.equal(firstValue(database, "SELECT redeemed_count FROM coupons WHERE code = 'RETRYCOUPON'"), 0);
+    const buyerId = insertAuthenticationUser(database, {
+      email: "retry-coupon-buyer@example.test",
+      passwordHash: "hash",
+      status: "active",
+    });
 
     const retried = retryPaymentOrder(dependencies, {
       oldOrderRef: original.orderRef,
       idempotencyKey: "retry-attempt",
       oldRawAccessToken: ACCESS_TOKEN_A,
       newRawAccessToken: ACCESS_TOKEN_B,
-      currentUserId: null,
+      currentUserId: buyerId,
     });
     assert.equal(retried.amountFen, 7_110);
     assert.equal(firstValue(database, "SELECT redeemed_count FROM coupons WHERE code = 'RETRYCOUPON'"), 1);
@@ -822,7 +827,7 @@ test("retry reuses the original order's redeemed coupon and revalidates it fresh
           idempotencyKey: "retry-attempt-2",
           oldRawAccessToken: ACCESS_TOKEN_B,
           newRawAccessToken: ACCESS_TOKEN_C,
-          currentUserId: null,
+          currentUserId: buyerId,
         }),
       (error: unknown) => error instanceof PaymentDomainError && error.code === "coupon_invalid",
     );
@@ -853,7 +858,7 @@ test("retry reuses the original order's redeemed coupon and revalidates it fresh
       idempotencyKey: "retry-no-coupon-attempt",
       oldRawAccessToken: ACCESS_TOKEN_C,
       newRawAccessToken: Buffer.alloc(32, 0x55).toString("base64url"),
-      currentUserId: null,
+      currentUserId: buyerId,
     });
     assert.equal(noCouponRetry.amountFen, 8_900);
     assert.equal(firstValue(database, "SELECT COUNT(*) FROM coupon_redemptions WHERE order_id = (SELECT id FROM orders WHERE order_ref = ?)", noCouponRetry.orderRef), 0);

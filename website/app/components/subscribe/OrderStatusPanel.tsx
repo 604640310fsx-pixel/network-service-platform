@@ -32,6 +32,8 @@ function orderErrorMessage(error: unknown): string {
       return "请登录下单时使用的账户后查看。";
     case "forbidden":
       return "当前账户无权查看该订单。";
+    case "csrf_invalid":
+      return "登录状态已变化，请刷新页面后重试。";
     case "price_changed":
       return error.currentAmountFen === null
         ? "方案价格已变化，请返回方案页重新确认。"
@@ -52,6 +54,10 @@ function orderErrorMessage(error: unknown): string {
       return "暂时无法读取订单状态，请稍后重试。";
   }
 }
+
+// 重新支付会生成新订单，必须登录。旧订单查询凭证仍保存在本浏览器，
+// 登录后回到同一订单页即可继续重试；凭证不进入 URL / 日志。
+const RETRY_LOGIN_REQUIRED = "重新支付需先登录；登录后请在本浏览器重新打开本订单页面，再点击“重新支付”。";
 
 function payPageErrorMessage(error: unknown): string {
   if (!(error instanceof PaymentApiError)) return "暂时无法刷新支付页面，请稍后重试。";
@@ -92,7 +98,7 @@ export function OrderStatusPanel({
   initialResult?: PaymentOrderResult;
 }) {
   const navigate = useNavigate();
-  const { status: authStatus } = useAuth();
+  const { status: authStatus, csrfToken } = useAuth();
   const [snapshot, setSnapshot] = useState<PaymentOrderSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -232,6 +238,11 @@ export function OrderStatusPanel({
 
   async function retryPayment() {
     if (retrying) return;
+    // 未登录时不生成或改动任何重试凭证，只提示先登录。
+    if (authStatus !== "authenticated" || csrfToken === null) {
+      setActionError(RETRY_LOGIN_REQUIRED);
+      return;
+    }
     setRetrying(true);
     setActionError(null);
     setError(null);
@@ -239,7 +250,7 @@ export function OrderStatusPanel({
     let credentials: OrderCredentials | null = null;
     try {
       credentials = getOrCreateRetryAttempt(orderRef);
-      const result = await retryPaymentOrder(orderRef, accessTokenRef.current, credentials);
+      const result = await retryPaymentOrder(orderRef, accessTokenRef.current, credentials, csrfToken);
       bindOrderAccess(result.orderRef, credentials);
       // 站内跳转到新订单页并以内存 navigation state 携带首个支付结果（含 payUrl）。
       navigate(`/subscribe/request?orderRef=${encodeURIComponent(result.orderRef)}`, {
@@ -247,6 +258,11 @@ export function OrderStatusPanel({
         state: { paymentResult: result },
       });
     } catch (retryError) {
+      // 登录失效（401）时保留本次重试凭证，重新登录后回到本页可安全重放同一请求。
+      if (retryError instanceof PaymentApiError && retryError.code === "unauthorized") {
+        setActionError(RETRY_LOGIN_REQUIRED);
+        return;
+      }
       if (credentials !== null && shouldClearAttemptAfterError(retryError)) {
         try {
           clearRetryAttempt(credentials);
@@ -323,6 +339,14 @@ export function OrderStatusPanel({
           retrying={retrying}
           actionError={actionError}
         />
+
+        {snapshot.status === "closed" && authStatus === "unauthenticated" && (
+          <div className="pay-requery" role="status">
+            <p>
+              重新支付会生成新订单，需先<Link to="/login">登录</Link>；登录后请在本浏览器重新打开本订单页面，再点击“重新支付”。
+            </p>
+          </div>
+        )}
 
         {snapshot.status !== "closed" && error !== null && queryRetryable && (
           <div className="pay-requery" role="alert">

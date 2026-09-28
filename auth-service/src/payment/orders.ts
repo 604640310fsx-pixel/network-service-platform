@@ -54,7 +54,8 @@ export interface RetryOrderInput {
   readonly idempotencyKey: string;
   readonly oldRawAccessToken: string | null;
   readonly newRawAccessToken: string;
-  readonly currentUserId: number | null;
+  // 重新支付会生成新订单，必须由已登录用户发起；新订单只归属该 Session 用户。
+  readonly currentUserId: number;
 }
 
 export interface OrderServiceDependencies {
@@ -625,16 +626,19 @@ export function retryPaymentOrder(
       input.oldOrderRef,
     );
     const now = nowDate(dependencies).toISOString();
-    if (
-      oldOrder === null ||
-      !orderAuthorized(
-        oldOrder,
-        input.currentUserId,
-        input.oldRawAccessToken,
-        dependencies.tokenHmacKeyring,
-        now,
-      )
-    ) {
+    // 已绑定账户的旧订单只允许同一账户重试，即使持有有效查询凭证也不能跨账户；
+    // 游客旧订单沿用原有查询凭证校验。旧订单本身的归属从不改写。
+    const oldOrderAuthorized =
+      oldOrder !== null &&
+      (oldOrder.userId !== null
+        ? oldOrder.userId === input.currentUserId
+        : tokenAuthorized(
+            oldOrder,
+            input.oldRawAccessToken,
+            dependencies.tokenHmacKeyring,
+            now,
+          ));
+    if (oldOrder === null || !oldOrderAuthorized) {
       throw new PaymentDomainError(404, "not_found");
     }
     const selection: OrderSelection = {

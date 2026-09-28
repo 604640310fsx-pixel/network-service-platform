@@ -21,6 +21,7 @@ import {
   insertWebSession,
   localIspSelection,
   paymentDependencies,
+  queryResult,
 } from "./helpers.js";
 
 test("create-order API stores only the client credential hash and returns the frozen website-pay result", async () => {
@@ -28,11 +29,19 @@ test("create-order API stores only the client credential hash and returns the fr
     const sdk = new FakeAlipaySdk();
     const dependencies = paymentDependencies(database, sdk);
     const app = buildApp({ payment: dependencies });
+    const buyerId = insertAuthenticationUser(database, {
+      email: "buyer@example.com",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const buyerSession = insertWebSession(database, buyerId);
     try {
       const response = await app.inject({
         method: "POST",
         url: "/api/pay/orders",
         headers: {
+          cookie: buyerSession.cookie,
+          "x-csrf-token": buyerSession.csrfToken,
           "content-type": "application/json",
           "idempotency-key": "browser-key-1",
           "x-order-access-token": ACCESS_TOKEN_A,
@@ -70,6 +79,7 @@ test("create-order API stores only the client credential hash and returns the fr
         0,
       );
       assert.equal(firstValue(database, "SELECT token_key_version FROM order_access_tokens"), 1);
+      assert.equal(firstValue(database, "SELECT user_id FROM orders"), buyerId);
       assert.equal(sdk.pageCalls.length, 1);
     } finally {
       await app.close();
@@ -82,11 +92,21 @@ test("server pricing rejects changed and over-limit amounts before any SDK pageE
     const sdk = new FakeAlipaySdk();
     const dependencies = paymentDependencies(database, sdk);
     const app = buildApp({ payment: dependencies });
+    const buyerSession = insertWebSession(
+      database,
+      insertAuthenticationUser(database, {
+        email: "pricing-buyer@example.com",
+        passwordHash: "hash",
+        status: "active",
+      }),
+    );
     try {
       const changed = await app.inject({
         method: "POST",
         url: "/api/pay/orders",
         headers: {
+          cookie: buyerSession.cookie,
+          "x-csrf-token": buyerSession.csrfToken,
           "content-type": "application/json",
           "idempotency-key": "price-change-key",
           "x-order-access-token": ACCESS_TOKEN_A,
@@ -108,6 +128,8 @@ test("server pricing rejects changed and over-limit amounts before any SDK pageE
         method: "POST",
         url: "/api/pay/orders",
         headers: {
+          cookie: buyerSession.cookie,
+          "x-csrf-token": buyerSession.csrfToken,
           "content-type": "application/json",
           "idempotency-key": "over-limit-key",
           "x-order-access-token": ACCESS_TOKEN_B,
@@ -136,6 +158,132 @@ test("server pricing rejects changed and over-limit amounts before any SDK pageE
       });
       assert.equal(sdk.pageCalls.length, 0);
       assert.equal(firstValue(database, "SELECT COUNT(*) FROM orders"), 0);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+test("create-order API requires a web session, binds the server user, and keeps legacy guest orders payable", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    let sequence = 0;
+    const sdk = new FakeAlipaySdk();
+    // Two orders are created here, so each needs a distinct generated order reference.
+    const dependencies = paymentDependencies(database, sdk, () => {
+      sequence += 1;
+      return `${sequence.toString().padStart(8, "0")}-4444-4444-8444-444444444444`;
+    });
+    const legacyGuest = createPaymentOrder(dependencies, {
+      idempotencyKey: "legacy-guest-key",
+      rawAccessToken: ACCESS_TOKEN_C,
+      selection: localIspSelection(),
+      contact: "legacy-guest",
+      scenarios: [],
+      notes: null,
+      acknowledgedAmountFen: 7_900,
+      userId: null,
+    });
+    const buyerId = insertAuthenticationUser(database, {
+      email: "session-buyer@example.com",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const otherId = insertAuthenticationUser(database, {
+      email: "someone-else@example.com",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const buyerSession = insertWebSession(database, buyerId);
+    const app = buildApp({ payment: dependencies });
+    const payload = {
+      ...localIspSelection(),
+      contact: "session-contact",
+      scenarios: [],
+      notes: null,
+      acknowledgedAmountFen: 7_900,
+    };
+    try {
+      for (const cookie of [undefined, "__Host-web_session=not-a-real-session-token"]) {
+        const rejected = await app.inject({
+          method: "POST",
+          url: "/api/pay/orders",
+          headers: {
+            ...(cookie === undefined ? {} : { cookie }),
+            "content-type": "application/json",
+            "idempotency-key": "anonymous-key",
+            "x-order-access-token": ACCESS_TOKEN_A,
+          },
+          payload,
+        });
+        assert.equal(rejected.statusCode, 401);
+        assert.deepEqual(rejected.json(), { error: { code: "unauthorized" } });
+      }
+      // Unauthenticated requests are rejected before validation, even when malformed.
+      const malformed = await app.inject({ method: "POST", url: "/api/pay/orders", payload: {} });
+      assert.equal(malformed.statusCode, 401);
+      // A valid session still needs its own session-bound CSRF token (existing cookie-mutation contract).
+      const otherSession = insertWebSession(database, otherId);
+      for (const csrf of [undefined, otherSession.csrfToken, "x".repeat(43)]) {
+        const forged = await app.inject({
+          method: "POST",
+          url: "/api/pay/orders",
+          headers: {
+            cookie: buyerSession.cookie,
+            ...(csrf === undefined ? {} : { "x-csrf-token": csrf }),
+            "content-type": "application/json",
+            "idempotency-key": "csrf-key",
+            "x-order-access-token": ACCESS_TOKEN_A,
+          },
+          payload,
+        });
+        assert.equal(forged.statusCode, 403);
+        assert.deepEqual(forged.json(), { error: { code: "csrf_invalid" } });
+      }
+      assert.equal(firstValue(database, "SELECT COUNT(*) FROM orders"), 1);
+      assert.equal(sdk.pageCalls.length, 0);
+
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/pay/orders",
+        headers: {
+          cookie: buyerSession.cookie,
+          "x-csrf-token": buyerSession.csrfToken,
+          "content-type": "application/json",
+          "idempotency-key": "session-key",
+          "x-order-access-token": ACCESS_TOKEN_A,
+        },
+        // A client-supplied owner is ignored; ownership comes only from the session.
+        payload: { ...payload, userId: otherId },
+      });
+      assert.equal(created.statusCode, 200);
+      assert.equal(
+        firstValue(database, "SELECT user_id FROM orders WHERE order_ref = ?", created.json().orderRef),
+        buyerId,
+      );
+
+      // A pre-change guest order stays readable and payable with its browser credential alone.
+      sdk.queryResponse = queryResult({
+        tradeStatus: "WAIT_BUYER_PAY",
+        outTradeNo: legacyGuest.orderRef,
+      });
+      const legacyStatus = await app.inject({
+        method: "GET",
+        url: `/api/pay/orders/${legacyGuest.orderRef}`,
+        headers: { "x-order-access-token": ACCESS_TOKEN_C },
+      });
+      assert.equal(legacyStatus.statusCode, 200);
+      assert.equal(legacyStatus.json().status, "pending");
+      const legacyPayPage = await app.inject({
+        method: "POST",
+        url: `/api/pay/orders/${legacyGuest.orderRef}/pay-page`,
+        headers: { "x-order-access-token": ACCESS_TOKEN_C },
+      });
+      assert.equal(legacyPayPage.statusCode, 200);
+      assert.equal(
+        legacyPayPage.json().payUrl,
+        `https://alipay.example.test/pay/${legacyGuest.orderRef}`,
+      );
+      assert.equal(firstValue(database, "SELECT user_id FROM orders WHERE order_ref = ?", legacyGuest.orderRef), null);
     } finally {
       await app.close();
     }
@@ -171,11 +319,45 @@ test("retry API authenticates the old order, copies its snapshot, and stores the
       notification: { notifyId: "notify-close", payloadHash: "close-hash" },
     });
     const app = buildApp({ payment: dependencies });
+    const buyerId = insertAuthenticationUser(database, {
+      email: "retry-http-buyer@example.com",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const buyerSession = insertWebSession(database, buyerId);
     try {
+      // Retry creates a new order, so an anonymous caller is rejected even with the valid old token.
+      const anonymous = await app.inject({
+        method: "POST",
+        url: `/api/pay/orders/${old.orderRef}/retry`,
+        headers: {
+          "idempotency-key": "retry-key",
+          "x-order-access-token": ACCESS_TOKEN_A,
+          "x-new-order-access-token": ACCESS_TOKEN_B,
+        },
+      });
+      assert.equal(anonymous.statusCode, 401);
+      assert.deepEqual(anonymous.json(), { error: { code: "unauthorized" } });
+      const missingCsrf = await app.inject({
+        method: "POST",
+        url: `/api/pay/orders/${old.orderRef}/retry`,
+        headers: {
+          cookie: buyerSession.cookie,
+          "idempotency-key": "retry-key",
+          "x-order-access-token": ACCESS_TOKEN_A,
+          "x-new-order-access-token": ACCESS_TOKEN_B,
+        },
+      });
+      assert.equal(missingCsrf.statusCode, 403);
+      assert.deepEqual(missingCsrf.json(), { error: { code: "csrf_invalid" } });
+      assert.equal(firstValue(database, "SELECT COUNT(*) FROM orders"), 1);
+
       const unauthorized = await app.inject({
         method: "POST",
         url: `/api/pay/orders/${old.orderRef}/retry`,
         headers: {
+          cookie: buyerSession.cookie,
+          "x-csrf-token": buyerSession.csrfToken,
           "idempotency-key": "retry-key",
           "x-order-access-token": ACCESS_TOKEN_C,
           "x-new-order-access-token": ACCESS_TOKEN_B,
@@ -187,6 +369,8 @@ test("retry API authenticates the old order, copies its snapshot, and stores the
         method: "POST",
         url: `/api/pay/orders/${old.orderRef}/retry`,
         headers: {
+          cookie: buyerSession.cookie,
+          "x-csrf-token": buyerSession.csrfToken,
           "idempotency-key": "retry-key",
           "x-order-access-token": ACCESS_TOKEN_A,
           "x-new-order-access-token": ACCESS_TOKEN_B,
@@ -214,6 +398,8 @@ test("retry API authenticates the old order, copies its snapshot, and stores the
       assert.equal(retried.body.includes(ACCESS_TOKEN_B), false);
       assert.equal(firstValue(database, "SELECT COUNT(*) FROM orders"), 2);
       assert.equal(firstValue(database, "SELECT COUNT(*) FROM order_access_tokens"), 2);
+      assert.equal(firstValue(database, "SELECT user_id FROM orders WHERE order_ref = ?", retriedBody.orderRef), buyerId);
+      assert.equal(firstValue(database, "SELECT user_id FROM orders WHERE order_ref = ?", old.orderRef), null);
       assert.equal(sdk.pageCalls.length, 1);
     } finally {
       await app.close();

@@ -1,5 +1,6 @@
 import { useEffect, useId, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../../lib/auth";
 import {
   PAYMENT_MAX_SINGLE_FEN_FRONTEND,
   PaymentApiError,
@@ -55,6 +56,10 @@ function paymentErrorMessage(error: unknown): string {
       return "方案信息已失效，请返回方案页重新选择。";
     case "contact_required":
       return "请填写联系方式后再支付。";
+    case "unauthorized":
+      return "登录状态已失效，请重新登录后返回“套餐订阅”重新选择套餐。";
+    case "csrf_invalid":
+      return "登录状态已变化，请刷新页面后重试。";
     case "payment_unavailable":
       return "支付服务暂未开放，请稍后再试。";
     case "idempotency_key_conflict":
@@ -82,6 +87,9 @@ export function RequirementForm({
   selection: CatalogSelection;
 }) {
   const navigate = useNavigate();
+  // 新建订单必须登录（服务端同样强制）；检查中与未登录都不允许提交。
+  const { status: authStatus, csrfToken } = useAuth();
+  const signedIn = authStatus === "authenticated" && csrfToken !== null;
   const [contact, setContact] = useState("");
   const [scenarios, setScenarios] = useState<string[]>([]);
   const [notes, setNotes] = useState("");
@@ -119,7 +127,7 @@ export function RequirementForm({
   const discountFen = activeQuote?.discountFen ?? 0;
   const overPaymentLimit = amountFen !== null && amountFen > PAYMENT_MAX_SINGLE_FEN_FRONTEND;
   const canSubmit =
-    priceKnown && amountFen !== null && !overPaymentLimit && contact.trim() !== "" && !submitting && !quoteLoading;
+    signedIn && priceKnown && amountFen !== null && !overPaymentLimit && contact.trim() !== "" && !submitting && !quoteLoading;
 
   function toggleScenario(id: string) {
     setScenarios((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
@@ -156,7 +164,7 @@ export function RequirementForm({
     event.preventDefault();
     setContactTouched(true);
     setSubmitError(null);
-    if (submitting || contact.trim() === "" || amountFen === null || overPaymentLimit) return;
+    if (!signedIn || csrfToken === null || submitting || contact.trim() === "" || amountFen === null || overPaymentLimit) return;
 
     const draft: RequirementDraft = {
       selection,
@@ -171,7 +179,7 @@ export function RequirementForm({
     try {
       // 先持久化需求指纹与凭证（不保存明文需求），再发请求；刷新或响应丢失后可安全重试。
       credentials = await getOrCreateCheckoutAttempt(draft);
-      const result = await createPaymentOrder(draft, credentials);
+      const result = await createPaymentOrder(draft, credentials, csrfToken);
       bindOrderAccess(result.orderRef, credentials);
       // 站内跳转到订单页；首个支付结果（含 payUrl）只通过内存 navigation state 携带，
       // 供 iframe 打开支付宝电脑网站收银台，不写入本站 URL / localStorage。
@@ -308,6 +316,11 @@ export function RequirementForm({
         </div>
 
         <div className="sub-request-submit">
+          {authStatus === "unauthenticated" && (
+            <p>
+              下单需先<Link to="/login">登录</Link>；登录后需返回“套餐订阅”重新选择套餐。
+            </p>
+          )}
           <button type="submit" disabled={!canSubmit} aria-busy={submitting}>
             {submitting
               ? "正在发起付款…"
@@ -317,7 +330,7 @@ export function RequirementForm({
                   ? `提交需求并立即支付 ${formatFen(amountFen)}`
                   : "价格待确认"}
           </button>
-          <p>付款成功后可在本页查看服务状态；已登录用户也可在用户中心查看。</p>
+          <p>付款成功后可在本页或用户中心查看服务状态。</p>
           {submitError && <p className="sub-field-error" role="alert">{submitError}</p>}
         </div>
       </form>

@@ -14,7 +14,11 @@ import {
   resolveQuote,
   type PlanSelection,
 } from "../payment/commerce.js";
-import { readPaymentSession } from "../payment/http-auth.js";
+import {
+  readPaymentSession,
+  type PaymentSession,
+} from "../payment/http-auth.js";
+import { verifyCsrfToken } from "./csrf.js";
 import {
   auditDeliveryDecryptFailure,
   createPaymentOrder,
@@ -102,6 +106,35 @@ function setNoStore(reply: FastifyReply): void {
 
 function stringHeader(value: string | string[] | undefined): string | null {
   return typeof value === "string" && value !== "" ? value : null;
+}
+
+type OrderCreatorGate =
+  | { readonly ok: true; readonly session: PaymentSession }
+  | { readonly ok: false; readonly status: 401 | 403 | 503; readonly code: string };
+
+// 新建订单（含重新支付生成的新订单）必须登录，并按现有 Cookie 变更约定校验
+// Session 绑定的 X-CSRF-Token；在任何请求校验之前执行，订单归属只取服务端 Session。
+function authorizeOrderCreator(
+  request: FastifyRequest,
+  dependencies: PaymentEnabledDependencies,
+): OrderCreatorGate {
+  let session: PaymentSession | null;
+  try {
+    session = readPaymentSession(request, dependencies);
+  } catch {
+    return { ok: false, status: 503, code: "payment_unavailable" };
+  }
+  if (session === null) {
+    return { ok: false, status: 401, code: "unauthorized" };
+  }
+  const csrfToken = stringHeader(request.headers["x-csrf-token"]);
+  if (
+    csrfToken === null ||
+    !verifyCsrfToken(dependencies.csrfSigningKey, session.sessionTokenHash, csrfToken)
+  ) {
+    return { ok: false, status: 403, code: "csrf_invalid" };
+  }
+  return { ok: true, session };
 }
 
 function parseCreateBody(body: unknown): CreateOrderBody | null {
@@ -485,6 +518,11 @@ export function registerPaymentHttpRoutes(
     if (!dependencies.enabled) {
       return reply.code(503).send(errorResponse("payment_unavailable"));
     }
+    const gate = authorizeOrderCreator(request, dependencies);
+    if (!gate.ok) {
+      return reply.code(gate.status).send(errorResponse(gate.code));
+    }
+    const session = gate.session;
     const body = parseCreateBody(request.body);
     if (body === null) {
       return reply.code(400).send(errorResponse("invalid_selection"));
@@ -500,7 +538,6 @@ export function registerPaymentHttpRoutes(
       return reply.code(400).send(errorResponse("access_token_required"));
     }
     try {
-      const session = readPaymentSession(request, dependencies);
       const selection: OrderSelection = {
         typeId: body.typeId,
         regionId: body.regionId,
@@ -516,7 +553,7 @@ export function registerPaymentHttpRoutes(
         scenarios: body.scenarios,
         notes: body.notes,
         acknowledgedAmountFen: body.acknowledgedAmountFen,
-        userId: session?.principal.userId ?? null,
+        userId: session.principal.userId,
         couponCode: body.couponCode,
       });
       return reply.code(200).send(await publicPaymentResult(dependencies, result));
@@ -532,6 +569,12 @@ export function registerPaymentHttpRoutes(
       if (!dependencies.enabled) {
         return reply.code(503).send(errorResponse("payment_unavailable"));
       }
+      // 重新支付会生成新订单，与新建订单同一门槛；新订单归属当前 Session 用户。
+      const gate = authorizeOrderCreator(request, dependencies);
+      if (!gate.ok) {
+        return reply.code(gate.status).send(errorResponse(gate.code));
+      }
+      const session = gate.session;
       const idempotencyKey = stringHeader(request.headers["idempotency-key"]);
       if (idempotencyKey === null) {
         return reply.code(400).send(errorResponse("idempotency_key_required"));
@@ -544,13 +587,12 @@ export function registerPaymentHttpRoutes(
       }
       const oldToken = stringHeader(request.headers["x-order-access-token"]);
       try {
-        const session = readPaymentSession(request, dependencies);
         const result = retryPaymentOrder(dependencies, {
           oldOrderRef: request.params.orderRef,
           idempotencyKey,
           oldRawAccessToken: oldToken,
           newRawAccessToken: newToken,
-          currentUserId: session?.principal.userId ?? null,
+          currentUserId: session.principal.userId,
         });
         return reply.code(200).send(await publicPaymentResult(dependencies, result));
       } catch (error) {

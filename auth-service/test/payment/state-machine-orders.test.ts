@@ -13,7 +13,10 @@ import {
   finalizePaid,
   type PaymentEventInput,
 } from "../../src/payment/state-machine.js";
-import { withAuthenticationDatabase } from "../auth/helpers.js";
+import {
+  insertAuthenticationUser,
+  withAuthenticationDatabase,
+} from "../auth/helpers.js";
 import {
   ACCESS_TOKEN_A,
   ACCESS_TOKEN_B,
@@ -252,6 +255,11 @@ test("retry copies a closed snapshot, re-prices it, and requires a distinct new 
       return `${sequence.toString().padStart(8, "0")}-1111-4111-8111-111111111111`;
     });
     const oldOrder = createOrder(dependencies);
+    const buyerId = insertAuthenticationUser(database, {
+      email: "retry-buyer@example.com",
+      passwordHash: "hash",
+      status: "active",
+    });
     finalizeClosed(
       dependencies,
       event(oldOrder.orderRef, "TRADE_CLOSED", "n-close-retry"),
@@ -261,10 +269,13 @@ test("retry copies a closed snapshot, re-prices it, and requires a distinct new 
       idempotencyKey: "retry-key-1",
       oldRawAccessToken: ACCESS_TOKEN_A,
       newRawAccessToken: ACCESS_TOKEN_B,
-      currentUserId: null,
+      currentUserId: buyerId,
     });
     assert.notEqual(retried.orderRef, oldOrder.orderRef);
     assert.equal(retried.status, "pending");
+    // 游客旧订单凭原凭证重试：新订单归属当前用户，旧订单归属不被改写。
+    assert.equal(firstValue(database, "SELECT user_id FROM orders WHERE order_ref = ?", retried.orderRef), buyerId);
+    assert.equal(firstValue(database, "SELECT user_id FROM orders WHERE order_ref = ?", oldOrder.orderRef), null);
     assert.deepEqual(
       allRows(
         database,
@@ -308,7 +319,7 @@ test("retry copies a closed snapshot, re-prices it, and requires a distinct new 
       idempotencyKey: "retry-key-1",
       oldRawAccessToken: ACCESS_TOKEN_A,
       newRawAccessToken: ACCESS_TOKEN_B,
-      currentUserId: null,
+      currentUserId: buyerId,
     });
     assert.equal(retryReplay.orderRef, retried.orderRef);
     assert.throws(
@@ -318,11 +329,67 @@ test("retry copies a closed snapshot, re-prices it, and requires a distinct new 
           idempotencyKey: "retry-key-2",
           oldRawAccessToken: ACCESS_TOKEN_A,
           newRawAccessToken: ACCESS_TOKEN_A,
-          currentUserId: null,
+          currentUserId: buyerId,
         }),
       (error: unknown) =>
         error instanceof PaymentDomainError && error.statusCode === 409,
     );
+  });
+});
+
+test("retry of an account-bound order is limited to that account even with a valid token", async () => {
+  await withAuthenticationDatabase((database) => {
+    let sequence = 0;
+    const dependencies = paymentDependencies(database, undefined, () => {
+      sequence += 1;
+      return `${sequence.toString().padStart(8, "0")}-3333-4333-8333-333333333333`;
+    });
+    const ownerId = insertAuthenticationUser(database, {
+      email: "bound-owner@example.com",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const otherId = insertAuthenticationUser(database, {
+      email: "bound-other@example.com",
+      passwordHash: "hash",
+      status: "active",
+    });
+    const bound = createPaymentOrder(dependencies, {
+      idempotencyKey: "bound-create",
+      rawAccessToken: ACCESS_TOKEN_A,
+      selection: localIspSelection(),
+      contact: "bound-contact",
+      scenarios: [],
+      notes: null,
+      acknowledgedAmountFen: 7_900,
+      userId: ownerId,
+    });
+    finalizeClosed(dependencies, event(bound.orderRef, "TRADE_CLOSED", "n-close-bound"));
+
+    assert.throws(
+      () =>
+        retryPaymentOrder(dependencies, {
+          oldOrderRef: bound.orderRef,
+          idempotencyKey: "bound-retry-other",
+          oldRawAccessToken: ACCESS_TOKEN_A,
+          newRawAccessToken: ACCESS_TOKEN_B,
+          currentUserId: otherId,
+        }),
+      (error: unknown) =>
+        error instanceof PaymentDomainError && error.statusCode === 404 && error.code === "not_found",
+    );
+    assert.equal(firstValue(database, "SELECT COUNT(*) FROM orders"), 1);
+
+    const retried = retryPaymentOrder(dependencies, {
+      oldOrderRef: bound.orderRef,
+      idempotencyKey: "bound-retry-owner",
+      oldRawAccessToken: null,
+      newRawAccessToken: ACCESS_TOKEN_C,
+      currentUserId: ownerId,
+    });
+    assert.equal(retried.status, "pending");
+    assert.equal(firstValue(database, "SELECT user_id FROM orders WHERE order_ref = ?", retried.orderRef), ownerId);
+    assert.equal(firstValue(database, "SELECT user_id FROM orders WHERE order_ref = ?", bound.orderRef), ownerId);
   });
 });
 
