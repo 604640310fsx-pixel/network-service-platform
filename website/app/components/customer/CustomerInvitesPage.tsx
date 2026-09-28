@@ -1,14 +1,18 @@
-import { useEffect, useState } from "react";
-import { InvitesApiError, getMyInvites, personalInviteLink, type MyInvites } from "../../lib/invites-api";
+import { useEffect, useRef, useState } from "react";
+import { useAuth } from "../../lib/auth";
+import { InvitesApiError, ensureMyInvites, getMyInvites, personalInviteLink, type MyInvites } from "../../lib/invites-api";
 import "./customer-orders.css";
 import "./customer-invites.css";
 
 /* /invites 邀请中心（仅本人）：展示自己的个人邀请码、可复制/分享的本站注册链接、
    直接邀请人数。不展示被邀请人的任何信息，不作奖励或多级分成承诺；
-   推广/佣金相关内容保留在独立的 /referrals。 */
+   推广/佣金相关内容保留在独立的 /referrals。
+   读取（GET）不写入；尚无邀请码的既有账户由本页显式调用一次受 CSRF 保护的
+   生成接口（POST，幂等，不会更换已有邀请码），成功后重新读取并展示。不轮询。 */
 
 type Load =
   | { readonly kind: "loading" }
+  | { readonly kind: "provisioning" }
   | { readonly kind: "ready"; readonly value: MyInvites }
   | { readonly kind: "unauthorized" }
   | { readonly kind: "error" };
@@ -29,22 +33,39 @@ export function CustomerInvitesPage() {
   const [state, setState] = useState<Load>({ kind: "loading" });
   const [reload, setReload] = useState(0);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const { csrfToken } = useAuth();
+  // The explicit ensure write runs at most once per load attempt (reload resets it).
+  const ensureAttempted = useRef(-1);
 
   useEffect(() => {
     const controller = new AbortController();
     let stopped = false;
     setState({ kind: "loading" });
-    void getMyInvites(controller.signal)
-      .then((value) => !stopped && setState({ kind: "ready", value }))
-      .catch((error: unknown) => {
-        if (stopped) return;
-        setState(error instanceof InvitesApiError && error.code === "unauthorized" ? { kind: "unauthorized" } : { kind: "error" });
-      });
+    const fail = (error: unknown) => {
+      if (stopped) return;
+      setState(error instanceof InvitesApiError && error.code === "unauthorized" ? { kind: "unauthorized" } : { kind: "error" });
+    };
+    void (async () => {
+      try {
+        let current = await getMyInvites(controller.signal);
+        if (current.status === "uninitialized") {
+          if (ensureAttempted.current === reload || csrfToken === null) throw new InvitesApiError("uninitialized");
+          ensureAttempted.current = reload;
+          if (!stopped) setState({ kind: "provisioning" });
+          await ensureMyInvites(csrfToken, controller.signal);
+          current = await getMyInvites(controller.signal);
+          if (current.status !== "ready") throw new InvitesApiError("uninitialized");
+        }
+        if (!stopped) setState({ kind: "ready", value: current.invites });
+      } catch (error) {
+        fail(error);
+      }
+    })();
     return () => {
       stopped = true;
       controller.abort();
     };
-  }, [reload]);
+  }, [reload, csrfToken]);
 
   async function copy(text: string, label: string) {
     try {
@@ -63,13 +84,13 @@ export function CustomerInvitesPage() {
     }
   }
 
-  if (state.kind === "loading") {
+  if (state.kind === "loading" || state.kind === "provisioning") {
     return (
       <main className="cc-ord-page">
         <div className="cc-ord-layout">
           <section className="cc-ord-panel" role="status" aria-live="polite" aria-busy="true">
-            <PanelHead tag="加载中" />
-            <p className="cc-ord-status-text">正在读取你的邀请码…</p>
+            <PanelHead tag={state.kind === "provisioning" ? "生成中" : "加载中"} />
+            <p className="cc-ord-status-text">{state.kind === "provisioning" ? "正在为你生成个人邀请码…" : "正在读取你的邀请码…"}</p>
           </section>
         </div>
       </main>

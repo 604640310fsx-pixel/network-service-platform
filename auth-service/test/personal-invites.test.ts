@@ -28,6 +28,7 @@ import { REGISTRATION_START_PERSONAL_CODE_LIMIT } from "../src/http/rate-limit.j
 import { insertAuthenticationUser, withAuthenticationDatabase } from "./auth/helpers.js";
 import {
   ACCESS_TOKEN_A,
+  CSRF_KEY,
   TEST_NOW,
   TOKEN_KEYRING,
   insertWebSession,
@@ -437,27 +438,99 @@ test("shared personal-code use has its own bounded bucket and never drains the l
   });
 });
 
-test("/api/me/invites is self-only: own stable code and direct-invite count, no invitee data", async () => {
+test("/api/me/invites GET is read-only and POST ensures the stable code once behind session, Origin, and CSRF", async () => {
   await withAuthenticationDatabase(async (database) => {
     const ownerId = insertAuthenticationUser(database, { email: "owner@example.test", passwordHash: "h", status: "active" });
+    const otherId = insertAuthenticationUser(database, { email: "other@example.test", passwordHash: "h", status: "active" });
+    const otherCode = ensureReferralProfile(database, otherId, { now: () => NOW }).publicCode;
     const session = insertWebSession(database, ownerId);
     // Sessions from the payment helper are created at TEST_NOW; read them on that clock.
-    const app = buildApp({ invites: { database, tokenHmacKeyring: TOKEN_KEYRING, now: () => new Date(TEST_NOW) } });
+    const app = buildApp({
+      invites: { database, nodeEnv: "development", tokenHmacKeyring: TOKEN_KEYRING, csrfSigningKey: CSRF_KEY, now: () => new Date(TEST_NOW) },
+    });
+    const profiles = () => Number(value(database, "SELECT COUNT(*) FROM referral_profiles"));
+    const get = (cookie?: string) => app.inject({ method: "GET", url: "/api/me/invites", headers: cookie ? { cookie } : {} });
+    const post = (headers: Record<string, string>, payload = "{}") =>
+      app.inject({ method: "POST", url: "/api/me/invites", headers, payload });
+    const writeHeaders = {
+      cookie: session.cookie,
+      origin: "http://localhost:5173",
+      "content-type": "application/json",
+      "x-requested-with": "XMLHttpRequest",
+      "x-csrf-token": session.csrfToken,
+    };
     try {
-      assert.equal((await app.inject({ method: "GET", url: "/api/me/invites" })).statusCode, 401);
-      const first = await app.inject({ method: "GET", url: "/api/me/invites", headers: { cookie: session.cookie } });
-      assert.equal(first.statusCode, 200);
-      assert.deepEqual(Object.keys(first.json()).sort(), ["code", "directInviteCount"]);
-      assert.equal(first.json().directInviteCount, 0);
-      const code = first.json().code;
+      assert.equal((await get()).statusCode, 401);
+
+      // GET on an account without a code: explicit state, no write, no fake code.
+      const before = profiles();
+      const uninitialized = await get(session.cookie);
+      assert.equal(uninitialized.statusCode, 200);
+      assert.deepEqual(uninitialized.json(), { status: "uninitialized" });
+      assert.equal(uninitialized.headers["cache-control"], "no-store");
+      assert.equal(profiles(), before);
+
+      // Every write gate refuses without provisioning anything.
+      for (const [name, headers, status, code] of [
+        ["no session", { ...writeHeaders, cookie: "" }, 401, "unauthorized"],
+        ["no csrf", { ...writeHeaders, "x-csrf-token": "" }, 403, "csrf_invalid"],
+        ["wrong csrf", { ...writeHeaders, "x-csrf-token": "A".repeat(43) }, 403, "csrf_invalid"],
+        ["wrong origin", { ...writeHeaders, origin: "https://attacker.example" }, 400, "origin_rejected"],
+        ["no xhr header", { ...writeHeaders, "x-requested-with": "" }, 400, "invalid_request"],
+      ] as const) {
+        const refused = await post(headers);
+        assert.equal(refused.statusCode, status, name);
+        assert.deepEqual(refused.json(), { error: { code } }, name);
+      }
+      assert.equal((await post(writeHeaders, JSON.stringify({ code: otherCode }))).statusCode, 400, "non-empty body");
+      assert.equal(profiles(), before);
+
+      // Concurrent ensures converge on one profile row and one code.
+      const racing = await Promise.all(Array.from({ length: 6 }, () => post(writeHeaders)));
+      assert.deepEqual(new Set(racing.map((response) => response.statusCode)), new Set([200]));
+      assert.equal(new Set(racing.map((response) => response.json().code)).size, 1);
+      assert.equal(profiles(), before + 1);
+
+      // Repeats return the same stable code unchanged.
+      const ensured = await post(writeHeaders);
+      assert.equal(ensured.statusCode, 200);
+      assert.equal(ensured.json().status, "ready");
+      const code = ensured.json().code;
       assert.match(code, /^[A-Za-z0-9_-]{24}$/);
+      assert.notEqual(code, otherCode);
+      assert.equal(code, racing[0]?.json().code);
+      assert.deepEqual((await post(writeHeaders)).json(), { status: "ready", code, directInviteCount: 0 });
+      assert.equal(profiles(), before + 1);
+      assert.deepEqual((await get(session.cookie)).json(), { status: "ready", code, directInviteCount: 0 });
+
+      // Count only; the invitee's identity never appears.
       await register(database, { email: "invitee@example.test", inviteCode: code });
-      const second = await app.inject({ method: "GET", url: "/api/me/invites", headers: { cookie: session.cookie } });
-      assert.deepEqual(second.json(), { code, directInviteCount: 1 });
-      assert.equal(second.body.includes("invitee@example.test"), false);
-      assert.equal(second.headers["cache-control"], "no-store");
+      const counted = await get(session.cookie);
+      assert.deepEqual(counted.json(), { status: "ready", code, directInviteCount: 1 });
+      assert.equal(counted.body.includes("invitee@example.test"), false);
+      // The other account's code is never rotated by any of this.
+      assert.equal(value(database, "SELECT public_code FROM referral_profiles WHERE user_id = ?", otherId), otherCode);
     } finally {
       await app.close();
+    }
+  });
+});
+
+test("ensure from two separate connections to one database yields one stable code", async () => {
+  await withTempDir(async (dir) => {
+    const path = join(dir, "auth.sqlite");
+    const first = initializeDatabase(path);
+    const second = openAndVerifyDatabase(path);
+    try {
+      const userId = insertAuthenticationUser(first, { email: "owner@example.test", passwordHash: "h", status: "active" });
+      const a = ensureReferralProfile(first, userId, { now: () => NOW });
+      const b = ensureReferralProfile(second, userId, { now: () => NOW });
+      assert.equal(b.publicCode, a.publicCode);
+      assert.equal(ensureReferralProfile(first, userId, { now: () => NOW }).publicCode, a.publicCode);
+      assert.equal(value(second, "SELECT COUNT(*) FROM referral_profiles WHERE user_id = ?", userId), 1);
+    } finally {
+      second.close();
+      first.close();
     }
   });
 });
