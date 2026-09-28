@@ -2145,6 +2145,142 @@ test("PR and task contexts cannot claim release-candidate provenance", () => {
   }
 });
 
+// A realistic source for the repository gate: this repository's committed tree
+// plus ignored build placeholders. `historical` rewrites it into a 001-019 source
+// (no migration 020, no 020 runbook section, 019 CI route), like a real 019 commit.
+function createArchiveSource(parent, name, { historical = false } = {}) {
+  const root = join(parent, name);
+  mkdirSync(root);
+  const archive = spawnSync("git", ["-C", REPOSITORY_ROOT, "archive", "--format=tar", "HEAD"], {
+    maxBuffer: 1024 * 1024 * 1024,
+  });
+  assert.equal(archive.status, 0, String(archive.stderr));
+  const extracted = spawnSync("tar", ["-x", "-C", root], { input: archive.stdout });
+  assert.equal(extracted.status, 0, String(extracted.stderr));
+  writeFixtureFile(root, "auth-service/dist/src/db.js", "export const db = true;\n");
+  writeFixtureFile(root, "auth-service/dist/src/server.js", "export const server = true;\n");
+  writeFixtureFile(root, "website/dist/index.html", "<!doctype html><title>fixture</title>\n");
+  writeFixtureFile(
+    root,
+    "website/dist/referral.html",
+    '<!doctype html><script type="module" src="/assets/referral-12345678.js"></script>\n',
+  );
+  writeFixtureFile(root, "website/dist/assets/referral-12345678.js", "export {};\n");
+  if (historical) {
+    rmSync(join(root, "auth-service/src/migrations/020_tickets.sql"));
+    const dbPath = join(root, "auth-service/src/db.ts");
+    const db = readFileSync(dbPath, "utf8");
+    assert.equal(db.includes('  "020_tickets.sql",\n'), true);
+    writeFileSync(dbPath, db.replace('  "020_tickets.sql",\n', ""));
+    const runbookPath = join(root, "docs/ops/consolidated-release-runbook.md");
+    const runbook = readFileSync(runbookPath, "utf8");
+    const start = runbook.indexOf("## Explicit DIRECT14 to 20 route");
+    const end = runbook.indexOf("## Monitor boundary");
+    assert.ok(start > 0 && end > start);
+    writeFileSync(
+      runbookPath,
+      (runbook.slice(0, start) + runbook.slice(end)).replaceAll("--schema-route standard16-20", "--schema-route standard16-19"),
+    );
+    const workflowPath = join(root, ".github/workflows/ci.yml");
+    writeFileSync(
+      workflowPath,
+      readFileSync(workflowPath, "utf8")
+        .replaceAll("--schema-route direct14-20", "--schema-route direct14-19")
+        .replaceAll("--schema-route standard16-20", "--schema-route standard16-19"),
+    );
+  }
+  runGit(root, "init", "--initial-branch=main");
+  runGit(root, "add", "--all");
+  runGit(root, "commit", "-m", name);
+  return { root, sha: runGit(root, "rev-parse", "HEAD") };
+}
+
+function cli(script, args) {
+  const result = spawnSync(process.execPath, [script, ...args], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return {
+    status: result.status,
+    json: result.status === 0 ? JSON.parse(result.stdout) : JSON.parse(result.stderr),
+  };
+}
+
+test("validator CLI validates a historical 019 bundle against its own 019 source", () => {
+  const parent = mkdtempSync(join(tmpdir(), "consolidated-release-cli-019-"));
+  try {
+    const source = createArchiveSource(parent, "source-019", { historical: true });
+    for (const schemaRoute of [STANDARD16_19_RELEASE_SCHEMA_ROUTE, DIRECT14_19_RELEASE_SCHEMA_ROUTE]) {
+      const bundle = join(parent, `bundle-${schemaRoute}`);
+      const assembled = cli(ASSEMBLER_PATH, [
+        "--source", source.root, "--destination", bundle, "--expected-sha", source.sha,
+        "--provenance-mode", LOCAL_PROVENANCE_MODE, "--schema-route", schemaRoute,
+      ]);
+      assert.equal(assembled.status, 0, JSON.stringify(assembled.json));
+      const validated = cli(VALIDATOR_PATH, [
+        "--source", source.root, "--expected-sha", source.sha, "--bundle", bundle,
+        "--validation-mode", LOCAL_PROVENANCE_MODE, "--schema-route", schemaRoute,
+      ]);
+      assert.equal(validated.status, 0, `${schemaRoute}: ${JSON.stringify(validated.json)}`);
+      assert.equal(validated.json.bundleValidated, true);
+      // The same 019 source and bundle never pass under a 020 route.
+      const asCurrent = cli(VALIDATOR_PATH, [
+        "--source", source.root, "--expected-sha", source.sha, "--bundle", bundle,
+        "--validation-mode", LOCAL_PROVENANCE_MODE, "--schema-route",
+        schemaRoute === DIRECT14_19_RELEASE_SCHEMA_ROUTE ? DIRECT14_RELEASE_SCHEMA_ROUTE : STANDARD16_20_RELEASE_SCHEMA_ROUTE,
+      ]);
+      assert.equal(asCurrent.status, 1);
+      assert.equal(asCurrent.json.code, "SCHEMA_BOUNDARY_MISMATCH");
+    }
+    // Without a bundle, the repository gate stays strict on the current 001-020 route.
+    const repositoryOnly = cli(VALIDATOR_PATH, ["--source", source.root, "--expected-sha", source.sha]);
+    assert.equal(repositoryOnly.status, 1);
+    assert.equal(repositoryOnly.json.code, "SCHEMA_BOUNDARY_MISMATCH");
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("validator CLI keeps the current 001-020 source strict", () => {
+  const parent = mkdtempSync(join(tmpdir(), "consolidated-release-cli-020-"));
+  try {
+    const source = createArchiveSource(parent, "source-020");
+    const repositoryOnly = cli(VALIDATOR_PATH, ["--source", source.root, "--expected-sha", source.sha]);
+    assert.equal(repositoryOnly.status, 0, JSON.stringify(repositoryOnly.json));
+    for (const schemaRoute of [STANDARD16_20_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE]) {
+      const bundle = join(parent, `bundle-${schemaRoute}`);
+      const assembled = cli(ASSEMBLER_PATH, [
+        "--source", source.root, "--destination", bundle, "--expected-sha", source.sha,
+        "--provenance-mode", LOCAL_PROVENANCE_MODE, "--schema-route", schemaRoute,
+      ]);
+      assert.equal(assembled.status, 0, JSON.stringify(assembled.json));
+      const validated = cli(VALIDATOR_PATH, [
+        "--source", source.root, "--expected-sha", source.sha, "--bundle", bundle,
+        "--validation-mode", LOCAL_PROVENANCE_MODE, "--schema-route", schemaRoute,
+      ]);
+      assert.equal(validated.status, 0, `${schemaRoute}: ${JSON.stringify(validated.json)}`);
+    }
+    // A 020 source cannot be validated as a historical 019 release.
+    const bundle = join(parent, `bundle-${STANDARD16_20_RELEASE_SCHEMA_ROUTE}`);
+    for (const schemaRoute of [STANDARD16_19_RELEASE_SCHEMA_ROUTE, DIRECT14_19_RELEASE_SCHEMA_ROUTE]) {
+      const asHistorical = cli(VALIDATOR_PATH, [
+        "--source", source.root, "--expected-sha", source.sha, "--bundle", bundle,
+        "--validation-mode", LOCAL_PROVENANCE_MODE, "--schema-route", schemaRoute,
+      ]);
+      assert.equal(asHistorical.status, 1);
+      assert.equal(asHistorical.json.code, "SCHEMA_BOUNDARY_MISMATCH");
+    }
+    const unknownRoute = cli(VALIDATOR_PATH, [
+      "--source", source.root, "--expected-sha", source.sha, "--bundle", bundle,
+      "--validation-mode", LOCAL_PROVENANCE_MODE, "--schema-route", "standard16-21",
+    ]);
+    assert.equal(unknownRoute.status, 1);
+    assert.equal(unknownRoute.json.code, "ARGUMENT_ERROR");
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("CLI entrypoints execute through symbolic-link paths", () => {
   const parent = mkdtempSync(join(tmpdir(), "consolidated-release-cli-link-"));
   try {
