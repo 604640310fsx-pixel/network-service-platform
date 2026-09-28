@@ -188,7 +188,7 @@ export function RegisterPage() {
   }
 
   return (
-    <AuthShell title="注册客户中心" subtitle="仅限邀请注册，需使用管理员签发的邀请码。" wide>
+    <AuthShell title="注册客户中心" subtitle="仅限邀请注册，需使用管理员签发的邀请码或已注册用户的个人邀请码。" wide>
       <AuthNotice tone="neutral">
         当前仅开放邀请注册：可使用管理员签发、绑定指定邮箱的一次性邀请码，或已注册用户分享的个人邀请码。个人邀请码只用于注册，不能登录任何账户。
       </AuthNotice>

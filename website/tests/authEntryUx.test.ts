@@ -61,6 +61,7 @@ test("registration copy states invite-only policy without promising success", ()
   assert.match(register, /当前仅开放邀请注册：/);
   assert.match(register, /管理员签发、绑定指定邮箱的一次性邀请码，或已注册用户分享的个人邀请码/);
   assert.match(register, /个人邀请码只用于注册，不能登录任何账户/);
+  assert.match(register, /subtitle="仅限邀请注册，需使用管理员签发的邀请码或已注册用户的个人邀请码。"/);
   // Personal codes are case-sensitive: never uppercase while typing, only legacy codes at submit.
   assert.match(register, /const canonicalInvite = canonicalInviteCode\(inviteCode\);/);
   assert.match(register, /onChange=\{\(event\) => setInviteCode\(event\.target\.value\)\}/);
