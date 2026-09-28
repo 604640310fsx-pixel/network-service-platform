@@ -81,10 +81,11 @@ test("landing keeps registration closed and does not claim attribution", () => {
     new URL("../app/components/auth/RegisterPage.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(landing, /注册暂未开放/);
+  assert.match(landing, /当前仅开放邀请注册/);
+  assert.doesNotMatch(landing, /注册暂未开放/);
   assert.doesNotMatch(landing, /href=\{`\/register\?referralCode=/);
   assert.match(landing, /不代表推荐归属或佣金资格/);
-  assert.match(landing, /仅限管理员签发、绑定邮箱的一次性邀请码/);
+  assert.match(landing, /管理员签发、绑定邮箱的一次性邀请码/);
   assert.match(landing, /推荐链接不包含邀请码/);
   assert.doesNotMatch(landing, /获取邀请码|申请邀请码|即将开放|预计开放/);
   assert.match(registration, /name="inviteCode"/);
