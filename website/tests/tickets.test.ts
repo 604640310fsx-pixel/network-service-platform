@@ -128,7 +128,7 @@ test("ticket pages render plain text only and promise no SLA, notifications, or 
 test("the tickets section is wired into the shell, dashboard, and admin-only panel", () => {
   const shell = source("../app/components/customer/CustomerCenterShell.tsx");
   const dashboard = source("../app/components/dashboard/DashboardPage.tsx");
-  assert.match(shell, /"\/tickets",\n\]\);/);
+  assert.match(shell, /"\/tickets",\n  "\/invites",\n\]\);/);
   assert.match(dashboard, /\{ href: "\/tickets", label: "工单"/);
   assert.doesNotMatch(dashboard, /pendingActions|工单", hint: "待接入"/);
   assert.match(dashboard, /\{principal\?\.role === "admin" && <AdminTicketsPanel csrfToken=\{csrfToken\} \/>\}/);

@@ -10,6 +10,7 @@ export const sectionKeys = [
   "profile",
   "referrals",
   "tickets",
+  "invites",
 ] as const;
 
 export type SectionKey = (typeof sectionKeys)[number];

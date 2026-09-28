@@ -22,6 +22,7 @@ import {
   computeMailRecipientAuditHmac,
   encryptRegistrationOtpPayload,
 } from "./mail-outbox.js";
+import { ensureReferralProfile } from "../referral/profile.js";
 import { REFERRAL_PUBLIC_CODE_PATTERN } from "../referral/public-resolution.js";
 import {
   computeRegistrationOtpHash,
@@ -42,7 +43,8 @@ const REGISTRATION_MAX_SEND_COUNT = 1 + REGISTRATION_MAX_RESENDS;
 interface PendingRegistrationRow {
   readonly id: number;
   readonly email: string;
-  readonly invite_code_id: number;
+  readonly invite_code_id: number | null;
+  readonly personal_inviter_profile_id: number | null;
   readonly otp_hash: string;
   readonly otp_key_version: number;
   readonly otp_generation: number;
@@ -121,7 +123,8 @@ function findPendingByHash(
 ): PendingRegistrationRow | null {
   const rows = database
     .prepare(
-      `SELECT id, email, invite_code_id, otp_hash, otp_key_version,
+      `SELECT id, email, invite_code_id, personal_inviter_profile_id,
+              otp_hash, otp_key_version,
               otp_generation, phase, verified_at, attempts, resend_count,
               last_sent_at, expires_at, consumed_at, superseded_at,
               referral_source_profile_id
@@ -195,6 +198,151 @@ function insertOutbox(
     );
 }
 
+interface PersonalInviter {
+  readonly profileId: number;
+  readonly userId: number;
+  readonly email: string;
+}
+
+// A personal code is valid only while its owner exists and is active (the
+// existing users.status field); anything else is indistinguishable from an
+// unknown code.
+function findActivePersonalInviter(
+  database: DatabaseConnection,
+  where: { readonly publicCode: string } | { readonly profileId: number },
+): PersonalInviter | null {
+  const byCode = "publicCode" in where;
+  const rows = database
+    .prepare(
+      `SELECT p.id AS profile_id, u.id AS user_id, u.email AS email
+       FROM referral_profiles AS p
+       JOIN users AS u ON u.id = p.user_id
+       WHERE ${byCode ? "p.public_code = ?" : "p.id = ?"} AND u.status = 'active'`,
+    )
+    .all(byCode ? where.publicCode : where.profileId) as Array<{
+    readonly profile_id: unknown;
+    readonly user_id: unknown;
+    readonly email: unknown;
+  }>;
+  if (rows.length > 1) {
+    throw new Error("Personal invite code uniqueness is invalid");
+  }
+  const row = rows[0];
+  if (row === undefined) return null;
+  if (
+    typeof row.profile_id !== "number" ||
+    !Number.isSafeInteger(row.profile_id) ||
+    typeof row.user_id !== "number" ||
+    !Number.isSafeInteger(row.user_id) ||
+    typeof row.email !== "string"
+  ) {
+    throw new Error("Personal inviter identity is invalid");
+  }
+  return { profileId: row.profile_id, userId: row.user_id, email: row.email };
+}
+
+interface PendingBinding {
+  readonly email: string;
+  readonly inviteCodeId: number | null;
+  readonly personalInviterProfileId: number | null;
+  readonly referralSourceProfileId: number | null;
+}
+
+// Shared by both paths: cooldown, supersede, pending row, and outbox mail.
+// Returns false (silently) while the resend cooldown is active.
+function createPendingRegistration(
+  database: DatabaseConnection,
+  binding: PendingBinding,
+  secrets: {
+    readonly tokenHash: string;
+    readonly tokenKeyVersion: number;
+    readonly otp: string;
+    readonly otpHash: string;
+    readonly otpKeyVersion: number;
+  },
+  times: ReturnType<typeof registrationTimes>,
+  keyrings: RegistrationServiceKeyrings,
+  dependencies: RegistrationServiceDependencies,
+): boolean {
+  const recentRows = database
+    .prepare(
+      `SELECT last_sent_at FROM pending_registrations
+       WHERE email = ?
+         AND phase IN ('awaiting_verification', 'verified')
+         AND consumed_at IS NULL AND superseded_at IS NULL
+         AND expires_at > ?
+       ORDER BY last_sent_at DESC
+       LIMIT 1`,
+    )
+    .all(binding.email, times.now) as Array<{
+      readonly last_sent_at: unknown;
+    }>;
+  const recentSentAt = recentRows[0]?.last_sent_at;
+  if (
+    recentRows.length > 1 ||
+    (recentSentAt !== undefined && typeof recentSentAt !== "string")
+  ) {
+    throw new Error("Registration cooldown state is invalid");
+  }
+  if (
+    typeof recentSentAt === "string" &&
+    recentSentAt > times.resendCutoff
+  ) {
+    return false;
+  }
+
+  database
+    .prepare(
+      `UPDATE pending_registrations
+       SET superseded_at = ?
+       WHERE email = ?
+         AND phase IN ('awaiting_verification', 'verified')
+         AND consumed_at IS NULL AND superseded_at IS NULL
+         AND expires_at > ?`,
+    )
+    .run(times.now, binding.email, times.now);
+
+  database
+    .prepare(
+      `INSERT INTO pending_registrations (
+         email, registration_token_hash, registration_token_key_version,
+         invite_code_id, otp_hash, otp_key_version, otp_generation, phase,
+         attempts, resend_count, last_sent_at, expires_at, created_at,
+         referral_source_profile_id, personal_inviter_profile_id
+       ) VALUES (?, ?, ?, ?, ?, ?, 1, 'awaiting_verification', 0, 1, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      binding.email,
+      secrets.tokenHash,
+      secrets.tokenKeyVersion,
+      binding.inviteCodeId,
+      secrets.otpHash,
+      secrets.otpKeyVersion,
+      times.now,
+      times.expiresAt,
+      times.now,
+      binding.referralSourceProfileId,
+      binding.personalInviterProfileId,
+    );
+
+  const pending = findPendingByHash(database, secrets.tokenHash);
+  if (pending === null) {
+    throw new Error("Registration pending row creation failed");
+  }
+  const encrypted = encryptRegistrationOtpPayload(
+    {
+      pendingRegistrationId: pending.id,
+      otpGeneration: 1,
+      toEmail: binding.email,
+      otp: secrets.otp,
+    },
+    keyrings.mailPayloadEncKeyring,
+    dependencies.outboxRandomBytes ?? randomBytes,
+  );
+  insertOutbox(database, encrypted, times.now);
+  return true;
+}
+
 export function startRegistration(
   database: DatabaseConnection,
   input: {
@@ -207,10 +355,15 @@ export function startRegistration(
   dependencies: RegistrationServiceDependencies = {},
 ): RegistrationTokenResult {
   const canonicalEmail = canonicalizeEmail(input.email);
-  const inviteCandidates = computeInviteCodeHashCandidates(
-    input.inviteCode,
-    keyrings.inviteHmacKeyring,
-  );
+  // The two code formats are disjoint: personal codes are the 24-character
+  // referral public code; legacy admin codes are 34 characters with dashes.
+  const personal = REFERRAL_PUBLIC_CODE_PATTERN.test(input.inviteCode);
+  const inviteCandidates = personal
+    ? []
+    : computeInviteCodeHashCandidates(
+        input.inviteCode,
+        keyrings.inviteHmacKeyring,
+      );
   const nowSource = dependencies.now ?? (() => new Date());
   const times = registrationTimes(nowSource);
   const token = generateRegistrationToken(
@@ -224,18 +377,58 @@ export function startRegistration(
     otpKeyVersion,
     keyrings.tokenHmacKeyring,
   );
+  const secrets = {
+    tokenHash: token.tokenHash,
+    tokenKeyVersion: token.hmacKeyVersion,
+    otp,
+    otpHash,
+    otpKeyVersion,
+  };
 
   withRegistrationStartRateLimit(
     database,
     keyrings.rateLimitKeyring,
-    {
-      ip: input.ip,
-      inviteHashIdentifiers: inviteCandidates.map(
-        (candidate) => candidate.codeHash,
-      ),
-    },
+    personal
+      ? { ip: input.ip, personalCodeIdentifier: input.inviteCode }
+      : {
+          ip: input.ip,
+          inviteHashIdentifiers: inviteCandidates.map(
+            (candidate) => candidate.codeHash,
+          ),
+        },
     (rateLimit) => {
       if (rateLimit.inviteSilenced) return false;
+      if (personal) {
+        const inviter = findActivePersonalInviter(database, {
+          publicCode: input.inviteCode,
+        });
+        // Unknown/disabled owner, self-invite, or a conflicting referral code
+        // all fail neutrally, exactly like an unknown code.
+        if (
+          inviter === null ||
+          inviter.email === canonicalEmail ||
+          (input.referralCode !== undefined &&
+            input.referralCode !== input.inviteCode)
+        ) {
+          return false;
+        }
+        const emailRateLimit = rateLimit.consumeEmail(canonicalEmail);
+        if (emailRateLimit.emailSilenced) return false;
+        return createPendingRegistration(
+          database,
+          {
+            email: canonicalEmail,
+            inviteCodeId: null,
+            personalInviterProfileId: inviter.profileId,
+            referralSourceProfileId:
+              input.referralCode === undefined ? null : inviter.profileId,
+          },
+          secrets,
+          times,
+          keyrings,
+          dependencies,
+        );
+      }
       const invite = lookupInviteCode(
         database,
         input.inviteCode,
@@ -257,83 +450,19 @@ export function startRegistration(
         database,
         input.referralCode,
       );
-
-      const recentRows = database
-        .prepare(
-          `SELECT last_sent_at FROM pending_registrations
-           WHERE email = ?
-             AND phase IN ('awaiting_verification', 'verified')
-             AND consumed_at IS NULL AND superseded_at IS NULL
-             AND expires_at > ?
-           ORDER BY last_sent_at DESC
-           LIMIT 1`,
-        )
-        .all(invite.recipient_email, times.now) as Array<{
-          readonly last_sent_at: unknown;
-        }>;
-      const recentSentAt = recentRows[0]?.last_sent_at;
-      if (
-        recentRows.length > 1 ||
-        (recentSentAt !== undefined && typeof recentSentAt !== "string")
-      ) {
-        throw new Error("Registration cooldown state is invalid");
-      }
-      if (
-        typeof recentSentAt === "string" &&
-        recentSentAt > times.resendCutoff
-      ) {
-        return false;
-      }
-
-      database
-        .prepare(
-          `UPDATE pending_registrations
-           SET superseded_at = ?
-           WHERE email = ?
-             AND phase IN ('awaiting_verification', 'verified')
-             AND consumed_at IS NULL AND superseded_at IS NULL
-             AND expires_at > ?`,
-        )
-        .run(times.now, invite.recipient_email, times.now);
-
-      database
-        .prepare(
-          `INSERT INTO pending_registrations (
-             email, registration_token_hash, registration_token_key_version,
-             invite_code_id, otp_hash, otp_key_version, otp_generation, phase,
-             attempts, resend_count, last_sent_at, expires_at, created_at,
-             referral_source_profile_id
-           ) VALUES (?, ?, ?, ?, ?, ?, 1, 'awaiting_verification', 0, 1, ?, ?, ?, ?)`,
-        )
-        .run(
-          invite.recipient_email,
-          token.tokenHash,
-          token.hmacKeyVersion,
-          invite.id,
-          otpHash,
-          otpKeyVersion,
-          times.now,
-          times.expiresAt,
-          times.now,
-          referralSourceProfileId,
-        );
-
-      const pending = findPendingByHash(database, token.tokenHash);
-      if (pending === null) {
-        throw new Error("Registration pending row creation failed");
-      }
-      const encrypted = encryptRegistrationOtpPayload(
+      return createPendingRegistration(
+        database,
         {
-          pendingRegistrationId: pending.id,
-          otpGeneration: 1,
-          toEmail: invite.recipient_email,
-          otp,
+          email: invite.recipient_email,
+          inviteCodeId: invite.id,
+          personalInviterProfileId: null,
+          referralSourceProfileId,
         },
-        keyrings.mailPayloadEncKeyring,
-        dependencies.outboxRandomBytes ?? randomBytes,
+        secrets,
+        times,
+        keyrings,
+        dependencies,
       );
-      insertOutbox(database, encrypted, times.now);
-      return true;
     },
     { now: () => times.date },
   );
@@ -583,16 +712,31 @@ export async function completeRegistration(
       ) {
         throw new InvalidOrExpiredRegistrationError();
       }
-      const inviteUpdate = database
-        .prepare(
-          `UPDATE invite_codes SET used_count = 1
-           WHERE id = ? AND recipient_email = ?
-             AND is_bootstrap = 0 AND max_uses = 1 AND used_count = 0
-             AND revoked_at IS NULL AND expires_at > ?`,
-        )
-        .run(current.invite_code_id, current.email, times.now);
-      if (inviteUpdate.changes !== 1) {
-        throw new InvalidOrExpiredRegistrationError();
+      // Exactly one origin: the legacy prebound invite, or a real direct inviter.
+      let personalInviterUserId: number | null = null;
+      if (current.invite_code_id !== null) {
+        const inviteUpdate = database
+          .prepare(
+            `UPDATE invite_codes SET used_count = 1
+             WHERE id = ? AND recipient_email = ?
+               AND is_bootstrap = 0 AND max_uses = 1 AND used_count = 0
+               AND revoked_at IS NULL AND expires_at > ?`,
+          )
+          .run(current.invite_code_id, current.email, times.now);
+        if (inviteUpdate.changes !== 1) {
+          throw new InvalidOrExpiredRegistrationError();
+        }
+      } else {
+        const inviter =
+          current.personal_inviter_profile_id === null
+            ? null
+            : findActivePersonalInviter(database, {
+                profileId: current.personal_inviter_profile_id,
+              });
+        if (inviter === null || inviter.email === current.email) {
+          throw new InvalidOrExpiredRegistrationError();
+        }
+        personalInviterUserId = inviter.userId;
       }
       const existingUser = database
         .prepare("SELECT id FROM users WHERE email = ?")
@@ -605,13 +749,14 @@ export async function completeRegistration(
         .prepare(
           `INSERT INTO users (
              email, password_hash, role, status, invited_by_code_id,
-             created_at, updated_at
-           ) VALUES (?, ?, 'user', 'active', ?, ?, ?)`,
+             invited_by_user_id, created_at, updated_at
+           ) VALUES (?, ?, 'user', 'active', ?, ?, ?, ?)`,
         )
         .run(
           current.email,
           passwordHash,
           current.invite_code_id,
+          personalInviterUserId,
           times.now,
           times.now,
         );
@@ -622,6 +767,9 @@ export async function completeRegistration(
       if (typeof userId !== "number") {
         throw new Error("Registration user creation failed");
       }
+      // Every new account gets its own stable personal code in the same
+      // transaction, through the existing collision-safe mechanism.
+      ensureReferralProfile(database, userId, { now: () => times.date });
       if (current.referral_source_profile_id !== null) {
         const sourceRows = database
           .prepare("SELECT user_id FROM referral_profiles WHERE id = ?")
@@ -646,23 +794,25 @@ export async function completeRegistration(
           )
           .run(userId, current.referral_source_profile_id, times.now);
       }
-      database
-        .prepare(
-          `INSERT INTO invite_code_redemptions (
-             invite_code_id, user_id, redeemed_at, ip_address
-           ) VALUES (?, ?, ?, ?)`,
-        )
-        .run(current.invite_code_id, userId, times.now, ipAddress);
-      database
-        .prepare(
-          `INSERT INTO audit_log (
-             actor, action, target_ref, created_at, invite_code_id,
-             result_class, recipient_hmac
-           ) VALUES (
-             'system:invite', 'invite_code.redeem', NULL, ?, ?, 'redeemed', ?
-           )`,
-        )
-        .run(times.now, current.invite_code_id, recipientHmac);
+      if (current.invite_code_id !== null) {
+        database
+          .prepare(
+            `INSERT INTO invite_code_redemptions (
+               invite_code_id, user_id, redeemed_at, ip_address
+             ) VALUES (?, ?, ?, ?)`,
+          )
+          .run(current.invite_code_id, userId, times.now, ipAddress);
+        database
+          .prepare(
+            `INSERT INTO audit_log (
+               actor, action, target_ref, created_at, invite_code_id,
+               result_class, recipient_hmac
+             ) VALUES (
+               'system:invite', 'invite_code.redeem', NULL, ?, ?, 'redeemed', ?
+             )`,
+          )
+          .run(times.now, current.invite_code_id, recipientHmac);
+      }
       const pendingUpdate = database
         .prepare(
           `UPDATE pending_registrations SET phase = 'completed', consumed_at = ?

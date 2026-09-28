@@ -310,6 +310,10 @@ async function start(): Promise<void> {
           tokenHmacKeyring: credentials.tokenHmacKeyring,
           csrfSigningKey: credentials.csrfSigningKey,
         },
+        invites: {
+          database,
+          tokenHmacKeyring: credentials.tokenHmacKeyring,
+        },
         referral: {
           database,
           nodeEnv: config.nodeEnv,

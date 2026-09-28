@@ -10,6 +10,9 @@ interface PragmaOptions {
 }
 
 export interface DatabaseConnection {
+  // Present on real better-sqlite3 connections; the foreign-key-off migration
+  // path fails closed unless it is exactly false.
+  readonly inTransaction?: boolean;
   pragma(source: string, options?: PragmaOptions): unknown;
   exec(source: string): void;
   prepare(source: string): DatabaseStatement;
@@ -20,6 +23,7 @@ export interface DatabaseConnection {
 export interface DatabaseTransaction<Result> {
   (): Result;
   immediate(): Result;
+  exclusive?(): Result;
 }
 
 interface DatabaseStatement {
@@ -61,11 +65,21 @@ export const MIGRATION_FILES = [
   "018_referral_attribution_candidates.sql",
   "019_referral_candidate_owner_page_index.sql",
   "020_tickets.sql",
+  "021_personal_invites.sql",
 ] as const;
+
+// Migrations that rebuild a table other tables reference with ON DELETE
+// RESTRICT. SQLite cannot drop such a parent while foreign keys are enforced,
+// so these, and only these, run through applyForeignKeysOffMigration.
+const FOREIGN_KEYS_OFF_MIGRATIONS: ReadonlySet<string> = new Set([
+  "021_personal_invites.sql",
+]);
+// Row counts that the rebuild must preserve exactly.
+const FOREIGN_KEYS_OFF_PRESERVED_TABLES = ["users", "pending_registrations"] as const;
 
 const DATABASE_READINESS_SQL =
   "SELECT version FROM schema_migrations ORDER BY version LIMIT ?";
-const DATABASE_READINESS_ROW_LIMIT = 20;
+const DATABASE_READINESS_ROW_LIMIT = 32;
 const EXPECTED_MIGRATION_VERSIONS = Object.freeze(
   MIGRATION_FILES.map((file) => Number.parseInt(file.slice(0, 3), 10)),
 );
@@ -268,6 +282,12 @@ export function runMigrations(
     }
 
     const sql = readFileSync(resolve(migrationsDirectory, file), "utf8");
+    if (FOREIGN_KEYS_OFF_MIGRATIONS.has(file)) {
+      applyForeignKeysOffMigration(database, sql, () =>
+        recordMigration.run(version, new Date().toISOString()),
+      );
+      continue;
+    }
     const applyMigration = database.transaction(() => {
       database.exec(sql);
       recordMigration.run(version, new Date().toISOString());
@@ -277,6 +297,87 @@ export function runMigrations(
   }
 
   verifyPragmaState(readPragmaState(database));
+}
+
+function countRows(database: DatabaseConnection, table: string): number {
+  const rows = database.prepare(`SELECT COUNT(*) AS count FROM "${table}"`).all();
+  const count = (rows[0] as { readonly count?: unknown } | undefined)?.count;
+  if (typeof count !== "number" || !Number.isSafeInteger(count)) {
+    throw new Error(`Migration row count for ${table} is invalid`);
+  }
+  return count;
+}
+
+/* Dedicated path for a table-rebuild migration. It runs on the startup
+   connection before any request handler or background writer exists:
+   1. refuse to start inside a transaction (PRAGMA foreign_keys is a no-op there);
+   2. switch foreign_keys OFF on this connection only and verify it took effect;
+   3. in ONE exclusive transaction: the migration SQL, preserved row counts,
+      a full foreign_key_check, integrity_check, and the schema_migrations
+      record; any failure rolls all of it back, so the ledger never advances;
+   4. always switch foreign_keys back ON and verify it, then rethrow any
+      failure so startup aborts; the service never runs with foreign keys off. */
+function applyForeignKeysOffMigration(
+  database: DatabaseConnection,
+  sql: string,
+  recordMigration: () => void,
+): void {
+  if (database.inTransaction !== false) {
+    throw new Error("Foreign-key-off migration must start outside a transaction");
+  }
+  const expectedCounts = FOREIGN_KEYS_OFF_PRESERVED_TABLES.map((table) => ({
+    table,
+    count: countRows(database, table),
+  }));
+
+  let failure: unknown = null;
+  database.pragma("foreign_keys = OFF");
+  try {
+    if (readNumberPragma(database, "foreign_keys") !== 0) {
+      throw new Error("SQLite foreign_keys could not be disabled for the migration");
+    }
+    const apply = database.transaction(() => {
+      database.exec(sql);
+      for (const { table, count } of expectedCounts) {
+        if (countRows(database, table) !== count) {
+          throw new Error(`Migration did not preserve every ${table} row`);
+        }
+      }
+      const violations = database.pragma("foreign_key_check");
+      if (!Array.isArray(violations) || violations.length !== 0) {
+        throw new Error("Migration foreign_key_check reported violations");
+      }
+      if (database.pragma("integrity_check", { simple: true }) !== "ok") {
+        throw new Error("Migration integrity_check failed");
+      }
+      recordMigration();
+    });
+    if (typeof apply.exclusive !== "function") {
+      throw new Error("Foreign-key-off migration requires an exclusive transaction");
+    }
+    apply.exclusive();
+  } catch (error) {
+    failure = error;
+  } finally {
+    try {
+      database.pragma("foreign_keys = ON");
+    } catch {
+      // Verified below; a connection that cannot restore foreign keys is unusable.
+    }
+  }
+
+  let restored = false;
+  try {
+    restored = readNumberPragma(database, "foreign_keys") === 1;
+  } catch {
+    restored = false;
+  }
+  if (!restored) {
+    throw new Error("SQLite foreign_keys could not be restored after the migration");
+  }
+  if (failure !== null) {
+    throw failure;
+  }
 }
 
 export function openAndVerifyDatabase(dbPath: string): DatabaseConnection {

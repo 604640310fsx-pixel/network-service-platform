@@ -560,7 +560,9 @@ export function validateRepository({
     );
   }
   const routeMigrations = releaseMigrationsForRoute(schemaRoute);
-  const currentSchema = RELEASE_SCHEMA_BOUNDARIES[schemaRoute].candidate === 20;
+  const candidate = RELEASE_SCHEMA_BOUNDARIES[schemaRoute].candidate;
+  // 020 and 021 sources both carry the 020-generation markers; 021 adds its own.
+  const currentSchema = candidate >= 20;
   const sourceRoot = existingDirectory(source, "source");
   const sha = normalizedExpectedSha(expectedSha);
   assertSourceRevision(sourceRoot, sha);
@@ -619,6 +621,16 @@ export function validateRepository({
             "consolidated-release-standard19-<RELEASE_CANDIDATE_SHA>",
           ]
         : []),
+      ...(candidate === 21
+        ? [
+            "## Explicit DIRECT14 to 21 route",
+            "--schema-route direct14-21",
+            "--schema-route standard16-21",
+            "## Explicit STANDARD19 to 21 route",
+            "--schema-route standard19-21",
+            "## Migration 021 table rebuild",
+          ]
+        : []),
       "consolidated-release-direct14-<RELEASE_CANDIDATE_SHA>",
       "continuous migrations 001-014",
     ],
@@ -652,6 +664,7 @@ export function validateRepository({
             "STANDARD19_PRE_OPEN_RESTORE_PROOF",
           ]
         : []),
+      ...(candidate === 21 ? ["MIGRATION_021_REBUILD_PROOF"] : []),
     ],
     "release bindings",
   );
@@ -697,14 +710,21 @@ export function validateRepository({
       "actions/upload-artifact@v4",
       "consolidated-release-${{ env.EXPECTED_SHA }}",
       "consolidated-release-direct14-${{ env.EXPECTED_SHA }}",
-      ...(currentSchema
+      ...(candidate === 21
         ? [
-            "--schema-route direct14-20",
-            "--schema-route standard16-20",
-            "--schema-route standard19-20",
+            "--schema-route direct14-21",
+            "--schema-route standard16-21",
+            "--schema-route standard19-21",
             "consolidated-release-standard19-${{ env.EXPECTED_SHA }}",
           ]
-        : ["--schema-route direct14-19"]),
+        : candidate === 20
+          ? [
+              "--schema-route direct14-20",
+              "--schema-route standard16-20",
+              "--schema-route standard19-20",
+              "consolidated-release-standard19-${{ env.EXPECTED_SHA }}",
+            ]
+          : ["--schema-route direct14-19"]),
       "github.sha == env.EXPECTED_SHA",
       'test "$GITHUB_SHA" = "$EXPECTED_SHA"',
       "artifact-digest",

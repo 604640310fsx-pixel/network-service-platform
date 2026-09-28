@@ -1,0 +1,48 @@
+/* 邀请中心：在 customer-orders.css 的面板语言上补充事实列表与说明。只用既有 --cc-* 主题变量。 */
+
+.cc-inv-facts {
+  display: grid;
+  gap: 14px;
+  margin: 0 0 4px;
+}
+.cc-inv-facts > div { min-width: 0; }
+.cc-inv-facts dt {
+  margin-bottom: 6px;
+  color: var(--cc-text-3);
+  font-size: 12.5px;
+}
+.cc-inv-facts dd {
+  margin: 0;
+  color: var(--cc-text);
+  font-size: 14px;
+}
+.cc-inv-facts strong { font-size: 20px; }
+
+.cc-inv-code,
+.cc-inv-link {
+  display: block;
+  padding: 10px 12px;
+  border: 1px solid var(--cc-line);
+  border-radius: 10px;
+  background: var(--cc-inset);
+  color: var(--cc-text);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.cc-inv-code { letter-spacing: 0.04em; }
+
+.cc-inv-status {
+  margin: 12px 0 0;
+  color: var(--cc-text-3);
+  font-size: 13px;
+}
+
+.cc-inv-notes {
+  margin: 18px 0 0;
+  padding: 14px 16px 14px 32px;
+  border-top: 1px solid var(--cc-hairline);
+  color: var(--cc-text-3);
+  font-size: 13px;
+  line-height: 1.65;
+}

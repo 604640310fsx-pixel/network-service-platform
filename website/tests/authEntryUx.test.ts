@@ -49,7 +49,7 @@ test("registration copy keeps invite state indistinguishable until completion", 
 
   assert.match(
     register,
-    /如果邮箱与邀请码匹配，验证码将发送到该邮箱，请注意查收。/,
+    /如果邀请码有效且可用于该邮箱，验证码将发送到该邮箱，请注意查收。/,
   );
   assert.match(register, /注册信息无效或已过期，请重新开始。/);
   assert.doesNotMatch(register, /邀请码已撤销|邀请码已过期|邀请码已耗尽/);
@@ -58,9 +58,13 @@ test("registration copy keeps invite state indistinguishable until completion", 
 test("registration copy states invite-only policy without promising success", () => {
   const register = source("../app/components/auth/RegisterPage.tsx");
 
-  assert.match(register, /当前仅开放邀请注册。/);
-  assert.match(register, /邀请码由管理员签发、绑定指定邮箱且仅可使用一次/);
-  assert.match(register, /请使用邀请码绑定的邮箱注册/);
+  assert.match(register, /当前仅开放邀请注册：/);
+  assert.match(register, /管理员签发、绑定指定邮箱的一次性邀请码，或已注册用户分享的个人邀请码/);
+  assert.match(register, /个人邀请码只用于注册，不能登录任何账户/);
+  // Personal codes are case-sensitive: never uppercase while typing, only legacy codes at submit.
+  assert.match(register, /const canonicalInvite = canonicalInviteCode\(inviteCode\);/);
+  assert.match(register, /onChange=\{\(event\) => setInviteCode\(event\.target\.value\)\}/);
+  assert.doesNotMatch(register, /setInviteCode\(event\.target\.value\.toUpperCase\(\)\)/);
   assert.doesNotMatch(register, /注册暂未开放|注册暂不可用/);
   assert.doesNotMatch(register, /创建账号后进入服务管理页面|开放注册|自助注册/);
   assert.doesNotMatch(register, /获取邀请码|申请邀请码|即将开放|预计开放/);

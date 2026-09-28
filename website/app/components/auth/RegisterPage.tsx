@@ -2,6 +2,8 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import {
   completeRegistration,
+  canonicalInviteCode,
+  inviteCodeFromSearch,
   referralSourceCodeFromSearch,
   RegistrationApiError,
   resendRegistrationCode,
@@ -56,7 +58,7 @@ export function RegisterPage() {
   const [verificationCode, setVerificationCode] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [inviteCode, setInviteCode] = useState("");
+  const [inviteCode, setInviteCode] = useState(() => inviteCodeFromSearch(window.location.search) ?? "");
   const [revealPassword, setRevealPassword] = useState(false);
   const [revealConfirm, setRevealConfirm] = useState(false);
   const [status, setStatus] = useState<FormStatus>("idle");
@@ -93,7 +95,7 @@ export function RegisterPage() {
     try {
       if (phase === "not_started") {
         const canonicalEmail = email.trim();
-        const canonicalInvite = inviteCode.trim().toUpperCase();
+        const canonicalInvite = canonicalInviteCode(inviteCode);
         if (canonicalEmail === "" || canonicalInvite === "") {
           setNotice({ tone: "danger", text: "请先填写邮箱和邀请码。" });
           return;
@@ -120,7 +122,7 @@ export function RegisterPage() {
       setCountdown(VERIFICATION_COUNTDOWN_SECONDS);
       setNotice({
         tone: "neutral",
-        text: "如果邮箱与邀请码匹配，验证码将发送到该邮箱，请注意查收。",
+        text: "如果邀请码有效且可用于该邮箱，验证码将发送到该邮箱，请注意查收。",
       });
     } catch (error) {
       setNotice({ tone: "danger", text: registrationErrorMessage(error) });
@@ -188,7 +190,7 @@ export function RegisterPage() {
   return (
     <AuthShell title="注册客户中心" subtitle="仅限邀请注册，需使用管理员签发的邀请码。" wide>
       <AuthNotice tone="neutral">
-        当前仅开放邀请注册。邀请码由管理员签发、绑定指定邮箱且仅可使用一次，请使用邀请码绑定的邮箱注册。
+        当前仅开放邀请注册：可使用管理员签发、绑定指定邮箱的一次性邀请码，或已注册用户分享的个人邀请码。个人邀请码只用于注册，不能登录任何账户。
       </AuthNotice>
       {referralSourceCode !== null && (
         <AuthNotice tone="neutral">
@@ -339,13 +341,13 @@ export function RegisterPage() {
               name="inviteCode"
               type="text"
               autoComplete="off"
-              autoCapitalize="characters"
+              autoCapitalize="none"
               spellCheck={false}
               maxLength={34}
               placeholder="请输入邀请码"
               value={inviteCode}
               disabled={busy || identityLocked}
-              onChange={(event) => setInviteCode(event.target.value.toUpperCase())}
+              onChange={(event) => setInviteCode(event.target.value)}
             />
           </div>
         </div>
