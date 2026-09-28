@@ -71,7 +71,7 @@ export function ReferralCenter({
               <h2 id="rfc-share-title">推荐链接</h2>
               {notice === "fixture" ? <span className="rfc-tag">演示链接 · 不可访问</span> : null}
             </div>
-            <p>推荐链接状态以实际接口为准；注册暂未开放。</p>
+            <p>推荐链接状态以实际接口为准；当前仅开放邀请注册，推荐链接不包含邀请码。</p>
           </div>
           <ShareCard link={link} dataStatus={data.status} clipboard={clipboard} />
         </section>
@@ -390,7 +390,7 @@ function ShareCard({
       </p>
       <p className="rfc-share-meta">
         <span>实际接口仅展示<b>待确认候选</b></span>
-        <span>注册暂未开放 · 推广二维码 <b className="is-pending">待接入</b></span>
+        <span>仅限邀请注册 · 推广二维码 <b className="is-pending">待接入</b></span>
       </p>
     </div>
   );
