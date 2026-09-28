@@ -71,7 +71,7 @@ export function ReferralCenter({
               <h2 id="rfc-share-title">推荐链接</h2>
               {notice === "fixture" ? <span className="rfc-tag">演示链接 · 不可访问</span> : null}
             </div>
-            <p>推荐链接状态以实际接口为准；当前仅开放邀请注册，推荐链接不包含邀请码。</p>
+            <p>推荐链接状态以实际接口为准；当前仅开放邀请注册，推荐链接中的代码同时是你的个人邀请码，只能用于注册，不能登录你的账户。</p>
           </div>
           <ShareCard link={link} dataStatus={data.status} clipboard={clipboard} />
         </section>

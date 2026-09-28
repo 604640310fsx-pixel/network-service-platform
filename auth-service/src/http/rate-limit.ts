@@ -17,10 +17,20 @@ export interface LoginRateLimitDependencies {
   readonly now?: () => Date;
 }
 
-export interface RegistrationStartRateLimitInput {
-  readonly ip: string;
-  readonly inviteHashIdentifiers: readonly string[];
-}
+// Exactly one code dimension: the legacy admin invite hashes (one-time per-invite
+// cap) or a personal invite code (its own separate, bounded bucket), so shared
+// use of a personal code never consumes the legacy per-invite budget.
+export type RegistrationStartRateLimitInput =
+  | {
+      readonly ip: string;
+      readonly inviteHashIdentifiers: readonly string[];
+      readonly personalCodeIdentifier?: undefined;
+    }
+  | {
+      readonly ip: string;
+      readonly inviteHashIdentifiers?: undefined;
+      readonly personalCodeIdentifier: string;
+    };
 
 export interface RegistrationStartRateLimitControl {
   readonly inviteSilenced: boolean;
@@ -58,6 +68,7 @@ export const LOGIN_ACCOUNT_LIMIT = 10;
 export const REGISTRATION_START_IP_LIMIT = 10;
 export const REGISTRATION_START_EMAIL_LIMIT = 5;
 export const REGISTRATION_START_INVITE_LIMIT = 5;
+export const REGISTRATION_START_PERSONAL_CODE_LIMIT = 20;
 export const REGISTRATION_RESEND_IP_LIMIT = 20;
 export const REGISTRATION_RESEND_EMAIL_LIMIT = 5;
 export const REGISTRATION_VERIFY_IP_LIMIT = 30;
@@ -353,7 +364,12 @@ export function withRegistrationStartRateLimit<Result>(
   operation: (control: RegistrationStartRateLimitControl) => Result,
   dependencies: RegistrationRateLimitDependencies = {},
 ): Result {
-  if (input.inviteHashIdentifiers.length === 0) {
+  const personal = input.personalCodeIdentifier !== undefined;
+  if (
+    personal
+      ? input.personalCodeIdentifier === ""
+      : input.inviteHashIdentifiers === undefined || input.inviteHashIdentifiers.length === 0
+  ) {
     throw new Error("Registration invite rate-limit identifiers are invalid");
   }
   const times = rateLimitTimes(dependencies.now ?? (() => new Date()));
@@ -363,12 +379,19 @@ export function withRegistrationStartRateLimit<Result>(
     [canonicalizeIp(input.ip)],
     REGISTRATION_START_IP_LIMIT,
   );
-  const inviteDimension = dimension(
-    keyring,
-    "register:start:invite",
-    input.inviteHashIdentifiers,
-    REGISTRATION_START_INVITE_LIMIT,
-  );
+  const inviteDimension = personal
+    ? dimension(
+        keyring,
+        "register:start:personal",
+        [input.personalCodeIdentifier],
+        REGISTRATION_START_PERSONAL_CODE_LIMIT,
+      )
+    : dimension(
+        keyring,
+        "register:start:invite",
+        input.inviteHashIdentifiers,
+        REGISTRATION_START_INVITE_LIMIT,
+      );
   const transaction = database.transaction(() => {
     if (
       countForKeys(database, ipDimension.readKeys, times.windowFloor) >=

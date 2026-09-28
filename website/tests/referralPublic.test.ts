@@ -85,8 +85,9 @@ test("landing keeps registration closed and does not claim attribution", () => {
   assert.doesNotMatch(landing, /注册暂未开放/);
   assert.doesNotMatch(landing, /href=\{`\/register\?referralCode=/);
   assert.match(landing, /不代表推荐归属或佣金资格/);
-  assert.match(landing, /管理员签发、绑定邮箱的一次性邀请码/);
-  assert.match(landing, /推荐链接不包含邀请码/);
+  assert.match(landing, /管理员签发、绑定邮箱的一次性邀请码，或已注册用户分享的个人邀请码/);
+  assert.match(landing, /推荐链接中的代码同时是分享者的个人邀请码，只能用于注册，不能登录任何账户/);
+  assert.doesNotMatch(landing, /推荐链接不包含邀请码/);
   assert.doesNotMatch(landing, /获取邀请码|申请邀请码|即将开放|预计开放/);
   assert.match(registration, /name="inviteCode"/);
   assert.match(registration, /startRegistration\([\s\S]*canonicalInvite/);
@@ -110,7 +111,8 @@ test("formal referral center states closed actions and leaves withdrawal disable
     "utf8",
   );
   assert.doesNotMatch(center, /注册暂未开放/);
-  assert.match(center, /当前仅开放邀请注册，推荐链接不包含邀请码/);
+  assert.match(center, /当前仅开放邀请注册，推荐链接中的代码同时是你的个人邀请码，只能用于注册，不能登录你的账户/);
+  assert.doesNotMatch(center, /推荐链接不包含邀请码/);
   assert.match(center, /仅限邀请注册 · 推广二维码/);
   assert.doesNotMatch(center, /获取邀请码|申请邀请码|开放注册|自助注册/);
   assert.match(center, /提现门槛：已结算余额满 ¥1,000.00（功能开放后适用）/);

@@ -221,9 +221,10 @@ export function registerRegistrationHttpRoutes(
           required: ["email", "inviteCode"],
           properties: {
             email: { type: "string", maxLength: 254 },
+            // Legacy admin invite code, or a 24-character personal invite code.
             inviteCode: {
               type: "string",
-              pattern: INVITE_CODE_PATTERN.source,
+              pattern: `^(?:${INVITE_CODE_PATTERN.source.slice(1, -1)}|[A-Za-z0-9_-]{24})$`,
             },
             referralCode: {
               type: "string",

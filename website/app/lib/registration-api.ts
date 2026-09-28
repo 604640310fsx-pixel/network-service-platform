@@ -120,6 +120,24 @@ export function referralSourceCodeFromSearch(search: string): string | null {
   return code !== null && REFERRAL_PUBLIC_CODE_PATTERN.test(code) ? code : null;
 }
 
+// Personal invite links are exactly `/register?invite=<24-char personal code>`.
+export function inviteCodeFromSearch(search: string): string | null {
+  const parameters = new URLSearchParams(search);
+  const keys = [...parameters.keys()];
+  if (keys.length !== 1 || keys[0] !== "invite" || parameters.getAll("invite").length !== 1) {
+    return null;
+  }
+  const code = parameters.get("invite");
+  return code !== null && REFERRAL_PUBLIC_CODE_PATTERN.test(code) ? code : null;
+}
+
+// Personal codes are case-sensitive and kept as typed; legacy admin codes are
+// canonical uppercase.
+export function canonicalInviteCode(value: string): string {
+  const trimmed = value.trim();
+  return REFERRAL_PUBLIC_CODE_PATTERN.test(trimmed) ? trimmed : trimmed.toUpperCase();
+}
+
 export async function resendRegistrationCode(
   registrationToken: string,
 ): Promise<void> {

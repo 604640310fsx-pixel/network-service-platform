@@ -44,19 +44,27 @@ export const DIRECT14_20_RELEASE_SCHEMA_ROUTE = "direct14-20";
 // Formal route for a live database that is already continuous 001-019: the
 // candidate loader applies only migration 020 (rollback boundary 19).
 export const STANDARD19_20_RELEASE_SCHEMA_ROUTE = "standard19-20";
-export const DEFAULT_RELEASE_SCHEMA_ROUTE = STANDARD16_20_RELEASE_SCHEMA_ROUTE;
-export const DIRECT14_RELEASE_SCHEMA_ROUTE = DIRECT14_20_RELEASE_SCHEMA_ROUTE;
+// Current routes for the repository's 001-021 sequence (personal invites). The
+// -20 routes stay recognized only for already-built 001-020 bundles.
+export const STANDARD16_21_RELEASE_SCHEMA_ROUTE = "standard16-21";
+export const DIRECT14_21_RELEASE_SCHEMA_ROUTE = "direct14-21";
+export const STANDARD19_21_RELEASE_SCHEMA_ROUTE = "standard19-21";
+export const DEFAULT_RELEASE_SCHEMA_ROUTE = STANDARD16_21_RELEASE_SCHEMA_ROUTE;
+export const DIRECT14_RELEASE_SCHEMA_ROUTE = DIRECT14_21_RELEASE_SCHEMA_ROUTE;
 export const RELEASE_SCHEMA_BOUNDARIES = Object.freeze({
   [STANDARD16_19_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 16, candidate: 19 }),
   [DIRECT14_19_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 14, candidate: 19 }),
   [STANDARD16_20_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 16, candidate: 20 }),
   [DIRECT14_20_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 14, candidate: 20 }),
   [STANDARD19_20_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 19, candidate: 20 }),
+  [STANDARD16_21_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 16, candidate: 21 }),
+  [DIRECT14_21_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 14, candidate: 21 }),
+  [STANDARD19_21_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 19, candidate: 21 }),
 });
 export const RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE =
-  "--schema-route must be standard16-19, direct14-19, standard16-20, direct14-20, or standard19-20";
+  "--schema-route must be standard16-19, direct14-19, standard16-20, direct14-20, standard19-20, standard16-21, direct14-21, or standard19-21";
 const DIRECT14_RELEASE_SCHEMA_ROUTES = Object.freeze(
-  new Set([DIRECT14_19_RELEASE_SCHEMA_ROUTE, DIRECT14_20_RELEASE_SCHEMA_ROUTE]),
+  new Set([DIRECT14_19_RELEASE_SCHEMA_ROUTE, DIRECT14_20_RELEASE_SCHEMA_ROUTE, DIRECT14_21_RELEASE_SCHEMA_ROUTE]),
 );
 export function isKnownReleaseSchemaRoute(schemaRoute) {
   return (
@@ -81,7 +89,7 @@ export function releaseArtifactNameForRoute(sha, schemaRoute) {
   }
   const prefix = isDirect14ReleaseSchemaRoute(schemaRoute)
     ? DIRECT14_RELEASE_ARTIFACT_PREFIX
-    : schemaRoute === STANDARD19_20_RELEASE_SCHEMA_ROUTE
+    : schemaRoute === STANDARD19_20_RELEASE_SCHEMA_ROUTE || schemaRoute === STANDARD19_21_RELEASE_SCHEMA_ROUTE
       ? STANDARD19_RELEASE_ARTIFACT_PREFIX
       : RELEASE_ARTIFACT_PREFIX;
   return `${prefix}${sha}`;
@@ -111,8 +119,12 @@ export const RELEASE_MIGRATIONS_001_020 = Object.freeze([
   ...RELEASE_MIGRATIONS_001_019,
   "020_tickets.sql",
 ]);
+export const RELEASE_MIGRATIONS_001_021 = Object.freeze([
+  ...RELEASE_MIGRATIONS_001_020,
+  "021_personal_invites.sql",
+]);
 // The exact sequence of the current repository source.
-export const RELEASE_MIGRATIONS = RELEASE_MIGRATIONS_001_020;
+export const RELEASE_MIGRATIONS = RELEASE_MIGRATIONS_001_021;
 export function releaseMigrationsForRoute(schemaRoute) {
   if (!isKnownReleaseSchemaRoute(schemaRoute)) {
     throw new ReleaseAssemblyError(
@@ -120,9 +132,12 @@ export function releaseMigrationsForRoute(schemaRoute) {
       RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE,
     );
   }
-  return RELEASE_SCHEMA_BOUNDARIES[schemaRoute].candidate === 19
+  const candidate = RELEASE_SCHEMA_BOUNDARIES[schemaRoute].candidate;
+  return candidate === 19
     ? RELEASE_MIGRATIONS_001_019
-    : RELEASE_MIGRATIONS_001_020;
+    : candidate === 20
+      ? RELEASE_MIGRATIONS_001_020
+      : RELEASE_MIGRATIONS_001_021;
 }
 export const RELEASE_HTTP_CONTRACT_PATHS = Object.freeze([
   "ops/nginx/release-traffic-open.conf.example",
