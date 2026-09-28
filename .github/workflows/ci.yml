@@ -98,6 +98,7 @@ jobs:
       EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       PROVENANCE_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'github-actions' || 'github-actions-test' }}
       VALIDATION_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'ci-build' || 'ci-test' }}
+      MONITOR_ORIGIN_POLICY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'required' || 'optional' }}
     steps:
       - name: Checkout exact task head
         uses: actions/checkout@v6
@@ -137,16 +138,23 @@ jobs:
           npm --prefix website ci
 
       - name: Validate and build candidate artifacts
+        env:
+          # Approved public monitor origin; a secret so the value is masked in logs.
+          VITE_MONITOR_URL: ${{ secrets.NSP_PUBLIC_MONITOR_ORIGIN }}
         run: |
+          node scripts/ops/verify-website-monitor-origin.mjs \
+            --phase configured --policy "$MONITOR_ORIGIN_POLICY"
           npm --prefix auth-service test
           node auth-service/dist/test/db.test.js
           node auth-service/dist/test/diagnosis/migration.test.js
           npm --prefix website test
           npm --prefix website run check
           npm --prefix website run build
+          node scripts/ops/verify-website-monitor-origin.mjs \
+            --phase embedded --policy "$MONITOR_ORIGIN_POLICY" --dist website/dist
 
       - name: Test release tooling
-        run: node --test scripts/ops/consolidated-release-packet.test.mjs
+        run: node --test scripts/ops/consolidated-release-packet.test.mjs scripts/ops/release-safety-guards.test.mjs
 
       - name: Assemble twice and validate inventories
         env:

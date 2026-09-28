@@ -806,11 +806,65 @@ contains no private or loopback address.
 Recovery if the preserved state is lost or wrong: restore the website-host
 Nginx configuration from the pre-change backup recorded on the host, run
 `nginx -t`, then reload; point the website root back to the last verified build
-directory; rebuild the website with the ruled `VITE_MONITOR_URL` if the
-bundle lacks it. Rolling back the monitor-host database indexes requires
+directory. A bundle that lacks the ruled `VITE_MONITOR_URL` fails the website
+monitor origin gate below and is not released. Rolling back the monitor-host database indexes requires
 separate approval and verification and is not performed by this section. Host-side
 backup locations and step-by-step commands live only in the host notes, not in
 this repository.
+
+## Website monitor origin gate
+
+The retained integration-push candidate builds its website with the ruled
+public monitor origin, injected from the repository secret
+`NSP_PUBLIC_MONITOR_ORIGIN` so the value stays masked in CI logs. On an
+integration push, `scripts/ops/verify-website-monitor-origin.mjs` runs with
+policy `required`: CI fails closed before building when the secret is missing
+or is not a bare `https` origin with a DNS hostname, and again after building
+when `website/dist` does not embed it. Pull-request and test bundles use policy
+`optional`, may lack the origin, and remain test-only. No step prints the
+origin; the script reports only `configured`, `embedded`, or `absent`.
+
+Before a window, prove the downloaded candidate embeds the approved origin from
+a clean checkout of the candidate SHA, taking the value from the external
+release record and never echoing it:
+
+```text
+VITE_MONITOR_URL=<APPROVED_PUBLIC_MONITOR_ORIGIN> \
+  node scripts/ops/verify-website-monitor-origin.mjs \
+  --phase embedded --policy required \
+  --dist <NEW_EXTRACTED_BUNDLE_DIRECTORY>/website/dist
+```
+
+A candidate that fails this check is not eligible for release. Do not rebuild
+or substitute its website locally; fix the input and let the integration push
+produce a new retained artifact.
+
+## Isolated rehearsal guard
+
+Any rehearsal that starts an Auth binary outside the live service (restore
+proofs, migration rehearsals, quiescent start trials) must start it through
+`scripts/ops/isolated-rehearsal-start.mjs`, taken from a clean checkout of the
+candidate SHA, as the rehearsal process itself. The guard evaluates the
+environment after the service manager has resolved every `Environment=` and
+`EnvironmentFile=` source, and refuses to start the server unless the resolved
+`DB_PATH` is an existing regular file inside the rehearsal root that is not the
+protected live database by path or inode, and the resolved `PORT` is not the
+live port:
+
+```text
+node scripts/ops/isolated-rehearsal-start.mjs \
+  --protected-db <LIVE_DATABASE_FILE> \
+  --protected-port <LIVE_AUTH_PORT> \
+  --rehearsal-root <NEW_REHEARSAL_DIRECTORY> \
+  --server <REHEARSAL_AUTH_SERVICE>/dist/src/server.js
+```
+
+Never pass rehearsal overrides as `-E`/`Environment=` next to a site
+`EnvironmentFile=`: an environment file takes precedence and can silently point
+the rehearsal at the live database. Build a dedicated rehearsal environment
+file instead. The rehearsal root must not contain the live database directory.
+The guard covers only rehearsal starts; it does not change the live service
+unit or its configuration.
 
 ## Stop lines
 
@@ -819,6 +873,8 @@ redacted evidence when any of these occurs:
 
 - SHA, manifest, migration boundary, artifact, binding, worker, or Nginx drift;
 - an unresolved writer, surviving PID, failed stop, or writable database handle;
+- a candidate website that fails the monitor origin gate, or a rehearsal Auth
+  start not made through the isolated rehearsal guard;
 - snapshot, hash, ownership, integrity, foreign-key, or restore-deadline failure;
 - independent auth/website switching that could expose a mixed release;
 - quiescent payment/mail/registration unexpectedly enabled;
