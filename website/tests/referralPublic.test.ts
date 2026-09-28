@@ -109,7 +109,10 @@ test("formal referral center states closed actions and leaves withdrawal disable
     new URL("../app/components/referrals/referralParts.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(center, /注册暂未开放/);
+  assert.doesNotMatch(center, /注册暂未开放/);
+  assert.match(center, /当前仅开放邀请注册，推荐链接不包含邀请码/);
+  assert.match(center, /仅限邀请注册 · 推广二维码/);
+  assert.doesNotMatch(center, /获取邀请码|申请邀请码|开放注册|自助注册/);
   assert.match(center, /提现门槛：已结算余额满 ¥1,000.00（功能开放后适用）/);
   assert.match(center, /提现功能暂未开放/);
   assert.doesNotMatch(center, /才具备申请提现资格|可申请提现|进入现有注册流程/);
