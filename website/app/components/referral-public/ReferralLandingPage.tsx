@@ -93,7 +93,7 @@ export function ReferralLandingPage() {
           <p className="auth-subtitle">{subtitle}</p>
 
           <div className="referral-public-actions">
-            <p>注册暂未开放，且仅限管理员签发、绑定邮箱的一次性邀请码；推荐链接不包含邀请码。此页面只确认链接状态，不代表推荐归属或佣金资格。</p>
+            <p>当前仅开放邀请注册，需使用管理员签发、绑定邮箱的一次性邀请码；推荐链接不包含邀请码。此页面只确认链接状态，不代表推荐归属或佣金资格。</p>
           </div>
         </section>
       </main>
