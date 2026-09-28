@@ -55,6 +55,16 @@ test("registration copy keeps invite state indistinguishable until completion", 
   assert.doesNotMatch(register, /邀请码已撤销|邀请码已过期|邀请码已耗尽/);
 });
 
+test("registration copy states invite-only policy without promising success", () => {
+  const register = source("../app/components/auth/RegisterPage.tsx");
+
+  assert.match(register, /注册暂未开放。/);
+  assert.match(register, /邀请码由管理员签发、绑定指定邮箱且仅可使用一次/);
+  assert.match(register, /持有邀请码不代表当前可以完成注册/);
+  assert.doesNotMatch(register, /创建账号后进入服务管理页面/);
+  assert.doesNotMatch(register, /获取邀请码|申请邀请码|即将开放|预计开放/);
+});
+
 test("the shared auth shell provides an exact internal return-home link", () => {
   const shell = source("../app/components/auth/AuthShell.tsx");
   const login = source("../app/components/auth/LoginPage.tsx");

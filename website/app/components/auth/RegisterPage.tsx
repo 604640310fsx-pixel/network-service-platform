@@ -38,7 +38,7 @@ function registrationErrorMessage(error: unknown): string {
     case "invalid_request":
       return "请检查填写内容后重试。";
     default:
-      return "暂时无法完成注册，请稍后重试。";
+      return "注册暂不可用，当前无法完成注册。";
   }
 }
 
@@ -186,7 +186,10 @@ export function RegisterPage() {
   }
 
   return (
-    <AuthShell title="注册客户中心" subtitle="创建账号后进入服务管理页面。" wide>
+    <AuthShell title="注册客户中心" subtitle="仅限邀请注册，需使用管理员签发的邀请码。" wide>
+      <AuthNotice tone="neutral">
+        注册暂未开放。邀请码由管理员签发、绑定指定邮箱且仅可使用一次；持有邀请码不代表当前可以完成注册。
+      </AuthNotice>
       {referralSourceCode !== null && (
         <AuthNotice tone="neutral">
           已携带推荐来源。注册完成后仅保存为待确认的来源候选，不代表正式推荐归属或佣金资格。

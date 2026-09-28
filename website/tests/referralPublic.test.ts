@@ -84,6 +84,9 @@ test("landing keeps registration closed and does not claim attribution", () => {
   assert.match(landing, /注册暂未开放/);
   assert.doesNotMatch(landing, /href=\{`\/register\?referralCode=/);
   assert.match(landing, /不代表推荐归属或佣金资格/);
+  assert.match(landing, /仅限管理员签发、绑定邮箱的一次性邀请码/);
+  assert.match(landing, /推荐链接不包含邀请码/);
+  assert.doesNotMatch(landing, /获取邀请码|申请邀请码|即将开放|预计开放/);
   assert.match(registration, /name="inviteCode"/);
   assert.match(registration, /startRegistration\([\s\S]*canonicalInvite/);
   assert.match(registration, /referralSourceCodeFromSearch\(window\.location\.search\)/);
