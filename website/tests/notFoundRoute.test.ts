@@ -27,8 +27,13 @@ test("known public and protected routes include authenticated referrals", () => 
     "docs",
     "profile",
     "referrals",
+    "tickets",
   ]);
   assert.match(app, /section === "subscribe" \|\| section === "monitor"/);
+  // /tickets is a protected section: not in the public-section shortcut, so signed-out visitors go to /login.
+  assert.doesNotMatch(app, /section === "tickets"/);
+  assert.match(dashboardShell, /section === "tickets"/);
+  assert.match(dashboardShell, /<CustomerTicketsPage \/>/);
   assert.match(app, /status === "unauthenticated"\) return <Navigate to="\/login" replace/);
   assert.match(dashboardShell, /section === "referrals"/);
   assert.match(dashboardShell, /<ReferralCenterAdapter \/>/);

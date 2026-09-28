@@ -16,8 +16,11 @@ import {
   createReleaseProvenance,
   releaseArtifactNameForRoute,
   DEFAULT_RELEASE_SCHEMA_ROUTE,
-  DIRECT14_RELEASE_SCHEMA_ROUTE,
   isForbiddenBundlePath,
+  isKnownReleaseSchemaRoute,
+  releaseManifestCarriesSchemaRoute,
+  releaseMigrationsForRoute,
+  RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE,
   RELEASE_BUNDLE_FORMAT,
   RELEASE_INTEGRATION_REF,
   RELEASE_HTTP_CONTRACT_PATHS,
@@ -245,7 +248,7 @@ function assertSourceRevision(source, expectedSha) {
   }
 }
 
-function assertExactMigrationFiles(directory, label) {
+function assertExactMigrationFiles(directory, label, migrations = RELEASE_MIGRATIONS) {
   let files;
   try {
     files = readdirSync(directory, { withFileTypes: true })
@@ -259,12 +262,12 @@ function assertExactMigrationFiles(directory, label) {
     );
   }
   if (
-    files.length !== RELEASE_MIGRATIONS.length ||
-    files.some((file, index) => file !== RELEASE_MIGRATIONS[index])
+    files.length !== migrations.length ||
+    files.some((file, index) => file !== migrations[index])
   ) {
     throw new ReleaseValidationError(
       "SCHEMA_BOUNDARY_MISMATCH",
-      `${label} migrations must be the exact frozen 001-019 sequence`,
+      `${label} migrations must be the exact frozen 001-${String(migrations.length).padStart(3, "0")} sequence`,
     );
   }
 }
@@ -542,20 +545,36 @@ function runTrafficGateValidation(source) {
   }
 }
 
-export function validateRepository({ source, expectedSha }) {
+// The repository gate follows the selected schema route: the default (and any
+// 020 route) requires the exact current 001-020 source, while an explicit
+// historical 019 route requires an exact 001-019 source and its own markers.
+export function validateRepository({
+  source,
+  expectedSha,
+  schemaRoute = DEFAULT_RELEASE_SCHEMA_ROUTE,
+}) {
+  if (!isKnownReleaseSchemaRoute(schemaRoute)) {
+    throw new ReleaseValidationError(
+      "ARGUMENT_ERROR",
+      RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE,
+    );
+  }
+  const routeMigrations = releaseMigrationsForRoute(schemaRoute);
+  const currentSchema = RELEASE_SCHEMA_BOUNDARIES[schemaRoute].candidate === 20;
   const sourceRoot = existingDirectory(source, "source");
   const sha = normalizedExpectedSha(expectedSha);
   assertSourceRevision(sourceRoot, sha);
   assertExactMigrationFiles(
     join(sourceRoot, "auth-service/src/migrations"),
     "repository",
+    routeMigrations,
   );
 
   const databaseSource = readText(
     join(sourceRoot, "auth-service/src/db.ts"),
     "migration runner",
   );
-  assertFragments(databaseSource, RELEASE_MIGRATIONS, "migration runner");
+  assertFragments(databaseSource, routeMigrations, "migration runner");
   assertFragments(
     databaseSource,
     ["continuous prefix starting at version 1"],
@@ -590,6 +609,16 @@ export function validateRepository({ source, expectedSha }) {
     [
       "## Explicit DIRECT14 to 19 route",
       "--schema-route direct14-19",
+      ...(currentSchema
+        ? [
+            "## Explicit DIRECT14 to 20 route",
+            "--schema-route direct14-20",
+            "--schema-route standard16-20",
+            "## Explicit STANDARD19 to 20 route",
+            "--schema-route standard19-20",
+            "consolidated-release-standard19-<RELEASE_CANDIDATE_SHA>",
+          ]
+        : []),
       "consolidated-release-direct14-<RELEASE_CANDIDATE_SHA>",
       "continuous migrations 001-014",
     ],
@@ -613,6 +642,16 @@ export function validateRepository({ source, expectedSha }) {
       "DIRECT14_SCHEMA_AND_IMPACT_PROOF",
       "DIRECT14_SQLITE_SNAPSHOT_PROOF",
       "DIRECT14_RESTORE_ELIGIBILITY_PROOF",
+      ...(currentSchema
+        ? [
+            "STANDARD19_ROUTE_AUTHORIZATION",
+            "STANDARD19_CANDIDATE_ARTIFACT_PROOF",
+            "STANDARD19_OLD_RELEASE_UNIT_PROOF",
+            "STANDARD19_SCHEMA_PROOF",
+            "STANDARD19_SQLITE_SNAPSHOT_PROOF",
+            "STANDARD19_PRE_OPEN_RESTORE_PROOF",
+          ]
+        : []),
     ],
     "release bindings",
   );
@@ -658,7 +697,14 @@ export function validateRepository({ source, expectedSha }) {
       "actions/upload-artifact@v4",
       "consolidated-release-${{ env.EXPECTED_SHA }}",
       "consolidated-release-direct14-${{ env.EXPECTED_SHA }}",
-      "--schema-route direct14-19",
+      ...(currentSchema
+        ? [
+            "--schema-route direct14-20",
+            "--schema-route standard16-20",
+            "--schema-route standard19-20",
+            "consolidated-release-standard19-${{ env.EXPECTED_SHA }}",
+          ]
+        : ["--schema-route direct14-19"]),
       "github.sha == env.EXPECTED_SHA",
       'test "$GITHUB_SHA" = "$EXPECTED_SHA"',
       "artifact-digest",
@@ -1073,24 +1119,25 @@ export function validateBundle({
   artifactArchive,
   environment = process.env,
 }) {
-  if (!Object.hasOwn(RELEASE_SCHEMA_BOUNDARIES, schemaRoute)) {
+  if (!isKnownReleaseSchemaRoute(schemaRoute)) {
     throw new ReleaseValidationError(
       "ARGUMENT_ERROR",
-      "--schema-route must be standard16-19 or direct14-19",
+      RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE,
     );
   }
   const expectedBoundary = RELEASE_SCHEMA_BOUNDARIES[schemaRoute];
+  const routeMigrations = releaseMigrationsForRoute(schemaRoute);
+  const carriesSchemaRoute = releaseManifestCarriesSchemaRoute(schemaRoute);
   const bundleRoot = existingDirectory(bundle, "bundle");
   const sha = normalizedExpectedSha(expectedSha);
   const manifest = parsedManifest(bundleRoot);
 
   if (
     Object.keys(manifest).sort().join(",") !==
-      (schemaRoute === DIRECT14_RELEASE_SCHEMA_ROUTE
+      (carriesSchemaRoute
         ? "entrypoints,format,inventory,migrations,provenance,schemaBoundary,schemaRoute,sourceSha"
         : "entrypoints,format,inventory,migrations,provenance,schemaBoundary,sourceSha") ||
-    (schemaRoute === DIRECT14_RELEASE_SCHEMA_ROUTE &&
-      manifest.schemaRoute !== DIRECT14_RELEASE_SCHEMA_ROUTE) ||
+    (carriesSchemaRoute && manifest.schemaRoute !== schemaRoute) ||
     manifest.format !== RELEASE_BUNDLE_FORMAT ||
     manifest.sourceSha !== sha ||
     typeof manifest.schemaBoundary !== "object" ||
@@ -1101,9 +1148,9 @@ export function validateBundle({
     manifest.schemaBoundary?.rollback !== expectedBoundary.rollback ||
     manifest.schemaBoundary?.candidate !== expectedBoundary.candidate ||
     !Array.isArray(manifest.migrations) ||
-    manifest.migrations.length !== RELEASE_MIGRATIONS.length ||
+    manifest.migrations.length !== routeMigrations.length ||
     manifest.migrations.some(
-      (migration, index) => migration !== RELEASE_MIGRATIONS[index],
+      (migration, index) => migration !== routeMigrations[index],
     ) ||
     typeof manifest.entrypoints !== "object" ||
     manifest.entrypoints === null ||
@@ -1210,7 +1257,7 @@ export function validateBundle({
       "public referral entrypoint must reference built assets and keep registration closed",
     );
   }
-  for (const migration of RELEASE_MIGRATIONS) {
+  for (const migration of routeMigrations) {
     if (!inventoryPaths.includes(`auth-service/src/migrations/${migration}`)) {
       throw new ReleaseValidationError(
         "ARTIFACT_MISSING",
@@ -1233,6 +1280,7 @@ export function validateBundle({
   assertExactMigrationFiles(
     join(bundleRoot, "auth-service/src/migrations"),
     "bundle",
+    routeMigrations,
   );
   const bundledOpenValidator = readText(
     join(bundleRoot, "scripts/ops/validate-release-open-http-contract.mjs"),
@@ -1297,8 +1345,14 @@ export function run(arguments_) {
   }
   const source = requireOption(options, "--source");
   const expectedSha = requireOption(options, "--expected-sha");
-  const repositoryResult = validateRepository({ source, expectedSha });
   const bundle = options.get("--bundle");
+  // Without --bundle the repository gate stays strict on the current 001-020
+  // route; with --bundle it follows the bundle's explicit --schema-route.
+  const schemaRoute =
+    bundle === undefined
+      ? DEFAULT_RELEASE_SCHEMA_ROUTE
+      : (options.get("--schema-route") ?? DEFAULT_RELEASE_SCHEMA_ROUTE);
+  const repositoryResult = validateRepository({ source, expectedSha, schemaRoute });
   if (bundle === undefined) {
     if (
       options.has("--validation-mode") ||
@@ -1327,7 +1381,7 @@ export function run(arguments_) {
     bundle,
     expectedSha,
     validationMode,
-    schemaRoute: options.get("--schema-route") ?? DEFAULT_RELEASE_SCHEMA_ROUTE,
+    schemaRoute,
     githubArtifactId: options.get("--github-artifact-id"),
     artifactArchive: options.get("--artifact-archive"),
   });

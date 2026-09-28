@@ -32,24 +32,61 @@ export const RELEASE_REPOSITORY =
 export const RELEASE_WORKFLOW_JOB = "consolidated-release-packet";
 export const RELEASE_ARTIFACT_PREFIX = "consolidated-release-";
 export const DIRECT14_RELEASE_ARTIFACT_PREFIX = "consolidated-release-direct14-";
+export const STANDARD19_RELEASE_ARTIFACT_PREFIX = "consolidated-release-standard19-";
 export const RELEASE_INTEGRATION_REF =
   "refs/heads/integration/consolidate-project";
-export const DEFAULT_RELEASE_SCHEMA_ROUTE = "standard16-19";
-export const DIRECT14_RELEASE_SCHEMA_ROUTE = "direct14-19";
+// Historical routes (001-019) stay recognized so already-built 019 bundles
+// still validate; the current repository sequence is 001-020 (tickets).
+export const STANDARD16_19_RELEASE_SCHEMA_ROUTE = "standard16-19";
+export const DIRECT14_19_RELEASE_SCHEMA_ROUTE = "direct14-19";
+export const STANDARD16_20_RELEASE_SCHEMA_ROUTE = "standard16-20";
+export const DIRECT14_20_RELEASE_SCHEMA_ROUTE = "direct14-20";
+// Formal route for a live database that is already continuous 001-019: the
+// candidate loader applies only migration 020 (rollback boundary 19).
+export const STANDARD19_20_RELEASE_SCHEMA_ROUTE = "standard19-20";
+export const DEFAULT_RELEASE_SCHEMA_ROUTE = STANDARD16_20_RELEASE_SCHEMA_ROUTE;
+export const DIRECT14_RELEASE_SCHEMA_ROUTE = DIRECT14_20_RELEASE_SCHEMA_ROUTE;
 export const RELEASE_SCHEMA_BOUNDARIES = Object.freeze({
-  [DEFAULT_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 16, candidate: 19 }),
-  [DIRECT14_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 14, candidate: 19 }),
+  [STANDARD16_19_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 16, candidate: 19 }),
+  [DIRECT14_19_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 14, candidate: 19 }),
+  [STANDARD16_20_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 16, candidate: 20 }),
+  [DIRECT14_20_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 14, candidate: 20 }),
+  [STANDARD19_20_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 19, candidate: 20 }),
 });
+export const RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE =
+  "--schema-route must be standard16-19, direct14-19, standard16-20, direct14-20, or standard19-20";
+const DIRECT14_RELEASE_SCHEMA_ROUTES = Object.freeze(
+  new Set([DIRECT14_19_RELEASE_SCHEMA_ROUTE, DIRECT14_20_RELEASE_SCHEMA_ROUTE]),
+);
+export function isKnownReleaseSchemaRoute(schemaRoute) {
+  return (
+    typeof schemaRoute === "string" &&
+    Object.hasOwn(RELEASE_SCHEMA_BOUNDARIES, schemaRoute)
+  );
+}
+export function isDirect14ReleaseSchemaRoute(schemaRoute) {
+  return DIRECT14_RELEASE_SCHEMA_ROUTES.has(schemaRoute);
+}
+// Historical standard16-19 manifests omit schemaRoute; every other route,
+// including both 001-020 routes, records it explicitly.
+export function releaseManifestCarriesSchemaRoute(schemaRoute) {
+  return schemaRoute !== STANDARD16_19_RELEASE_SCHEMA_ROUTE;
+}
 export function releaseArtifactNameForRoute(sha, schemaRoute) {
-  if (!Object.hasOwn(RELEASE_SCHEMA_BOUNDARIES, schemaRoute)) {
+  if (!isKnownReleaseSchemaRoute(schemaRoute)) {
     throw new ReleaseAssemblyError(
       "ARGUMENT_ERROR",
-      "--schema-route must be standard16-19 or direct14-19",
+      RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE,
     );
   }
-  return `${schemaRoute === DIRECT14_RELEASE_SCHEMA_ROUTE ? DIRECT14_RELEASE_ARTIFACT_PREFIX : RELEASE_ARTIFACT_PREFIX}${sha}`;
+  const prefix = isDirect14ReleaseSchemaRoute(schemaRoute)
+    ? DIRECT14_RELEASE_ARTIFACT_PREFIX
+    : schemaRoute === STANDARD19_20_RELEASE_SCHEMA_ROUTE
+      ? STANDARD19_RELEASE_ARTIFACT_PREFIX
+      : RELEASE_ARTIFACT_PREFIX;
+  return `${prefix}${sha}`;
 }
-export const RELEASE_MIGRATIONS = Object.freeze([
+export const RELEASE_MIGRATIONS_001_019 = Object.freeze([
   "001_users_and_invite_codes.sql",
   "002_invite_code_redemptions.sql",
   "003_session_families_and_sessions.sql",
@@ -70,6 +107,23 @@ export const RELEASE_MIGRATIONS = Object.freeze([
   "018_referral_attribution_candidates.sql",
   "019_referral_candidate_owner_page_index.sql",
 ]);
+export const RELEASE_MIGRATIONS_001_020 = Object.freeze([
+  ...RELEASE_MIGRATIONS_001_019,
+  "020_tickets.sql",
+]);
+// The exact sequence of the current repository source.
+export const RELEASE_MIGRATIONS = RELEASE_MIGRATIONS_001_020;
+export function releaseMigrationsForRoute(schemaRoute) {
+  if (!isKnownReleaseSchemaRoute(schemaRoute)) {
+    throw new ReleaseAssemblyError(
+      "ARGUMENT_ERROR",
+      RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE,
+    );
+  }
+  return RELEASE_SCHEMA_BOUNDARIES[schemaRoute].candidate === 19
+    ? RELEASE_MIGRATIONS_001_019
+    : RELEASE_MIGRATIONS_001_020;
+}
 export const RELEASE_HTTP_CONTRACT_PATHS = Object.freeze([
   "ops/nginx/release-traffic-open.conf.example",
   "ops/nginx/release-traffic-dual-direct.conf.example",
@@ -527,7 +581,7 @@ function buildInventory(destination, paths) {
     }));
 }
 
-function verifyMigrationInputs(source) {
+function verifyMigrationInputs(source, migrations) {
   const migrationsDirectory = join(source, "auth-service/src/migrations");
   let files;
   try {
@@ -542,12 +596,12 @@ function verifyMigrationInputs(source) {
     );
   }
   if (
-    files.length !== RELEASE_MIGRATIONS.length ||
-    files.some((file, index) => file !== RELEASE_MIGRATIONS[index])
+    files.length !== migrations.length ||
+    files.some((file, index) => file !== migrations[index])
   ) {
     throw new ReleaseAssemblyError(
       "SCHEMA_BOUNDARY_MISMATCH",
-      "migration inputs must be the exact frozen 001-019 sequence",
+      `migration inputs must be the exact frozen 001-${String(migrations.length).padStart(3, "0")} sequence for the selected schema route`,
     );
   }
 }
@@ -560,13 +614,14 @@ export function assembleReleaseBundle({
   schemaRoute = DEFAULT_RELEASE_SCHEMA_ROUTE,
   environment = process.env,
 }) {
-  if (!Object.hasOwn(RELEASE_SCHEMA_BOUNDARIES, schemaRoute)) {
+  if (!isKnownReleaseSchemaRoute(schemaRoute)) {
     throw new ReleaseAssemblyError(
       "ARGUMENT_ERROR",
-      "--schema-route must be standard16-19 or direct14-19",
+      RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE,
     );
   }
   const schemaBoundary = RELEASE_SCHEMA_BOUNDARIES[schemaRoute];
+  const routeMigrations = releaseMigrationsForRoute(schemaRoute);
   const sourceRoot = existingDirectory(source, "source");
   const sha = normalizedExpectedSha(expectedSha);
   const provenance = createReleaseProvenance({
@@ -577,7 +632,7 @@ export function assembleReleaseBundle({
   });
   const destinationRoot = newDestination(destination, sourceRoot);
   verifySourceRevision(sourceRoot, sha);
-  verifyMigrationInputs(sourceRoot);
+  verifyMigrationInputs(sourceRoot, routeMigrations);
 
   let created = false;
   try {
@@ -603,7 +658,7 @@ export function assembleReleaseBundle({
         );
       }
     }
-    for (const migration of RELEASE_MIGRATIONS) {
+    for (const migration of routeMigrations) {
       const path = `auth-service/src/migrations/${migration}`;
       if (!copiedPaths.includes(path)) {
         throw new ReleaseAssemblyError(
@@ -616,9 +671,9 @@ export function assembleReleaseBundle({
     const manifest = {
       format: RELEASE_BUNDLE_FORMAT,
       sourceSha: sha,
-      ...(schemaRoute === DIRECT14_RELEASE_SCHEMA_ROUTE ? { schemaRoute } : {}),
+      ...(releaseManifestCarriesSchemaRoute(schemaRoute) ? { schemaRoute } : {}),
       schemaBoundary,
-      migrations: RELEASE_MIGRATIONS,
+      migrations: routeMigrations,
       entrypoints: {
         auth: "auth-service/dist/src/server.js",
         website: "website/dist/index.html",

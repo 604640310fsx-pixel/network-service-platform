@@ -143,7 +143,7 @@ test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", 
   await withTemporaryDatabase((database) => {
     assert.equal(
       MIGRATION_FILES.at(-1),
-      "019_referral_candidate_owner_page_index.sql",
+      "020_tickets.sql",
     );
     const migrationRows = database
       .prepare("SELECT version, applied_at FROM schema_migrations ORDER BY version")
@@ -151,7 +151,7 @@ test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", 
 
     assert.deepEqual(
       migrationRows.map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
     );
     for (const row of migrationRows) {
       assert.match(row.applied_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
@@ -244,6 +244,8 @@ test("creates every frozen table and named index", async () => {
       "sessions",
       "sso_codes",
       "sso_states",
+      "ticket_messages",
+      "tickets",
       "users",
     ]);
 
@@ -278,6 +280,9 @@ test("creates every frozen table and named index", async () => {
       "idx_sessions_family",
       "idx_sessions_user",
       "idx_sso_codes_state",
+      "idx_ticket_messages_ticket",
+      "idx_tickets_owner_updated",
+      "idx_tickets_status_updated",
     ]);
   });
 });
@@ -442,7 +447,7 @@ test("Migration 019 upgrades an 018 database with the bounded owner-page query i
     assert.equal(objectNames(database, "index").includes("idx_referral_candidate_owner_page"), false);
     runMigrations(database);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 19);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 20);
     assert.equal(objectNames(database, "index").filter((name) => name === "idx_referral_candidate_owner_page").length, 1);
     const queryPlan = database.prepare(
       `EXPLAIN QUERY PLAN
@@ -457,6 +462,68 @@ test("Migration 019 upgrades an 018 database with the bounded owner-page query i
     assert.ok(details.some((detail) => detail.includes("SEARCH candidates USING COVERING INDEX idx_referral_candidate_owner_page")), details.join("; "));
     assert.equal(details.some((detail) => detail.includes("SCAN candidates")), false);
     assert.equal(details.some((detail) => detail.includes("USE TEMP B-TREE")), false);
+  } finally {
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Migration 020 adds only ticket tables on a 019 database and enforces its constraints", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "auth-tickets-020-"));
+  const database = openAndVerifyDatabase(join(directory, "auth.sqlite"));
+  try {
+    applyMigrationPrefix(database, 19);
+    const { userId } = createBootstrapUser(database);
+    const tablesBefore = objectNames(database, "table");
+    const usersBefore = firstNumber(database, "SELECT COUNT(*) FROM users");
+    assert.equal(tablesBefore.includes("tickets"), false);
+
+    runMigrations(database);
+    runMigrations(database);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 20);
+    assert.deepEqual(
+      objectNames(database, "table").filter((name) => !tablesBefore.includes(name)),
+      ["ticket_messages", "tickets"],
+    );
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM users"), usersBefore);
+
+    const insertTicket = database.prepare(
+      `INSERT INTO tickets (ticket_ref, user_id, service_id, subject, status, created_at, updated_at, closed_at, closed_by_admin_id)
+       VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
+    );
+    const ref = "TK0123456789ABCDEF";
+    insertTicket.run(ref, userId, "subject", "open", NOW, NOW, null, null);
+    const ticketId = firstNumber(database, "SELECT id FROM tickets WHERE ticket_ref = ?", ref);
+    for (const [label, args] of [
+      ["duplicate ref", [ref, userId, "s", "open", NOW, NOW, null, null]],
+      ["lowercase ref", ["tk0123456789abcdef", userId, "s", "open", NOW, NOW, null, null]],
+      ["short ref", ["TK0123", userId, "s", "open", NOW, NOW, null, null]],
+      ["unknown status", ["TK0000000000000001", userId, "s", "pending", NOW, NOW, null, null]],
+      ["closed without close fields", ["TK0000000000000002", userId, "s", "closed", NOW, NOW, null, null]],
+      ["open with close fields", ["TK0000000000000003", userId, "s", "open", NOW, NOW, NOW, userId]],
+      ["empty subject", ["TK0000000000000004", userId, "", "open", NOW, NOW, null, null]],
+      ["long subject", ["TK0000000000000005", userId, "x".repeat(121), "open", NOW, NOW, null, null]],
+      ["unknown owner", ["TK0000000000000006", 999_999, "s", "open", NOW, NOW, null, null]],
+    ] as const) {
+      assert.throws(() => insertTicket.run(...args), /constraint failed/, label);
+    }
+    database
+      .prepare("UPDATE tickets SET status = 'closed', closed_at = ?, closed_by_admin_id = ? WHERE id = ?")
+      .run(NOW, userId, ticketId);
+
+    const insertMessage = database.prepare(
+      `INSERT INTO ticket_messages (ticket_id, author_role, author_user_id, body, created_at) VALUES (?, ?, ?, ?, ?)`,
+    );
+    insertMessage.run(ticketId, "customer", userId, "hello", NOW);
+    for (const [label, args] of [
+      ["unknown role", [ticketId, "system", userId, "hello", NOW]],
+      ["empty body", [ticketId, "admin", userId, "", NOW]],
+      ["long body", [ticketId, "admin", userId, "x".repeat(4001), NOW]],
+      ["unknown ticket", [999_999, "admin", userId, "hello", NOW]],
+      ["unknown author", [ticketId, "admin", 999_999, "hello", NOW]],
+    ] as const) {
+      assert.throws(() => insertMessage.run(...args), /constraint failed/, label);
+    }
   } finally {
     database.close();
     await rm(directory, { recursive: true, force: true });
@@ -541,7 +608,7 @@ test("the NULL-safe unique index rejects a duplicate fixed-price plan (spec_id I
   });
 });
 
-test("continuous Schema 14 upgrades directly through 15-19 with legacy rows", async () => {
+test("continuous Schema 14 upgrades directly through 15-20 with legacy rows", async () => {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "auth-direct14-upgrade-"));
   const database = openAndVerifyDatabase(join(temporaryDirectory, "auth.sqlite"));
   try {
@@ -574,7 +641,7 @@ test("continuous Schema 14 upgrades directly through 15-19 with legacy rows", as
     runMigrations(database);
     assert.deepEqual(
       (database.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as Array<{ readonly version: number }>).map((row) => row.version),
-      Array.from({ length: 19 }, (_, index) => index + 1),
+      Array.from({ length: 20 }, (_, index) => index + 1),
     );
     assert.equal(objectNames(database, "table").includes("diagnosis_request_idempotency"), true);
     assert.equal(objectNames(database, "index").includes("idx_referral_candidate_owner_page"), true);
@@ -582,7 +649,7 @@ test("continuous Schema 14 upgrades directly through 15-19 with legacy rows", as
     assert.equal(firstNumber(database, "SELECT COUNT(*) FROM mail_outbox"), 0);
     assert.equal(firstNumber(database, "SELECT COUNT(*) FROM invite_codes WHERE id = 1 AND revoked_at IS NOT NULL"), 1);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 19);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 20);
   } finally {
     database.close();
     await rm(temporaryDirectory, { recursive: true, force: true });
@@ -701,7 +768,7 @@ test("Migration 016 revokes legacy codes without guessing email and preserves hi
           .prepare("SELECT version FROM schema_migrations ORDER BY version")
           .all() as Array<{ readonly version: number }>
       ).map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
     );
     assert.deepEqual(
       database
@@ -780,7 +847,7 @@ test("Migration 016 revokes legacy codes without guessing email and preserves hi
     );
 
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 19);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 20);
     assert.equal(firstNumber(database, "SELECT COUNT(*) FROM invite_code_redemptions"), 2);
   } finally {
     database.close();
@@ -1202,7 +1269,7 @@ test("missing, extra, and unknown migration registry states fail closed", async 
       }
       if (scenario === "extra") {
         await writeFile(
-          join(migrationsDirectory, "020_unexpected.sql"),
+          join(migrationsDirectory, "021_unexpected.sql"),
           "SELECT 1;",
           "utf8",
         );
@@ -1238,15 +1305,15 @@ test("missing, extra, and unknown migration registry states fail closed", async 
         applied_at TEXT NOT NULL
       );
       INSERT INTO schema_migrations (version, applied_at)
-      VALUES (20, '${NOW}');
+      VALUES (21, '${NOW}');
     `);
     assert.throws(
       () => runMigrations(database),
-      /database contains unknown migration version 20/,
+      /database contains unknown migration version 21/,
     );
     assert.deepEqual(
       database.prepare("SELECT version FROM schema_migrations").all(),
-      [{ version: 20 }],
+      [{ version: 21 }],
     );
   } finally {
     database.close();

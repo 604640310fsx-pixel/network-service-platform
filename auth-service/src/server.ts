@@ -305,6 +305,11 @@ async function start(): Promise<void> {
           rateLimitKeyring: credentials.rateLimitKeyring,
           csrfSigningKey: credentials.csrfSigningKey,
         },
+        tickets: {
+          database,
+          tokenHmacKeyring: credentials.tokenHmacKeyring,
+          csrfSigningKey: credentials.csrfSigningKey,
+        },
         referral: {
           database,
           nodeEnv: config.nodeEnv,

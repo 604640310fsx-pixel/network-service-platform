@@ -2,6 +2,7 @@ import { useParams } from "react-router-dom";
 import { CustomerCenterShell } from "./customer/CustomerCenterShell";
 import { CustomerOrdersPage } from "./customer/CustomerOrdersPage";
 import { CustomerServicesPage } from "./customer/CustomerServicesPage";
+import { CustomerTicketsPage } from "./customer/CustomerTicketsPage";
 import { DashboardPage } from "./dashboard/DashboardPage";
 import { DocsLibrary } from "./docs/DocsLibrary";
 import { CustomerShellMonitor, PublicMonitorPage } from "./monitor/PublicMonitorPage";
@@ -78,6 +79,13 @@ export function DashboardShell() {
     return (
       <CustomerCenterShell title="邀请/推广" description="查看推荐链接、待确认来源和当前接入状态">
         <ReferralCenterAdapter />
+      </CustomerCenterShell>
+    );
+  }
+  if (section === "tickets") {
+    return (
+      <CustomerCenterShell title="工单" description="提交问题并查看客服的文字回复">
+        <CustomerTicketsPage />
       </CustomerCenterShell>
     );
   }

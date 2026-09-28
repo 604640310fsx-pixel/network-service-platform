@@ -60,6 +60,7 @@ export const MIGRATION_FILES = [
   "017_referral_profiles.sql",
   "018_referral_attribution_candidates.sql",
   "019_referral_candidate_owner_page_index.sql",
+  "020_tickets.sql",
 ] as const;
 
 const DATABASE_READINESS_SQL =
