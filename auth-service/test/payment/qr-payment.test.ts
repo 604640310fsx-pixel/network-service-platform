@@ -210,6 +210,7 @@ test("a transient pageExecute failure preserves the order and same-key retry ret
         url: "/api/pay/orders",
         headers: {
           cookie: buyerSession.cookie,
+          "x-csrf-token": buyerSession.csrfToken,
           "content-type": "application/json",
           "idempotency-key": "page-pay-retry-key",
           "x-order-access-token": ACCESS_TOKEN_A,

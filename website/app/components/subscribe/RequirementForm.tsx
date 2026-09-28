@@ -58,6 +58,8 @@ function paymentErrorMessage(error: unknown): string {
       return "请填写联系方式后再支付。";
     case "unauthorized":
       return "登录状态已失效，请重新登录后返回“套餐订阅”重新选择套餐。";
+    case "csrf_invalid":
+      return "登录状态已变化，请刷新页面后重试。";
     case "payment_unavailable":
       return "支付服务暂未开放，请稍后再试。";
     case "idempotency_key_conflict":
@@ -86,8 +88,8 @@ export function RequirementForm({
 }) {
   const navigate = useNavigate();
   // 新建订单必须登录（服务端同样强制）；检查中与未登录都不允许提交。
-  const { status: authStatus } = useAuth();
-  const signedIn = authStatus === "authenticated";
+  const { status: authStatus, csrfToken } = useAuth();
+  const signedIn = authStatus === "authenticated" && csrfToken !== null;
   const [contact, setContact] = useState("");
   const [scenarios, setScenarios] = useState<string[]>([]);
   const [notes, setNotes] = useState("");
@@ -162,7 +164,7 @@ export function RequirementForm({
     event.preventDefault();
     setContactTouched(true);
     setSubmitError(null);
-    if (!signedIn || submitting || contact.trim() === "" || amountFen === null || overPaymentLimit) return;
+    if (!signedIn || csrfToken === null || submitting || contact.trim() === "" || amountFen === null || overPaymentLimit) return;
 
     const draft: RequirementDraft = {
       selection,
@@ -177,7 +179,7 @@ export function RequirementForm({
     try {
       // 先持久化需求指纹与凭证（不保存明文需求），再发请求；刷新或响应丢失后可安全重试。
       credentials = await getOrCreateCheckoutAttempt(draft);
-      const result = await createPaymentOrder(draft, credentials);
+      const result = await createPaymentOrder(draft, credentials, csrfToken);
       bindOrderAccess(result.orderRef, credentials);
       // 站内跳转到订单页；首个支付结果（含 payUrl）只通过内存 navigation state 携带，
       // 供 iframe 打开支付宝电脑网站收银台，不写入本站 URL / localStorage。

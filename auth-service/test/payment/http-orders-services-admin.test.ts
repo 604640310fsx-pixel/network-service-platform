@@ -21,6 +21,7 @@ import {
   insertWebSession,
   localIspSelection,
   paymentDependencies,
+  queryResult,
 } from "./helpers.js";
 
 test("create-order API stores only the client credential hash and returns the frozen website-pay result", async () => {
@@ -40,6 +41,7 @@ test("create-order API stores only the client credential hash and returns the fr
         url: "/api/pay/orders",
         headers: {
           cookie: buyerSession.cookie,
+          "x-csrf-token": buyerSession.csrfToken,
           "content-type": "application/json",
           "idempotency-key": "browser-key-1",
           "x-order-access-token": ACCESS_TOKEN_A,
@@ -104,6 +106,7 @@ test("server pricing rejects changed and over-limit amounts before any SDK pageE
         url: "/api/pay/orders",
         headers: {
           cookie: buyerSession.cookie,
+          "x-csrf-token": buyerSession.csrfToken,
           "content-type": "application/json",
           "idempotency-key": "price-change-key",
           "x-order-access-token": ACCESS_TOKEN_A,
@@ -126,6 +129,7 @@ test("server pricing rejects changed and over-limit amounts before any SDK pageE
         url: "/api/pay/orders",
         headers: {
           cookie: buyerSession.cookie,
+          "x-csrf-token": buyerSession.csrfToken,
           "content-type": "application/json",
           "idempotency-key": "over-limit-key",
           "x-order-access-token": ACCESS_TOKEN_B,
@@ -212,6 +216,24 @@ test("create-order API requires a web session, binds the server user, and keeps 
       // Unauthenticated requests are rejected before validation, even when malformed.
       const malformed = await app.inject({ method: "POST", url: "/api/pay/orders", payload: {} });
       assert.equal(malformed.statusCode, 401);
+      // A valid session still needs its own session-bound CSRF token (existing cookie-mutation contract).
+      const otherSession = insertWebSession(database, otherId);
+      for (const csrf of [undefined, otherSession.csrfToken, "x".repeat(43)]) {
+        const forged = await app.inject({
+          method: "POST",
+          url: "/api/pay/orders",
+          headers: {
+            cookie: buyerSession.cookie,
+            ...(csrf === undefined ? {} : { "x-csrf-token": csrf }),
+            "content-type": "application/json",
+            "idempotency-key": "csrf-key",
+            "x-order-access-token": ACCESS_TOKEN_A,
+          },
+          payload,
+        });
+        assert.equal(forged.statusCode, 403);
+        assert.deepEqual(forged.json(), { error: { code: "csrf_invalid" } });
+      }
       assert.equal(firstValue(database, "SELECT COUNT(*) FROM orders"), 1);
       assert.equal(sdk.pageCalls.length, 0);
 
@@ -220,6 +242,7 @@ test("create-order API requires a web session, binds the server user, and keeps 
         url: "/api/pay/orders",
         headers: {
           cookie: buyerSession.cookie,
+          "x-csrf-token": buyerSession.csrfToken,
           "content-type": "application/json",
           "idempotency-key": "session-key",
           "x-order-access-token": ACCESS_TOKEN_A,
@@ -234,6 +257,10 @@ test("create-order API requires a web session, binds the server user, and keeps 
       );
 
       // A pre-change guest order stays readable and payable with its browser credential alone.
+      sdk.queryResponse = queryResult({
+        tradeStatus: "WAIT_BUYER_PAY",
+        outTradeNo: legacyGuest.orderRef,
+      });
       const legacyStatus = await app.inject({
         method: "GET",
         url: `/api/pay/orders/${legacyGuest.orderRef}`,
@@ -306,6 +333,18 @@ test("retry API authenticates the old order, copies its snapshot, and stores the
       });
       assert.equal(anonymous.statusCode, 401);
       assert.deepEqual(anonymous.json(), { error: { code: "unauthorized" } });
+      const missingCsrf = await app.inject({
+        method: "POST",
+        url: `/api/pay/orders/${old.orderRef}/retry`,
+        headers: {
+          cookie: buyerSession.cookie,
+          "idempotency-key": "retry-key",
+          "x-order-access-token": ACCESS_TOKEN_A,
+          "x-new-order-access-token": ACCESS_TOKEN_B,
+        },
+      });
+      assert.equal(missingCsrf.statusCode, 403);
+      assert.deepEqual(missingCsrf.json(), { error: { code: "csrf_invalid" } });
       assert.equal(firstValue(database, "SELECT COUNT(*) FROM orders"), 1);
 
       const unauthorized = await app.inject({
@@ -313,6 +352,7 @@ test("retry API authenticates the old order, copies its snapshot, and stores the
         url: `/api/pay/orders/${old.orderRef}/retry`,
         headers: {
           cookie: buyerSession.cookie,
+          "x-csrf-token": buyerSession.csrfToken,
           "idempotency-key": "retry-key",
           "x-order-access-token": ACCESS_TOKEN_C,
           "x-new-order-access-token": ACCESS_TOKEN_B,
@@ -325,6 +365,7 @@ test("retry API authenticates the old order, copies its snapshot, and stores the
         url: `/api/pay/orders/${old.orderRef}/retry`,
         headers: {
           cookie: buyerSession.cookie,
+          "x-csrf-token": buyerSession.csrfToken,
           "idempotency-key": "retry-key",
           "x-order-access-token": ACCESS_TOKEN_A,
           "x-new-order-access-token": ACCESS_TOKEN_B,

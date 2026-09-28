@@ -32,6 +32,8 @@ function orderErrorMessage(error: unknown): string {
       return "请登录下单时使用的账户后查看。";
     case "forbidden":
       return "当前账户无权查看该订单。";
+    case "csrf_invalid":
+      return "登录状态已变化，请刷新页面后重试。";
     case "price_changed":
       return error.currentAmountFen === null
         ? "方案价格已变化，请返回方案页重新确认。"
@@ -96,7 +98,7 @@ export function OrderStatusPanel({
   initialResult?: PaymentOrderResult;
 }) {
   const navigate = useNavigate();
-  const { status: authStatus } = useAuth();
+  const { status: authStatus, csrfToken } = useAuth();
   const [snapshot, setSnapshot] = useState<PaymentOrderSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -237,7 +239,7 @@ export function OrderStatusPanel({
   async function retryPayment() {
     if (retrying) return;
     // 未登录时不生成或改动任何重试凭证，只提示先登录。
-    if (authStatus !== "authenticated") {
+    if (authStatus !== "authenticated" || csrfToken === null) {
       setActionError(RETRY_LOGIN_REQUIRED);
       return;
     }
@@ -248,7 +250,7 @@ export function OrderStatusPanel({
     let credentials: OrderCredentials | null = null;
     try {
       credentials = getOrCreateRetryAttempt(orderRef);
-      const result = await retryPaymentOrder(orderRef, accessTokenRef.current, credentials);
+      const result = await retryPaymentOrder(orderRef, accessTokenRef.current, credentials, csrfToken);
       bindOrderAccess(result.orderRef, credentials);
       // 站内跳转到新订单页并以内存 navigation state 携带首个支付结果（含 payUrl）。
       navigate(`/subscribe/request?orderRef=${encodeURIComponent(result.orderRef)}`, {

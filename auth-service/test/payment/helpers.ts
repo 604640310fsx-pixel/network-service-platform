@@ -4,7 +4,11 @@ import type {
   AlipayTradeQueryResult,
 } from "../../src/payment/alipay.js";
 import type { PaymentEnabledDependencies } from "../../src/http/payment-routes.js";
-import { generateSessionToken } from "../../src/session/session-token.js";
+import { issueCsrfToken } from "../../src/http/csrf.js";
+import {
+  computeSessionTokenHash,
+  generateSessionToken,
+} from "../../src/session/session-token.js";
 
 export const TEST_NOW = new Date("2026-08-21T00:00:00.000Z");
 export const TOKEN_KEY = Buffer.alloc(32, 0x41).toString("base64");
@@ -155,7 +159,7 @@ export function allRows(
 export function insertWebSession(
   database: DatabaseConnection,
   userId: number,
-): { readonly rawToken: string; readonly cookie: string } {
+): { readonly rawToken: string; readonly cookie: string; readonly csrfToken: string } {
   const token = generateSessionToken(TOKEN_KEYRING, () => Buffer.alloc(32, userId));
   const familyId = `family-${userId}`;
   database
@@ -182,6 +186,11 @@ export function insertWebSession(
   return {
     rawToken: token.rawToken,
     cookie: `__Host-web_session=${token.rawToken}`,
+    // 与 /api/auth/me 下发方式一致：CSRF 令牌绑定该 Session 的 token hash。
+    csrfToken: issueCsrfToken(
+      CSRF_KEY,
+      computeSessionTokenHash(token.rawToken, TOKEN_KEYRING).tokenHash,
+    ),
   };
 }
 
