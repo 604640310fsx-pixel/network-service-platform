@@ -21,10 +21,14 @@ import { fileURLToPath } from "node:url";
 import {
   assembleReleaseBundle,
   createReleaseProvenance,
+  DIRECT14_19_RELEASE_SCHEMA_ROUTE,
   DIRECT14_RELEASE_SCHEMA_ROUTE,
   isForbiddenBundlePath,
   RELEASE_HTTP_CONTRACT_PATHS,
   RELEASE_MIGRATIONS,
+  RELEASE_MIGRATIONS_001_019,
+  STANDARD16_19_RELEASE_SCHEMA_ROUTE,
+  STANDARD16_20_RELEASE_SCHEMA_ROUTE,
 } from "./assemble-consolidated-release.mjs";
 import {
   validateBundle,
@@ -207,7 +211,7 @@ function runGit(root, ...arguments_) {
   return result.stdout.trim();
 }
 
-function createFixtureRepository(parent) {
+function createFixtureRepository(parent, migrations = RELEASE_MIGRATIONS) {
   const root = join(parent, "source");
   mkdirSync(root);
   writeFixtureFile(
@@ -226,7 +230,7 @@ function createFixtureRepository(parent) {
     "auth-service/package-lock.json",
     '{"lockfileVersion":3}\n',
   );
-  for (const migration of RELEASE_MIGRATIONS) {
+  for (const migration of migrations) {
     writeFixtureFile(
       root,
       `auth-service/src/migrations/${migration}`,
@@ -285,12 +289,16 @@ function allFiles(root, relative = "") {
   return entries.sort();
 }
 
-test("release migrations independently pin the exact continuous 001-019 sequence", () => {
-  assert.equal(RELEASE_MIGRATIONS.length, 19);
+test("release migrations independently pin the exact continuous 001-020 sequence", () => {
+  assert.equal(RELEASE_MIGRATIONS.length, 20);
+  assert.equal(RELEASE_MIGRATIONS.at(-1), "020_tickets.sql");
+  // The historical 001-019 sequence stays frozen as an exact prefix.
+  assert.equal(RELEASE_MIGRATIONS_001_019.length, 19);
   assert.equal(
-    RELEASE_MIGRATIONS.at(-1),
+    RELEASE_MIGRATIONS_001_019.at(-1),
     "019_referral_candidate_owner_page_index.sql",
   );
+  assert.deepEqual(RELEASE_MIGRATIONS.slice(0, 19), [...RELEASE_MIGRATIONS_001_019]);
   assert.deepEqual(
     RELEASE_MIGRATIONS.map((migration, index) => {
       const version = index + 1;
@@ -300,7 +308,7 @@ test("release migrations independently pin the exact continuous 001-019 sequence
       );
       return version;
     }),
-    Array.from({ length: 19 }, (_, index) => index + 1),
+    Array.from({ length: 20 }, (_, index) => index + 1),
   );
 });
 
@@ -1299,9 +1307,10 @@ test("two independent assemblies produce one deterministic, complete manifest", 
       readFileSync(join(first, "release-manifest.json"), "utf8"),
     );
     assert.deepEqual(manifest.migrations, RELEASE_MIGRATIONS);
+    assert.equal(manifest.schemaRoute, STANDARD16_20_RELEASE_SCHEMA_ROUTE);
     assert.deepEqual(manifest.schemaBoundary, {
       rollback: 16,
-      candidate: 19,
+      candidate: 20,
     });
     for (const relativePath of RELEASE_HTTP_CONTRACT_PATHS) {
       const entry = manifest.inventory.find(
@@ -1360,7 +1369,7 @@ test("direct14 bundle requires an explicit matching route and distinct artifact 
     });
     const manifest = JSON.parse(readFileSync(join(direct, "release-manifest.json"), "utf8"));
     assert.equal(manifest.schemaRoute, DIRECT14_RELEASE_SCHEMA_ROUTE);
-    assert.deepEqual(manifest.schemaBoundary, { rollback: 14, candidate: 19 });
+    assert.deepEqual(manifest.schemaBoundary, { rollback: 14, candidate: 20 });
     assert.equal(
       validateBundle({
         bundle: direct,
@@ -1436,7 +1445,67 @@ test("direct14 CI provenance validates only its route-specific artifact identity
   }
 });
 
-test("assembler rejects missing, extra, or wrong Migration 019 inputs", () => {
+test("historical 001-019 routes still assemble and validate only 019 bundles", () => {
+  const parent = mkdtempSync(join(tmpdir(), "consolidated-release-historical-"));
+  try {
+    mkdirSync(join(parent, "h"));
+    mkdirSync(join(parent, "c"));
+    const historical = createFixtureRepository(join(parent, "h"), RELEASE_MIGRATIONS_001_019);
+    const current = createFixtureRepository(join(parent, "c"));
+    const standard19 = join(parent, "standard19");
+    const direct19 = join(parent, "direct19");
+    assembleReleaseBundle({ source: historical.root, destination: standard19, expectedSha: historical.sha, provenanceMode: LOCAL_PROVENANCE_MODE, schemaRoute: STANDARD16_19_RELEASE_SCHEMA_ROUTE });
+    assembleReleaseBundle({ source: historical.root, destination: direct19, expectedSha: historical.sha, provenanceMode: LOCAL_PROVENANCE_MODE, schemaRoute: DIRECT14_19_RELEASE_SCHEMA_ROUTE });
+    const standardManifest = JSON.parse(readFileSync(join(standard19, "release-manifest.json"), "utf8"));
+    const directManifest = JSON.parse(readFileSync(join(direct19, "release-manifest.json"), "utf8"));
+    // The historical standard manifest format (no schemaRoute) is preserved exactly.
+    assert.equal(Object.hasOwn(standardManifest, "schemaRoute"), false);
+    assert.deepEqual(standardManifest.schemaBoundary, { rollback: 16, candidate: 19 });
+    assert.deepEqual(standardManifest.migrations, [...RELEASE_MIGRATIONS_001_019]);
+    assert.equal(directManifest.schemaRoute, DIRECT14_19_RELEASE_SCHEMA_ROUTE);
+    assert.deepEqual(directManifest.schemaBoundary, { rollback: 14, candidate: 19 });
+    for (const [bundle, schemaRoute] of [[standard19, STANDARD16_19_RELEASE_SCHEMA_ROUTE], [direct19, DIRECT14_19_RELEASE_SCHEMA_ROUTE]]) {
+      assert.equal(validateBundle({ bundle, expectedSha: historical.sha, validationMode: "local-dry-run", schemaRoute }).status, "ok");
+    }
+    // A 019 bundle never passes as a 020 candidate, with or without an explicit route.
+    for (const [bundle, schemaRoute] of [[standard19, undefined], [standard19, STANDARD16_20_RELEASE_SCHEMA_ROUTE], [direct19, DIRECT14_RELEASE_SCHEMA_ROUTE]]) {
+      assert.throws(
+        () => validateBundle({ bundle, expectedSha: historical.sha, validationMode: "local-dry-run", schemaRoute }),
+        (error) => error?.code === "BUNDLE_INTEGRITY_FAILED",
+      );
+    }
+    // Routes never cross generations at assembly time.
+    for (const [fixture, schemaRoute, name] of [
+      [current, STANDARD16_19_RELEASE_SCHEMA_ROUTE, "current-as-standard19"],
+      [current, DIRECT14_19_RELEASE_SCHEMA_ROUTE, "current-as-direct19"],
+      [historical, STANDARD16_20_RELEASE_SCHEMA_ROUTE, "historical-as-standard20"],
+      [historical, DIRECT14_RELEASE_SCHEMA_ROUTE, "historical-as-direct20"],
+    ]) {
+      const destination = join(parent, name);
+      assert.throws(
+        () => assembleReleaseBundle({ source: fixture.root, destination, expectedSha: fixture.sha, provenanceMode: LOCAL_PROVENANCE_MODE, schemaRoute }),
+        (error) => error?.code === "SCHEMA_BOUNDARY_MISMATCH",
+        name,
+      );
+      assert.equal(existsSync(destination), false, name);
+    }
+    // A 020 bundle cannot be relabelled as historical.
+    const standard20 = join(parent, "standard20");
+    assembleReleaseBundle({ source: current.root, destination: standard20, expectedSha: current.sha, provenanceMode: LOCAL_PROVENANCE_MODE });
+    assert.throws(
+      () => validateBundle({ bundle: standard20, expectedSha: current.sha, validationMode: "local-dry-run", schemaRoute: STANDARD16_19_RELEASE_SCHEMA_ROUTE }),
+      (error) => error?.code === "BUNDLE_INTEGRITY_FAILED",
+    );
+    assert.throws(
+      () => assembleReleaseBundle({ source: current.root, destination: join(parent, "bad-route"), expectedSha: current.sha, provenanceMode: LOCAL_PROVENANCE_MODE, schemaRoute: "standard16-21" }),
+      (error) => error?.code === "ARGUMENT_ERROR",
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("assembler rejects missing, extra, or wrong Migration 020 inputs", () => {
   const parent = mkdtempSync(join(tmpdir(), "consolidated-release-schema-"));
   const cases = [
     {
@@ -1445,7 +1514,7 @@ test("assembler rejects missing, extra, or wrong Migration 019 inputs", () => {
         rmSync(
           join(
             root,
-            "auth-service/src/migrations/019_referral_candidate_owner_page_index.sql",
+            "auth-service/src/migrations/020_tickets.sql",
           ),
         );
       },
@@ -1455,7 +1524,7 @@ test("assembler rejects missing, extra, or wrong Migration 019 inputs", () => {
       mutate(root) {
         writeFixtureFile(
           root,
-          "auth-service/src/migrations/020_unexpected.sql",
+          "auth-service/src/migrations/021_unexpected.sql",
           "-- unexpected migration\n",
         );
       },
@@ -1466,12 +1535,12 @@ test("assembler rejects missing, extra, or wrong Migration 019 inputs", () => {
         rmSync(
           join(
             root,
-            "auth-service/src/migrations/019_referral_candidate_owner_page_index.sql",
+            "auth-service/src/migrations/020_tickets.sql",
           ),
         );
         writeFixtureFile(
           root,
-          "auth-service/src/migrations/019_wrong.sql",
+          "auth-service/src/migrations/020_wrong.sql",
           "-- wrong migration\n",
         );
       },
@@ -1637,7 +1706,7 @@ test("bundle validation rejects omitted, replaced, added, or symlinked HTTP cont
   }
 });
 
-test("bundle validation rejects Migration 019 drift and old schema boundaries", () => {
+test("bundle validation rejects Migration 020 drift and old schema boundaries", () => {
   const parent = mkdtempSync(join(tmpdir(), "consolidated-release-bundle-schema-"));
   try {
     const fixture = createFixtureRepository(parent);
@@ -1650,7 +1719,7 @@ test("bundle validation rejects Migration 019 drift and old schema boundaries", 
     });
 
     const migrationRelative =
-      "auth-service/src/migrations/019_referral_candidate_owner_page_index.sql";
+      "auth-service/src/migrations/020_tickets.sql";
     const bundleCases = [
       {
         name: "missing",
@@ -1663,7 +1732,7 @@ test("bundle validation rejects Migration 019 drift and old schema boundaries", 
         mutate(bundle) {
           writeFixtureFile(
             bundle,
-            "auth-service/src/migrations/020_unexpected.sql",
+            "auth-service/src/migrations/021_unexpected.sql",
             "-- unexpected migration\n",
           );
         },
@@ -1674,7 +1743,7 @@ test("bundle validation rejects Migration 019 drift and old schema boundaries", 
           rmSync(join(bundle, migrationRelative));
           writeFixtureFile(
             bundle,
-            "auth-service/src/migrations/019_wrong.sql",
+            "auth-service/src/migrations/020_wrong.sql",
             "-- wrong migration\n",
           );
         },
@@ -1696,7 +1765,8 @@ test("bundle validation rejects Migration 019 drift and old schema boundaries", 
     }
 
     for (const [name, schemaBoundary] of [
-      ["wrong-rollback", { rollback: 15, candidate: 19 }],
+      ["wrong-rollback", { rollback: 15, candidate: 20 }],
+      ["historical-candidate", { rollback: 16, candidate: 19 }],
       ["wrong-candidate", { rollback: 16, candidate: 17 }],
       ["old-shared-boundary", { rollback: 15, candidate: 16 }],
     ]) {
@@ -1721,26 +1791,28 @@ test("bundle validation rejects Migration 019 drift and old schema boundaries", 
   }
 });
 
-test("runbook and bindings describe rollback 016 and candidate 019 consistently", () => {
+test("runbook and bindings describe rollback 016 and candidate 020 consistently", () => {
   const runbook = readFileSync(RUNBOOK_PATH, "utf8");
   for (const fragment of [
     "PRE_RELEASE_SCHEMA_BOUNDARY: 16",
     "CANDIDATE_SCHEMA_BOUNDARY: 17",
-    "migrations 001-019",
+    "migrations 001-020",
     "continuous prefix 001-016",
     "continuous migrations through 016",
-    "Startup may apply migrations 017, 018 and 019",
-    "migration prefix 001-019",
-    "Never open the old binary on a database containing migration 017, 018 or 019",
+    "Startup may apply migrations 017, 018, 019 and 020",
+    "migration prefix 001-020",
+    "Never open the old binary on a database containing migration 017, 018, 019 or 020",
+    "## Explicit DIRECT14 to 20 route",
+    "Never start a 001-019 binary against\na database containing migration 020",
   ]) {
     assert.equal(runbook.includes(fragment), true, fragment);
   }
 
   const bindings = readFileSync(BINDINGS_PATH, "utf8");
   for (const fragment of [
-    "migrations 001-019 match inventory",
+    "migrations 001-020 match inventory",
     "compatible with continuous migrations 001-016",
-    "loopback health, schema 001-019",
+    "loopback health, schema 001-020",
     SQLITE_BACKUP_SHA256_PROOF,
   ]) {
     assert.equal(bindings.includes(fragment), true, fragment);

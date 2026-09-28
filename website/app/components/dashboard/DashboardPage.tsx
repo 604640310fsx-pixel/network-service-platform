@@ -5,6 +5,7 @@ import { AdminDiagnosisPanel } from "./AdminDiagnosisPanel";
 import { AdminInviteCodesPanel } from "./AdminInviteCodesPanel";
 import { AdminPendingServices } from "./AdminPendingServices";
 import { AdminPlansPanel } from "./AdminPlansPanel";
+import { AdminTicketsPanel } from "./AdminTicketsPanel";
 import { BuyerDashboardOverview } from "./BuyerDashboardOverview";
 import "./dashboard.css";
 
@@ -17,10 +18,7 @@ const quickActions = [
   { href: "/orders", label: "订单", hint: "查看订单与支付状态" },
   { href: "/network", label: "节点与流量", hint: "查看账户内网络数据接入状态" },
   { href: "/monitor", label: "实时监控", hint: "查看三网实时网络状态" },
-] as const;
-
-const pendingActions = [
-  { label: "工单", hint: "待接入" },
+  { href: "/tickets", label: "工单", hint: "提交问题并查看客服回复" },
 ] as const;
 
 function ActionIcon() {
@@ -45,6 +43,7 @@ export function DashboardPage() {
         {principal?.role === "admin" && <AdminPendingServices csrfToken={csrfToken} />}
         {principal?.role === "admin" && <AdminPlansPanel csrfToken={csrfToken} />}
         {principal?.role === "admin" && <AdminCouponsPanel csrfToken={csrfToken} />}
+        {principal?.role === "admin" && <AdminTicketsPanel csrfToken={csrfToken} />}
 
         <section className="dash-panel" aria-labelledby="dash-actions-title">
           <h2 id="dash-actions-title"><em>ACTIONS</em>快捷操作</h2>
@@ -54,19 +53,6 @@ export function DashboardPage() {
                 <ActionIcon />
                 <span><strong>{action.label}</strong><small>{action.hint}</small></span>
               </Link>
-            ))}
-            {pendingActions.map((action) => (
-              <button
-                type="button"
-                className="dash-action"
-                key={action.label}
-                disabled
-                aria-disabled="true"
-                title={`${action.label}待接入`}
-              >
-                <ActionIcon />
-                <span><strong>{action.label}</strong><small>{action.hint}</small></span>
-              </button>
             ))}
           </div>
         </section>

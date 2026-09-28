@@ -18,8 +18,11 @@ CANDIDATE_SCHEMA_BOUNDARY: 17
 ```
 
 The block above records the historical hardening packet. The current repository
-inventory includes migration 019, and its local candidate manifest requires
-schema boundary 19; neither value authorizes a release candidate.
+inventory includes migration 020 (support tickets), and its local candidate
+manifest requires schema boundary 20 through the `standard16-20` or
+`direct14-20` route; neither value authorizes a release candidate. The
+`standard16-19` and `direct14-19` routes remain recognized only for
+already-built 001-019 bundles and cannot assemble the current source.
 
 The implementation base is only the starting point for this hardening change.
 After this Draft PR is accepted and a merge is separately authorized, a new
@@ -96,9 +99,10 @@ candidates. Only the repository CI job triggered by a successful `push` to
 candidate artifact. That job checks `GITHUB_SHA === expectedSha`, builds auth
 and website first, assembles twice, compares the manifests, validates both
 inventories, and uploads only the first bundle under the exact name
-`consolidated-release-<RELEASE_CANDIDATE_SHA>`.
+`consolidated-release-<RELEASE_CANDIDATE_SHA>`; it passes
+`--schema-route standard16-20` explicitly.
 The same job also independently assembles and validates an explicit
-`direct14-19` bundle twice, then retains its first bundle as
+`direct14-20` bundle twice, then retains its first bundle as
 `consolidated-release-direct14-<RELEASE_CANDIDATE_SHA>`. The two artifact names
 and manifest schema boundaries are distinct; neither route can validate the
 other route's bundle. The default command and the sequence below remain the
@@ -142,7 +146,7 @@ in a separate decision. Before requesting a release window:
    unavailable metadata, altered archive, PR merge ref, failed run, or
    environment-only provenance fails closed.
 4. The bundle retains the repository-relative auth runtime layout, including
-   compiled `auth-service/dist/src`, package manifests, migrations 001-019, and
+   compiled `auth-service/dist/src`, package manifests, migrations 001-020, and
    `website/dist`. It excludes dependency directories, environment files,
    credentials, private keys, databases, and files outside the explicit release
    inputs. Bind its verified manifest and auth/website inventory hashes.
@@ -432,8 +436,8 @@ is still running.
    MONITOR_API_ORIGIN: OMITTED_IN_QUIESCENT_MODE
    ```
 
-   Startup may apply migrations 017, 018 and 019. Validate exact candidate identity, loopback
-   health, migration prefix 001-019, database integrity, static website files,
+   Startup may apply migrations 017, 018, 019 and 020. Validate exact candidate identity, loopback
+   health, migration prefix 001-020, database integrity, static website files,
    the manifest inventory, and the still-closed ingress. The loopback
    `GET /health` liveness response is exactly `200 {"status":"ok"}`; do not treat
    it as traffic readiness or send a payment, email, order, registration,
@@ -466,7 +470,7 @@ is still running.
    ```
 
 10. While ingress remains closed, validate `GET /health` exact
-    `200 {"status":"ok"}` as liveness, schema 001-019, database integrity, and
+    `200 {"status":"ok"}` as liveness, schema 001-020, database integrity, and
     auth and website artifact hashes. Then require loopback `GET /ready` to
     return exact `200 {"status":"ready"}` with `Cache-Control: no-store` as the
     normal aggregate readiness proof for the serving phase, database migration
@@ -504,7 +508,7 @@ Rollback is a matched database-and-artifact operation:
    boundary 001-016. Reprove that no post-snapshot write occurred and the
    restore deadline has not passed.
 3. Restore the verified pre-017 snapshot using the separately authorized bound
-   command. Never open the old binary on a database containing migration 017, 018 or 019.
+   command. Never open the old binary on a database containing migration 017, 018, 019 or 020.
 4. Atomically switch the single consolidated pointer to the matched rollback
    bundle containing both old auth and old website artifacts. Prove their hashes
    and old source SHA.
@@ -519,10 +523,12 @@ restore is prohibited. Keep ingress closed and obtain a forward-fix decision.
 
 ## Explicit DIRECT14 to 19 route
 
+Historical route for already-built 001-019 bundles only; a current-source
+candidate uses the explicit DIRECT14 to 20 route below.
 This route is available only when a separate release execution packet selects
 `direct14-19` and binds the additional `DIRECT14_*` proofs in the binding
 checklist. It does not convert a schema-14 observation into release authority.
-The default `standard16-19` route above remains strict and unchanged.
+The historical `standard16-19` route remains strict and unchanged.
 For this route only, every preflight, snapshot, and rollback reference to the
 old 001-016 boundary in the default sequence means the verified 001-014
 boundary. Its candidate boundary remains 001-019.
@@ -580,6 +586,33 @@ the frozen sequence above, with these explicit substitutions only:
    and open-ingress checkpoints unchanged. If a post-snapshot business or
    background write occurred, keep ingress closed and seek a separately
    authorized forward fix; do not restore the snapshot.
+
+No step here authorizes production access, a database write, restore, pointer
+switch, traffic change, deployment, or release by itself.
+
+## Explicit DIRECT14 to 20 route
+
+Current-source counterpart of the historical DIRECT14 to 19 route above, for
+candidates whose inventory ends at migration 020. Every requirement, proof,
+substitution, and stop line of that route applies unchanged, with the candidate
+boundary 001-020 in place of 001-019. The standard counterpart is
+`--schema-route standard16-20` (`rollback: 16, candidate: 20`), which keeps the
+default sequence's 001-016 rollback meaning.
+
+Validate the retained artifact `consolidated-release-direct14-<RELEASE_CANDIDATE_SHA>`
+with the candidate command above plus `--schema-route direct14-20`. The
+manifest must state `"schemaRoute":"direct14-20"` and
+`rollback: 14, candidate: 20`, and list exactly migrations 001-020. Quiescent
+startup may apply migrations **015 through 020**; verify schema 001-020.
+
+Migration 020 only adds the `tickets` and `ticket_messages` tables and their
+indexes. It changes no existing row or column. It still moves the schema
+boundary: an Auth binary built for 001-019 refuses to start on a database that
+records migration 020 (`database contains unknown migration version 20`). After
+020 is applied, a code-only rollback to a 001-019 release is therefore not
+available; restore the verified pre-candidate snapshot only under the existing
+restore-eligibility rules, or forward-fix. Never start a 001-019 binary against
+a database containing migration 020.
 
 No step here authorizes production access, a database write, restore, pointer
 switch, traffic change, deployment, or release by itself.

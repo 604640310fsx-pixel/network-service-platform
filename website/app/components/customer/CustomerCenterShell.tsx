@@ -39,6 +39,7 @@ const migratedPaths = new Set<string>([
   "/docs",
   "/profile",
   "/referrals",
+  "/tickets",
 ]);
 
 export function useCustomerDrawer() {
