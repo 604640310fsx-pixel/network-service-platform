@@ -866,6 +866,17 @@ file instead. The rehearsal root must not contain the live database directory.
 The guard covers only rehearsal starts; it does not change the live service
 unit or its configuration.
 
+Known residual limits:
+
+- The guard is procedural. It protects only a rehearsal whose process
+  entrypoint is the guard itself; an Auth binary started any other way is not
+  checked. Operators must use it as the rehearsal entrypoint every time.
+- It identifies the live database by resolved path and by device plus inode.
+  It cannot recognise the same live file re-exposed under a different device
+  (for example through a bind or cross-filesystem mount that reports another
+  device), so the rehearsal root must be a fresh directory on the same
+  filesystem view as the live database path, never a mount of it.
+
 ## Stop lines
 
 Stop the affected step, preserve the last proven closed state, and record only

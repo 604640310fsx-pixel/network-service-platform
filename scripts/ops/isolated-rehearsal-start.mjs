@@ -172,16 +172,33 @@ function main() {
     return;
   }
   process.stderr.write(`${JSON.stringify(checked.result)}\n`);
-  const child = spawn(process.execPath, [checked.server], {
+  startGuardedServer(checked.server);
+}
+
+/* Starts the already-checked server. A spawn failure exits non-zero with a
+   fixed message that carries no path or environment value. */
+export function startGuardedServer(server, executable = process.execPath) {
+  const child = spawn(executable, [server], {
     env: process.env,
     stdio: "inherit",
   });
   for (const signal of ["SIGTERM", "SIGINT"]) {
     process.on(signal, () => child.kill(signal));
   }
+  child.on("error", () => {
+    process.stderr.write(
+      `${JSON.stringify({
+        status: "error",
+        code: "SERVER_START_FAILED",
+        message: "rehearsal server process could not be started",
+      })}\n`,
+    );
+    process.exitCode = 1;
+  });
   child.on("exit", (code, signal) => {
     process.exitCode = code ?? (signal === null ? 1 : 128);
   });
+  return child;
 }
 
 function isDirectExecution(moduleUrl, argumentPath) {

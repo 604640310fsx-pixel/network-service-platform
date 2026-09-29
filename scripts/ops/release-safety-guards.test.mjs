@@ -250,4 +250,21 @@ describe("isolated-rehearsal-start", () => {
     assert.equal(allowed.status, 0);
     assert.equal(existsSync(marker), true);
   });
+
+  test("a server spawn failure exits non-zero without paths or values", () => {
+    const missing = join(scratch, "no-such-node-binary");
+    const module = join(here, "isolated-rehearsal-start.mjs");
+    const failed = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `const m = await import(${JSON.stringify(module)}); m.startGuardedServer(${JSON.stringify(join(scratch, "server.mjs"))}, ${JSON.stringify(missing)});`,
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(failed.status, 1);
+    assert.match(failed.stderr, /SERVER_START_FAILED/);
+    assert.equal(failed.stderr.includes(scratch), false);
+  });
 });

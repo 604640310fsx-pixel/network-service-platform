@@ -706,6 +706,7 @@ export function validateRepository({
       "npm --prefix website run build",
       "VITE_MONITOR_URL: ${{ secrets.NSP_PUBLIC_MONITOR_ORIGIN }}",
       "MONITOR_ORIGIN_POLICY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'required' || 'optional' }}",
+      '--phase configured --policy "$MONITOR_ORIGIN_POLICY"',
       '--phase embedded --policy "$MONITOR_ORIGIN_POLICY" --dist website/dist',
       'PROVENANCE_MODE: ${{ github.event_name == \'push\' && github.ref == \'refs/heads/integration/consolidate-project\' && \'github-actions\' || \'github-actions-test\' }}',
       '--provenance-mode "$PROVENANCE_MODE"',
