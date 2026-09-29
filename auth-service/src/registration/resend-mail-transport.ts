@@ -72,17 +72,62 @@ function requireIdempotencyKey(value: string): string {
   return value;
 }
 
+interface MailContent {
+  readonly subject: string;
+  readonly text: string;
+}
+
+function registrationCodeContent(code: string): MailContent {
+  return {
+    subject: "Network Service Platform 验证码",
+    text:
+      `您的邮箱验证码是：${code}\n\n` +
+      "此验证码仅用于验证您对该邮箱的访问。收到并验证验证码不代表邀请码仍然有效，也不代表注册一定成功。请勿转发。",
+  };
+}
+
+function emailChangeCodeContent(code: string): MailContent {
+  return {
+    subject: "Network Service Platform 邮箱变更验证码",
+    text:
+      `您正在将 Network Service Platform 账户的登录邮箱更改为此邮箱，验证码是：${code}\n\n` +
+      "验证码 10 分钟内有效。如非本人操作，请忽略本邮件，账户不会发生任何变化。请勿转发。",
+  };
+}
+
+// Sent to the previous address; it names no code and not the new address.
+const EMAIL_CHANGED_NOTICE_CONTENT: MailContent = {
+  subject: "Network Service Platform 登录邮箱已变更",
+  text:
+    "您的 Network Service Platform 账户登录邮箱已更改为其他地址，此邮箱今后不能再用于登录该账户。\n\n" +
+    "如果这不是您本人的操作，请立即联系客服处理。本邮件无需回复。",
+};
+
 function requireDelivery(delivery: MailDelivery): {
   readonly idempotencyKey: string;
   readonly toEmail: string;
-  readonly verificationCode: string;
+  readonly content: MailContent;
 } {
-  if (
-    typeof delivery !== "object" ||
-    delivery === null ||
-    delivery.template !== "verification_code" ||
-    !REGISTRATION_OTP_PATTERN.test(delivery.verificationCode)
+  if (typeof delivery !== "object" || delivery === null) {
+    throw new ResendMailTransportError();
+  }
+  let content: MailContent;
+  if (delivery.template === "verification_code") {
+    if (
+      typeof delivery.verificationCode !== "string" ||
+      !REGISTRATION_OTP_PATTERN.test(delivery.verificationCode)
+    ) {
+      throw new ResendMailTransportError();
+    }
+    content = delivery.idempotencyKey.startsWith("email-change-otp-v1:")
+      ? emailChangeCodeContent(delivery.verificationCode)
+      : registrationCodeContent(delivery.verificationCode);
+  } else if (
+    delivery.template === "email_changed_notice" &&
+    delivery.verificationCode === null
   ) {
+    content = EMAIL_CHANGED_NOTICE_CONTENT;
+  } else {
     throw new ResendMailTransportError();
   }
 
@@ -96,7 +141,7 @@ function requireDelivery(delivery: MailDelivery): {
   return {
     idempotencyKey: requireIdempotencyKey(delivery.idempotencyKey),
     toEmail,
-    verificationCode: delivery.verificationCode,
+    content,
   };
 }
 
@@ -161,10 +206,8 @@ export class ResendMailTransport implements MailTransport {
           body: JSON.stringify({
             from: this.#fromEmail,
             to: [validated.toEmail],
-            subject: "Network Service Platform 验证码",
-            text:
-              `您的邮箱验证码是：${validated.verificationCode}\n\n` +
-              "此验证码仅用于验证您对该邮箱的访问。收到并验证验证码不代表邀请码仍然有效，也不代表注册一定成功。请勿转发。",
+            subject: validated.content.subject,
+            text: validated.content.text,
           }),
           signal: abortController.signal,
         },

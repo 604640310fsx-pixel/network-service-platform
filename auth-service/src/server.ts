@@ -316,6 +316,14 @@ async function start(): Promise<void> {
           tokenHmacKeyring: credentials.tokenHmacKeyring,
           csrfSigningKey: credentials.csrfSigningKey,
         },
+        account: {
+          database,
+          nodeEnv: config.nodeEnv,
+          tokenHmacKeyring: credentials.tokenHmacKeyring,
+          mailPayloadEncKeyring: credentials.mailPayloadEncKeyring,
+          rateLimitKeyring: credentials.rateLimitKeyring,
+          csrfSigningKey: credentials.csrfSigningKey,
+        },
         referral: {
           database,
           nodeEnv: config.nodeEnv,

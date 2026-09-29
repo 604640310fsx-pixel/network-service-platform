@@ -75,6 +75,10 @@ export const REGISTRATION_VERIFY_IP_LIMIT = 30;
 export const REGISTRATION_COMPLETE_IP_LIMIT = 20;
 export const DIAGNOSIS_SUBMIT_IP_LIMIT = 5;
 export const MONITOR_STATUS_USER_LIMIT = 120;
+export const ACCOUNT_PASSWORD_CHANGE_USER_LIMIT = 10;
+export const ACCOUNT_EMAIL_CHANGE_START_USER_LIMIT = 5;
+export const ACCOUNT_EMAIL_CHANGE_START_TARGET_LIMIT = 5;
+export const ACCOUNT_EMAIL_CHANGE_CONFIRM_USER_LIMIT = 10;
 export const RATE_LIMIT_BUCKET_SECONDS = 300;
 export const RATE_LIMIT_WINDOW_SECONDS = 3_600;
 
@@ -355,6 +359,42 @@ export function consumeMonitorStatusRateLimit(
     ],
     times,
   );
+}
+
+export type AccountSecurityRateLimitInput =
+  | { readonly purpose: "password_change"; readonly userId: number }
+  | { readonly purpose: "email_change_start"; readonly userId: number; readonly canonicalNewEmail: string }
+  | { readonly purpose: "email_change_confirm"; readonly userId: number };
+
+/* Signed-in account security writes. Each attempt is counted before the
+   password or code is checked, so a stolen session cannot brute-force the
+   current password or the emailed code. Starting an email change is also
+   bounded per target address, so one account cannot flood another inbox. */
+export function consumeAccountSecurityRateLimit(
+  database: DatabaseConnection,
+  keyring: RateLimitKeyring,
+  input: AccountSecurityRateLimitInput,
+  dependencies: { readonly now?: () => Date } = {},
+): void {
+  if (!Number.isSafeInteger(input.userId) || input.userId < 1) {
+    throw new Error("Account security rate-limit principal is invalid");
+  }
+  const user = String(input.userId);
+  const dimensions =
+    input.purpose === "password_change"
+      ? [dimension(keyring, "account:password-change:user", [user], ACCOUNT_PASSWORD_CHANGE_USER_LIMIT)]
+      : input.purpose === "email_change_confirm"
+        ? [dimension(keyring, "account:email-change-confirm:user", [user], ACCOUNT_EMAIL_CHANGE_CONFIRM_USER_LIMIT)]
+        : [
+            dimension(keyring, "account:email-change-start:user", [user], ACCOUNT_EMAIL_CHANGE_START_USER_LIMIT),
+            dimension(
+              keyring,
+              "account:email-change-start:target",
+              [input.canonicalNewEmail],
+              ACCOUNT_EMAIL_CHANGE_START_TARGET_LIMIT,
+            ),
+          ];
+  consumeDimensions(database, dimensions, rateLimitTimes(dependencies.now ?? (() => new Date())));
 }
 
 export function withRegistrationStartRateLimit<Result>(

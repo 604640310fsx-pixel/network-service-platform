@@ -4,10 +4,13 @@ import type { DatabaseConnection } from "../db.js";
 import type { TokenHmacKeyring } from "../session/session-token.js";
 import {
   computeMailRecipientAuditHmac,
-  decryptRegistrationOtpPayload,
+  decryptMailPayload,
+  parseEmailChangedNoticeIdempotencyKey,
+  parseEmailChangeOtpIdempotencyKey,
   parseRegistrationOtpIdempotencyKey,
   type EncryptedRegistrationOtpPayload,
   type MailOutboxRandomBytesSource,
+  type MailTemplate,
 } from "./mail-outbox.js";
 
 const MAIL_LEASE_TOKEN_BYTES = 32;
@@ -16,7 +19,7 @@ const MAX_TIMER_DELAY_MS = 2_147_483_647;
 interface MailOutboxRow {
   readonly idempotency_key: string;
   readonly to_email: string;
-  readonly template: "verification_code";
+  readonly template: MailTemplate;
   readonly key_version: number;
   readonly nonce: Buffer;
   readonly ciphertext: Buffer;
@@ -35,9 +38,13 @@ interface ClaimedMail {
 export interface MailDelivery {
   readonly idempotencyKey: string;
   readonly toEmail: string;
-  readonly template: "verification_code";
-  readonly verificationCode: string;
+  readonly template: MailTemplate;
+  /** The six-digit code for verification_code mail; null for a notice. */
+  readonly verificationCode: string | null;
 }
+
+// A previous-address notice that could not be sent within a day is dropped.
+const EMAIL_CHANGED_NOTICE_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
 
 export interface MailTransport {
   send(delivery: MailDelivery): Promise<void>;
@@ -108,7 +115,8 @@ function parseOutboxRow(value: unknown): MailOutboxRow {
     !("to_email" in value) ||
     typeof value.to_email !== "string" ||
     !("template" in value) ||
-    value.template !== "verification_code" ||
+    (value.template !== "verification_code" &&
+      value.template !== "email_changed_notice") ||
     !("key_version" in value) ||
     typeof value.key_version !== "number" ||
     !Number.isSafeInteger(value.key_version) ||
@@ -128,6 +136,54 @@ function parseOutboxRow(value: unknown): MailOutboxRow {
   }
 
   return value as MailOutboxRow;
+}
+
+interface CurrentMailInput {
+  readonly idempotencyKey: string;
+  readonly toEmail: string;
+  readonly template: MailTemplate;
+}
+
+function isActiveUser(database: DatabaseConnection, userId: number): boolean {
+  return (
+    database
+      .prepare("SELECT 1 FROM users WHERE id = ? AND status = 'active'")
+      .all(userId).length === 1
+  );
+}
+
+/* Email-change code: unexpired, the account is still active, and no account
+   uses the new address yet (once the change completes, pending code mail for
+   it is stale and dropped). */
+function isCurrentEmailChangeMail(database: DatabaseConnection, mail: CurrentMailInput, now: Date): boolean {
+  const identity = parseEmailChangeOtpIdempotencyKey(mail.idempotencyKey);
+  return (
+    identity !== null &&
+    mail.template === "verification_code" &&
+    identity.epochSeconds * 1_000 > now.getTime() &&
+    isActiveUser(database, identity.userId) &&
+    database.prepare("SELECT 1 FROM users WHERE email = ?").all(mail.toEmail).length === 0
+  );
+}
+
+function isCurrentEmailChangedNotice(database: DatabaseConnection, mail: CurrentMailInput, now: Date): boolean {
+  const identity = parseEmailChangedNoticeIdempotencyKey(mail.idempotencyKey);
+  return (
+    identity !== null &&
+    mail.template === "email_changed_notice" &&
+    now.getTime() - identity.epochSeconds * 1_000 < EMAIL_CHANGED_NOTICE_MAX_AGE_MS &&
+    database.prepare("SELECT 1 FROM users WHERE id = ?").all(identity.userId).length === 1
+  );
+}
+
+function isCurrentMail(database: DatabaseConnection, mail: CurrentMailInput, now: Date): boolean {
+  if (mail.idempotencyKey.startsWith("email-change-otp-v1:")) {
+    return isCurrentEmailChangeMail(database, mail, now);
+  }
+  if (mail.idempotencyKey.startsWith("email-changed-notice-v1:")) {
+    return isCurrentEmailChangedNotice(database, mail, now);
+  }
+  return mail.template === "verification_code" && isCurrentRegistrationMail(database, mail, now);
 }
 
 function isCurrentRegistrationMail(
@@ -212,11 +268,12 @@ function claimNextMail(
     );
     const shouldAttemptDelivery =
       parsed.attempts < maxAttempts &&
-      isCurrentRegistrationMail(
+      isCurrentMail(
         dependencies.database,
         {
           idempotencyKey: parsed.idempotency_key,
           toEmail: parsed.to_email,
+          template: parsed.template,
         },
         now,
       );
@@ -389,11 +446,12 @@ export async function dispatchNextMail(
 
   const deliveryTime = requireDate(nowSource());
   if (
-    !isCurrentRegistrationMail(
+    !isCurrentMail(
       dependencies.database,
       {
         idempotencyKey: claimed.encrypted.idempotencyKey,
         toEmail: claimed.encrypted.toEmail,
+        template: claimed.encrypted.template,
       },
       deliveryTime,
     )
@@ -404,7 +462,7 @@ export async function dispatchNextMail(
   }
 
   try {
-    const verificationCode = decryptRegistrationOtpPayload(
+    const plaintext = decryptMailPayload(
       claimed.encrypted,
       dependencies.mailPayloadEncKeyring,
     );
@@ -412,7 +470,8 @@ export async function dispatchNextMail(
       idempotencyKey: claimed.encrypted.idempotencyKey,
       toEmail: claimed.encrypted.toEmail,
       template: claimed.encrypted.template,
-      verificationCode,
+      verificationCode:
+        claimed.encrypted.template === "verification_code" ? plaintext : null,
     });
   } catch {
     const failureTime = requireDate(nowSource());
