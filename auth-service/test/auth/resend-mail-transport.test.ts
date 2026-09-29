@@ -15,12 +15,12 @@ const CONFIG: ResendMailTransportConfig = {
   requestTimeoutMs: 100,
   dispatcherLeaseMs: 1_000,
 };
-const DELIVERY: MailDelivery = {
+const DELIVERY = {
   idempotencyKey: "register-otp-v1:41:1",
   toEmail: "Recipient@Example.com",
   template: "verification_code",
   verificationCode: "042917",
-};
+} as const satisfies MailDelivery;
 
 function successResponse(id = "email_example-123"): Response {
   return new Response(JSON.stringify({ id }), {

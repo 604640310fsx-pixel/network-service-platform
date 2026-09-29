@@ -18,6 +18,10 @@ import {
   type DiagnosisHttpDependencies,
 } from "./http/diagnosis-routes.js";
 import {
+  registerAccountHttpRoutes,
+  type AccountHttpDependencies,
+} from "./http/account-routes.js";
+import {
   registerInviteHttpRoutes,
   type InviteHttpDependencies,
 } from "./http/invite-routes.js";
@@ -84,6 +88,7 @@ export interface BuildAppOptions {
   readonly diagnosis?: DiagnosisHttpDependencies;
   readonly tickets?: TicketHttpDependencies;
   readonly invites?: InviteHttpDependencies;
+  readonly account?: AccountHttpDependencies;
   readonly payment?: PaymentHttpDependencies;
   readonly monitor?: MonitorHttpDependencies;
   readonly referral?: ReferralHttpDependencies;
@@ -153,6 +158,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   }
   if (options.invites !== undefined) {
     registerInviteHttpRoutes(app, options.invites);
+  }
+  if (options.account !== undefined) {
+    registerAccountHttpRoutes(app, options.account);
   }
   registerMonitorHttpRoutes(app, options.monitor ?? null);
   const payment = options.payment ?? { enabled: false };

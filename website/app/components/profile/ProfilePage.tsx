@@ -1,9 +1,11 @@
 import { useAuth, type AuthPrincipal } from "../../lib/auth";
+import { EmailChangePanel, PasswordChangePanel } from "./AccountSecurityForms";
 import "./profile.css";
 
-/* /profile 只读取既有 GET /api/auth/me 会话契约。
-   页面仅展示公开响应里的 user.email 与 user.role；不展示 csrfToken、内部用户编号、
-   Session 字段或任何邀请、奖励与安全设置，也不在接口失败时回退 Mock。 */
+/* /profile 的账号资料卡片只读取 GET /api/auth/me 会话契约，只展示 user.email 与
+   user.role；不展示 csrfToken、内部用户编号或 Session 字段，也不在接口失败时回退 Mock。
+   其下的「修改密码」「修改邮箱」只调用 /api/me/password/change 与
+   /api/me/email/change/{start,confirm}。 */
 
 const ROLE_LABEL: Readonly<Record<AuthPrincipal["role"], string>> = {
   user: "普通用户",
@@ -102,6 +104,8 @@ export function ProfilePage() {
           </div>
         </dl>
       </section>
+      <PasswordChangePanel />
+      <EmailChangePanel currentEmail={principal.email} />
     </PageFrame>
   );
 }

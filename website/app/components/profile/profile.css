@@ -166,6 +166,229 @@
   font-size: 12px;
 }
 
+/* 修改密码 / 修改邮箱：输入框规格与注册页一致（48px、10px 圆角、--cc-* 令牌）。
+   现有 --cc-* 没有 danger / success 令牌，这里按主题补两组语义色。 */
+.cc-shell[data-theme="dark"] .cc-profile-page {
+  --profile-danger: #f2777a;
+  --profile-danger-tint: rgba(242, 119, 122, 0.09);
+  --profile-danger-line: rgba(242, 119, 122, 0.42);
+  --profile-success: #6fcf97;
+  --profile-success-tint: rgba(111, 207, 151, 0.09);
+  --profile-success-line: rgba(111, 207, 151, 0.4);
+}
+
+.cc-shell[data-theme="light"] .cc-profile-page {
+  --profile-danger: #b3261e;
+  --profile-danger-tint: rgba(179, 38, 30, 0.06);
+  --profile-danger-line: rgba(179, 38, 30, 0.34);
+  --profile-success: #1e7a46;
+  --profile-success-tint: rgba(30, 122, 70, 0.06);
+  --profile-success-line: rgba(30, 122, 70, 0.32);
+}
+
+.cc-profile-layout > .cc-profile-panel + .cc-profile-panel {
+  margin-top: 14px;
+}
+
+/* 可展开 / 收起的安全面板：标题整行可点，箭头随展开旋转。 */
+.cc-profile-toggle-heading {
+  margin: 0;
+}
+
+.cc-profile-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -4px 0;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cc-profile-toggle-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cc-profile-toggle-text em {
+  color: var(--cc-text-4);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+}
+
+.cc-profile-toggle-text span {
+  margin-top: 4px;
+  color: var(--cc-text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.cc-profile-toggle-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  margin-left: auto;
+  color: var(--cc-text-3);
+  stroke-width: 1.8;
+  transition: transform 0.18s ease;
+}
+
+.cc-profile-toggle:hover .cc-profile-toggle-icon {
+  color: var(--cc-text);
+}
+
+.cc-profile-collapsible.is-open .cc-profile-toggle-icon {
+  transform: rotate(180deg);
+}
+
+.cc-profile-collapsible-body {
+  margin-top: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cc-profile-toggle-icon {
+    transition: none;
+  }
+}
+
+.cc-profile-form {
+  display: grid;
+  gap: 14px;
+  max-width: 520px;
+}
+
+.cc-profile-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cc-profile-field label {
+  color: var(--cc-text-2);
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+.cc-profile-field input {
+  width: 100%;
+  min-width: 0;
+  height: 48px;
+  padding: 0 15px;
+  border: 1px solid var(--cc-line);
+  border-radius: 10px;
+  background: var(--cc-inset);
+  color: var(--cc-text);
+  font-size: 14.5px;
+}
+
+.cc-profile-field input:hover {
+  border-color: var(--cc-text-4);
+}
+
+.cc-profile-field input:focus {
+  border-color: var(--cc-accent-line);
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--cc-accent-inset);
+}
+
+.cc-profile-field input[aria-invalid="true"] {
+  border-color: var(--profile-danger-line);
+}
+
+.cc-profile-field input:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.cc-profile-hint {
+  margin: 0;
+  color: var(--cc-text-4);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+
+.cc-profile-hint.is-danger {
+  color: var(--profile-danger);
+}
+
+.cc-profile-code-row {
+  display: flex;
+  gap: 10px;
+}
+
+.cc-profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.cc-profile-actions .cc-profile-primary {
+  margin-top: 0;
+}
+
+.cc-profile-primary:disabled,
+.cc-profile-secondary:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+  filter: none;
+}
+
+.cc-profile-secondary {
+  min-height: 40px;
+  flex: 0 0 auto;
+  padding: 0 16px;
+  border: 1px solid var(--cc-line);
+  border-radius: 10px;
+  background: var(--cc-card);
+  color: var(--cc-text-2);
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cc-profile-code-row .cc-profile-secondary {
+  min-height: 48px;
+}
+
+.cc-profile-secondary:hover:not(:disabled) {
+  border-color: var(--cc-text-4);
+  color: var(--cc-text);
+}
+
+.cc-profile-form-notice {
+  max-width: 520px;
+  margin: 0 0 14px;
+  padding: 11px 14px;
+  border: 1px solid;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.cc-profile-form-notice.is-danger {
+  border-color: var(--profile-danger-line);
+  background: var(--profile-danger-tint);
+  color: var(--profile-danger);
+}
+
+.cc-profile-form-notice.is-success {
+  border-color: var(--profile-success-line);
+  background: var(--profile-success-tint);
+  color: var(--profile-success);
+}
+
 @keyframes cc-profile-shimmer {
   0% {
     background-position: 180% 0;
@@ -210,6 +433,10 @@
   }
 
   .cc-profile-primary {
+    width: 100%;
+  }
+
+  .cc-profile-actions .cc-profile-secondary {
     width: 100%;
   }
 }

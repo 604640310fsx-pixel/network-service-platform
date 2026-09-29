@@ -27,6 +27,8 @@ type AuthContextValue = {
   readonly csrfToken: string | null;
   readonly login: (email: string, password: string) => Promise<void>;
   readonly logout: () => Promise<void>;
+  /** Re-reads GET /api/auth/me, e.g. after the account's login email changed. */
+  readonly refresh: () => Promise<void>;
 };
 
 type AuthState = {
@@ -243,6 +245,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function refresh(): Promise<void> {
+    try {
+      const currentSession = await requestSession();
+      setAuthState({
+        status: currentSession === null ? "unauthenticated" : "authenticated",
+        session: currentSession,
+      });
+    } catch {
+      // Keep the current state; a failed re-read is not a sign-out.
+    }
+  }
+
   function logout(): Promise<void> {
     if (logoutPromiseRef.current !== null) {
       return logoutPromiseRef.current;
@@ -279,6 +293,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       csrfToken: authState.session?.csrfToken ?? null,
       login,
       logout,
+      refresh,
     }),
     [authState],
   );
