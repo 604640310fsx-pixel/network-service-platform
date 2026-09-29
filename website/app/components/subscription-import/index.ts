@@ -4,8 +4,10 @@ export {
   SUBSCRIPTION_CLIENT_MATRIX,
   SUBSCRIPTION_PLATFORMS,
   clientsForPlatform,
+  clientManualImportReason,
   safeSubscriptionHref,
   safeVerifiedDeepLinkHref,
+  verifiedSubscriptionDeepLink,
 } from "./subscriptionImportModel";
 export type {
   SubscriptionImportDelivery,

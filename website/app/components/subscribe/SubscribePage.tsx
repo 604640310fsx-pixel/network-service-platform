@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { networkTypes } from "../../lib/subscribeCatalog";
 import { parseSelectionParams, selectionToQuery, type CatalogSelection } from "../../lib/resolveSelection";
 import { usePlanAvailability } from "../../lib/planAvailability";
+import { formatCardYuan, regionFromPriceFen, specMonthlyPriceFen, typeFromPriceFen } from "../../lib/cardPrices";
 import { WorkbenchBanner } from "../WorkbenchBanner";
 import { useCustomerDrawer } from "../customer/CustomerCenterShell";
 import { MobileOrderBar } from "./MobileOrderBar";
@@ -198,6 +199,7 @@ export function SubscribePage() {
             <div className="sub-grid sub-solution-grid" role="radiogroup" aria-label="网络类型" onKeyDown={handleRadioGroupKeyDown}>
               {networkTypes.map((option) => {
                 const presentation = solutionPresentation[option.id];
+                const typeFromFen = typeFromPriceFen(availability.index, option.id);
                 const selected = selection.typeId === option.id;
                 return (
                   <OptionCard key={option.id} selected={selected} onSelect={() => selection.selectType(option.id)} label={option.name} className="sub-type-option" tabIndex={optionTabIndex(networkTypes, selection.typeId, option.id)}>
@@ -223,7 +225,7 @@ export function SubscribePage() {
                       </>
                     )}
                     <span className="sub-solution-footer">
-                      <span><small>正式价格</small><b>价格待确认</b></span>
+                      <span><small>正式价格</small><b>{typeFromFen === null ? "价格待确认" : `${formatCardYuan(typeFromFen)} 起`}</b></span>
                       <strong>{selected ? "当前方案" : "选择方案"}<i aria-hidden="true">→</i></strong>
                     </span>
                   </OptionCard>
@@ -243,12 +245,14 @@ export function SubscribePage() {
               aria-label="国家或地区"
               onKeyDown={handleRadioGroupKeyDown}
             >
-              {selection.availableRegions.map((option) => (
+              {selection.availableRegions.map((option) => {
+                const regionFromFen = selection.typeId === null ? null : regionFromPriceFen(availability.index, selection.typeId, option.id);
+                return (
                 <OptionCard key={option.id} selected={selection.regionId === option.id} onSelect={() => selection.selectRegion(option.id)} label={option.name} className="sub-region-option" tabIndex={optionTabIndex(selection.availableRegions, selection.regionId, option.id)}>
                   <span className="sub-region-main">
                     <span className="sub-option-head"><i className={`sub-flag is-${option.flagClass}`} aria-hidden="true" /><strong>{option.name}</strong></span>
                     <span className="sub-region-meta">
-                      <small>价格待确认</small>
+                      {regionFromFen === null ? <small>价格待确认</small> : <b>{formatCardYuan(regionFromFen)}<small> 起</small></b>}
                       {option.badge && <i className={`sub-tag ${option.configured ? "is-accent" : ""}`}>{option.badge}</i>}
                     </span>
                   </span>
@@ -258,7 +262,8 @@ export function SubscribePage() {
                     </span>
                   )}
                 </OptionCard>
-              ))}
+                );
+              })}
             </div>
           </section>
 
@@ -285,13 +290,16 @@ export function SubscribePage() {
             </div>
             {selection.availableSpecs.length ? (
               <div className="sub-grid sub-grid-three" role="radiogroup" aria-label="套餐规格" onKeyDown={handleRadioGroupKeyDown}>
-                {selection.availableSpecs.map((option) => (
+                {selection.availableSpecs.map((option) => {
+                  const monthlyFen = selection.typeId === null ? null : specMonthlyPriceFen(availability.index, selection.typeId, selection.regionId, selection.ispId, option.id);
+                  return (
                   <OptionCard key={option.id} selected={selection.specId === option.id} onSelect={() => selection.selectSpec(option.id)} label={option.name} className="sub-spec-option" tabIndex={optionTabIndex(selection.availableSpecs, selection.specId, option.id)}>
-                    <span className="sub-option-head"><strong>{option.name}</strong>{option.badge && <i className="sub-tag is-accent">{option.badge}</i>}<i className="sub-tag">价格待确认</i></span>
+                    <span className="sub-option-head"><strong>{option.name}</strong>{option.badge && <i className="sub-tag is-accent">{option.badge}</i>}<i className="sub-tag">{monthlyFen === null ? "价格待确认" : `${formatCardYuan(monthlyFen)} / 月`}</i></span>
                     <span className="sub-features">{option.features.map((feature) => <span key={feature}>{feature}</span>)}</span>
                     <span className="sub-option-cta">{option.description}</span>
                   </OptionCard>
-                ))}
+                  );
+                })}
               </div>
             ) : <div className="sub-pending">请先选择可用的运营商方案</div>}
           </section>}

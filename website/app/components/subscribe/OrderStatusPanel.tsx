@@ -15,7 +15,7 @@ import {
   type PaymentOrderResult,
   type PaymentOrderSnapshot,
 } from "../../lib/payment-api";
-import { SubscriptionImportModule } from "../subscription-import";
+import { SubscriptionImportModule, verifiedSubscriptionDeepLink } from "../subscription-import";
 import { AlipayQrPay, type AlipayQrPhase } from "./AlipayQrPay";
 
 function formatFen(amountFen: number) {
@@ -321,7 +321,7 @@ export function OrderStatusPanel({
   }
 
   const deliveryItems =
-    snapshot.service?.status === "open" ? snapshot.service.items : undefined;
+    snapshot.service?.status === "open" ? snapshot.service.items ?? [] : undefined;
 
   return (
     <>
@@ -357,7 +357,10 @@ export function OrderStatusPanel({
       </div>
 
       {deliveryItems !== undefined && (
-        <SubscriptionImportModule deliveryItems={deliveryItems} />
+        <SubscriptionImportModule
+          deliveryItems={deliveryItems}
+          getVerifiedDeepLink={verifiedSubscriptionDeepLink}
+        />
       )}
     </>
   );

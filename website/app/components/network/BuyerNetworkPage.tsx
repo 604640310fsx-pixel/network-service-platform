@@ -500,6 +500,17 @@ function NodesPanel({
                     <span className="cc-net-line-delivery-label">交付线路名称</span>
                     <ServiceDeliveryLines service={service} deliveryState={deliveryState} />
                   </div>
+                  {isOpen && service.orderRef.trim() !== "" && (
+                    <div className="cc-net-line-actions">
+                      <Link
+                        className="cc-net-ghost"
+                        to={`/subscribe/request?orderRef=${encodeURIComponent(service.orderRef)}`}
+                      >
+                        查看订阅信息
+                      </Link>
+                      <Link className="cc-net-ghost" to="/docs">查看导入说明</Link>
+                    </div>
+                  )}
                 </li>
               );
             })}

@@ -69,6 +69,8 @@
 /* 待交付 / 未配置 / 暂不可读取：三种诚实文案共用同一虚线容器，不伪装成线路条目。 */
 .cc-net-line-note { margin: 7px 0 0; padding: 8px 10px; border: 1px dashed var(--cc-line); border-radius: 8px; color: var(--cc-text-3); font-size: 11.5px; line-height: 1.6; overflow-wrap: anywhere; }
 .cc-net-line-note.is-unknown { color: var(--cc-text-4); }
+.cc-net-line-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 11px; }
+.cc-net-line-actions .cc-net-ghost { min-width: 0; }
 
 /* 局部失败警告：服务与订单仍然有效，只有交付线路读不到时出现，带独立重试。 */
 .cc-net-warning { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 13px; margin: 14px 20px 0; padding: 12px 13px; border: 1px solid var(--cc-accent-line); border-radius: 10px; background: var(--cc-accent-tint); }
