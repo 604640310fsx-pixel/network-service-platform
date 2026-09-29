@@ -1,9 +1,13 @@
-import { useId, useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useId, useState, type FormEvent } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { LoginRequestError } from "../../lib/auth-errors";
 import { useAuth } from "../../lib/auth";
 import { AuthNotice, AuthShell, RevealIcon } from "./AuthShell";
 import { PASSWORD_MAX_LENGTH } from "./passwordPolicy";
+import {
+  REGISTRATION_SUCCESS_LOGIN_NOTICE,
+  registrationCompleteFromLocationState,
+} from "./registrationFlow";
 
 type FormStatus = "idle" | "submitting";
 
@@ -27,6 +31,7 @@ function loginErrorMessage(error: unknown): string {
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { login } = useAuth();
   const emailId = useId();
   const passwordId = useId();
@@ -37,6 +42,16 @@ export function LoginPage() {
   const [revealPassword, setRevealPassword] = useState(false);
   const [status, setStatus] = useState<FormStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  // 注册成功跳转时只带一个布尔标记；读取后立即从历史记录中清除，刷新不再显示。
+  const [registered, setRegistered] = useState(() =>
+    registrationCompleteFromLocationState(location.state),
+  );
+
+  useEffect(() => {
+    if (registrationCompleteFromLocationState(location.state)) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.pathname, location.state, navigate]);
 
   const submitting = status === "submitting";
 
@@ -51,6 +66,7 @@ export function LoginPage() {
     }
 
     setError(null);
+    setRegistered(false);
     setStatus("submitting");
     try {
       await login(email, password);
@@ -64,6 +80,7 @@ export function LoginPage() {
 
   return (
     <AuthShell title="登录客户中心" subtitle="登录后进入服务管理页面。">
+      {registered && !error && <AuthNotice tone="neutral">{REGISTRATION_SUCCESS_LOGIN_NOTICE}</AuthNotice>}
       {error && <AuthNotice tone="danger" id={errorId}>{error}</AuthNotice>}
 
       <form className="auth-form" onSubmit={handleSubmit} noValidate>

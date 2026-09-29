@@ -37,31 +37,38 @@ test("a valid login retry clears the previous server error before its request", 
 test("a verified registration locks the code while keeping completion retryable", () => {
   const register = source("../app/components/auth/RegisterPage.tsx");
 
+  const flow = source("../app/components/auth/registrationFlow.ts");
+
   assert.match(register, /disabled=\{busy \|\| phase !== "awaiting_verification"\}/);
-  assert.match(register, /if \(phase === "awaiting_verification"\) \{[\s\S]*?verifyRegistrationCode\([\s\S]*?setRegistrationToken\(currentToken\);[\s\S]*?setPhase\("verified"\);[\s\S]*?\}/);
-  assert.match(register, /setPhase\("verified"\);[\s\S]*?await completeRegistration\(/);
+  // The verify-then-complete order and the retained verified state live in
+  // registrationFlow.ts (behaviour covered by registrationFlow.test.ts).
+  assert.match(flow, /if \(phase === "awaiting_verification"\) \{[\s\S]*?requests\.verify\([\s\S]*?phase = "verified";[\s\S]*?\}[\s\S]*?await requests\.complete\(/);
+  assert.match(register, /setRegistrationToken\(result\.registrationToken\);\s*setPhase\(result\.phase\);/);
   assert.match(register, /name="password"[\s\S]*?disabled=\{busy \|\| completed\}/);
   assert.match(register, /name="confirmPassword"[\s\S]*?disabled=\{busy \|\| completed\}/);
 });
 
 test("registration copy keeps invite state indistinguishable until completion", () => {
   const register = source("../app/components/auth/RegisterPage.tsx");
+  const flow = source("../app/components/auth/registrationFlow.ts");
 
   assert.match(
     register,
     /如果邀请码有效且可用于该邮箱，验证码将发送到该邮箱，请注意查收。/,
   );
-  assert.match(register, /注册信息无效或已过期，请重新开始。/);
-  assert.doesNotMatch(register, /邀请码已撤销|邀请码已过期|邀请码已耗尽/);
+  assert.match(flow, /注册信息无效或已过期，请重新开始。/);
+  for (const text of [register, flow]) {
+    assert.doesNotMatch(text, /邀请码已撤销|邀请码已过期|邀请码已耗尽/);
+  }
 });
 
 test("registration copy states invite-only policy without promising success", () => {
   const register = source("../app/components/auth/RegisterPage.tsx");
 
-  assert.match(register, /当前仅开放邀请注册：/);
-  assert.match(register, /管理员签发、绑定指定邮箱的一次性邀请码，或已注册用户分享的个人邀请码/);
-  assert.match(register, /个人邀请码只用于注册，不能登录任何账户/);
-  assert.match(register, /subtitle="仅限邀请注册，需使用管理员签发的邀请码或已注册用户的个人邀请码。"/);
+  // One concise invite sentence replaces the earlier repeated subtitle and notice.
+  assert.match(register, /subtitle="请输入邀请码完成注册。"/);
+  assert.equal(register.match(/请输入邀请码完成注册。/g)?.length, 1);
+  assert.doesNotMatch(register, /当前仅开放邀请注册：|个人邀请码只用于注册，不能登录任何账户|仅限邀请注册，需使用管理员签发的邀请码/);
   // Personal codes are case-sensitive: never uppercase while typing, only legacy codes at submit.
   assert.match(register, /const canonicalInvite = canonicalInviteCode\(inviteCode\);/);
   assert.match(register, /onChange=\{\(event\) => setInviteCode\(event\.target\.value\)\}/);

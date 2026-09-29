@@ -1,5 +1,5 @@
 import { useEffect, useId, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   completeRegistration,
   canonicalInviteCode,
@@ -12,6 +12,15 @@ import {
 } from "../../lib/registration-api";
 import { AuthNotice, AuthShell, RevealIcon } from "./AuthShell";
 import { PASSWORD_MAX_LENGTH, REGISTRATION_PASSWORD_MIN_LENGTH } from "./passwordPolicy";
+import {
+  hasFieldErrors,
+  registrationErrorNotice,
+  REGISTRATION_SUCCESS_NAVIGATION,
+  runRegistrationSubmission,
+  validateRegistrationSubmission,
+  type RegistrationFieldErrors,
+  type RegistrationPhase,
+} from "./registrationFlow";
 
 /* 注册流程严格接入既有服务端状态机。registration token 只保存在组件内存，
    不写 Cookie / storage、不记录明文邀请码或验证码，也不自动建立登录 Session。 */
@@ -19,32 +28,15 @@ import { PASSWORD_MAX_LENGTH, REGISTRATION_PASSWORD_MIN_LENGTH } from "./passwor
 const VERIFICATION_COUNTDOWN_SECONDS = 60;
 
 type FormStatus = "idle" | "sending" | "submitting";
-type RegistrationPhase =
-  | "not_started"
-  | "awaiting_verification"
-  | "verified"
-  | "completed";
-type Notice = { tone: "danger" | "neutral"; text: string };
+type Notice = { tone: "danger" | "neutral"; text: string; loginLink?: boolean };
 
-function registrationErrorMessage(error: unknown): string {
-  if (!(error instanceof RegistrationApiError)) {
-    return "注册服务暂时不可用，请稍后重试。";
-  }
-  switch (error.code) {
-    case "rate_limited":
-      return "请求过于频繁，请稍后再试。";
-    case "password_policy_violation":
-      return "密码不符合安全要求，请检查后重试。";
-    case "invalid_or_expired":
-      return "注册信息无效或已过期，请重新开始。";
-    case "invalid_request":
-      return "请检查填写内容后重试。";
-    default:
-      return "暂时无法完成注册，请稍后重试。";
-  }
+function registrationErrorNoticeFor(error: unknown): Notice {
+  const code = error instanceof RegistrationApiError ? error.code : null;
+  return { tone: "danger", ...registrationErrorNotice(code) };
 }
 
 export function RegisterPage() {
+  const navigate = useNavigate();
   const emailId = useId();
   const codeId = useId();
   const passwordId = useId();
@@ -53,6 +45,8 @@ export function RegisterPage() {
   const noticeId = useId();
   const passwordHintId = useId();
   const confirmHintId = useId();
+  const codeErrorId = useId();
+  const passwordErrorId = useId();
 
   const [email, setEmail] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
@@ -65,6 +59,7 @@ export function RegisterPage() {
   const [phase, setPhase] = useState<RegistrationPhase>("not_started");
   const [registrationToken, setRegistrationToken] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<RegistrationFieldErrors>({});
   const [countdown, setCountdown] = useState(0);
   const [referralSourceCode] = useState(() =>
     referralSourceCodeFromSearch(window.location.search),
@@ -74,6 +69,16 @@ export function RegisterPage() {
   const identityLocked = phase !== "not_started";
   const completed = phase === "completed";
   const confirmMismatch = confirmPassword.length > 0 && password !== confirmPassword;
+  const confirmError = fieldErrors.confirmPassword ?? (confirmMismatch ? "两次输入的密码不一致。" : null);
+
+  function clearFieldError(field: keyof RegistrationFieldErrors) {
+    setFieldErrors((current) => {
+      if (current[field] === undefined) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (countdown <= 0) return;
@@ -125,7 +130,7 @@ export function RegisterPage() {
         text: "如果邀请码有效且可用于该邮箱，验证码将发送到该邮箱，请注意查收。",
       });
     } catch (error) {
-      setNotice({ tone: "danger", text: registrationErrorMessage(error) });
+      setNotice(registrationErrorNoticeFor(error));
     } finally {
       setStatus("idle");
     }
@@ -139,65 +144,56 @@ export function RegisterPage() {
       setNotice({ tone: "danger", text: "请先发送并获取邮箱验证码。" });
       return;
     }
-    if (
-      (phase === "awaiting_verification" && verificationCode.trim() === "") ||
-      !password ||
-      !confirmPassword
-    ) {
-      setNotice({ tone: "danger", text: "请填写验证码和密码后再提交。" });
-      return;
-    }
-    if (password !== confirmPassword) {
-      setNotice({ tone: "danger", text: "两次输入的密码不一致。" });
+    // 请求前先做本地格式校验；不合格时不发出验证或完成请求。
+    const errors = validateRegistrationSubmission(
+      { phase, verificationCode, password, confirmPassword },
+      { minLength: REGISTRATION_PASSWORD_MIN_LENGTH, maxLength: PASSWORD_MAX_LENGTH },
+    );
+    setFieldErrors(errors);
+    if (hasFieldErrors(errors)) {
+      setNotice(null);
       return;
     }
 
     setStatus("submitting");
     setNotice(null);
-    let currentToken = registrationToken;
-    try {
-      if (phase === "awaiting_verification") {
-        currentToken = await verifyRegistrationCode(
-          currentToken,
-          verificationCode.trim(),
-        );
-        setRegistrationToken(currentToken);
-        setPhase("verified");
-      }
-      await completeRegistration(
-        currentToken,
-        password,
-        confirmPassword,
-      );
-      setRegistrationToken(null);
-      setPhase("completed");
-      setCountdown(0);
-      setVerificationCode("");
-      setInviteCode("");
-      setPassword("");
-      setConfirmPassword("");
-      setNotice({
-        tone: "neutral",
-        text: "注册完成。现在可以前往登录客户中心。",
-      });
-    } catch (error) {
-      setNotice({ tone: "danger", text: registrationErrorMessage(error) });
-    } finally {
+    const result = await runRegistrationSubmission(
+      { phase, registrationToken, verificationCode, password, confirmPassword },
+      { verify: verifyRegistrationCode, complete: completeRegistration },
+    );
+    if (result.kind === "failed") {
+      // 留在注册页：验证码已通过时保留新 token，下次只重试完成步骤。
+      setRegistrationToken(result.registrationToken);
+      setPhase(result.phase);
+      setNotice(registrationErrorNoticeFor(result.error));
       setStatus("idle");
+      return;
     }
+    // 仅在注册完成后清除敏感状态，并以替换历史的方式前往登录页。
+    setRegistrationToken(null);
+    setPhase("completed");
+    setCountdown(0);
+    setVerificationCode("");
+    setInviteCode("");
+    setPassword("");
+    setConfirmPassword("");
+    setStatus("idle");
+    navigate(REGISTRATION_SUCCESS_NAVIGATION.to, REGISTRATION_SUCCESS_NAVIGATION.options);
   }
 
   return (
-    <AuthShell title="注册客户中心" subtitle="仅限邀请注册，需使用管理员签发的邀请码或已注册用户的个人邀请码。" wide>
-      <AuthNotice tone="neutral">
-        当前仅开放邀请注册：可使用管理员签发、绑定指定邮箱的一次性邀请码，或已注册用户分享的个人邀请码。个人邀请码只用于注册，不能登录任何账户。
-      </AuthNotice>
+    <AuthShell title="注册客户中心" subtitle="请输入邀请码完成注册。" wide>
       {referralSourceCode !== null && (
         <AuthNotice tone="neutral">
           已携带推荐来源。注册完成后仅保存为待确认的来源候选，不代表正式推荐归属或佣金资格。
         </AuthNotice>
       )}
-      {notice && <AuthNotice tone={notice.tone} id={noticeId}>{notice.text}</AuthNotice>}
+      {notice && (
+        <AuthNotice tone={notice.tone} id={noticeId}>
+          {notice.text}
+          {notice.loginLink && <> <Link to="/login">去登录</Link></>}
+        </AuthNotice>
+      )}
 
       <form className="auth-form" onSubmit={handleSubmit} noValidate>
         <div className="auth-field">
@@ -236,7 +232,12 @@ export function RegisterPage() {
                 value={verificationCode}
                 maxLength={6}
                 disabled={busy || phase !== "awaiting_verification"}
-                onChange={(event) => setVerificationCode(event.target.value)}
+                aria-invalid={fieldErrors.verificationCode !== undefined}
+                aria-describedby={fieldErrors.verificationCode !== undefined ? codeErrorId : undefined}
+                onChange={(event) => {
+                  setVerificationCode(event.target.value);
+                  clearFieldError("verificationCode");
+                }}
               />
             </div>
             <button
@@ -265,6 +266,11 @@ export function RegisterPage() {
                     : "重新发送验证码"}
             </button>
           </div>
+          {fieldErrors.verificationCode !== undefined && (
+            <p className="auth-hint is-danger" id={codeErrorId} aria-live="polite">
+              {fieldErrors.verificationCode}
+            </p>
+          )}
         </div>
 
         <div className="auth-field">
@@ -279,8 +285,17 @@ export function RegisterPage() {
               placeholder="请设置密码"
               value={password}
               disabled={busy || completed}
-              aria-describedby={passwordHintId}
-              onChange={(event) => setPassword(event.target.value)}
+              aria-invalid={fieldErrors.password !== undefined}
+              aria-describedby={
+                fieldErrors.password !== undefined
+                  ? `${passwordHintId} ${passwordErrorId}`
+                  : passwordHintId
+              }
+              onChange={(event) => {
+                setPassword(event.target.value);
+                clearFieldError("password");
+                clearFieldError("confirmPassword");
+              }}
             />
             <button
               type="button"
@@ -297,6 +312,11 @@ export function RegisterPage() {
           <p className="auth-hint" id={passwordHintId}>
             至少 {REGISTRATION_PASSWORD_MIN_LENGTH} 个字符，最终以服务端校验为准。
           </p>
+          {fieldErrors.password !== undefined && (
+            <p className="auth-hint is-danger" id={passwordErrorId} aria-live="polite">
+              {fieldErrors.password}
+            </p>
+          )}
         </div>
 
         <div className="auth-field">
@@ -311,9 +331,12 @@ export function RegisterPage() {
               placeholder="请再次输入密码"
               value={confirmPassword}
               disabled={busy || completed}
-              aria-invalid={confirmMismatch}
-              aria-describedby={confirmMismatch ? confirmHintId : undefined}
-              onChange={(event) => setConfirmPassword(event.target.value)}
+              aria-invalid={confirmError !== null}
+              aria-describedby={confirmError !== null ? confirmHintId : undefined}
+              onChange={(event) => {
+                setConfirmPassword(event.target.value);
+                clearFieldError("confirmPassword");
+              }}
             />
             <button
               type="button"
@@ -329,7 +352,7 @@ export function RegisterPage() {
           </div>
           {/* 始终占位，避免不一致提示出现/消失时推动下方字段。 */}
           <p className="auth-hint is-danger" id={confirmHintId} aria-live="polite">
-            {confirmMismatch ? "两次输入的密码不一致。" : " "}
+            {confirmError ?? " "}
           </p>
         </div>
 

@@ -10,6 +10,7 @@ import { QRCodeSVG } from "qrcode.react";
 import type { ServiceDeliveryItem } from "../../lib/payment-api";
 import {
   SUBSCRIPTION_PLATFORMS,
+  clientManualImportReason,
   clientsForPlatform,
   safeSubscriptionHref,
   safeVerifiedDeepLinkHref,
@@ -32,6 +33,8 @@ export type VerifiedDeepLinkRequest = {
 export type SubscriptionImportModuleProps = {
   /** Items must come from the existing authorized delivery response. */
   readonly deliveryItems: readonly SubscriptionImportDelivery[];
+  /** Place the existing controls directly inside an owned service card. */
+  readonly compact?: boolean;
   readonly initialPlatform?: SubscriptionPlatform;
   /**
    * Optional integration hook for a separately confirmed exact deep-link contract.
@@ -77,6 +80,7 @@ function resolvedVerifiedDeepLink(
 
 export function SubscriptionImportModule({
   deliveryItems,
+  compact = false,
   initialPlatform = "ios",
   getVerifiedDeepLink,
 }: SubscriptionImportModuleProps) {
@@ -91,6 +95,7 @@ export function SubscriptionImportModule({
   const [safeOpenVisible, setSafeOpenVisible] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const pageClassName = compact ? "cc-si-page is-compact" : "cc-si-page";
 
   const clients = clientsForPlatform(platform);
   const platformLabel =
@@ -101,14 +106,6 @@ export function SubscriptionImportModule({
   const subscriptionUrl = activeItem === null
     ? null
     : safeSubscriptionHref(activeItem.subscriptionUrl);
-  const verifiedDeepLink = subscriptionUrl === null
-    ? null
-    : resolvedVerifiedDeepLink(getVerifiedDeepLink, {
-        platform,
-        clientId: selectedClient.id,
-        subscriptionUrl,
-      });
-
   function selectPlatform(nextPlatform: SubscriptionPlatform) {
     const nextClients = clientsForPlatform(nextPlatform);
     setPlatform(nextPlatform);
@@ -160,7 +157,7 @@ export function SubscriptionImportModule({
 
   if (activeItem === null) {
     return (
-      <section className="cc-si-page" aria-labelledby={`${instanceId}-empty-title`}>
+      <section className={pageClassName} aria-labelledby={`${instanceId}-empty-title`}>
         <section className="cc-si-panel cc-si-empty" role="status">
           <span>SUBSCRIPTION</span>
           <h2 id={`${instanceId}-empty-title`}>订阅信息待接入</h2>
@@ -172,7 +169,7 @@ export function SubscriptionImportModule({
 
   if (subscriptionUrl === null) {
     return (
-      <section className="cc-si-page" aria-labelledby={`${instanceId}-invalid-title`}>
+      <section className={pageClassName} aria-labelledby={`${instanceId}-invalid-title`}>
         <section className="cc-si-panel cc-si-empty" role="alert">
           <span>SUBSCRIPTION</span>
           <h2 id={`${instanceId}-invalid-title`}>订阅地址暂不可用</h2>
@@ -187,7 +184,7 @@ export function SubscriptionImportModule({
   const qrPanelId = `${instanceId}-local-qr`;
 
   return (
-    <section className="cc-si-page" aria-labelledby={`${instanceId}-title`}>
+    <section className={pageClassName} aria-labelledby={`${instanceId}-title`}>
       <div className="cc-si-layout">
         <section className="cc-si-panel">
           <header className="cc-si-heading">
@@ -264,6 +261,17 @@ export function SubscriptionImportModule({
             </button>
           </div>
 
+          {qrOpen && (
+            <div id={qrPanelId} className="cc-si-qr" aria-label="订阅二维码">
+              <div className="cc-si-qr-code">
+                <LocalQrBoundary key={subscriptionUrl}>
+                  <QRCodeSVG value={subscriptionUrl} size={184} level="M" marginSize={2} />
+                </LocalQrBoundary>
+              </div>
+              <p>使用客户端扫码导入。</p>
+            </div>
+          )}
+
           {actionMessage !== null && <p className="cc-si-status" role="status">{actionMessage}</p>}
 
           {safeOpenVisible && (
@@ -289,7 +297,7 @@ export function SubscriptionImportModule({
             <div>
               <span>CLIENT</span>
               <h2>选择客户端</h2>
-              <p>未提供逐项确认的一键导入动作时，本页始终使用手动导入。</p>
+              <p>客户端旁有「导入」时可请求打开；也可随时手动导入。</p>
             </div>
           </header>
 
@@ -324,34 +332,49 @@ export function SubscriptionImportModule({
             className="cc-si-client-panel"
           >
             <p className="cc-si-client-caveat" role="note">
-              客户端清单仅按批准矩阵展示；一键导入和兼容性仍需逐项确认。
+              客户端清单仅按批准矩阵展示；「导入」只请求打开客户端，订阅内容格式未核实，能否添加由客户端决定。
             </p>
             <div className="cc-si-client-grid" aria-label={`${platformLabel} 可选客户端`}>
-              {clients.map((client) => (
-                <button
-                  key={client.id}
-                  type="button"
-                  aria-pressed={client.id === selectedClient.id}
-                  className={client.id === selectedClient.id ? "is-active" : undefined}
-                  onClick={() => {
-                    setClientId(client.id);
-                    setActionMessage(null);
-                  }}
-                >
-                  <span>{client.name}</span>
-                  {client.recommended && <small>推荐</small>}
-                </button>
-              ))}
+              {clients.map((client) => {
+                const deepLink = resolvedVerifiedDeepLink(getVerifiedDeepLink, {
+                  platform,
+                  clientId: client.id,
+                  subscriptionUrl,
+                });
+                return (
+                  <div key={client.id} className="cc-si-client-option">
+                    <button
+                      type="button"
+                      aria-pressed={client.id === selectedClient.id}
+                      className={client.id === selectedClient.id ? "is-active" : undefined}
+                      onClick={() => {
+                        setClientId(client.id);
+                        setActionMessage(null);
+                      }}
+                    >
+                      <span>{client.name}</span>
+                      {client.recommended && <small>推荐</small>}
+                    </button>
+                    {deepLink !== null && (
+                      <a
+                        className="cc-si-client-import"
+                        href={deepLink}
+                        aria-label={client.id === "clash"
+                          ? "请求系统的 Clash 协议处理客户端导入当前线路订阅"
+                          : `请求打开 ${client.name} 导入当前线路订阅`}
+                        onClick={() => setActionMessage(
+                          client.id === "clash"
+                            ? "已请求系统的 Clash 协议处理客户端打开；可能由不同应用接管，请确认是否添加，未响应请手动导入。"
+                            : `已请求浏览器打开 ${client.name}；请在客户端确认是否添加，未响应请手动导入。`,
+                        )}
+                      >
+                        导入
+                      </a>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-
-            {qrOpen && (
-              <div id={qrPanelId} className="cc-si-qr" aria-label="本地订阅二维码">
-                <LocalQrBoundary key={subscriptionUrl}>
-                  <QRCodeSVG value={subscriptionUrl} size={184} level="M" marginSize={2} />
-                </LocalQrBoundary>
-                <p>二维码仅在当前浏览器本地生成，不调用第三方二维码服务。</p>
-              </div>
-            )}
 
             <div className="cc-si-manual">
               <h3>{selectedClient.name} · 手动导入</h3>
@@ -360,21 +383,10 @@ export function SubscriptionImportModule({
                 <li>打开 {selectedClient.name}，进入它的订阅或配置导入入口。</li>
                 <li>粘贴地址并提交；是否导入成功以客户端实际显示为准。</li>
               </ol>
-              {verifiedDeepLink === null ? (
-                <button type="button" className="cc-si-secondary" onClick={() => void copySubscriptionUrl()}>
-                  复制后手动导入
-                </button>
-              ) : (
-                <a
-                  className="cc-si-primary"
-                  href={verifiedDeepLink}
-                  onClick={() => setActionMessage(
-                    `已请求浏览器打开 ${selectedClient.name}；若未唤起，请改用手动导入。`,
-                  )}
-                >
-                  尝试打开 {selectedClient.name}
-                </a>
-              )}
+              <p className="cc-si-manual-reason">{clientManualImportReason(selectedClient.id)}</p>
+              <button type="button" className="cc-si-secondary" onClick={() => void copySubscriptionUrl()}>
+                复制后手动导入
+              </button>
             </div>
           </div>
 
