@@ -46,6 +46,9 @@ export class FakeAlipaySdk implements AlipaySdkLike {
     totalAmount: "79.00",
   };
   closeResponse: unknown = { code: "10000" };
+  readonly precreateCalls: Array<{ readonly bizContent: Readonly<Record<string, string>>; readonly notifyUrl?: string }> = [];
+  // Default: merchant without 当面付, so results keep the frozen key set.
+  precreateResponse: unknown = { code: "40004", msg: "Business Failed", subCode: "ACQ.ACCESS_FORBIDDEN" };
 
   pageExecute(
     method: "alipay.trade.page.pay",
@@ -72,7 +75,7 @@ export class FakeAlipaySdk implements AlipaySdkLike {
   }
 
   async exec(
-    method: "alipay.trade.query" | "alipay.trade.close",
+    method: "alipay.trade.query" | "alipay.trade.close" | "alipay.trade.precreate",
     parameters: {
       readonly bizContent: Readonly<Record<string, string>>;
       readonly notifyUrl?: string;
@@ -80,6 +83,13 @@ export class FakeAlipaySdk implements AlipaySdkLike {
     options: { readonly validateSign: true },
   ): Promise<unknown> {
     const outTradeNo = parameters.bizContent.outTradeNo;
+    if (method === "alipay.trade.precreate") {
+      this.precreateCalls.push(parameters);
+      if (this.precreateResponse instanceof Error) throw this.precreateResponse;
+      return typeof this.precreateResponse === "function"
+        ? (this.precreateResponse as (ref: unknown) => unknown)(outTradeNo)
+        : this.precreateResponse;
+    }
     if (typeof outTradeNo !== "string") {
       throw new Error("unexpected outTradeNo");
     }

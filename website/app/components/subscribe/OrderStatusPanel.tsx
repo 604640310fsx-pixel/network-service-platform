@@ -88,6 +88,10 @@ function initialPayUrl(initialResult?: PaymentOrderResult): string | null {
   return initialResult !== undefined && initialResult.status === "pending" ? initialResult.payUrl : null;
 }
 
+function initialQrCode(initialResult?: PaymentOrderResult): string | null {
+  return initialResult !== undefined && initialResult.status === "pending" ? initialResult.qrCode : null;
+}
+
 const ALIPAY_RETURN_MESSAGE = "nsp.alipay.return";
 
 export function OrderStatusPanel({
@@ -108,6 +112,7 @@ export function OrderStatusPanel({
   // 支付页地址只留在内存 state（来自 navigation state 的首个结果，或一次性恢复）；
   // 绝不写入 URL / localStorage / 日志。
   const [payUrl, setPayUrl] = useState<string | null>(() => initialPayUrl(initialResult));
+  const [qrCode, setQrCode] = useState<string | null>(() => initialQrCode(initialResult));
   const [reservedUntil, setReservedUntil] = useState<string | null>(
     () => initialResult?.reservedUntil ?? null,
   );
@@ -157,7 +162,10 @@ export function OrderStatusPanel({
         if (next.reservedUntil !== null) {
           setReservedUntil((prev) => prev ?? next.reservedUntil);
         }
-        if (next.status !== "pending") setPayUrl(null);
+        if (next.status !== "pending") {
+          setPayUrl(null);
+          setQrCode(null);
+        }
         setReturningFromAlipay(false);
         setLoading(false);
         setError(null);
@@ -190,6 +198,7 @@ export function OrderStatusPanel({
       // 同源回跳只触发服务端权威查单；绝不据此直接写入 paid。
       setReturningFromAlipay(true);
       setPayUrl(null);
+      setQrCode(null);
       setQueryGeneration((generation) => generation + 1);
     }
     window.addEventListener("message", handleAlipayReturn);
@@ -204,6 +213,7 @@ export function OrderStatusPanel({
       const result = await refreshOrderPayPage(orderRef, accessTokenRef.current);
       if (result.status === "pending") {
         setPayUrl(result.payUrl);
+        setQrCode(result.qrCode);
         setReservedUntil(result.reservedUntil);
         setNowMs(Date.now());
         setActionError(null);
@@ -332,6 +342,7 @@ export function OrderStatusPanel({
           orderRef={snapshot.orderRef}
           amountFen={snapshot.amountFen}
           payUrl={phase === "waiting" ? payUrl : null}
+          qrCode={phase === "waiting" ? qrCode : null}
           secondsLeft={phase === "waiting" ? secondsLeft : null}
           onRefreshPayPage={() => void doRefreshPayPage(false)}
           refreshing={refreshingPayPage}
