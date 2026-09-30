@@ -55,15 +55,24 @@ function PageFrame({ children }: { children: React.ReactNode }) {
   );
 }
 
-function PanelHead({ title, tag }: { title: string; tag: string }) {
+function PanelHead({ title, tag, action }: { title: string; tag?: string; action?: React.ReactNode }) {
   return (
     <div className="cc-ord-panel-head">
       <div>
         <em>TICKETS</em>
         <h2>{title}</h2>
       </div>
-      <span className="cc-ord-tag">{tag}</span>
+      {action ?? (tag !== undefined && <span className="cc-ord-tag">{tag}</span>)}
     </div>
+  );
+}
+
+function NewTicketLink({ className = "cc-ord-primary cc-tk-new" }: { className?: string }) {
+  return (
+    <Link className={className} to="/tickets?new=1">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+      新建工单
+    </Link>
   );
 }
 
@@ -144,34 +153,33 @@ function TicketList({ page }: { page: number }) {
   const { items, hasMore } = state.value;
   return (
     <section className="cc-ord-panel">
-      <PanelHead title="我的工单" tag={`第 ${page} 页`} />
-      <div className="cc-tk-toolbar">
-        <Link className="cc-ord-primary" to="/tickets?new=1">新建工单</Link>
-      </div>
+      <PanelHead title="我的工单" action={<NewTicketLink />} />
       {items.length === 0 ? (
-        <div className="cc-ord-notice">
-          <p className="cc-ord-notice-title">{page === 1 ? "暂无工单" : "这一页没有工单"}</p>
-          <p className="cc-ord-notice-hint">遇到服务问题时，可新建工单描述情况，客服会在工单内以文字回复。</p>
+        <div className="cc-tk-empty">
+          <span className="cc-tk-empty-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 5h16v11H9l-5 4z" /><path d="M8 9h8M8 12.5h5" /></svg>
+          </span>
+          <p className="cc-tk-empty-title">{page === 1 ? "还没有工单" : "这一页没有工单"}</p>
+          <p className="cc-tk-empty-hint">遇到服务问题时，可新建工单描述情况，客服会在工单内以文字回复。</p>
+          {page === 1 ? <NewTicketLink className="cc-ord-primary" /> : <Link className="cc-ord-ghost" to="/tickets">回到第一页</Link>}
         </div>
       ) : (
-        <ul className="cc-ord-list">
+        <ul className="cc-tk-list">
           {items.map((item) => (
-            <li className="cc-ord-item" key={item.ref}>
-              <div className="cc-ord-item-head">
-                <div className="cc-ord-item-id">
+            <li key={item.ref}>
+              <Link className="cc-tk-row" to={`/tickets?ref=${encodeURIComponent(item.ref)}`}>
+                <span className="cc-tk-row-main">
                   <strong className="cc-tk-subject">{item.subject}</strong>
                   <small>{item.ref} · 更新于 {formatDate(item.updatedAt)}</small>
-                </div>
+                </span>
+                <span className="cc-tk-row-meta">
+                  <span>{item.messageCount} 条消息</span>
+                  <span>最近回复：{item.lastMessageRole === "admin" ? "客服" : "我"}</span>
+                  <span>{item.serviceOrderRef ?? "未关联服务"}</span>
+                </span>
                 <StatusBadge status={item.status} />
-              </div>
-              <dl className="cc-ord-facts">
-                <div><dt>消息</dt><dd>{item.messageCount} 条</dd></div>
-                <div><dt>最近回复</dt><dd>{item.lastMessageRole === "admin" ? "客服" : "我"}</dd></div>
-                <div><dt>关联服务</dt><dd>{item.serviceOrderRef ?? "未关联"}</dd></div>
-              </dl>
-              <div className="cc-ord-item-foot">
-                <Link className="cc-ord-ghost" to={`/tickets?ref=${encodeURIComponent(item.ref)}`}>查看工单</Link>
-              </div>
+                <svg className="cc-tk-row-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+              </Link>
             </li>
           ))}
         </ul>
@@ -179,6 +187,7 @@ function TicketList({ page }: { page: number }) {
       {(page > 1 || hasMore) && (
         <nav className="cc-tk-pager" aria-label="工单分页">
           <button type="button" className="cc-ord-ghost" disabled={page <= 1} onClick={() => setSearchParams({ page: String(page - 1) })}>上一页</button>
+          <span className="cc-tk-page">第 {page} 页</span>
           <button type="button" className="cc-ord-ghost" disabled={!hasMore} onClick={() => setSearchParams({ page: String(page + 1) })}>下一页</button>
         </nav>
       )}

@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 
-/* 站内支付实际承载支付宝电脑网站收银台。payUrl 只作为 iframe / 新窗口导航目标，
-   不在本站生成另一套收款内容，也不持久化地址。 */
+/* 支付宝收银台不嵌入本站 iframe（可能被 X-Frame-Options 拒绝）。
+   - 有当面付二维码内容（qrCode，qr.alipay.com 短地址）时：本地生成稀疏二维码供手机扫码，
+     电脑网站收银台作为新窗口备用。
+   - 没有 qrCode 时：不把很长的 payUrl 生成难以扫描的密集二维码，改为以「打开支付宝收银台」为主。
+   本页继续自动查询支付结果；不生成另一套收款内容，也不持久化地址。 */
 export type AlipayQrPhase = "waiting" | "confirming" | "paid" | "closed";
 
 type AlipayQrPayProps = {
@@ -10,6 +13,7 @@ type AlipayQrPayProps = {
   readonly orderRef: string;
   readonly amountFen: number;
   readonly payUrl: string | null;
+  readonly qrCode: string | null;
   readonly secondsLeft: number | null;
   readonly onRefreshPayPage: () => void;
   readonly refreshing: boolean;
@@ -43,6 +47,7 @@ export function AlipayQrPay({
   orderRef,
   amountFen,
   payUrl,
+  qrCode,
   secondsLeft,
   onRefreshPayPage,
   refreshing,
@@ -50,32 +55,6 @@ export function AlipayQrPay({
   retrying,
   actionError,
 }: AlipayQrPayProps) {
-  const [cashierLoaded, setCashierLoaded] = useState(false);
-  const [cashierTimedOut, setCashierTimedOut] = useState(false);
-  const loadTimerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    setCashierLoaded(false);
-    setCashierTimedOut(false);
-    if (loadTimerRef.current !== null) window.clearTimeout(loadTimerRef.current);
-    if (phase !== "waiting" || payUrl === null) return;
-    loadTimerRef.current = window.setTimeout(() => {
-      loadTimerRef.current = null;
-      setCashierTimedOut(true);
-    }, 8_000);
-    return () => {
-      if (loadTimerRef.current !== null) window.clearTimeout(loadTimerRef.current);
-      loadTimerRef.current = null;
-    };
-  }, [payUrl, phase]);
-
-  function handleCashierLoad() {
-    if (loadTimerRef.current !== null) window.clearTimeout(loadTimerRef.current);
-    loadTimerRef.current = null;
-    setCashierLoaded(true);
-    setCashierTimedOut(false);
-  }
-
   const amountLabel = phase === "paid" ? "已支付金额" : "应付金额";
   return (
     <section className="pay-card" data-state={phase} aria-live="polite">
@@ -95,27 +74,31 @@ export function AlipayQrPay({
 
       {phase === "waiting" && (
         <div className="pay-scan">
-          <div className="pay-cashier-frame">
-            {payUrl === null ? (
-              <div className="pay-cashier-loading" role="status">正在获取支付宝收银台…</div>
-            ) : cashierTimedOut ? (
-              <div className="pay-cashier-fallback" role="alert">
-                <p>收银台加载超时，未确认支付结果。</p>
-                <a href={payUrl} target="_blank" rel="noreferrer">在新窗口打开支付宝</a>
-              </div>
-            ) : (
-              <>
-                {!cashierLoaded && <div className="pay-cashier-loading" role="status">正在加载支付宝收银台…</div>}
-                <iframe
-                  className="pay-cashier-iframe"
-                  src={payUrl}
-                  title="支付宝电脑网站收银台"
-                  referrerPolicy="no-referrer"
-                  onLoad={handleCashierLoad}
-                />
-              </>
-            )}
-          </div>
+          {payUrl === null ? (
+            <div className="pay-open-loading" role="status">正在获取支付宝收银台…</div>
+          ) : (
+            <div className="pay-open">
+              {qrCode !== null ? (
+                <>
+                  <div className="pay-qr" role="img" aria-label="支付宝付款二维码">
+                    <QRCodeSVG value={qrCode} size={240} level="M" marginSize={2} />
+                  </div>
+                  <p className="pay-open-lead">请使用手机支付宝扫码付款</p>
+                  <a className="pay-ghost pay-open-button" href={payUrl} target="_blank" rel="noopener noreferrer">
+                    或在新窗口打开支付宝收银台
+                  </a>
+                </>
+              ) : (
+                <>
+                  <p className="pay-open-lead">点击下方按钮，在新窗口打开支付宝收银台完成付款。</p>
+                  <a className="pay-primary pay-open-button" href={payUrl} target="_blank" rel="noopener noreferrer">
+                    打开支付宝收银台
+                  </a>
+                </>
+              )}
+              <p className="pay-open-note">付款完成后无需操作，本页会自动更新结果。</p>
+            </div>
+          )}
           <p className="pay-hint">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h3v3M20 14v.01M14 20h.01M20 20v-3M17 20h.01"/></svg>
             请按支付宝收银台提示完成付款，本页会自动查询支付结果。

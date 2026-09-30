@@ -10,7 +10,7 @@ export interface AlipaySdkLike {
   ): string;
   checkNotifySignV2(parameters: Readonly<Record<string, unknown>>): boolean;
   exec(
-    method: "alipay.trade.query" | "alipay.trade.close",
+    method: "alipay.trade.query" | "alipay.trade.close" | "alipay.trade.precreate",
     parameters: {
       readonly bizContent: Readonly<Record<string, string>>;
       readonly notifyUrl?: string;
@@ -129,6 +129,67 @@ export function createAlipayPagePayUrl(
     throw new Error("Alipay page pay URL generation failed");
   }
   return payUrl;
+}
+
+// 当面付二维码内容只接受支付宝官方二维码域名的 https 地址。
+const ALIPAY_QR_CODE_PATTERN = /^https:\/\/qr\.alipay\.com\/[A-Za-z0-9]+$/;
+const SAFE_PROVIDER_CODE = /^[A-Za-z0-9._-]{1,64}$/;
+
+function safeCode(value: string | null): string | null {
+  return value !== null && SAFE_PROVIDER_CODE.test(value) ? value : null;
+}
+
+/* 当面付（alipay.trade.precreate）二维码，与电脑网站支付共用同一 out_trade_no、
+   金额、标题、签名与 notify / 查单对账。商户未开通当面付或网关失败时返回 null，
+   调用方只保留电脑网站支付链接，结账不中断。二维码内容视为支付数据：不写日志；
+   失败时只记录网关 code / sub_code。 */
+export async function createAlipayPrecreateQrCode(
+  sdk: AlipaySdkLike,
+  config: Pick<AlipayPagePayConfig, "notifyUrl">,
+  input: { readonly outTradeNo: string; readonly amountFen: number },
+): Promise<string | null> {
+  let code: string | null = null;
+  let subCode: string | null = null;
+  try {
+    const response = await sdk.exec(
+      "alipay.trade.precreate",
+      {
+        bizContent: {
+          outTradeNo: input.outTradeNo,
+          totalAmount: formatFenAsYuan(input.amountFen),
+          subject: ALIPAY_PAGE_PAY_SUBJECT,
+          timeoutExpress: "30m",
+        },
+        notifyUrl: config.notifyUrl,
+      },
+      { validateSign: true },
+    );
+    if (typeof response === "object" && response !== null && !Array.isArray(response)) {
+      const record = response as Record<string, unknown>;
+      code = readString(record, "code", "code");
+      subCode = readString(record, "subCode", "sub_code");
+      const qrCode = readString(record, "qrCode", "qr_code");
+      const returnedOutTradeNo = readString(record, "outTradeNo", "out_trade_no");
+      if (
+        code === "10000" &&
+        qrCode !== null &&
+        ALIPAY_QR_CODE_PATTERN.test(qrCode) &&
+        (returnedOutTradeNo === null || returnedOutTradeNo === input.outTradeNo)
+      ) {
+        return qrCode;
+      }
+    }
+  } catch {
+    // SDK 异常可能携带请求内容；只记录下方的脱敏诊断。
+  }
+  console.warn(
+    JSON.stringify({
+      event: "precreate_unavailable",
+      provider_code: safeCode(code),
+      provider_sub_code: safeCode(subCode),
+    }),
+  );
+  return null;
 }
 
 export async function queryAlipayTrade(

@@ -79,7 +79,20 @@ export type PaymentOrderResult = {
   readonly currency: "CNY";
   readonly reservedUntil: string | null;
   readonly payUrl: string | null;
+  // 当面付二维码内容（增量字段）：仅当后端预下单成功时存在，否则为 null。
+  readonly qrCode: string | null;
 };
+
+// 只接受支付宝官方二维码域名；其他值一律视为无效响应。
+const ALIPAY_QR_CODE_PATTERN = /^https:\/\/qr\.alipay\.com\/[A-Za-z0-9]+$/;
+
+function parseOptionalQrCode(value: unknown): string | null {
+  if (value === undefined) return null;
+  if (typeof value !== "string" || !ALIPAY_QR_CODE_PATTERN.test(value)) {
+    throw new PaymentApiError("invalid_response");
+  }
+  return value;
+}
 
 export type PaymentOrderSnapshot = {
   readonly orderRef: string;
@@ -330,6 +343,7 @@ function parseOrderResult(value: unknown): PaymentOrderResult {
       currency: "CNY",
       reservedUntil: body.reservedUntil,
       payUrl: body.payUrl,
+      qrCode: parseOptionalQrCode(body.qrCode),
     };
   }
 
@@ -342,6 +356,7 @@ function parseOrderResult(value: unknown): PaymentOrderResult {
     currency: "CNY",
     reservedUntil: null,
     payUrl: null,
+    qrCode: null,
   };
 }
 

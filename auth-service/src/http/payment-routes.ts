@@ -5,6 +5,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { DatabaseConnection } from "../db.js";
 import {
   createAlipayPagePayUrl,
+  createAlipayPrecreateQrCode,
   parseYuanAsFen,
   type AlipaySdkLike,
 } from "../payment/alipay.js";
@@ -209,6 +210,8 @@ interface PublicPaymentResult {
   readonly currency: "CNY";
   readonly reservedUntil: string | null;
   readonly payUrl: string | null;
+  // 仅当当面付预下单成功时出现（增量字段）；其余情况响应结构与原冻结结构一致。
+  readonly qrCode?: string;
 }
 
 function paymentNow(dependencies: Pick<OrderServiceDependencies, "now">): Date {
@@ -254,10 +257,16 @@ async function publicPaymentResult(
       reservedUntil,
     },
   );
+  const qrCode = await createAlipayPrecreateQrCode(
+    dependencies.sdk,
+    { notifyUrl: dependencies.notifyUrl },
+    { outTradeNo: result.orderRef, amountFen: result.amountFen },
+  );
   return {
     ...base,
     reservedUntil: result.reservedUntil,
     payUrl,
+    ...(qrCode === null ? {} : { qrCode }),
   };
 }
 
