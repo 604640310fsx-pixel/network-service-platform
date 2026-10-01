@@ -82,7 +82,8 @@
 .auth-submit[aria-busy="true"] { cursor: progress; }
 
 .auth-foot { display: flex; justify-content: center; margin-top: 20px; }
-.auth-pending-link { padding: 0; border: 0; background: transparent; color: var(--cc-text-4); font-size: 12.5px; cursor: not-allowed; }
+.auth-foot-link { color: var(--cc-text-3); font-size: 12.5px; }
+.auth-foot-link:hover { color: var(--cc-accent); text-decoration: underline; }
 
 /* 中性提示（“服务尚未接入”一类说明），复用 .auth-error 结构，仅换配色。 */
 .auth-error.is-neutral { border-color: var(--cc-line); background: var(--cc-inset); color: var(--cc-text-2); }

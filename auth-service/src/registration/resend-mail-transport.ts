@@ -3,6 +3,7 @@ import type {
   MailDelivery,
   MailTransport,
 } from "./mail-dispatcher.js";
+import { PASSWORD_RESET_TOKEN_PATTERN } from "./mail-outbox.js";
 import { REGISTRATION_OTP_PATTERN } from "./registration-crypto.js";
 
 const RESEND_EMAILS_ENDPOINT = "https://api.resend.com/emails";
@@ -103,6 +104,19 @@ const EMAIL_CHANGED_NOTICE_CONTENT: MailContent = {
     "如果这不是您本人的操作，请立即联系客服处理。本邮件无需回复。",
 };
 
+export const PASSWORD_RESET_LINK_BASE = "https://www.siqiapparel.com/reset-password?token=";
+
+function passwordResetContent(token: string): MailContent {
+  return {
+    subject: "Network Service Platform 重置密码",
+    text:
+      "我们收到了重置您 Network Service Platform 账户密码的请求。请在 30 分钟内打开以下链接设置新密码：\n\n" +
+      `${PASSWORD_RESET_LINK_BASE}${token}\n\n` +
+      "链接仅可使用一次。重置成功后，该账户所有设备上的登录都会失效。\n\n" +
+      "如非本人操作，请忽略本邮件，您的密码不会发生任何变化。请勿转发。",
+  };
+}
+
 function requireDelivery(delivery: MailDelivery): {
   readonly idempotencyKey: string;
   readonly toEmail: string;
@@ -127,6 +141,13 @@ function requireDelivery(delivery: MailDelivery): {
     delivery.verificationCode === null
   ) {
     content = EMAIL_CHANGED_NOTICE_CONTENT;
+  } else if (
+    delivery.template === "password_reset" &&
+    delivery.verificationCode === null &&
+    typeof delivery.resetToken === "string" &&
+    PASSWORD_RESET_TOKEN_PATTERN.test(delivery.resetToken)
+  ) {
+    content = passwordResetContent(delivery.resetToken);
   } else {
     throw new ResendMailTransportError();
   }

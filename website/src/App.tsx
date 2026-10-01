@@ -2,6 +2,8 @@ import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import { HomePage } from "../app/components/home/HomePage";
 import { LoginPage } from "../app/components/auth/LoginPage";
 import { RegisterPage } from "../app/components/auth/RegisterPage";
+import { ForgotPasswordPage } from "../app/components/auth/ForgotPasswordPage";
+import { ResetPasswordPage } from "../app/components/auth/ResetPasswordPage";
 import { AuthSessionChecking } from "../app/components/auth/AuthShell";
 import { DashboardShell } from "../app/components/DashboardShell";
 import { DiagnosisPage } from "../app/components/diagnosis/DiagnosisPage";
@@ -41,6 +43,8 @@ export default function App() {
         {/* 静态 Auth 路由必须先于动态 /:section 命中。 */}
         <Route path="/login" element={<LoginRoute />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/diagnosis" element={<DiagnosisPage />} />
         {/* 公开的独立提交页，必须先于动态 /:section，避免两段路径落到兜底重定向。 */}
         <Route path="/subscribe/request" element={<SubmitRequestPage />} />

@@ -21,9 +21,19 @@ const MAIL_RECIPIENT_AUDIT_KEY_INFO = Buffer.from(
 
 /* verification_code carries a six-digit code (registration or email change);
    email_changed_notice carries no secret and only tells the previous address
-   that the account's login email was changed. */
-export type MailTemplate = "verification_code" | "email_changed_notice";
+   that the account's login email was changed; password_reset carries the
+   single-use reset token that the mail turns into a link. */
+export type MailTemplate = "verification_code" | "email_changed_notice" | "password_reset";
 export const EMAIL_CHANGED_NOTICE_PLAINTEXT = "notice";
+export const PASSWORD_RESET_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+
+export function isMailTemplate(value: unknown): value is MailTemplate {
+  return (
+    value === "verification_code" ||
+    value === "email_changed_notice" ||
+    value === "password_reset"
+  );
+}
 
 export interface EncryptedRegistrationOtpPayload {
   readonly idempotencyKey: string;
@@ -98,6 +108,7 @@ export function parseRegistrationOtpIdempotencyKey(
 const NONCE_PATTERN = "[A-Za-z0-9_-]{22}";
 const EMAIL_CHANGE_OTP_KEY_PATTERN = new RegExp(`^email-change-otp-v1:([1-9][0-9]*):([1-9][0-9]*):${NONCE_PATTERN}$`);
 const EMAIL_CHANGED_NOTICE_KEY_PATTERN = new RegExp(`^email-changed-notice-v1:([1-9][0-9]*):([1-9][0-9]*):${NONCE_PATTERN}$`);
+const PASSWORD_RESET_KEY_PATTERN = new RegExp(`^password-reset-v1:([1-9][0-9]*):([1-9][0-9]*):${NONCE_PATTERN}$`);
 
 export interface AccountMailIdentity {
   readonly userId: number;
@@ -138,6 +149,15 @@ export function buildEmailChangedNoticeIdempotencyKey(userId: number, changedEpo
 
 export function parseEmailChangedNoticeIdempotencyKey(value: string): AccountMailIdentity | null {
   return parseAccountMailKey(EMAIL_CHANGED_NOTICE_KEY_PATTERN, value);
+}
+
+/** Password reset link mail; epochSeconds is the token's expiry. */
+export function buildPasswordResetIdempotencyKey(userId: number, expiresEpochSeconds: number, nonce: string): string {
+  return buildAccountMailKey("password-reset-v1", userId, expiresEpochSeconds, nonce);
+}
+
+export function parsePasswordResetIdempotencyKey(value: string): AccountMailIdentity | null {
+  return parseAccountMailKey(PASSWORD_RESET_KEY_PATTERN, value);
 }
 
 export function computeMailRecipientAuditHmac(
@@ -182,11 +202,13 @@ function serializeAad(
 }
 
 function assertPlaintextForTemplate(template: MailTemplate, plaintext: string): void {
-  if (
+  const valid =
     template === "verification_code"
-      ? !REGISTRATION_OTP_PATTERN.test(plaintext)
-      : plaintext !== EMAIL_CHANGED_NOTICE_PLAINTEXT
-  ) {
+      ? REGISTRATION_OTP_PATTERN.test(plaintext)
+      : template === "password_reset"
+        ? PASSWORD_RESET_TOKEN_PATTERN.test(plaintext)
+        : template === "email_changed_notice" && plaintext === EMAIL_CHANGED_NOTICE_PLAINTEXT;
+  if (!valid) {
     throw new Error("Mail outbox payload is invalid");
   }
 }
@@ -272,8 +294,7 @@ export function decryptMailPayload(
   if (
     encrypted.nonce.length !== MAIL_OUTBOX_NONCE_BYTES ||
     encrypted.tag.length !== MAIL_OUTBOX_AUTH_TAG_BYTES ||
-    (encrypted.template !== "verification_code" &&
-      encrypted.template !== "email_changed_notice")
+    !isMailTemplate(encrypted.template)
   ) {
     throw new Error("Registration outbox payload is invalid");
   }
