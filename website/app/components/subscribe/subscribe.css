@@ -346,6 +346,9 @@
 .pay-open { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 14px 0 0; padding: 22px 18px; border: 1px solid var(--cc-line); border-radius: 14px; background: var(--cc-inset); text-align: center; }
 .pay-qr { padding: 10px; border-radius: 12px; background: #fff; line-height: 0; }
 .pay-qr svg { display: block; width: 240px; max-width: 100%; height: auto; }
+/* payUrl 二维码模块很密，放大显示以便手机支付宝识别；窄屏随容器缩小。 */
+.pay-qr.is-dense { width: 100%; max-width: 320px; padding: 0; }
+.pay-qr.is-dense svg { width: 100%; }
 .pay-open-lead { margin: 0; color: var(--cc-text); font-size: 14px; font-weight: 600; }
 .pay-ghost { height: 42px; padding: 0 18px; border: 1px solid var(--cc-line); border-radius: 10px; background: var(--cc-card); color: var(--cc-text-2); font-size: 13px; font-weight: 600; }
 .pay-ghost:hover { border-color: var(--cc-accent-line); color: var(--cc-accent); }

@@ -6,17 +6,21 @@ function source(relativePath: string): string {
   return readFileSync(new URL(relativePath, import.meta.url), "utf8");
 }
 
-test("the Alipay step shows a sparse 当面付 QR only when qrCode exists, else a button-first cashier link", () => {
+test("the Alipay step shows the sparse 当面付 QR when qrCode exists, else a dense QR of the cashier payUrl", () => {
   const pay = source("../app/components/subscribe/AlipayQrPay.tsx");
   const code = pay.replace(/\/\*[\s\S]*?\*\//g, "");
   assert.doesNotMatch(code, /<iframe|setTimeout|8_000|cashierTimedOut|cashierLoaded/);
   assert.match(pay, /import \{ QRCodeSVG \} from "qrcode\.react";/);
-  // The QR is generated locally and only from the short qr.alipay.com code, never from the long payUrl.
-  assert.match(pay, /qrCode !== null \? \(\s*<>\s*<div className="pay-qr" role="img" aria-label="支付宝付款二维码">\s*<QRCodeSVG value=\{qrCode\} size=\{240\} level="M" marginSize=\{2\} \/>/);
-  assert.equal(code.match(/<QRCodeSVG/g)?.length, 1);
-  assert.doesNotMatch(code, /<QRCodeSVG value=\{payUrl\}/);
-  assert.match(pay, /请使用手机支付宝扫码付款[\s\S]*?<a className="pay-ghost pay-open-button" href=\{payUrl\} target="_blank" rel="noopener noreferrer">\s*或在新窗口打开支付宝收银台/);
-  assert.match(pay, /\) : \(\s*<>\s*<p className="pay-open-lead">点击下方按钮[\s\S]*?<a className="pay-primary pay-open-button" href=\{payUrl\} target="_blank" rel="noopener noreferrer">\s*打开支付宝收银台/);
+  // QRs are generated locally: the short qr.alipay.com code when present (unchanged),
+  // otherwise the full cashier payUrl at the lowest error-correction level, drawn larger.
+  assert.match(pay, /qrCode !== null \? \(\s*<div className="pay-qr" role="img" aria-label="支付宝付款二维码">\s*<QRCodeSVG value=\{qrCode\} size=\{240\} level="M" marginSize=\{2\} \/>/);
+  assert.match(pay, /\) : \(\s*<div className="pay-qr is-dense" role="img" aria-label="支付宝付款二维码">\s*<QRCodeSVG value=\{payUrl\} size=\{320\} level="L" marginSize=\{4\} \/>/);
+  assert.equal(code.match(/<QRCodeSVG/g)?.length, 2);
+  // Both branches share the Alipay-app copy and the new-window backup link.
+  assert.equal(code.match(/请使用手机支付宝扫码付款/g)?.length, 1);
+  assert.match(pay, /<\/div>\s*\)\}\s*<p className="pay-open-lead">请使用手机支付宝扫码付款<\/p>\s*<a className="pay-ghost pay-open-button" href=\{payUrl\} target="_blank" rel="noopener noreferrer">\s*或在新窗口打开支付宝收银台/);
+  assert.doesNotMatch(code, /点击下方按钮|pay-primary pay-open-button/);
+  assert.match(source("../app/components/subscribe/subscribe.css"), /\.pay-qr\.is-dense \{ width: 100%; max-width: 320px;/);
   assert.doesNotMatch(code, /https?:\/\/[^"'\s]*qr[^"'\s]*"/i);
   // Without a pay URL the page still says it is fetching the cashier.
   assert.match(pay, /payUrl === null \? \(\s*<div className="pay-open-loading" role="status">正在获取支付宝收银台…<\/div>/);
