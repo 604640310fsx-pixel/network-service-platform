@@ -1,5 +1,7 @@
 import type { DatabaseConnection } from "../db.js";
-import { PaymentDomainError } from "./commerce.js";
+import type { TokenHmacKeyring } from "../session/session-token.js";
+import { findSellablePlan, PaymentDomainError } from "./commerce.js";
+import { decryptGrantDeliveryItem, type EncryptedGrantDeliveryItem } from "./delivery-crypto.js";
 
 /* 管理员管理买家服务（Migration 022）。
    - services.ends_at / plan_override / admin_note 只由这里写入；plan_override 固定为 {"label": string}。
@@ -169,6 +171,22 @@ export interface AdminGrantView {
   readonly reason: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /** Catalog selection and nominal value (Migration 023); NULL on gifts created before it. */
+  readonly typeId: string | null;
+  readonly regionId: string | null;
+  readonly ispId: string | null;
+  readonly specId: string | null;
+  readonly durationId: string | null;
+  readonly months: number | null;
+  readonly valueFen: number | null;
+  readonly deliveryStatus: "pending_open" | "open";
+  readonly openedAt: string | null;
+  /** Public line names only; subscription URLs are never returned to the admin list. */
+  readonly deliveryLines: ReadonlyArray<{ readonly position: number; readonly label: string }>;
+}
+
+function nullableInteger(row: Record<string, unknown>, name: string): number | null {
+  return row[name] === null ? null : integer(row, name);
 }
 
 const ADMIN_SERVICE_COLUMNS = `services.id AS service_id, orders.order_ref, orders.amount_fen,
@@ -201,10 +219,16 @@ function adminServiceView(value: unknown): AdminServiceView {
   };
 }
 
-function adminGrantView(value: unknown): AdminGrantView {
+function adminGrantView(
+  value: unknown,
+  deliveryLines: ReadonlyArray<{ readonly position: number; readonly label: string }> = [],
+): AdminGrantView {
   const row = asRow(value, "Admin grant");
   const status = text(row, "status");
-  if (status !== "active" && status !== "revoked") throw new Error("Admin grant database invariant failed");
+  const deliveryStatus = text(row, "delivery_status");
+  if ((status !== "active" && status !== "revoked") || (deliveryStatus !== "pending_open" && deliveryStatus !== "open")) {
+    throw new Error("Admin grant database invariant failed");
+  }
   return {
     id: integer(row, "id"),
     userId: integer(row, "user_id"),
@@ -215,7 +239,27 @@ function adminGrantView(value: unknown): AdminGrantView {
     reason: nullableText(row, "reason"),
     createdAt: text(row, "created_at"),
     updatedAt: text(row, "updated_at"),
+    typeId: nullableText(row, "type_id"),
+    regionId: nullableText(row, "region_id"),
+    ispId: nullableText(row, "isp_id"),
+    specId: nullableText(row, "spec_id"),
+    durationId: nullableText(row, "duration_id"),
+    months: nullableInteger(row, "months"),
+    valueFen: nullableInteger(row, "value_fen"),
+    deliveryStatus,
+    openedAt: nullableText(row, "opened_at"),
+    deliveryLines,
   };
+}
+
+function grantDeliveryLines(database: DatabaseConnection, grantId: number): Array<{ position: number; label: string }> {
+  return database
+    .prepare("SELECT position, label FROM admin_grant_delivery_items WHERE grant_id = ? ORDER BY position ASC")
+    .all(grantId)
+    .map((value) => {
+      const row = asRow(value, "Grant delivery");
+      return { position: integer(row, "position"), label: text(row, "label") };
+    });
 }
 
 function readAdminService(database: DatabaseConnection, serviceId: number): AdminServiceView | null {
@@ -233,7 +277,7 @@ function readAdminService(database: DatabaseConnection, serviceId: number): Admi
 
 function readAdminGrant(database: DatabaseConnection, grantId: number): AdminGrantView | null {
   const rows = database.prepare("SELECT * FROM admin_grants WHERE id = ?").all(grantId);
-  return rows.length === 1 ? adminGrantView(rows[0]) : null;
+  return rows.length === 1 ? adminGrantView(rows[0], grantDeliveryLines(database, grantId)) : null;
 }
 
 function userExists(database: DatabaseConnection, userId: number): boolean {
@@ -259,7 +303,7 @@ export function listUserServicesForAdmin(
   const grants = database
     .prepare("SELECT * FROM admin_grants WHERE user_id = ? ORDER BY id DESC")
     .all(userId)
-    .map(adminGrantView);
+    .map((value) => adminGrantView(value, grantDeliveryLines(database, integer(asRow(value, "Admin grant"), "id"))));
   return { services, grants };
 }
 
@@ -303,11 +347,46 @@ export function updateServiceForAdmin(
   return operation.immediate();
 }
 
+export interface GrantPlanSelection {
+  readonly typeId: string;
+  readonly regionId: string;
+  readonly ispId: string;
+  readonly specId: string | null;
+  readonly durationId: string;
+}
+
+/** The selection must name an existing sellable_plans row (exact 5-tuple, spec matched with IS).
+    Inactive plans may still be gifted; only unknown combinations fail. */
+function assertCatalogSelection(database: DatabaseConnection, selection: GrantPlanSelection): void {
+  if (findSellablePlan(database, selection) === null) throw new PaymentDomainError(400, "invalid_plan");
+}
+
+/** startsAt + N calendar months in UTC, clamped to the target month's last day. */
+export function addUtcMonths(startsAt: string, months: number): string {
+  const start = new Date(startsAt);
+  const target = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + months, 1,
+    start.getUTCHours(), start.getUTCMinutes(), start.getUTCSeconds(), start.getUTCMilliseconds()));
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  target.setUTCDate(Math.min(start.getUTCDate(), lastDay));
+  return target.toISOString();
+}
+
+/** Server-side fallback name when the admin leaves the label empty (the panel pre-fills a
+    translated catalog name, so this is rarely shown): catalog ids plus the month count. */
+export function defaultGrantLabel(selection: GrantPlanSelection, months: number): string {
+  const parts = [selection.regionId.toUpperCase(), selection.ispId, selection.typeId];
+  if (selection.specId !== null) parts.push(selection.specId);
+  return `${parts.join(" ")} · ${months}M`.slice(0, ADMIN_LABEL_MAX_LENGTH);
+}
+
 export function createGrantForAdmin(
   database: DatabaseConnection,
   input: {
     readonly userId: number;
-    readonly label: string;
+    readonly selection: GrantPlanSelection;
+    readonly months: number;
+    readonly valueFen: number;
+    readonly label: string | null;
     readonly endsAt: string | null;
     readonly reason: string | null;
     readonly adminUserId: number;
@@ -317,15 +396,24 @@ export function createGrantForAdmin(
 ): AdminGrantView {
   const operation = database.transaction(() => {
     if (!userExists(database, input.userId)) throw new PaymentDomainError(404, "user_not_found");
+    assertCatalogSelection(database, input.selection);
     const at = nowIso(input.now);
-    if (input.endsAt !== null && input.endsAt <= at) throw new PaymentDomainError(400, "invalid_ends_at");
+    // An explicit end date wins; otherwise the gift runs for `months` from now.
+    const endsAt = input.endsAt ?? addUtcMonths(at, input.months);
+    if (endsAt <= at) throw new PaymentDomainError(400, "invalid_ends_at");
+    const label = input.label ?? defaultGrantLabel(input.selection, input.months);
     database
       .prepare(
         `INSERT INTO admin_grants (
-           user_id, granted_by_admin_id, label, starts_at, ends_at, status, reason, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+           user_id, granted_by_admin_id, label, starts_at, ends_at, status, reason, created_at, updated_at,
+           type_id, region_id, isp_id, spec_id, duration_id, months, value_fen, delivery_status, opened_at
+         ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_open', NULL)`,
       )
-      .run(input.userId, input.adminUserId, input.label, at, input.endsAt, input.reason, at, at);
+      .run(
+        input.userId, input.adminUserId, label, at, endsAt, input.reason, at, at,
+        input.selection.typeId, input.selection.regionId, input.selection.ispId, input.selection.specId,
+        input.selection.durationId, input.months, input.valueFen,
+      );
     const grantId = integer(asRow(database.prepare("SELECT last_insert_rowid() AS id").all()[0], "Admin grant"), "id");
     audit(database, input.adminEmail, "admin.grant.create", `grant:${grantId}`, at);
     const grant = readAdminGrant(database, grantId);
@@ -339,6 +427,10 @@ export interface GrantPatch {
   readonly endsAt?: string | null;
   readonly label?: string;
   readonly status?: "revoked";
+  /** Catalog fields are replaced together and validated as one selection. */
+  readonly selection?: GrantPlanSelection;
+  readonly months?: number;
+  readonly valueFen?: number;
 }
 
 export function updateGrantForAdmin(
@@ -352,7 +444,7 @@ export function updateGrantForAdmin(
     if (current.status === "revoked") throw new PaymentDomainError(409, "grant_revoked");
     const at = nowIso(input.now);
     const assignments: string[] = [];
-    const values: Array<string | null> = [];
+    const values: Array<string | number | null> = [];
     if (input.patch.endsAt !== undefined) {
       assignments.push("ends_at = ?");
       values.push(input.patch.endsAt);
@@ -363,6 +455,22 @@ export function updateGrantForAdmin(
     }
     if (input.patch.status !== undefined) {
       assignments.push("status = 'revoked'");
+    }
+    if (input.patch.selection !== undefined) {
+      assertCatalogSelection(database, input.patch.selection);
+      assignments.push("type_id = ?", "region_id = ?", "isp_id = ?", "spec_id = ?", "duration_id = ?");
+      values.push(
+        input.patch.selection.typeId, input.patch.selection.regionId, input.patch.selection.ispId,
+        input.patch.selection.specId, input.patch.selection.durationId,
+      );
+    }
+    if (input.patch.months !== undefined) {
+      assignments.push("months = ?");
+      values.push(input.patch.months);
+    }
+    if (input.patch.valueFen !== undefined) {
+      assignments.push("value_fen = ?");
+      values.push(input.patch.valueFen);
     }
     if (assignments.length === 0) throw new PaymentDomainError(400, "invalid_grant_patch");
     database
@@ -382,6 +490,48 @@ export function updateGrantForAdmin(
   return operation.immediate();
 }
 
+/** Delivery for a gift: same open semantics as services (pending_open -> open once, with lines). */
+export function openGrantForAdmin(
+  database: DatabaseConnection,
+  input: {
+    readonly grantId: number;
+    readonly items: readonly EncryptedGrantDeliveryItem[];
+    readonly adminEmail: string;
+    readonly now?: () => Date;
+  },
+): AdminGrantView {
+  if (input.items.length < 1 || input.items.some((item, index) => item.position !== index + 1 || item.label.trim() === "")) {
+    throw new PaymentDomainError(400, "invalid_item");
+  }
+  const operation = database.transaction(() => {
+    const current = readAdminGrant(database, input.grantId);
+    if (current === null) throw new PaymentDomainError(404, "not_found");
+    if (current.status === "revoked") throw new PaymentDomainError(409, "grant_revoked");
+    if (current.deliveryStatus !== "pending_open") throw new PaymentDomainError(409, "invalid_transition");
+    const at = nowIso(input.now);
+    const updated = database
+      .prepare(
+        `UPDATE admin_grants SET delivery_status = 'open', opened_at = ?, updated_at = ?
+         WHERE id = ? AND status = 'active' AND delivery_status = 'pending_open'`,
+      )
+      .run(at, at, input.grantId);
+    if (updated.changes !== 1) throw new PaymentDomainError(409, "invalid_transition");
+    const insert = database.prepare(
+      `INSERT INTO admin_grant_delivery_items (
+         grant_id, position, label, key_version, nonce, ciphertext, tag, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const item of input.items) {
+      insert.run(input.grantId, item.position, item.label, item.keyVersion, item.nonce, item.ciphertext, item.tag, at, at);
+    }
+    audit(database, input.adminEmail, "admin.grant.open", `grant:${input.grantId}`, at);
+    const grant = readAdminGrant(database, input.grantId);
+    if (grant === null) throw new Error("Admin grant database invariant failed");
+    return grant;
+  });
+  return operation.immediate();
+}
+
 export interface MyGrantItem {
   readonly source: "grant";
   readonly grantId: number;
@@ -390,13 +540,23 @@ export interface MyGrantItem {
   readonly startsAt: string;
   readonly endsAt: string | null;
   readonly status: "active";
+  readonly typeId: string | null;
+  readonly regionId: string | null;
+  readonly ispId: string | null;
+  readonly specId: string | null;
+  readonly durationId: string | null;
+  readonly months: number | null;
+  readonly valueFen: number | null;
+  readonly deliveryStatus: "pending_open" | "open";
 }
 
 /** Buyer view of gifts: active grants only, never the internal reason. */
 export function listMyGrants(database: DatabaseConnection, userId: number): MyGrantItem[] {
   return database
     .prepare(
-      `SELECT id, label, starts_at, ends_at FROM admin_grants
+      `SELECT id, label, starts_at, ends_at, type_id, region_id, isp_id, spec_id, duration_id,
+              months, value_fen, delivery_status
+       FROM admin_grants
        WHERE user_id = ? AND status = 'active'
        ORDER BY id DESC`,
     )
@@ -412,6 +572,82 @@ export function listMyGrants(database: DatabaseConnection, userId: number): MyGr
         startsAt: text(row, "starts_at"),
         endsAt: nullableText(row, "ends_at"),
         status: "active" as const,
+        typeId: nullableText(row, "type_id"),
+        regionId: nullableText(row, "region_id"),
+        ispId: nullableText(row, "isp_id"),
+        specId: nullableText(row, "spec_id"),
+        durationId: nullableText(row, "duration_id"),
+        months: nullableInteger(row, "months"),
+        valueFen: nullableInteger(row, "value_fen"),
+        deliveryStatus: text(row, "delivery_status") === "open" ? ("open" as const) : ("pending_open" as const),
       };
     });
+}
+
+export interface MyGrantDeliveryLine {
+  readonly source: "grant";
+  readonly grantId: number;
+  readonly position: number;
+  readonly label: string;
+}
+
+/** Buyer delivery-line names of active, opened gifts (names only, like service lines). */
+export function listMyGrantDeliveryLines(database: DatabaseConnection, userId: number): MyGrantDeliveryLine[] {
+  return database
+    .prepare(
+      `SELECT items.grant_id, items.position, items.label
+       FROM admin_grant_delivery_items AS items
+       JOIN admin_grants AS grants ON grants.id = items.grant_id
+       WHERE grants.user_id = ? AND grants.status = 'active' AND grants.delivery_status = 'open'
+       ORDER BY items.grant_id DESC, items.position ASC`,
+    )
+    .all(userId)
+    .map((value) => {
+      const row = asRow(value, "Grant delivery");
+      return { source: "grant" as const, grantId: integer(row, "grant_id"), position: integer(row, "position"), label: text(row, "label") };
+    });
+}
+
+/** Decrypted subscription lines of the buyer's own active, opened gift; otherwise not_found
+    (no hint whether the gift exists for someone else, is revoked, or is still pending). */
+export function readMyGrantDelivery(
+  database: DatabaseConnection,
+  input: { readonly userId: number; readonly grantId: number; readonly keyring: TokenHmacKeyring },
+): { readonly grantId: number; readonly items: Array<{ position: number; label: string; subscriptionUrl: string }> } {
+  const owned = database
+    .prepare(
+      `SELECT 1 FROM admin_grants
+       WHERE id = ? AND user_id = ? AND status = 'active' AND delivery_status = 'open'`,
+    )
+    .all(input.grantId, input.userId);
+  if (owned.length !== 1) throw new PaymentDomainError(404, "not_found");
+  const items = database
+    .prepare(
+      `SELECT position, label, key_version, nonce, ciphertext, tag
+       FROM admin_grant_delivery_items WHERE grant_id = ? ORDER BY position ASC`,
+    )
+    .all(input.grantId)
+    .map((value) => {
+      const row = asRow(value, "Grant delivery");
+      const position = integer(row, "position");
+      const label = text(row, "label");
+      const buffer = (name: string): Buffer => {
+        const field = row[name];
+        if (!Buffer.isBuffer(field)) throw new Error("Grant delivery database invariant failed");
+        return field;
+      };
+      return {
+        position,
+        label,
+        subscriptionUrl: decryptGrantDeliveryItem(
+          { grantId: input.grantId, position, label, keyVersion: integer(row, "key_version"), nonce: buffer("nonce"), ciphertext: buffer("ciphertext"), tag: buffer("tag") },
+          input.keyring,
+        ),
+      };
+    });
+  return { grantId: input.grantId, items };
+}
+
+export function auditGrantDeliveryDecryptFailure(database: DatabaseConnection, grantId: number, now?: () => Date): void {
+  audit(database, "system", "grant.delivery_decrypt_failed", `grant:${grantId}`, nowIso(now));
 }

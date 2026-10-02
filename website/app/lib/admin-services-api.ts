@@ -39,6 +39,16 @@ export type AdminGrant = {
   readonly reason: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly typeId: string | null;
+  readonly regionId: string | null;
+  readonly ispId: string | null;
+  readonly specId: string | null;
+  readonly durationId: string | null;
+  readonly months: number | null;
+  readonly valueFen: number | null;
+  readonly deliveryStatus: "pending_open" | "open";
+  readonly openedAt: string | null;
+  readonly deliveryLines: ReadonlyArray<{ readonly position: number; readonly label: string }>;
 };
 
 export type AdminServicePatch = {
@@ -47,18 +57,33 @@ export type AdminServicePatch = {
   readonly note?: string | null;
 };
 
-export type AdminGrantDraft = {
+export type GrantSelection = {
+  readonly typeId: string;
+  readonly regionId: string;
+  readonly ispId: string;
+  readonly specId: string | null;
+  readonly durationId: string;
+};
+
+export type AdminGrantDraft = GrantSelection & {
   readonly userId: number;
-  readonly label: string;
+  readonly months: number;
+  readonly valueFen: number;
+  /** null = server builds a name from the catalog ids. */
+  readonly label: string | null;
   readonly endsAt: string | null;
   readonly reason: string | null;
 };
 
-export type AdminGrantPatch = {
+export type AdminGrantPatch = Partial<GrantSelection> & {
   readonly endsAt?: string | null;
   readonly label?: string;
   readonly status?: "revoked";
+  readonly months?: number;
+  readonly valueFen?: number;
 };
+
+export type AdminGrantDeliveryInput = { readonly label: string; readonly subscriptionUrl: string };
 
 type JsonRecord = Record<string, unknown>;
 
@@ -118,10 +143,18 @@ function parseService(value: unknown): AdminUserService {
   };
 }
 
+function nullableInt(value: unknown): number | null {
+  return value === null ? null : int(value);
+}
+
 function parseGrant(value: unknown): AdminGrant {
   const row = record(value);
   const status = row.status;
-  if (status !== "active" && status !== "revoked") throw new PaymentApiError("invalid_response");
+  const deliveryStatus = row.deliveryStatus;
+  if ((status !== "active" && status !== "revoked") || (deliveryStatus !== "pending_open" && deliveryStatus !== "open")) {
+    throw new PaymentApiError("invalid_response");
+  }
+  if (!Array.isArray(row.deliveryLines)) throw new PaymentApiError("invalid_response");
   return {
     id: int(row.id),
     userId: int(row.userId),
@@ -132,6 +165,19 @@ function parseGrant(value: unknown): AdminGrant {
     reason: nullableStr(row.reason),
     createdAt: str(row.createdAt),
     updatedAt: str(row.updatedAt),
+    typeId: nullableStr(row.typeId),
+    regionId: nullableStr(row.regionId),
+    ispId: nullableStr(row.ispId),
+    specId: nullableStr(row.specId),
+    durationId: nullableStr(row.durationId),
+    months: nullableInt(row.months),
+    valueFen: nullableInt(row.valueFen),
+    deliveryStatus,
+    openedAt: nullableStr(row.openedAt),
+    deliveryLines: row.deliveryLines.map((line) => {
+      const item = record(line);
+      return { position: int(item.position), label: str(item.label) };
+    }),
   };
 }
 
@@ -195,4 +241,8 @@ export async function createAdminGrant(draft: AdminGrantDraft, csrfToken: string
 
 export async function updateAdminGrant(grantId: number, patch: AdminGrantPatch, csrfToken: string): Promise<AdminGrant> {
   return parseGrant(await requestJson(`/api/admin/grants/${grantId}`, writeInit("PATCH", csrfToken, patch)));
+}
+
+export async function openAdminGrant(grantId: number, items: readonly AdminGrantDeliveryInput[], csrfToken: string): Promise<AdminGrant> {
+  return parseGrant(await requestJson(`/api/admin/grants/${grantId}/open`, writeInit("POST", csrfToken, { items })));
 }

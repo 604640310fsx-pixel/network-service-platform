@@ -165,6 +165,10 @@
 .dash-usvc-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
 .dash-usvc-foot .dash-inline-error { margin: 0; }
 .dash-usvc-grant-form { margin-top: 16px; }
+.dash-usvc-grid select { min-width: 0; height: 38px; padding: 0 10px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 13px; }
+.dash-usvc-open { margin-top: 12px; padding: 12px 13px; border: 1px dashed var(--cc-line); border-radius: 9px; background: var(--cc-inset); }
+.dash-usvc-open .dash-usvc-meta { margin-top: 0; }
+.dash-usvc-line-remove { align-self: end; }
 .dash-usvc-grant-form h3 { margin: 0 0 4px; font-size: 13.5px; }
 
 .dash-coupon-create { padding: 14px 15px; margin-bottom: 14px; border: 1px solid var(--cc-hairline); border-radius: 10px; background: var(--cc-inset); }

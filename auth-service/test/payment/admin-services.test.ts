@@ -18,6 +18,9 @@ import {
 
 type Session = ReturnType<typeof insertWebSession>;
 
+// A real sellable_plans combination (the order tests buy the same one).
+const PLAN = { typeId: "local-isp", regionId: "us", ispId: "us-verizon", durationId: "month-1", months: 1, valueFen: 7_900 } as const;
+
 function seedPaidService(database: DatabaseConnection, userId: number): number {
   const dependencies = paymentDependencies(database);
   const order = createPaymentOrder(dependencies, {
@@ -99,7 +102,7 @@ test("admin endpoints require a session (401), the admin role (403) and CSRF on 
       { method: "GET" as const, url: "/api/admin/users?q=buyer" },
       { method: "GET" as const, url: `/api/admin/users/${buyerId}/services` },
       { method: "PATCH" as const, url: `/api/admin/services/${serviceId}`, payload: { note: "x" } },
-      { method: "POST" as const, url: "/api/admin/grants", payload: { userId: buyerId, label: "Gift" } },
+      { method: "POST" as const, url: "/api/admin/grants", payload: { userId: buyerId, ...PLAN, label: "Gift" } },
       { method: "PATCH" as const, url: "/api/admin/grants/1", payload: { status: "revoked" } },
     ];
     for (const request of requests) {
@@ -226,7 +229,7 @@ test("grants are created without orders or payments, shown to the buyer, and dis
       method: "POST",
       url: "/api/admin/grants",
       headers: json(admin),
-      payload: { userId: buyerId, label: "Trial line", endsAt: "2026-09-30T23:59:59.999Z", reason: "compensation for outage" },
+      payload: { userId: buyerId, ...PLAN, label: "Trial line", endsAt: "2026-09-30T23:59:59.999Z", reason: "compensation for outage" },
     });
     assert.equal(created.statusCode, 200, created.body);
     const grant = created.json();
@@ -247,6 +250,14 @@ test("grants are created without orders or payments, shown to the buyer, and dis
       startsAt: "2026-08-21T00:00:00.000Z",
       endsAt: "2026-09-30T23:59:59.999Z",
       status: "active",
+      typeId: "local-isp",
+      regionId: "us",
+      ispId: "us-verizon",
+      specId: null,
+      durationId: "month-1",
+      months: 1,
+      valueFen: 7_900,
+      deliveryStatus: "pending_open",
     });
     assert.equal(mine.body.includes("compensation"), false, "grant reason never reaches the buyer");
 
@@ -284,10 +295,16 @@ test("grant input is validated fail-closed", async () => {
     for (const payload of [
       {},
       { userId: buyerId },
-      { userId: buyerId, label: "" },
-      { userId: "1", label: "Gift" },
-      { userId: buyerId, label: "Gift", extra: true },
-      { userId: buyerId, label: "Gift", endsAt: "2026-09-30" },
+      { userId: buyerId, label: "Gift" },
+      { userId: buyerId, ...PLAN, label: "x".repeat(81) },
+      { userId: "1", ...PLAN },
+      { userId: buyerId, ...PLAN, extra: true },
+      { userId: buyerId, ...PLAN, endsAt: "2026-09-30" },
+      { userId: buyerId, ...PLAN, months: 0 },
+      { userId: buyerId, ...PLAN, months: 1.5 },
+      { userId: buyerId, ...PLAN, valueFen: -1 },
+      { userId: buyerId, ...PLAN, typeId: "Local ISP" },
+      { userId: buyerId, ...PLAN, durationId: undefined },
     ]) {
       const response = await app.inject({ method: "POST", url: "/api/admin/grants", headers: json(admin), payload });
       assert.equal(response.statusCode, 400, JSON.stringify(payload));
@@ -296,11 +313,11 @@ test("grant input is validated fail-closed", async () => {
       method: "POST",
       url: "/api/admin/grants",
       headers: json(admin),
-      payload: { userId: buyerId, label: "Gift", endsAt: "2026-08-20T00:00:00.000Z" },
+      payload: { userId: buyerId, ...PLAN, label: "Gift", endsAt: "2026-08-20T00:00:00.000Z" },
     });
     assert.equal(past.statusCode, 400);
     assert.equal(past.json().error.code, "invalid_ends_at");
-    const unknownUser = await app.inject({ method: "POST", url: "/api/admin/grants", headers: json(admin), payload: { userId: 999, label: "Gift" } });
+    const unknownUser = await app.inject({ method: "POST", url: "/api/admin/grants", headers: json(admin), payload: { userId: 999, ...PLAN, label: "Gift" } });
     assert.equal(unknownUser.statusCode, 404);
     assert.equal(unknownUser.json().error.code, "user_not_found");
     for (const payload of [{}, { status: "active" }, { label: "" }]) {
@@ -319,7 +336,7 @@ test("listing services for an unknown user is a 404, and other buyers' grants st
     assert.equal(missing.statusCode, 404);
     const otherId = insertAuthenticationUser(database, { email: "other@example.com", passwordHash: "hash", status: "active" });
     const other = insertWebSession(database, otherId);
-    await app.inject({ method: "POST", url: "/api/admin/grants", headers: json(admin), payload: { userId: buyerId, label: "Only for buyer" } });
+    await app.inject({ method: "POST", url: "/api/admin/grants", headers: json(admin), payload: { userId: buyerId, ...PLAN, label: "Only for buyer" } });
     const othersView = await app.inject({ method: "GET", url: "/api/me/services", headers: { cookie: other.cookie } });
     assert.equal(othersView.statusCode, 200);
     assert.deepEqual(othersView.json().items, []);
