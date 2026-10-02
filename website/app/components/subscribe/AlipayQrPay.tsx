@@ -3,7 +3,9 @@ import { QRCodeSVG } from "qrcode.react";
 /* 支付宝收银台不嵌入本站 iframe（可能被 X-Frame-Options 拒绝）。
    - 有当面付二维码内容（qrCode，qr.alipay.com 短地址）时：本地生成稀疏二维码供手机扫码，
      电脑网站收银台作为新窗口备用。
-   - 没有 qrCode 时：不把很长的 payUrl 生成难以扫描的密集二维码，改为以「打开支付宝收银台」为主。
+   - 没有 qrCode 时：按支付宝电脑网站支付「在商家页面扫码支付」，用完整收银台地址 payUrl
+     本地生成二维码；内容较长、二维码较密，因此用最低纠错等级并放大显示。
+   两种情况都保留新窗口打开收银台作为备用。
    本页继续自动查询支付结果；不生成另一套收款内容，也不持久化地址。 */
 export type AlipayQrPhase = "waiting" | "confirming" | "paid" | "closed";
 
@@ -79,23 +81,18 @@ export function AlipayQrPay({
           ) : (
             <div className="pay-open">
               {qrCode !== null ? (
-                <>
-                  <div className="pay-qr" role="img" aria-label="支付宝付款二维码">
-                    <QRCodeSVG value={qrCode} size={240} level="M" marginSize={2} />
-                  </div>
-                  <p className="pay-open-lead">请使用手机支付宝扫码付款</p>
-                  <a className="pay-ghost pay-open-button" href={payUrl} target="_blank" rel="noopener noreferrer">
-                    或在新窗口打开支付宝收银台
-                  </a>
-                </>
+                <div className="pay-qr" role="img" aria-label="支付宝付款二维码">
+                  <QRCodeSVG value={qrCode} size={240} level="M" marginSize={2} />
+                </div>
               ) : (
-                <>
-                  <p className="pay-open-lead">点击下方按钮，在新窗口打开支付宝收银台完成付款。</p>
-                  <a className="pay-primary pay-open-button" href={payUrl} target="_blank" rel="noopener noreferrer">
-                    打开支付宝收银台
-                  </a>
-                </>
+                <div className="pay-qr is-dense" role="img" aria-label="支付宝付款二维码">
+                  <QRCodeSVG value={payUrl} size={320} level="L" marginSize={4} />
+                </div>
               )}
+              <p className="pay-open-lead">请使用手机支付宝扫码付款</p>
+              <a className="pay-ghost pay-open-button" href={payUrl} target="_blank" rel="noopener noreferrer">
+                或在新窗口打开支付宝收银台
+              </a>
               <p className="pay-open-note">付款完成后无需操作，本页会自动更新结果。</p>
             </div>
           )}
