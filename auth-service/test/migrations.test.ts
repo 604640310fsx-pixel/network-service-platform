@@ -143,7 +143,7 @@ test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", 
   await withTemporaryDatabase((database) => {
     assert.equal(
       MIGRATION_FILES.at(-1),
-      "022_admin_service_management.sql",
+      "023_admin_grant_delivery.sql",
     );
     const migrationRows = database
       .prepare("SELECT version, applied_at FROM schema_migrations ORDER BY version")
@@ -151,7 +151,7 @@ test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", 
 
     assert.deepEqual(
       migrationRows.map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
     );
     for (const row of migrationRows) {
       assert.match(row.applied_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
@@ -216,6 +216,7 @@ test("rejects applied migration histories that are not a prefix starting at 001"
 test("creates every frozen table and named index", async () => {
   await withTemporaryDatabase((database) => {
     assert.deepEqual(objectNames(database, "table"), [
+      "admin_grant_delivery_items",
       "admin_grants",
       "audit_log",
       "coupon_plans",
@@ -301,9 +302,10 @@ test("Migration 022 adds nullable service columns and admin_grants on a 021 data
 
     runMigrations(database);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 22);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 23);
     assert.deepEqual(columnNames(database, "services"), [...servicesBefore, "ends_at", "plan_override", "admin_note"]);
-    assert.deepEqual(columnNames(database, "admin_grants"), [
+    // Running to the latest schema also applies 023, which appends the structured/delivery columns.
+    assert.deepEqual(columnNames(database, "admin_grants").slice(0, 10), [
       "id", "user_id", "granted_by_admin_id", "label", "starts_at", "ends_at",
       "status", "reason", "created_at", "updated_at",
     ]);
@@ -316,6 +318,58 @@ test("Migration 022 adds nullable service columns and admin_grants on a 021 data
     assert.throws(() => insertGrant.run(userId, userId, NOW, "expired", NOW, NOW), /CHECK constraint failed/);
     assert.throws(() => insertGrant.run(999_999, userId, NOW, "active", NOW, NOW), /FOREIGN KEY constraint failed/);
     assert.equal(firstNumber(database, "SELECT COUNT(*) FROM admin_grants"), 1);
+  } finally {
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Migration 023 structures admin_grants and adds encrypted grant delivery items on a 022 database", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "auth-admin-grant-delivery-"));
+  const database = openAndVerifyDatabase(join(directory, "auth.sqlite"));
+  try {
+    applyMigrationPrefix(database, 22);
+    const { userId } = createBootstrapUser(database);
+    database.prepare(
+      `INSERT INTO admin_grants (user_id, granted_by_admin_id, label, starts_at, ends_at, status, reason, created_at, updated_at)
+       VALUES (?, ?, 'Legacy gift', ?, NULL, 'active', 'internal', ?, ?)`,
+    ).run(userId, userId, NOW, NOW, NOW);
+    assert.equal(objectNames(database, "table").includes("admin_grant_delivery_items"), false);
+
+    runMigrations(database);
+    runMigrations(database);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 23);
+    assert.deepEqual(columnNames(database, "admin_grants"), [
+      "id", "user_id", "granted_by_admin_id", "label", "starts_at", "ends_at",
+      "status", "reason", "created_at", "updated_at",
+      "type_id", "region_id", "isp_id", "spec_id", "duration_id", "months", "value_fen",
+      "delivery_status", "opened_at",
+    ]);
+    // The 022 row keeps every value; new columns are NULL and delivery is pending.
+    assert.deepEqual(
+      database.prepare(
+        `SELECT label, status, reason, type_id, region_id, isp_id, spec_id, duration_id, months, value_fen, delivery_status, opened_at
+         FROM admin_grants`,
+      ).all(),
+      [{
+        label: "Legacy gift", status: "active", reason: "internal", type_id: null, region_id: null, isp_id: null,
+        spec_id: null, duration_id: null, months: null, value_fen: null, delivery_status: "pending_open", opened_at: null,
+      }],
+    );
+    assert.throws(() => database.prepare("UPDATE admin_grants SET delivery_status = 'delivered'").run(), /CHECK constraint failed/);
+    assert.deepEqual(columnNames(database, "admin_grant_delivery_items"), [
+      "id", "grant_id", "position", "label", "key_version", "nonce", "ciphertext", "tag", "created_at", "updated_at",
+    ]);
+    const grantId = firstNumber(database, "SELECT id FROM admin_grants");
+    const insertItem = database.prepare(
+      `INSERT INTO admin_grant_delivery_items (grant_id, position, label, key_version, nonce, ciphertext, tag, created_at, updated_at)
+       VALUES (?, ?, 'Line', 1, X'00', X'00', X'00', ?, ?)`,
+    );
+    insertItem.run(grantId, 1, NOW, NOW);
+    assert.throws(() => insertItem.run(grantId, 1, NOW, NOW), /UNIQUE constraint failed/);
+    assert.throws(() => insertItem.run(grantId, 0, NOW, NOW), /CHECK constraint failed/);
+    assert.throws(() => insertItem.run(999_999, 2, NOW, NOW), /FOREIGN KEY constraint failed/);
+    assert.throws(() => database.prepare("DELETE FROM admin_grants").run(), /FOREIGN KEY constraint failed/);
   } finally {
     database.close();
     await rm(directory, { recursive: true, force: true });
@@ -482,7 +536,7 @@ test("Migration 019 upgrades an 018 database with the bounded owner-page query i
     assert.equal(objectNames(database, "index").includes("idx_referral_candidate_owner_page"), false);
     runMigrations(database);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 22);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 23);
     assert.equal(objectNames(database, "index").filter((name) => name === "idx_referral_candidate_owner_page").length, 1);
     const queryPlan = database.prepare(
       `EXPLAIN QUERY PLAN
@@ -515,11 +569,11 @@ test("Migration 020 adds only ticket tables on a 019 database and enforces its c
 
     runMigrations(database);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 22);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 23);
     assert.deepEqual(
       objectNames(database, "table").filter((name) => !tablesBefore.includes(name)),
-      // Running to the latest schema also applies 022, which adds admin_grants.
-      ["admin_grants", "ticket_messages", "tickets"],
+      // Running to the latest schema also applies 022/023, which add admin_grants and its delivery items.
+      ["admin_grant_delivery_items", "admin_grants", "ticket_messages", "tickets"],
     );
     assert.equal(firstNumber(database, "SELECT COUNT(*) FROM users"), usersBefore);
 
@@ -644,7 +698,7 @@ test("the NULL-safe unique index rejects a duplicate fixed-price plan (spec_id I
   });
 });
 
-test("continuous Schema 14 upgrades directly through 15-22 with legacy rows", async () => {
+test("continuous Schema 14 upgrades directly through 15-23 with legacy rows", async () => {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "auth-direct14-upgrade-"));
   const database = openAndVerifyDatabase(join(temporaryDirectory, "auth.sqlite"));
   try {
@@ -677,7 +731,7 @@ test("continuous Schema 14 upgrades directly through 15-22 with legacy rows", as
     runMigrations(database);
     assert.deepEqual(
       (database.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as Array<{ readonly version: number }>).map((row) => row.version),
-      Array.from({ length: 22 }, (_, index) => index + 1),
+      Array.from({ length: 23 }, (_, index) => index + 1),
     );
     assert.equal(objectNames(database, "table").includes("diagnosis_request_idempotency"), true);
     assert.equal(objectNames(database, "index").includes("idx_referral_candidate_owner_page"), true);
@@ -685,7 +739,7 @@ test("continuous Schema 14 upgrades directly through 15-22 with legacy rows", as
     assert.equal(firstNumber(database, "SELECT COUNT(*) FROM mail_outbox"), 0);
     assert.equal(firstNumber(database, "SELECT COUNT(*) FROM invite_codes WHERE id = 1 AND revoked_at IS NOT NULL"), 1);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 22);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 23);
   } finally {
     database.close();
     await rm(temporaryDirectory, { recursive: true, force: true });
@@ -804,7 +858,7 @@ test("Migration 016 revokes legacy codes without guessing email and preserves hi
           .prepare("SELECT version FROM schema_migrations ORDER BY version")
           .all() as Array<{ readonly version: number }>
       ).map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
     );
     assert.deepEqual(
       database
@@ -883,7 +937,7 @@ test("Migration 016 revokes legacy codes without guessing email and preserves hi
     );
 
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 22);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 23);
     assert.equal(firstNumber(database, "SELECT COUNT(*) FROM invite_code_redemptions"), 2);
   } finally {
     database.close();
@@ -1305,7 +1359,7 @@ test("missing, extra, and unknown migration registry states fail closed", async 
       }
       if (scenario === "extra") {
         await writeFile(
-          join(migrationsDirectory, "023_unexpected.sql"),
+          join(migrationsDirectory, "024_unexpected.sql"),
           "SELECT 1;",
           "utf8",
         );
@@ -1341,15 +1395,15 @@ test("missing, extra, and unknown migration registry states fail closed", async 
         applied_at TEXT NOT NULL
       );
       INSERT INTO schema_migrations (version, applied_at)
-      VALUES (23, '${NOW}');
+      VALUES (24, '${NOW}');
     `);
     assert.throws(
       () => runMigrations(database),
-      /database contains unknown migration version 23/,
+      /database contains unknown migration version 24/,
     );
     assert.deepEqual(
       database.prepare("SELECT version FROM schema_migrations").all(),
-      [{ version: 23 }],
+      [{ version: 24 }],
     );
   } finally {
     database.close();

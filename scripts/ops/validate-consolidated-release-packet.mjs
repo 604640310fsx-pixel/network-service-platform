@@ -639,7 +639,18 @@ export function validateRepository({
             "--schema-route standard16-22",
             "## Explicit STANDARD19 to 22 route",
             "--schema-route standard19-22",
-            "## Migration 022 forward-only additive change",
+          ]
+        : []),
+      // Later sources still carry migration 022, so its section stays required.
+      ...(candidate >= 22 ? ["## Migration 022 forward-only additive change"] : []),
+      ...(candidate === 23
+        ? [
+            "## Explicit DIRECT14 to 23 route",
+            "--schema-route direct14-23",
+            "--schema-route standard16-23",
+            "## Explicit STANDARD19 to 23 route",
+            "--schema-route standard19-23",
+            "## Migration 023 forward-only grant delivery",
           ]
         : []),
       "consolidated-release-direct14-<RELEASE_CANDIDATE_SHA>",
@@ -676,7 +687,8 @@ export function validateRepository({
           ]
         : []),
       ...(candidate >= 21 ? ["MIGRATION_021_REBUILD_PROOF"] : []),
-      ...(candidate === 22 ? ["MIGRATION_022_FORWARD_ONLY_PROOF"] : []),
+      ...(candidate >= 22 ? ["MIGRATION_022_FORWARD_ONLY_PROOF"] : []),
+      ...(candidate === 23 ? ["MIGRATION_023_FORWARD_ONLY_PROOF"] : []),
     ],
     "release bindings",
   );
@@ -726,7 +738,14 @@ export function validateRepository({
       "actions/upload-artifact@v4",
       "consolidated-release-${{ env.EXPECTED_SHA }}",
       "consolidated-release-direct14-${{ env.EXPECTED_SHA }}",
-      ...(candidate === 22
+      ...(candidate === 23
+        ? [
+            "--schema-route direct14-23",
+            "--schema-route standard16-23",
+            "--schema-route standard19-23",
+            "consolidated-release-standard19-${{ env.EXPECTED_SHA }}",
+          ]
+        : candidate === 22
         ? [
             "--schema-route direct14-22",
             "--schema-route standard16-22",
