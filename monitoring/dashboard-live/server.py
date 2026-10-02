@@ -394,7 +394,16 @@ def latest_by_target(conn, wan, test_type):
     return {row["target_name"]: dict(row) for row in rows}
 
 
-def status_for(latest_icmp, latest_tcp, latest_timestamp):
+WARNING_FAILURE_STREAK = 3
+
+
+def _persistent_failure(rows, target_name, test_type, streak=WARNING_FAILURE_STREAK):
+    """单目标最近 streak 条采样（按 id 升序取尾部）全部失败才算持续故障；样本不足按瞬断处理。"""
+    recent = [row["success"] for row in rows if row["test_type"] == test_type and row["target_name"] == target_name][-streak:]
+    return len(recent) == streak and not any(recent)
+
+
+def status_for(latest_icmp, latest_tcp, latest_timestamp, rows=()):
     timestamp = parse_time(latest_timestamp)
     if timestamp is None or (datetime.now(timezone.utc) - timestamp).total_seconds() > 180:
         return "stale", "数据过期"
@@ -406,7 +415,14 @@ def status_for(latest_icmp, latest_tcp, latest_timestamp):
         return "down", "线路不可达"
     if not alidns or not alidns["success"] or (tcp_total and tcp_ok <= 1):
         return "degraded", "多目标异常"
-    if (cloudflare and not cloudflare["success"]) or (tcp_total and tcp_ok < tcp_total):
+    # 单目标波动豁免瞬断：失败需连续 WARNING_FAILURE_STREAK 次采样（约 3 分钟）才升级为 warning。
+    # stale / down / degraded 仍按最新样本即时判定。
+    cloudflare_persistent = bool(cloudflare) and not cloudflare["success"] and _persistent_failure(rows, "Cloudflare DNS", "icmp")
+    tcp_persistent = any(
+        not row["success"] and _persistent_failure(rows, name, "tcp")
+        for name, row in latest_tcp.items()
+    )
+    if cloudflare_persistent or tcp_persistent:
         return "warning", "单目标异常"
     return "normal", "正常"
 
@@ -447,7 +463,7 @@ def build_overview():
                     "latest_success": bool(latest_icmp.get(target, {}).get("success")) if target in latest_icmp else None,
                 }
 
-            status, status_label = status_for(latest_icmp, latest_tcp, latest_ts)
+            status, status_label = status_for(latest_icmp, latest_tcp, latest_ts, rows)
             result[wan] = {
                 "display_name": cfg["display_name"],
                 "interface": cfg["interface"],
