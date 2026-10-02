@@ -10,6 +10,7 @@ import {
   startRegistration,
   verifyRegistrationCode,
 } from "../../lib/registration-api";
+import { useT, type Messages } from "../../lib/i18n";
 import { AuthNotice, AuthShell, RevealIcon } from "./AuthShell";
 import { PASSWORD_MAX_LENGTH, REGISTRATION_PASSWORD_MIN_LENGTH } from "./passwordPolicy";
 import {
@@ -30,13 +31,14 @@ const VERIFICATION_COUNTDOWN_SECONDS = 60;
 type FormStatus = "idle" | "sending" | "submitting";
 type Notice = { tone: "danger" | "neutral"; text: string; loginLink?: boolean };
 
-function registrationErrorNoticeFor(error: unknown): Notice {
+function registrationErrorNoticeFor(error: unknown, messages: Messages["register"]["errors"]): Notice {
   const code = error instanceof RegistrationApiError ? error.code : null;
-  return { tone: "danger", ...registrationErrorNotice(code) };
+  return { tone: "danger", ...registrationErrorNotice(code, messages) };
 }
 
 export function RegisterPage() {
   const navigate = useNavigate();
+  const t = useT();
   const emailId = useId();
   const codeId = useId();
   const passwordId = useId();
@@ -69,7 +71,7 @@ export function RegisterPage() {
   const identityLocked = phase !== "not_started";
   const completed = phase === "completed";
   const confirmMismatch = confirmPassword.length > 0 && password !== confirmPassword;
-  const confirmError = fieldErrors.confirmPassword ?? (confirmMismatch ? "两次输入的密码不一致。" : null);
+  const confirmError = fieldErrors.confirmPassword ?? (confirmMismatch ? t.register.validation.confirmMismatch : null);
 
   function clearFieldError(field: keyof RegistrationFieldErrors) {
     setFieldErrors((current) => {
@@ -102,7 +104,7 @@ export function RegisterPage() {
         const canonicalEmail = email.trim();
         const canonicalInvite = canonicalInviteCode(inviteCode);
         if (canonicalEmail === "" || canonicalInvite === "") {
-          setNotice({ tone: "danger", text: "请先填写邮箱和邀请码。" });
+          setNotice({ tone: "danger", text: t.register.fillEmailAndInvite });
           return;
         }
         const token = await startRegistration(
@@ -116,21 +118,15 @@ export function RegisterPage() {
         setPhase("awaiting_verification");
       } else {
         if (registrationToken === null) {
-          setNotice({
-            tone: "danger",
-            text: "注册状态已失效，请刷新页面后重新开始。",
-          });
+          setNotice({ tone: "danger", text: t.register.stateExpired });
           return;
         }
         await resendRegistrationCode(registrationToken);
       }
       setCountdown(VERIFICATION_COUNTDOWN_SECONDS);
-      setNotice({
-        tone: "neutral",
-        text: "如果邀请码有效且可用于该邮箱，验证码将发送到该邮箱，请注意查收。",
-      });
+      setNotice({ tone: "neutral", text: t.register.codeSent });
     } catch (error) {
-      setNotice(registrationErrorNoticeFor(error));
+      setNotice(registrationErrorNoticeFor(error, t.register.errors));
     } finally {
       setStatus("idle");
     }
@@ -141,13 +137,14 @@ export function RegisterPage() {
     if (busy || completed) return;
 
     if (phase === "not_started" || registrationToken === null) {
-      setNotice({ tone: "danger", text: "请先发送并获取邮箱验证码。" });
+      setNotice({ tone: "danger", text: t.register.sendCodeFirst });
       return;
     }
     // 请求前先做本地格式校验；不合格时不发出验证或完成请求。
     const errors = validateRegistrationSubmission(
       { phase, verificationCode, password, confirmPassword },
       { minLength: REGISTRATION_PASSWORD_MIN_LENGTH, maxLength: PASSWORD_MAX_LENGTH },
+      t.register.validation,
     );
     setFieldErrors(errors);
     if (hasFieldErrors(errors)) {
@@ -165,7 +162,7 @@ export function RegisterPage() {
       // 留在注册页：验证码已通过时保留新 token，下次只重试完成步骤。
       setRegistrationToken(result.registrationToken);
       setPhase(result.phase);
-      setNotice(registrationErrorNoticeFor(result.error));
+      setNotice(registrationErrorNoticeFor(result.error, t.register.errors));
       setStatus("idle");
       return;
     }
@@ -182,22 +179,20 @@ export function RegisterPage() {
   }
 
   return (
-    <AuthShell title="注册客户中心" subtitle="请输入邀请码完成注册。" wide>
+    <AuthShell title={t.register.title} subtitle={t.register.subtitle} wide>
       {referralSourceCode !== null && (
-        <AuthNotice tone="neutral">
-          已携带推荐来源。注册完成后仅保存为待确认的来源候选，不代表正式推荐归属或佣金资格。
-        </AuthNotice>
+        <AuthNotice tone="neutral">{t.register.referralNotice}</AuthNotice>
       )}
       {notice && (
         <AuthNotice tone={notice.tone} id={noticeId}>
           {notice.text}
-          {notice.loginLink && <> <Link to="/login">去登录</Link></>}
+          {notice.loginLink && <> <Link to="/login">{t.common.toLogin}</Link></>}
         </AuthNotice>
       )}
 
       <form className="auth-form" onSubmit={handleSubmit} noValidate>
         <div className="auth-field">
-          <label htmlFor={emailId}>邮箱</label>
+          <label htmlFor={emailId}>{t.common.emailLabel}</label>
           <div className="auth-input-wrap">
             <input
               id={emailId}
@@ -208,7 +203,7 @@ export function RegisterPage() {
               autoCapitalize="none"
               spellCheck={false}
               maxLength={254}
-              placeholder="you@example.com"
+              placeholder={t.common.emailPlaceholder}
               value={email}
               disabled={busy || identityLocked}
               aria-describedby={notice ? noticeId : undefined}
@@ -218,7 +213,7 @@ export function RegisterPage() {
         </div>
 
         <div className="auth-field">
-          <label htmlFor={codeId}>邮箱验证码</label>
+          <label htmlFor={codeId}>{t.register.codeLabel}</label>
           <div className="auth-code-row">
             <div className="auth-input-wrap">
               <input
@@ -228,7 +223,7 @@ export function RegisterPage() {
                 inputMode="numeric"
                 autoComplete="one-time-code"
                 spellCheck={false}
-                placeholder="请输入邮件中的验证码"
+                placeholder={t.register.codePlaceholder}
                 value={verificationCode}
                 maxLength={6}
                 disabled={busy || phase !== "awaiting_verification"}
@@ -258,12 +253,12 @@ export function RegisterPage() {
               onClick={() => void handleSendCode()}
             >
               {status === "sending"
-                ? "正在发送…"
+                ? t.register.sending
                 : countdown > 0
-                  ? `${countdown} 秒后重发`
+                  ? t.register.resendIn(countdown)
                   : phase === "not_started"
-                    ? "发送验证码"
-                    : "重新发送验证码"}
+                    ? t.register.sendCode
+                    : t.register.resendCode}
             </button>
           </div>
           {fieldErrors.verificationCode !== undefined && (
@@ -274,7 +269,7 @@ export function RegisterPage() {
         </div>
 
         <div className="auth-field">
-          <label htmlFor={passwordId}>密码</label>
+          <label htmlFor={passwordId}>{t.register.passwordLabel}</label>
           <div className="auth-input-wrap">
             <input
               id={passwordId}
@@ -282,7 +277,7 @@ export function RegisterPage() {
               type={revealPassword ? "text" : "password"}
               autoComplete="new-password"
               maxLength={PASSWORD_MAX_LENGTH}
-              placeholder="请设置密码"
+              placeholder={t.register.passwordPlaceholder}
               value={password}
               disabled={busy || completed}
               aria-invalid={fieldErrors.password !== undefined}
@@ -300,7 +295,7 @@ export function RegisterPage() {
             <button
               type="button"
               className="auth-reveal"
-              aria-label={revealPassword ? "隐藏密码" : "显示密码"}
+              aria-label={revealPassword ? t.common.hidePassword : t.common.showPassword}
               aria-pressed={revealPassword}
               aria-controls={passwordId}
               disabled={busy || completed}
@@ -310,7 +305,7 @@ export function RegisterPage() {
             </button>
           </div>
           <p className="auth-hint" id={passwordHintId}>
-            至少 {REGISTRATION_PASSWORD_MIN_LENGTH} 个字符，最终以服务端校验为准。
+            {t.register.passwordHint(REGISTRATION_PASSWORD_MIN_LENGTH)}
           </p>
           {fieldErrors.password !== undefined && (
             <p className="auth-hint is-danger" id={passwordErrorId} aria-live="polite">
@@ -320,7 +315,7 @@ export function RegisterPage() {
         </div>
 
         <div className="auth-field">
-          <label htmlFor={confirmId}>确认密码</label>
+          <label htmlFor={confirmId}>{t.register.confirmLabel}</label>
           <div className="auth-input-wrap">
             <input
               id={confirmId}
@@ -328,7 +323,7 @@ export function RegisterPage() {
               type={revealConfirm ? "text" : "password"}
               autoComplete="new-password"
               maxLength={PASSWORD_MAX_LENGTH}
-              placeholder="请再次输入密码"
+              placeholder={t.register.confirmPlaceholder}
               value={confirmPassword}
               disabled={busy || completed}
               aria-invalid={confirmError !== null}
@@ -341,7 +336,7 @@ export function RegisterPage() {
             <button
               type="button"
               className="auth-reveal"
-              aria-label={revealConfirm ? "隐藏确认密码" : "显示确认密码"}
+              aria-label={revealConfirm ? t.common.hideConfirmPassword : t.common.showConfirmPassword}
               aria-pressed={revealConfirm}
               aria-controls={confirmId}
               disabled={busy || completed}
@@ -357,7 +352,7 @@ export function RegisterPage() {
         </div>
 
         <div className="auth-field">
-          <label htmlFor={inviteId}>邀请码</label>
+          <label htmlFor={inviteId}>{t.register.inviteLabel}</label>
           <div className="auth-input-wrap">
             <input
               id={inviteId}
@@ -367,7 +362,7 @@ export function RegisterPage() {
               autoCapitalize="none"
               spellCheck={false}
               maxLength={34}
-              placeholder="请输入邀请码"
+              placeholder={t.register.invitePlaceholder}
               value={inviteCode}
               disabled={busy || identityLocked}
               onChange={(event) => setInviteCode(event.target.value)}
@@ -376,12 +371,12 @@ export function RegisterPage() {
         </div>
 
         <button type="submit" className="auth-submit" disabled={busy || completed} aria-busy={status === "submitting"}>
-          {completed ? "注册完成" : status === "submitting" ? "正在注册…" : "注册"}
+          {completed ? t.register.completed : status === "submitting" ? t.register.submitting : t.register.submit}
         </button>
       </form>
 
       <p className="auth-switch">
-        已有账号？<Link to="/login">去登录</Link>
+        {t.register.haveAccount}<Link to="/login">{t.common.toLogin}</Link>
       </p>
     </AuthShell>
   );

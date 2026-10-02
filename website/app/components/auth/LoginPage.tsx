@@ -2,37 +2,36 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { LoginRequestError } from "../../lib/auth-errors";
 import { useAuth } from "../../lib/auth";
+import { useT, type Messages } from "../../lib/i18n";
 import { AuthNotice, AuthShell, RevealIcon } from "./AuthShell";
 import { PASSWORD_MAX_LENGTH } from "./passwordPolicy";
-import {
-  REGISTRATION_SUCCESS_LOGIN_NOTICE,
-  registrationCompleteFromLocationState,
-} from "./registrationFlow";
+import { registrationCompleteFromLocationState } from "./registrationFlow";
 
 type FormStatus = "idle" | "submitting";
 
-function loginErrorMessage(error: unknown): string {
+function loginErrorMessage(error: unknown, messages: Messages["login"]["errors"]): string {
   if (error instanceof LoginRequestError) {
     switch (error.code) {
       case "invalid_credentials":
-        return "邮箱或密码错误";
+        return messages.invalidCredentials;
       case "busy":
-        return "服务繁忙，请稍后重试";
+        return messages.busy;
       case "rate_limited":
-        return "尝试次数过多，请稍后重试";
+        return messages.rateLimited;
       case "auth_unavailable":
-        return "登录服务暂时不可用，请稍后重试";
+        return messages.unavailable;
       case "login_failed":
         break;
     }
   }
-  return "登录失败，请稍后重试";
+  return messages.generic;
 }
 
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAuth();
+  const t = useT();
   const emailId = useId();
   const passwordId = useId();
   const errorId = useId();
@@ -61,7 +60,7 @@ export function LoginPage() {
 
     // 最小本地校验：只检查输入存在性，密码策略由服务端负责，本页不自行发明。
     if (!email.trim() || !password) {
-      setError("请填写邮箱与密码。");
+      setError(t.login.fillBoth);
       return;
     }
 
@@ -72,20 +71,20 @@ export function LoginPage() {
       await login(email, password);
       navigate("/dashboard", { replace: true });
     } catch (loginError: unknown) {
-      setError(loginErrorMessage(loginError));
+      setError(loginErrorMessage(loginError, t.login.errors));
     } finally {
       setStatus("idle");
     }
   }
 
   return (
-    <AuthShell title="登录客户中心" subtitle="登录后进入服务管理页面。">
-      {registered && !error && <AuthNotice tone="neutral">{REGISTRATION_SUCCESS_LOGIN_NOTICE}</AuthNotice>}
+    <AuthShell title={t.login.title} subtitle={t.login.subtitle}>
+      {registered && !error && <AuthNotice tone="neutral">{t.login.registeredNotice}</AuthNotice>}
       {error && <AuthNotice tone="danger" id={errorId}>{error}</AuthNotice>}
 
       <form className="auth-form" onSubmit={handleSubmit} noValidate>
         <div className="auth-field">
-          <label htmlFor={emailId}>邮箱</label>
+          <label htmlFor={emailId}>{t.common.emailLabel}</label>
           <div className="auth-input-wrap">
             <input
               id={emailId}
@@ -96,7 +95,7 @@ export function LoginPage() {
               autoCapitalize="none"
               spellCheck={false}
               maxLength={254}
-              placeholder="you@example.com"
+              placeholder={t.common.emailPlaceholder}
               value={email}
               disabled={submitting}
               aria-describedby={error ? errorId : undefined}
@@ -106,7 +105,7 @@ export function LoginPage() {
         </div>
 
         <div className="auth-field">
-          <label htmlFor={passwordId}>密码</label>
+          <label htmlFor={passwordId}>{t.login.passwordLabel}</label>
           <div className="auth-input-wrap">
             <input
               id={passwordId}
@@ -114,7 +113,7 @@ export function LoginPage() {
               type={revealPassword ? "text" : "password"}
               autoComplete="current-password"
               maxLength={PASSWORD_MAX_LENGTH}
-              placeholder="请输入密码"
+              placeholder={t.login.passwordPlaceholder}
               value={password}
               disabled={submitting}
               aria-describedby={error ? errorId : undefined}
@@ -123,7 +122,7 @@ export function LoginPage() {
             <button
               type="button"
               className="auth-reveal"
-              aria-label={revealPassword ? "隐藏密码" : "显示密码"}
+              aria-label={revealPassword ? t.common.hidePassword : t.common.showPassword}
               aria-pressed={revealPassword}
               aria-controls={passwordId}
               disabled={submitting}
@@ -135,16 +134,16 @@ export function LoginPage() {
         </div>
 
         <button type="submit" className="auth-submit" disabled={submitting} aria-busy={submitting}>
-          {submitting ? "正在登录…" : "登录"}
+          {submitting ? t.login.submitting : t.login.submit}
         </button>
       </form>
 
       <div className="auth-foot">
-        <Link className="auth-foot-link" to="/forgot-password">忘记密码？</Link>
+        <Link className="auth-foot-link" to="/forgot-password">{t.login.forgotPassword}</Link>
       </div>
 
       <p className="auth-switch">
-        没有账号？<Link to="/register">去注册</Link>
+        {t.login.noAccount}<Link to="/register">{t.login.toRegister}</Link>
       </p>
     </AuthShell>
   );

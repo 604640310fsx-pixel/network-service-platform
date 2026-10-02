@@ -1,6 +1,8 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { useT } from "../../lib/i18n";
 import { useThemePreference } from "../../lib/theme";
+import { LanguageToggle } from "../common/LanguageToggle";
 import "./login.css";
 
 /* 登录页与注册页共用的 Auth 外壳：主题切换条 + 居中卡片 + 品牌 + 标题。
@@ -31,6 +33,7 @@ export function AuthShell({
   children: ReactNode;
 }) {
   const { theme, toggleTheme } = useThemePreference();
+  const t = useT();
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
@@ -42,10 +45,11 @@ export function AuthShell({
   return (
     <div className="cc-shell cc-auth" data-theme={theme}>
       <header className="auth-topbar">
+        <LanguageToggle />
         <button
           type="button"
           className="auth-theme-toggle"
-          aria-label={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
+          aria-label={theme === "dark" ? t.common.toLightTheme : t.common.toDarkTheme}
           aria-pressed={theme === "light"}
           onClick={toggleTheme}
         >
@@ -59,9 +63,9 @@ export function AuthShell({
 
       <main className="auth-main">
         <div className={`auth-card${wide ? " is-wide" : ""}`}>
-          <Link className="auth-brand" to="/" aria-label="返回首页">
+          <Link className="auth-brand" to="/" aria-label={t.authShell.backHome}>
             <span className="auth-brand-mark" aria-hidden="true" />
-            <span className="auth-home-label">返回首页</span>
+            <span className="auth-home-label">{t.authShell.backHome}</span>
           </Link>
 
           <h1 ref={headingRef} id={POST_LOGOUT_FOCUS_TARGET_ID} tabIndex={-1}>{title}</h1>
@@ -76,6 +80,7 @@ export function AuthShell({
 
 export function AuthSessionChecking() {
   const { theme } = useThemePreference();
+  const t = useT();
 
   return (
     <div className="cc-shell cc-auth" data-theme={theme}>
@@ -86,7 +91,7 @@ export function AuthSessionChecking() {
           aria-live="polite"
           aria-busy="true"
         >
-          正在确认登录状态…
+          {t.authShell.checkingSession}
         </p>
       </main>
     </div>

@@ -38,6 +38,8 @@ test("mobile menu resolves Escape and Tab boundaries without allowing focus to e
     "react/jsx-runtime": {},
     "react-router-dom": {},
     "../../lib/auth": {},
+    "../../lib/i18n": {},
+    "../common/LanguageToggle": {},
   });
   const resolve = module.resolveMobileMenuKeyAction as (
     key: string,

@@ -1,5 +1,6 @@
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useT } from "../../lib/i18n";
 import {
   confirmPasswordReset,
   PasswordResetApiError,
@@ -8,7 +9,6 @@ import {
 import { AuthNotice, AuthShell, RevealIcon } from "./AuthShell";
 import { PASSWORD_MAX_LENGTH, REGISTRATION_PASSWORD_MIN_LENGTH } from "./passwordPolicy";
 import {
-  RESET_DONE_NOTICE,
   resetConfirmFailure,
   validateResetPassword,
   type ResetPasswordErrors,
@@ -21,6 +21,7 @@ const POLICY = { minLength: REGISTRATION_PASSWORD_MIN_LENGTH, maxLength: PASSWOR
 export function ResetPasswordPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const t = useT();
   // 令牌只在内存中保留；读取后立即从地址栏移除，避免留在历史记录或被转发。
   const [token] = useState(() => resetTokenFromSearch(searchParams.toString()));
   const passwordId = useId();
@@ -45,7 +46,7 @@ export function ResetPasswordPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting || token === null) return;
-    const errors = validateResetPassword(password, confirmPassword, POLICY);
+    const errors = validateResetPassword(password, confirmPassword, POLICY, t.reset.validation);
     setFieldErrors(errors);
     if (errors.password || errors.confirmPassword) return;
 
@@ -60,6 +61,7 @@ export function ResetPasswordPage() {
       const failure = resetConfirmFailure(
         confirmError instanceof PasswordResetApiError ? confirmError.code : "request_failed",
         POLICY,
+        t.reset.errors,
       );
       if (failure.kind === "invalid_token") {
         setStatus("invalid");
@@ -73,10 +75,10 @@ export function ResetPasswordPage() {
 
   if (status === "done") {
     return (
-      <AuthShell title="密码已重置" subtitle="所有设备上的旧登录均已失效。">
-        <AuthNotice tone="neutral">{RESET_DONE_NOTICE}</AuthNotice>
+      <AuthShell title={t.reset.doneTitle} subtitle={t.reset.doneSubtitle}>
+        <AuthNotice tone="neutral">{t.reset.doneNotice}</AuthNotice>
         <p className="auth-switch">
-          <Link to="/login">去登录</Link>
+          <Link to="/login">{t.common.toLogin}</Link>
         </p>
       </AuthShell>
     );
@@ -84,27 +86,27 @@ export function ResetPasswordPage() {
 
   if (status === "invalid") {
     return (
-      <AuthShell title="链接无效" subtitle="重置链接 30 分钟内有效，且只能使用一次。">
+      <AuthShell title={t.reset.invalidTitle} subtitle={t.reset.invalidSubtitle}>
         <AuthNotice tone="danger">
-          {token === null ? "重置链接不完整，请从邮件中重新打开链接。" : "该重置链接已过期或已被使用。"}
+          {token === null ? t.reset.linkIncomplete : t.reset.linkExpired}
         </AuthNotice>
         <p className="auth-switch">
-          <Link to="/forgot-password">重新申请</Link>
+          <Link to="/forgot-password">{t.reset.requestAgain}</Link>
         </p>
       </AuthShell>
     );
   }
 
   const confirmMismatch = confirmPassword.length > 0 && password !== confirmPassword;
-  const confirmError = fieldErrors.confirmPassword ?? (confirmMismatch ? "两次输入的新密码不一致。" : null);
+  const confirmError = fieldErrors.confirmPassword ?? (confirmMismatch ? t.reset.validation.confirmMismatch : null);
 
   return (
-    <AuthShell title="设置新密码" subtitle="重置成功后，所有设备上的旧登录都会失效。">
+    <AuthShell title={t.reset.title} subtitle={t.reset.subtitle}>
       {error && <AuthNotice tone="danger" id={errorId}>{error}</AuthNotice>}
 
       <form className="auth-form" onSubmit={handleSubmit} noValidate>
         <div className="auth-field">
-          <label htmlFor={passwordId}>新密码</label>
+          <label htmlFor={passwordId}>{t.reset.passwordLabel}</label>
           <div className="auth-input-wrap">
             <input
               id={passwordId}
@@ -112,7 +114,7 @@ export function ResetPasswordPage() {
               type={revealPassword ? "text" : "password"}
               autoComplete="new-password"
               maxLength={PASSWORD_MAX_LENGTH}
-              placeholder="请输入新密码"
+              placeholder={t.reset.passwordPlaceholder}
               value={password}
               disabled={submitting}
               aria-invalid={fieldErrors.password !== undefined}
@@ -125,7 +127,7 @@ export function ResetPasswordPage() {
             <button
               type="button"
               className="auth-reveal"
-              aria-label={revealPassword ? "隐藏密码" : "显示密码"}
+              aria-label={revealPassword ? t.common.hidePassword : t.common.showPassword}
               aria-pressed={revealPassword}
               aria-controls={passwordId}
               disabled={submitting}
@@ -135,7 +137,7 @@ export function ResetPasswordPage() {
             </button>
           </div>
           <p className="auth-hint" id={passwordHintId}>
-            至少 {REGISTRATION_PASSWORD_MIN_LENGTH} 个字符，最终以服务端校验为准。
+            {t.reset.passwordHint(REGISTRATION_PASSWORD_MIN_LENGTH)}
           </p>
           {fieldErrors.password !== undefined && (
             <p className="auth-hint is-danger" id={passwordErrorId} aria-live="polite">{fieldErrors.password}</p>
@@ -143,7 +145,7 @@ export function ResetPasswordPage() {
         </div>
 
         <div className="auth-field">
-          <label htmlFor={confirmId}>确认新密码</label>
+          <label htmlFor={confirmId}>{t.reset.confirmLabel}</label>
           <div className="auth-input-wrap">
             <input
               id={confirmId}
@@ -151,7 +153,7 @@ export function ResetPasswordPage() {
               type={revealConfirm ? "text" : "password"}
               autoComplete="new-password"
               maxLength={PASSWORD_MAX_LENGTH}
-              placeholder="请再次输入新密码"
+              placeholder={t.reset.confirmPlaceholder}
               value={confirmPassword}
               disabled={submitting}
               aria-invalid={confirmError !== null}
@@ -164,7 +166,7 @@ export function ResetPasswordPage() {
             <button
               type="button"
               className="auth-reveal"
-              aria-label={revealConfirm ? "隐藏确认密码" : "显示确认密码"}
+              aria-label={revealConfirm ? t.common.hideConfirmPassword : t.common.showConfirmPassword}
               aria-pressed={revealConfirm}
               aria-controls={confirmId}
               disabled={submitting}
@@ -179,12 +181,12 @@ export function ResetPasswordPage() {
         </div>
 
         <button type="submit" className="auth-submit" disabled={submitting} aria-busy={submitting}>
-          {submitting ? "正在重置…" : "重置密码"}
+          {submitting ? t.reset.submitting : t.reset.submit}
         </button>
       </form>
 
       <p className="auth-switch">
-        <Link to="/login">返回登录</Link>
+        <Link to="/login">{t.common.backToLogin}</Link>
       </p>
     </AuthShell>
   );

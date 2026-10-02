@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
+import { useT } from "../../lib/i18n";
 import type { ThemePreference } from "../../lib/theme";
+import { LanguageToggle } from "../common/LanguageToggle";
 
 /* 官网公开 Header。不使用客户中心左侧 sidebar。
    只开放仓库中真实存在且可呈现的公开页面。 */
 
 const navEntries = [
-  { label: "首页", to: "/" },
-  { label: "网络方案", to: "/subscribe" },
-  { label: "诊断服务", to: "/diagnosis" },
-  { label: "服务状态", to: "/monitor" },
+  { key: "home", to: "/" },
+  { key: "plans", to: "/subscribe" },
+  { key: "diagnosis", to: "/diagnosis" },
+  { key: "status", to: "/monitor" },
 ] as const;
 
 export type MobileMenuKeyAction =
@@ -46,6 +48,7 @@ export function SiteHeader({
   onToggleTheme: () => void;
 }) {
   const { status } = useAuth();
+  const t = useT();
   const [stuck, setStuck] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -108,35 +111,36 @@ export function SiteHeader({
   // 已登录时入口指向客户中心，未登录（含会话检查中）指向登录页。
   const authenticated = status === "authenticated";
   const accountHref = authenticated ? "/dashboard" : "/login";
-  const accountLabel = authenticated ? "客户中心" : "登录";
+  const accountLabel = authenticated ? t.header.customerCenter : t.header.login;
 
   return (
     <>
-      <a className="home-skip-link" href="#home-main">跳到主要内容</a>
+      <a className="home-skip-link" href="#home-main">{t.header.skipToContent}</a>
       <header className={`home-header${stuck ? " is-stuck" : ""}`}>
         <div className="home-wrap home-header-inner">
-          <Link to="/" className="home-brand" onClick={() => setMenuOpen(false)} aria-label="Drink Life">
+          <Link to="/" className="home-brand" onClick={() => setMenuOpen(false)} aria-label={t.common.brand}>
             <span className="home-brand-mark" aria-hidden="true" />
           </Link>
 
-          <nav className="home-nav" aria-label="主导航">
+          <nav className="home-nav" aria-label={t.header.navLabel}>
             {navEntries.map((entry) => (
               <NavLink
-                key={entry.label}
+                key={entry.key}
                 to={entry.to}
                 end={entry.to === "/"}
                 className={({ isActive }) => isActive ? "is-active" : undefined}
               >
-                {entry.label}
+                {t.header.nav[entry.key]}
               </NavLink>
             ))}
           </nav>
 
           <div className="home-header-actions">
+            <LanguageToggle />
             <button
               type="button"
               className="home-icon-button"
-              aria-label={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
+              aria-label={theme === "dark" ? t.common.toLightTheme : t.common.toDarkTheme}
               aria-pressed={theme === "light"}
               onClick={onToggleTheme}
             >
@@ -153,7 +157,7 @@ export function SiteHeader({
               ref={menuButtonRef}
               type="button"
               className="home-icon-button home-menu-button"
-              aria-label={menuOpen ? "关闭导航" : "打开导航"}
+              aria-label={menuOpen ? t.header.closeMenu : t.header.openMenu}
               aria-expanded={menuOpen}
               aria-controls="home-mobile-navigation"
               onClick={() => setMenuOpen((open) => !open)}
@@ -174,8 +178,8 @@ export function SiteHeader({
         >
           <div>
             {navEntries.map((entry) => (
-              <NavLink key={entry.label} to={entry.to} end={entry.to === "/"} onClick={() => setMenuOpen(false)}>
-                {entry.label}
+              <NavLink key={entry.key} to={entry.to} end={entry.to === "/"} onClick={() => setMenuOpen(false)}>
+                {t.header.nav[entry.key]}
               </NavLink>
             ))}
             <Link to={accountHref} className="home-mobile-login" onClick={() => setMenuOpen(false)}>
