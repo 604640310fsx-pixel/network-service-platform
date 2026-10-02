@@ -7,8 +7,10 @@ import {
   decryptMailPayload,
   parseEmailChangedNoticeIdempotencyKey,
   parseEmailChangeOtpIdempotencyKey,
+  parsePasswordResetIdempotencyKey,
   parseRegistrationOtpIdempotencyKey,
   type EncryptedRegistrationOtpPayload,
+  isMailTemplate,
   type MailOutboxRandomBytesSource,
   type MailTemplate,
 } from "./mail-outbox.js";
@@ -39,8 +41,10 @@ export interface MailDelivery {
   readonly idempotencyKey: string;
   readonly toEmail: string;
   readonly template: MailTemplate;
-  /** The six-digit code for verification_code mail; null for a notice. */
+  /** The six-digit code for verification_code mail; null otherwise. */
   readonly verificationCode: string | null;
+  /** The reset token for password_reset mail; absent or null otherwise. */
+  readonly resetToken?: string | null;
 }
 
 // A previous-address notice that could not be sent within a day is dropped.
@@ -115,8 +119,7 @@ function parseOutboxRow(value: unknown): MailOutboxRow {
     !("to_email" in value) ||
     typeof value.to_email !== "string" ||
     !("template" in value) ||
-    (value.template !== "verification_code" &&
-      value.template !== "email_changed_notice") ||
+    !isMailTemplate(value.template) ||
     !("key_version" in value) ||
     typeof value.key_version !== "number" ||
     !Number.isSafeInteger(value.key_version) ||
@@ -176,7 +179,28 @@ function isCurrentEmailChangedNotice(database: DatabaseConnection, mail: Current
   );
 }
 
+/* Reset link: unexpired, the account is still active, and a token issued for
+   that expiry is still unused and unsuperseded. */
+function isCurrentPasswordResetMail(database: DatabaseConnection, mail: CurrentMailInput, now: Date): boolean {
+  const identity = parsePasswordResetIdempotencyKey(mail.idempotencyKey);
+  return (
+    identity !== null &&
+    mail.template === "password_reset" &&
+    identity.epochSeconds * 1_000 > now.getTime() &&
+    isActiveUser(database, identity.userId) &&
+    database
+      .prepare(
+        `SELECT 1 FROM password_reset_tokens
+         WHERE user_id = ? AND expires_at = ? AND used_at IS NULL AND superseded_at IS NULL`,
+      )
+      .all(identity.userId, new Date(identity.epochSeconds * 1_000).toISOString()).length === 1
+  );
+}
+
 function isCurrentMail(database: DatabaseConnection, mail: CurrentMailInput, now: Date): boolean {
+  if (mail.idempotencyKey.startsWith("password-reset-v1:")) {
+    return isCurrentPasswordResetMail(database, mail, now);
+  }
   if (mail.idempotencyKey.startsWith("email-change-otp-v1:")) {
     return isCurrentEmailChangeMail(database, mail, now);
   }
@@ -472,6 +496,7 @@ export async function dispatchNextMail(
       template: claimed.encrypted.template,
       verificationCode:
         claimed.encrypted.template === "verification_code" ? plaintext : null,
+      ...(claimed.encrypted.template === "password_reset" ? { resetToken: plaintext } : {}),
     });
   } catch {
     const failureTime = requireDate(nowSource());

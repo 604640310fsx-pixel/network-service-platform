@@ -79,6 +79,9 @@ export const ACCOUNT_PASSWORD_CHANGE_USER_LIMIT = 10;
 export const ACCOUNT_EMAIL_CHANGE_START_USER_LIMIT = 5;
 export const ACCOUNT_EMAIL_CHANGE_START_TARGET_LIMIT = 5;
 export const ACCOUNT_EMAIL_CHANGE_CONFIRM_USER_LIMIT = 10;
+export const PASSWORD_RESET_REQUEST_IP_LIMIT = 10;
+export const PASSWORD_RESET_REQUEST_EMAIL_LIMIT = 5;
+export const PASSWORD_RESET_CONFIRM_IP_LIMIT = 20;
 export const RATE_LIMIT_BUCKET_SECONDS = 300;
 export const RATE_LIMIT_WINDOW_SECONDS = 3_600;
 
@@ -394,6 +397,39 @@ export function consumeAccountSecurityRateLimit(
               ACCOUNT_EMAIL_CHANGE_START_TARGET_LIMIT,
             ),
           ];
+  consumeDimensions(database, dimensions, rateLimitTimes(dependencies.now ?? (() => new Date())));
+}
+
+export type PasswordResetRateLimitInput =
+  | { readonly purpose: "request"; readonly ip: string; readonly canonicalEmail: string | null }
+  | { readonly purpose: "confirm"; readonly ip: string };
+
+/* Signed-out password reset. Requests are bounded per IP and per target
+   address (the address bucket is counted whether or not an account exists,
+   so the limit reveals nothing); confirms are bounded per IP. */
+export function consumePasswordResetRateLimit(
+  database: DatabaseConnection,
+  keyring: RateLimitKeyring,
+  input: PasswordResetRateLimitInput,
+  dependencies: { readonly now?: () => Date } = {},
+): void {
+  const ip = canonicalizeIp(input.ip);
+  const dimensions =
+    input.purpose === "confirm"
+      ? [dimension(keyring, "password-reset:confirm:ip", [ip], PASSWORD_RESET_CONFIRM_IP_LIMIT)]
+      : [
+          dimension(keyring, "password-reset:request:ip", [ip], PASSWORD_RESET_REQUEST_IP_LIMIT),
+          ...(input.canonicalEmail === null
+            ? []
+            : [
+                dimension(
+                  keyring,
+                  "password-reset:request:email",
+                  [input.canonicalEmail],
+                  PASSWORD_RESET_REQUEST_EMAIL_LIMIT,
+                ),
+              ]),
+        ];
   consumeDimensions(database, dimensions, rateLimitTimes(dependencies.now ?? (() => new Date())));
 }
 

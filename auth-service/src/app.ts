@@ -22,6 +22,10 @@ import {
   type AccountHttpDependencies,
 } from "./http/account-routes.js";
 import {
+  registerPasswordResetHttpRoutes,
+  type PasswordResetHttpDependencies,
+} from "./http/password-reset-routes.js";
+import {
   registerInviteHttpRoutes,
   type InviteHttpDependencies,
 } from "./http/invite-routes.js";
@@ -89,6 +93,7 @@ export interface BuildAppOptions {
   readonly tickets?: TicketHttpDependencies;
   readonly invites?: InviteHttpDependencies;
   readonly account?: AccountHttpDependencies;
+  readonly passwordReset?: PasswordResetHttpDependencies;
   readonly payment?: PaymentHttpDependencies;
   readonly monitor?: MonitorHttpDependencies;
   readonly referral?: ReferralHttpDependencies;
@@ -161,6 +166,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   }
   if (options.account !== undefined) {
     registerAccountHttpRoutes(app, options.account);
+  }
+  if (options.passwordReset !== undefined) {
+    registerPasswordResetHttpRoutes(app, options.passwordReset);
   }
   registerMonitorHttpRoutes(app, options.monitor ?? null);
   const payment = options.payment ?? { enabled: false };

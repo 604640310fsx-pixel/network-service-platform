@@ -140,9 +140,7 @@ export function LoginPage() {
       </form>
 
       <div className="auth-foot">
-        <button type="button" className="auth-pending-link" disabled aria-disabled="true" title="忘记密码待接入">
-          忘记密码（待接入）
-        </button>
+        <Link className="auth-foot-link" to="/forgot-password">忘记密码？</Link>
       </div>
 
       <p className="auth-switch">
