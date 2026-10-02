@@ -1,6 +1,13 @@
 // Node's strip-types test runner needs the extension; Vite resolves the same module during build.
 // @ts-ignore TS5097: the website tsconfig does not enable allowImportingTsExtensions.
 import { ADVANCED_NOTES, type AdvancedNote } from "./advancedDocsContent.ts";
+// @ts-ignore TS5097: see above.
+import { SUBSCRIPTION_IMPORT_ARTICLES_EN } from "./docsContentEn.ts";
+
+export type DocsLang = "zh" | "en";
+
+/** Stable grouping key; the displayed category name follows the current language. */
+export type DocumentationCategoryId = "subscription-import" | "proxy-tool-downloads" | "advanced";
 
 export type DocumentationImage = {
   readonly src: string;
@@ -28,18 +35,30 @@ export type DocumentationSection = {
   };
 };
 
+/** One language's reader text for an article. Sections mirror the Chinese article. */
+export type LocalizedArticleText = {
+  readonly category: string;
+  readonly title: string;
+  readonly summary: string;
+  readonly sections: readonly DocumentationSection[];
+};
+
 export type DocumentationArticle = {
   readonly id: string;
+  /** Grouping key; falls back to `category` for articles supplied without one. */
+  readonly categoryId?: DocumentationCategoryId;
   readonly category: string;
   readonly title: string;
   readonly summary: string;
   /** Plain text only. The module never accepts or injects HTML. */
   readonly sections: readonly DocumentationSection[];
   readonly note?: AdvancedNote;
+  /** English text; the Chinese fields above stay the fallback. */
+  readonly en?: LocalizedArticleText;
 };
 
 // 获授权复用的四篇客户端教程。图片只引用已检查的本地素材。
-export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
+const ZH_GUIDE_ARTICLES: readonly DocumentationArticle[] = [
   {
     id: "flclash-import",
     category: "订阅导入",
@@ -405,15 +424,101 @@ export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
       },
     ],
   },
-  ...ADVANCED_NOTES.map((note) => ({
+];
+
+const GUIDE_CATEGORY_IDS: Readonly<Record<string, DocumentationCategoryId>> = {
+  订阅导入: "subscription-import",
+  代理工具下载: "proxy-tool-downloads",
+};
+
+export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
+  ...ZH_GUIDE_ARTICLES.map((article) => ({
+    ...article,
+    categoryId: GUIDE_CATEGORY_IDS[article.category],
+    en: SUBSCRIPTION_IMPORT_ARTICLES_EN[article.id],
+  })),
+  ...ADVANCED_NOTES.map((note): DocumentationArticle => ({
     id: note.id,
+    categoryId: "advanced",
     category: "进阶教程",
     title: note.title,
     summary: note.summary,
     sections: [],
     note,
+    en: { category: "Advanced guides", title: note.en.title, summary: note.en.summary, sections: [] },
   })),
 ];
+
+/** Reader view in one language. Chinese returns the articles unchanged; English swaps in the
+    `en` text (and the note's English body) and falls back to Chinese where none exists. */
+export function localizeDocumentationArticles(
+  articles: readonly DocumentationArticle[],
+  lang: DocsLang,
+): readonly DocumentationArticle[] {
+  if (lang === "zh") return articles;
+  return articles.map((article) => {
+    const text = article.en;
+    const note = article.note;
+    return {
+      ...article,
+      ...(text === undefined ? {} : {
+        category: text.category,
+        title: text.title,
+        summary: text.summary,
+        sections: text.sections,
+      }),
+      ...(note === undefined ? {} : {
+        note: {
+          ...note,
+          title: note.en.title,
+          summary: note.en.summary,
+          body: note.en.body,
+          editorNote: note.en.editorNote,
+        },
+      }),
+    };
+  });
+}
+
+export function documentationCategoryKey(article: DocumentationArticle): string {
+  return article.categoryId ?? article.category;
+}
+
+export type NoteLineKind = "hidden" | "gap" | "bullet" | "heading" | "paragraph";
+
+/** How the advanced-note renderer shows one line of a body part (text between image placeholders).
+    Headings are short bold-led lines without sentence punctuation (「。」, or an English sentence
+    end such as ". " / a trailing "." or "!"); numbering like "1." or "2.2" is not a sentence end, and a
+    question mark is allowed because headings are often questions. */
+export function noteLineKind(line: string, index: number, firstPart: boolean, title: string): NoteLineKind {
+  const trimmed = line.trim();
+  const plain = trimmed.replaceAll("**", "");
+  if (firstPart && index === 0 && plain === title) return "hidden";
+  if (trimmed === "" || trimmed === "****" || trimmed === "**") return "gap";
+  if (/^\s*\*\s+/.test(line)) return "bullet";
+  const unnumbered = plain.replace(/^\s*\d+(?:\.\d+)*\.?\s*/, "");
+  if (
+    (trimmed.startsWith("**") || (firstPart && index === 1 && trimmed.endsWith("**"))) &&
+    plain.length < 85 &&
+    !plain.includes("。") &&
+    !/[.!](?:\s|$)/.test(unnumbered)
+  ) {
+    return "heading";
+  }
+  return "paragraph";
+}
+
+export type StructuredLineKind = "gap" | "section" | "subsection" | "bullet" | "nested-bullet" | "paragraph";
+
+/** Structured notes: 「一、」 (or "I." … "VII." in English) open a section, "1." … "5." a subsection. */
+export function structuredLineKind(line: string): StructuredLineKind {
+  const text = line.trimStart();
+  if (text === "") return "gap";
+  if (/^(?:[一二三四五六七]、|(?:I|II|III|IV|V|VI|VII)\.)\s/.test(text)) return "section";
+  if (/^[1-5]\.\s/.test(text)) return "subsection";
+  if (text.startsWith("⚬")) return line.startsWith("  ") ? "nested-bullet" : "bullet";
+  return "paragraph";
+}
 
 function searchableArticleText(article: DocumentationArticle): string {
   const sectionText = article.sections.flatMap((section) => [
@@ -436,6 +541,20 @@ function searchableArticleText(article: DocumentationArticle): string {
 
 export function documentCategories(articles: readonly DocumentationArticle[]): readonly string[] {
   return [...new Set(articles.map((article) => article.category))];
+}
+
+/** Directory groups in article order, keyed by the stable category id. */
+export function documentGroups(
+  articles: readonly DocumentationArticle[],
+): readonly { readonly key: string; readonly name: string; readonly articles: readonly DocumentationArticle[] }[] {
+  const groups = new Map<string, { key: string; name: string; articles: DocumentationArticle[] }>();
+  for (const article of articles) {
+    const key = documentationCategoryKey(article);
+    const group = groups.get(key) ?? { key, name: article.category, articles: [] };
+    group.articles.push(article);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
 }
 
 export function filterDocumentationArticles(

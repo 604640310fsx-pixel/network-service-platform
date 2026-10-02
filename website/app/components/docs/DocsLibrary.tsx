@@ -1,13 +1,19 @@
-import { useId, useRef, useState, type ReactNode } from "react";
+import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { useI18n, useT, type Messages } from "../../lib/i18n";
 import type { AdvancedNote } from "./advancedDocsContent";
 import {
-  documentCategories,
+  documentGroups,
   filterDocumentationArticles,
+  localizeDocumentationArticles,
+  noteLineKind,
+  structuredLineKind,
   type DocumentationArticle,
   type DocumentationImage,
 } from "./docsModel";
 import "./docs.css";
+
+type DocsCopy = Messages["docs"];
 
 function noteLinkTarget(value: string): string | null {
   if (value === "/diagnosis") return value;
@@ -54,41 +60,43 @@ function noteInline(value: string, onSelectRelatedArticle?: (articleId: string) 
 function noteText(text: string, title: string, firstPart: boolean, onSelectRelatedArticle?: (articleId: string) => void): ReactNode[] {
   const lines = text.split("\n");
   return lines.map((line, index) => {
-    const trimmed = line.trim();
-    const plain = trimmed.replaceAll("**", "");
-    if (firstPart && index === 0 && plain === title) return null;
-    if (trimmed === "" || trimmed === "****" || trimmed === "**") {
-      return <span className="cc-docs-note-gap" key={index} aria-hidden="true" />;
+    switch (noteLineKind(line, index, firstPart, title)) {
+      case "hidden":
+        return null;
+      case "gap":
+        return <span className="cc-docs-note-gap" key={index} aria-hidden="true" />;
+      case "bullet":
+        return <p className="cc-docs-note-bullet" key={index}>• {noteInline(line.replace(/^\s*\*\s+/, ""), onSelectRelatedArticle)}</p>;
+      case "heading":
+        return <h2 key={index}>{noteInline(line.trim(), onSelectRelatedArticle)}</h2>;
+      default:
+        return <p key={index}>{noteInline(line, onSelectRelatedArticle)}</p>;
     }
-    if (/^\s*\*\s+/.test(line)) {
-      return <p className="cc-docs-note-bullet" key={index}>• {noteInline(line.replace(/^\s*\*\s+/, ""), onSelectRelatedArticle)}</p>;
-    }
-    if (
-      (trimmed.startsWith("**") || (firstPart && index === 1 && trimmed.endsWith("**"))) &&
-      plain.length < 85 &&
-      !plain.includes("。")
-    ) {
-      return <h2 key={index}>{noteInline(trimmed, onSelectRelatedArticle)}</h2>;
-    }
-    return <p key={index}>{noteInline(line, onSelectRelatedArticle)}</p>;
   });
 }
 
 function structuredNoteText(body: string): ReactNode[] {
   return body.split("\n").map((line, index) => {
     const text = line.trimStart();
-    if (text === "") return <span className="cc-docs-note-gap" key={index} aria-hidden="true" />;
-    if (/^[一二三四五六七]、\s/.test(text)) return <h2 key={index}>{noteInline(text, undefined, true)}</h2>;
-    if (/^[1-5]\.\s/.test(text)) return <h3 key={index}>{noteInline(text, undefined, true)}</h3>;
-    if (text.startsWith("⚬")) {
-      return <p className={`cc-docs-structured-bullet${line.startsWith("  ") ? " is-nested" : ""}`} key={index}>{noteInline(text, undefined, true)}</p>;
+    switch (structuredLineKind(line)) {
+      case "gap":
+        return <span className="cc-docs-note-gap" key={index} aria-hidden="true" />;
+      case "section":
+        return <h2 key={index}>{noteInline(text, undefined, true)}</h2>;
+      case "subsection":
+        return <h3 key={index}>{noteInline(text, undefined, true)}</h3>;
+      case "bullet":
+      case "nested-bullet":
+        return <p className={`cc-docs-structured-bullet${line.startsWith("  ") ? " is-nested" : ""}`} key={index}>{noteInline(text, undefined, true)}</p>;
+      default:
+        return <p key={index}>{noteInline(text, undefined, true)}</p>;
     }
-    return <p key={index}>{noteInline(text, undefined, true)}</p>;
   });
 }
 
-function AdvancedNoteBody({ note, onSelectRelatedArticle }: {
+function AdvancedNoteBody({ note, copy, onSelectRelatedArticle }: {
   readonly note: AdvancedNote;
+  readonly copy: DocsCopy;
   readonly onSelectRelatedArticle?: (articleId: string) => void;
 }) {
   if (note.structured) return <div className="cc-docs-note-body cc-docs-structured-note">{structuredNoteText(note.body)}</div>;
@@ -102,7 +110,7 @@ function AdvancedNoteBody({ note, onSelectRelatedArticle }: {
           slotIndex += 1;
           return slot.map((src, imageIndex) => (
             <figure key={`${partIndex}-${imageIndex}`} className="cc-docs-figure">
-              <img src={src} alt={`${note.title}：配图 ${slotIndex}`} loading="lazy" decoding="async" />
+              <img src={src} alt={copy.figureAlt(note.title, slotIndex)} loading="lazy" decoding="async" />
             </figure>
           ));
         }
@@ -112,13 +120,13 @@ function AdvancedNoteBody({ note, onSelectRelatedArticle }: {
   );
 }
 
-function docsImage(image: DocumentationImage, key: string) {
+function docsImage(image: DocumentationImage, key: string, copy: DocsCopy) {
   return (
     <figure key={key} className="cc-docs-figure">
-      <a href={image.src} target="_blank" rel="noopener noreferrer" aria-label={`查看大图：${image.alt}`}>
+      <a href={image.src} target="_blank" rel="noopener noreferrer" aria-label={copy.openImage(image.alt)}>
         <img src={image.src} alt={image.alt} loading="lazy" decoding="async" />
       </a>
-      <figcaption>{image.caption}<span className="cc-docs-image-hint">点按图片查看大图</span></figcaption>
+      <figcaption>{image.caption}<span className="cc-docs-image-hint">{copy.imageHint}</span></figcaption>
     </figure>
   );
 }
@@ -129,7 +137,11 @@ export type DocsLibraryProps = {
   readonly initialArticleId?: string;
 };
 
-export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProps) {
+export function DocsLibrary({ articles: sourceArticles = [], initialArticleId }: DocsLibraryProps) {
+  const { lang } = useI18n();
+  const copy = useT().docs;
+  // Switching language swaps the reader text in place; ids, selection and group keys stay stable.
+  const articles = useMemo(() => localizeDocumentationArticles(sourceArticles, lang), [sourceArticles, lang]);
   const instanceId = useId();
   const readerRef = useRef<HTMLElement>(null);
   const [query, setQuery] = useState("");
@@ -140,10 +152,7 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
   const downloadArticle = articles.find((article) => article.id === "proxy-tool-downloads");
   const visibleArticles = filterDocumentationArticles(articles, query, null);
   const directoryArticles = visibleArticles.filter((article) => article.id !== downloadArticle?.id);
-  const groups = documentCategories(directoryArticles).map((name) => ({
-    name,
-    articles: directoryArticles.filter((article) => article.category === name),
-  }));
+  const groups = documentGroups(directoryArticles);
   const searching = query.trim().length > 0;
   const selectedArticle =
     visibleArticles.find((article) => article.id === selectedId) ??
@@ -180,11 +189,11 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
   return (
     <main className="cc-docs-page">
       <div className="cc-docs-layout">
-        <section className="cc-docs-panel cc-docs-browser" aria-label="使用文档目录">
+        <section className="cc-docs-panel cc-docs-browser" aria-label={copy.directoryLabel}>
           <header className="cc-docs-heading">
             <span>DOCUMENTATION</span>
-            <h2>使用文档</h2>
-            <p>查找订阅导入、代理工具下载与进阶教程。</p>
+            <h2>{copy.title}</h2>
+            <p>{copy.lead}</p>
           </header>
 
           {downloadArticle !== undefined && (
@@ -198,18 +207,18 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
                 selectArticle(downloadArticle);
               }}
             >
-              <strong>代理工具下载 →</strong>
-              <span>在本站按设备系统查找客户端下载链接</span>
+              <strong>{copy.downloadTitle}</strong>
+              <span>{copy.downloadHint}</span>
             </button>
           )}
 
           <label className="cc-docs-search" htmlFor={`${instanceId}-search`}>
-            <span>搜索文档</span>
+            <span>{copy.searchLabel}</span>
             <input
               id={`${instanceId}-search`}
               type="search"
               value={query}
-              placeholder="搜索标题、分类或正文"
+              placeholder={copy.searchPlaceholder}
               onChange={(event) => {
                 const nextQuery = event.currentTarget.value;
                 setQuery(nextQuery);
@@ -221,23 +230,23 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
 
           {articles.length === 0 ? (
             <div className="cc-docs-notice" role="status">
-              <strong>使用文档待接入</strong>
-              <p>当前没有可展示的已批准正文，本页不会生成或补写教程。</p>
+              <strong>{copy.emptyTitle}</strong>
+              <p>{copy.emptyBody}</p>
             </div>
           ) : visibleArticles.length === 0 ? (
             <div className="cc-docs-notice" role="status">
-              <strong>没有匹配的文档</strong>
-              <p>请调整搜索关键词。</p>
+              <strong>{copy.noMatchTitle}</strong>
+              <p>{copy.noMatchBody}</p>
             </div>
           ) : groups.length > 0 ? (
             <div className="cc-docs-groups">
               {groups.map((group, groupIndex) => {
                 const expanded = searching
-                  ? searchCollapsedGroups[group.name] !== true
-                  : expandedGroups[group.name] === true;
+                  ? searchCollapsedGroups[group.key] !== true
+                  : expandedGroups[group.key] === true;
                 const groupId = `${instanceId}-group-${groupIndex}`;
                 return (
-                  <section key={group.name} className="cc-docs-group">
+                  <section key={group.key} className="cc-docs-group">
                     <button
                       type="button"
                       className="cc-docs-group-heading"
@@ -245,15 +254,15 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
                       aria-controls={groupId}
                       onClick={() => {
                         if (searching) {
-                          setSearchCollapsedGroups((current) => ({ ...current, [group.name]: !current[group.name] }));
+                          setSearchCollapsedGroups((current) => ({ ...current, [group.key]: !current[group.key] }));
                         } else {
-                          setExpandedGroups((current) => ({ ...current, [group.name]: !expanded }));
+                          setExpandedGroups((current) => ({ ...current, [group.key]: !expanded }));
                         }
                       }}
                     >
-                      <span>{group.name}（{group.articles.length}）</span>
+                      <span>{copy.groupHeading(group.name, group.articles.length)}</span>
                       <span className="cc-docs-group-action">
-                        <span>{expanded ? "点击收起" : "点击展开"}</span>
+                        <span>{expanded ? copy.collapse : copy.expand}</span>
                         <span className={`cc-docs-group-arrow${expanded ? " is-expanded" : ""}`} aria-hidden="true">▾</span>
                       </span>
                     </button>
@@ -279,12 +288,12 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
           ) : null}
         </section>
 
-        <section className="cc-docs-panel cc-docs-reader-panel" aria-label="文档正文">
+        <section className="cc-docs-panel cc-docs-reader-panel" aria-label={copy.readerLabel}>
           {selectedArticle === null ? (
             <div className="cc-docs-reader-empty" role="status">
               <span>ARTICLE</span>
-              <h2>选择一篇已批准文档阅读</h2>
-              <p>正文接入前保持空状态，不使用演示教程替代。</p>
+              <h2>{copy.readerEmptyTitle}</h2>
+              <p>{copy.readerEmptyBody}</p>
             </div>
           ) : (
             <article className="cc-docs-article" ref={readerRef} tabIndex={-1}>
@@ -303,7 +312,7 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
                       <div key={`${selectedArticle.id}-${index}-p-${paragraphIndex}`}>
                         <p>{paragraph.text}</p>
                         {paragraph.images.map((image, imageIndex) =>
-                          docsImage(image, `${selectedArticle.id}-${index}-p-${paragraphIndex}-${imageIndex}`)
+                          docsImage(image, `${selectedArticle.id}-${index}-p-${paragraphIndex}-${imageIndex}`, copy)
                         )}
                       </div>
                     ),
@@ -314,7 +323,7 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
                         <li key={`${selectedArticle.id}-${index}-s-${stepIndex}`}>
                           {typeof step === "string" ? step : step.text}
                           {typeof step !== "string" && step.images.map((image, imageIndex) =>
-                            docsImage(image, `${selectedArticle.id}-${index}-s-${stepIndex}-${imageIndex}`)
+                            docsImage(image, `${selectedArticle.id}-${index}-s-${stepIndex}-${imageIndex}`, copy)
                           )}
                         </li>
                       ))}
@@ -326,14 +335,14 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
                         <li key={item.url}>
                           <span>{item.label}</span>
                           <a href={item.url} target="_blank" rel="noopener noreferrer">
-                            前往下载 ↗
+                            {copy.download}
                           </a>
                         </li>
                       ))}
                     </ul>
                   )}
                   {(section.images ?? []).map((item, imageIndex) =>
-                    docsImage(item, `${selectedArticle.id}-${index}-image-${imageIndex}`)
+                    docsImage(item, `${selectedArticle.id}-${index}-image-${imageIndex}`, copy)
                   )}
                   {section.video !== undefined && (
                     <div className="cc-docs-video">
@@ -350,21 +359,22 @@ export function DocsLibrary({ articles = [], initialArticleId }: DocsLibraryProp
                         target="_blank"
                         rel="noopener noreferrer"
                       >
-                        在 YouTube 观看
+                        {copy.watchOnYoutube}
                       </a>
                     </div>
                   )}
                 </section>
               ))}
               {selectedArticle.note?.editorNote !== undefined && (
-                <aside className="cc-docs-editor-note" aria-label="编辑备注">
-                  <strong>编辑备注</strong>
+                <aside className="cc-docs-editor-note" aria-label={copy.editorNote}>
+                  <strong>{copy.editorNote}</strong>
                   <p>{selectedArticle.note.editorNote}</p>
                 </aside>
               )}
               {selectedArticle.note !== undefined && (
                 <AdvancedNoteBody
                   note={selectedArticle.note}
+                  copy={copy}
                   onSelectRelatedArticle={selectedArticle.id === "claude-gpt-account-advice" ? selectRelatedArticle : undefined}
                 />
               )}
