@@ -199,3 +199,21 @@
   .cc-net-tag { margin-left: 46px; }
   .cc-net-state-actions .cc-net-primary { width: 100%; }
 }
+
+/* 节点在线状态（与服务器状态页同一套状态色）。 */
+.cc-net-page { --cc-status-ok: #21865a; --cc-status-danger: #bd3f49; }
+.cc-shell[data-theme="dark"] .cc-net-page { --cc-status-ok: #50c58e; --cc-status-danger: #ef747e; }
+.cc-net-status { flex: 0 0 auto; align-self: center; padding: 1px 7px; border: 1px solid currentColor; border-radius: 5px; font-size: 11px; font-weight: 600; line-height: 1.6; white-space: nowrap; }
+.cc-net-status.is-online { color: var(--cc-status-ok); background: color-mix(in srgb, var(--cc-status-ok) 10%, transparent); }
+.cc-net-status.is-stale { color: var(--cc-accent); background: color-mix(in srgb, var(--cc-accent) 10%, transparent); }
+.cc-net-status.is-offline { color: var(--cc-status-danger); background: color-mix(in srgb, var(--cc-status-danger) 10%, transparent); }
+.cc-net-status.is-unbound,
+.cc-net-status.is-unknown { color: var(--cc-text-4); border-style: dashed; font-weight: 500; }
+.cc-net-metrics article.is-online strong { color: var(--cc-status-ok); }
+.cc-net-metrics article.is-stale strong { color: var(--cc-accent); }
+.cc-net-metrics article.is-offline strong { color: var(--cc-status-danger); }
+.cc-net-status-warning { margin: 14px 20px 0; }
+.cc-net-gift-lines { margin: 14px 20px 0; }
+.cc-net-gift-lines > strong { display: block; margin-bottom: 8px; color: var(--cc-text-2); font-size: 12.5px; }
+.cc-net-line-label.is-static:hover { border-color: var(--cc-line); background: var(--cc-inset); }
+.cc-net-line-label-text small { display: block; color: var(--cc-text-4); font-size: 11px; font-weight: 400; }
