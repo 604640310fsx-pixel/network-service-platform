@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 
 import { registerPaymentAdminHttpRoutes } from "./http/admin-routes.js";
+import { registerAdminServiceHttpRoutes } from "./http/admin-service-routes.js";
 import {
   registerAuthHttpRoutes,
   type AuthHttpDependencies,
@@ -174,6 +175,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const payment = options.payment ?? { enabled: false };
   registerPaymentHttpRoutes(app, payment);
   registerPaymentAdminHttpRoutes(app, payment);
+  registerAdminServiceHttpRoutes(app, payment);
 
   return app;
 }

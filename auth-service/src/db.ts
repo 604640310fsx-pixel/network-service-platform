@@ -66,6 +66,7 @@ export const MIGRATION_FILES = [
   "019_referral_candidate_owner_page_index.sql",
   "020_tickets.sql",
   "021_personal_invites.sql",
+  "022_admin_service_management.sql",
 ] as const;
 
 // Migrations that rebuild a table other tables reference with ON DELETE

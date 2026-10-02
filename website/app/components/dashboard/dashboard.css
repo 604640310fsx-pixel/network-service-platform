@@ -136,6 +136,37 @@
 .dash-plan-status.is-active { border-color: var(--cc-accent-line); background: var(--cc-accent-tint); color: var(--cc-accent); }
 .dash-plans-row-error { margin: 6px 0 0; white-space: normal; max-width: 220px; }
 
+/* 用户服务管理 */
+.dash-usvc-lead { margin: -6px 0 14px; color: var(--cc-text-3); font-size: 12.5px; line-height: 1.6; }
+.dash-usvc-search { flex-wrap: wrap; }
+.dash-usvc-search input { flex: 1 1 240px; min-width: 0; }
+.dash-usvc-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.dash-usvc-users { list-style: none; margin: 0 0 14px; padding: 0; border: 1px solid var(--cc-hairline); border-radius: 10px; }
+.dash-usvc-users li { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--cc-hairline); font-size: 13px; }
+.dash-usvc-users li:last-child { border-bottom: 0; }
+.dash-usvc-users li.is-selected { background: var(--cc-accent-tint); }
+.dash-usvc-email { min-width: 0; flex: 1 1 200px; overflow-wrap: anywhere; color: var(--cc-text); }
+.dash-usvc-ghost { height: 30px; padding: 0 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text-2); font: inherit; font-size: 12.5px; cursor: pointer; }
+.dash-usvc-ghost:disabled { cursor: not-allowed; opacity: 0.55; }
+.dash-usvc-detail h3 { margin: 18px 0 10px; font-size: 13.5px; font-weight: 600; }
+.dash-usvc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.dash-usvc-item { min-width: 0; padding: 13px 14px; border: 1px solid var(--cc-line); border-radius: 10px; background: var(--cc-card); }
+.dash-usvc-item.is-revoked { opacity: 0.6; }
+.dash-usvc-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.dash-usvc-head strong { min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
+.dash-usvc-meta { margin: 6px 0 0; color: var(--cc-text-3); font-size: 12px; overflow-wrap: anywhere; }
+.dash-usvc-head .dash-usvc-meta { margin: 0 0 0 auto; }
+.dash-usvc-grid { display: grid; gap: 10px 14px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 12px; }
+.dash-usvc-grid label { display: flex; flex-direction: column; gap: 6px; min-width: 0; color: var(--cc-text-3); font-size: 11.5px; }
+.dash-usvc-grid input,
+.dash-usvc-grid textarea { min-width: 0; padding: 8px 10px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 13px; }
+.dash-usvc-grid textarea { resize: vertical; }
+.dash-usvc-wide { grid-column: 1 / -1; }
+.dash-usvc-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+.dash-usvc-foot .dash-inline-error { margin: 0; }
+.dash-usvc-grant-form { margin-top: 16px; }
+.dash-usvc-grant-form h3 { margin: 0 0 4px; font-size: 13.5px; }
+
 .dash-coupon-create { padding: 14px 15px; margin-bottom: 14px; border: 1px solid var(--cc-hairline); border-radius: 10px; background: var(--cc-inset); }
 .dash-coupon-create-grid { display: grid; gap: 12px 14px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
 .dash-coupon-create-grid label { display: flex; flex-direction: column; gap: 6px; color: var(--cc-text-3); font-size: 11.5px; }

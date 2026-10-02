@@ -561,7 +561,7 @@ export function validateRepository({
   }
   const routeMigrations = releaseMigrationsForRoute(schemaRoute);
   const candidate = RELEASE_SCHEMA_BOUNDARIES[schemaRoute].candidate;
-  // 020 and 021 sources both carry the 020-generation markers; 021 adds its own.
+  // 020, 021 and 022 sources all carry the 020-generation markers; later ones add their own.
   const currentSchema = candidate >= 20;
   const sourceRoot = existingDirectory(source, "source");
   const sha = normalizedExpectedSha(expectedSha);
@@ -628,7 +628,18 @@ export function validateRepository({
             "--schema-route standard16-21",
             "## Explicit STANDARD19 to 21 route",
             "--schema-route standard19-21",
-            "## Migration 021 table rebuild",
+          ]
+        : []),
+      // 022 sources still carry migration 021, so its rebuild section stays required.
+      ...(candidate >= 21 ? ["## Migration 021 table rebuild"] : []),
+      ...(candidate === 22
+        ? [
+            "## Explicit DIRECT14 to 22 route",
+            "--schema-route direct14-22",
+            "--schema-route standard16-22",
+            "## Explicit STANDARD19 to 22 route",
+            "--schema-route standard19-22",
+            "## Migration 022 forward-only additive change",
           ]
         : []),
       "consolidated-release-direct14-<RELEASE_CANDIDATE_SHA>",
@@ -664,7 +675,8 @@ export function validateRepository({
             "STANDARD19_PRE_OPEN_RESTORE_PROOF",
           ]
         : []),
-      ...(candidate === 21 ? ["MIGRATION_021_REBUILD_PROOF"] : []),
+      ...(candidate >= 21 ? ["MIGRATION_021_REBUILD_PROOF"] : []),
+      ...(candidate === 22 ? ["MIGRATION_022_FORWARD_ONLY_PROOF"] : []),
     ],
     "release bindings",
   );
@@ -714,7 +726,14 @@ export function validateRepository({
       "actions/upload-artifact@v4",
       "consolidated-release-${{ env.EXPECTED_SHA }}",
       "consolidated-release-direct14-${{ env.EXPECTED_SHA }}",
-      ...(candidate === 21
+      ...(candidate === 22
+        ? [
+            "--schema-route direct14-22",
+            "--schema-route standard16-22",
+            "--schema-route standard19-22",
+            "consolidated-release-standard19-${{ env.EXPECTED_SHA }}",
+          ]
+        : candidate === 21
         ? [
             "--schema-route direct14-21",
             "--schema-route standard16-21",

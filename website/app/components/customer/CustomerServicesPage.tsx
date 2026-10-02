@@ -4,12 +4,14 @@ import { Link } from "react-router-dom";
 import {
   PaymentApiError,
   getPaymentOrder,
-  getMyServices,
+  getMyServiceListing,
+  type MyGrantItem,
   type MyServiceItem,
   type PaymentOrderSnapshot,
   type ServiceDeliveryItem,
   type ServiceStatus,
 } from "../../lib/payment-api";
+import { serviceTerm } from "../../lib/serviceTerm";
 import { SubscriptionImportModule, verifiedSubscriptionDeepLink } from "../subscription-import";
 import "./customer-services.css";
 
@@ -19,7 +21,7 @@ import "./customer-services.css";
 
 type LoadState =
   | { readonly kind: "loading" }
-  | { readonly kind: "ready"; readonly items: readonly MyServiceItem[] }
+  | { readonly kind: "ready"; readonly items: readonly MyServiceItem[]; readonly grants: readonly MyGrantItem[] }
   | { readonly kind: "unauthorized" }
   | { readonly kind: "error"; readonly message: string };
 
@@ -42,6 +44,30 @@ function formatDate(value: string, locale: string): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatDay(value: string, locale: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(locale, { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "UTC" }).format(date);
+}
+
+/* 期限徽标：长期 / 剩余 N 天 / 已到期。到期项保留在列表里，只标为「已到期」。 */
+function TermBadge({ endsAt }: { endsAt: string | null }) {
+  const t = useT();
+  const term = serviceTerm(endsAt, new Date());
+  const label =
+    term.kind === "long_term" ? t.services.termLongTerm
+      : term.kind === "expired" ? t.services.termExpired
+        : t.services.termRemaining(term.days);
+  return (
+    <span
+      className={`cc-svc-badge cc-svc-term${term.kind === "expired" ? " is-expired" : ""}`}
+      title={endsAt === null ? undefined : t.services.termEndsOn(formatDay(endsAt, t.account.dateLocale))}
+    >
+      {label}
+    </span>
+  );
 }
 
 function genericErrorMessage(error: unknown, messages: Messages["services"]): string {
@@ -158,10 +184,10 @@ export function CustomerServicesPage() {
     const controller = new AbortController();
     let stopped = false;
     setState({ kind: "loading" });
-    void getMyServices(controller.signal)
-      .then((items) => {
+    void getMyServiceListing(controller.signal)
+      .then(({ services, grants }) => {
         if (stopped) return;
-        setState({ kind: "ready", items });
+        setState({ kind: "ready", items: services, grants });
       })
       .catch((error: unknown) => {
         if (stopped) return;
@@ -236,8 +262,8 @@ export function CustomerServicesPage() {
     );
   }
 
-  const { items } = state;
-  if (items.length === 0) {
+  const { items, grants } = state;
+  if (items.length === 0 && grants.length === 0) {
     return (
       <PageFrame>
         <section className="cc-svc-panel">
@@ -286,12 +312,16 @@ export function CustomerServicesPage() {
               <li className="cc-svc-item" key={item.orderRef}>
                 <div className="cc-svc-item-head">
                   <div className="cc-svc-item-id">
-                    <strong>{item.orderRef}</strong>
+                    <strong>{item.planLabel ?? item.orderRef}</strong>
+                    {item.planLabel !== null && <small>{t.services.orderRefLabel(item.orderRef)}</small>}
                     <small>{t.account.createdAt(formatDate(item.createdAt, t.account.dateLocale))}</small>
                   </div>
-                  <span className={`cc-svc-badge ${isOpen ? "is-open" : "is-pending"}`}>
-                    {serviceStatusLabel(item.serviceStatus, t.account)}
-                  </span>
+                  <div className="cc-svc-badges">
+                    <span className={`cc-svc-badge ${isOpen ? "is-open" : "is-pending"}`}>
+                      {serviceStatusLabel(item.serviceStatus, t.account)}
+                    </span>
+                    <TermBadge endsAt={item.endsAt} />
+                  </div>
                 </div>
                 {!isOpen && (
                   <div className="cc-svc-item-foot">
@@ -304,6 +334,25 @@ export function CustomerServicesPage() {
             );
           })}
         </ul>
+        {grants.length > 0 && (
+          <ul className="cc-svc-list cc-svc-gifts" aria-label={t.services.giftsLabel}>
+            {grants.map((grant) => (
+              <li className="cc-svc-item is-gift" key={grant.grantId}>
+                <div className="cc-svc-item-head">
+                  <div className="cc-svc-item-id">
+                    <strong>{grant.label}</strong>
+                    <small>{t.services.giftStartedAt(formatDate(grant.startsAt, t.account.dateLocale))}</small>
+                  </div>
+                  <div className="cc-svc-badges">
+                    <span className="cc-svc-badge is-gift">{t.services.gift}</span>
+                    <TermBadge endsAt={grant.endsAt} />
+                  </div>
+                </div>
+                <p className="cc-svc-import-state">{t.services.giftHint}</p>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </PageFrame>
   );

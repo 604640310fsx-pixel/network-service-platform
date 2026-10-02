@@ -35,6 +35,7 @@ import {
   type OrderServiceDependencies,
   type ServiceStatus,
 } from "../payment/orders.js";
+import { listMyGrants } from "../payment/admin-services.js";
 import { refreshPaymentFromAlipay } from "../payment/payment-refresh.js";
 import {
   acceptPendingPaymentEvent,
@@ -730,9 +731,14 @@ export function registerPaymentHttpRoutes(
       if (session === null) {
         return reply.code(401).send(errorResponse("unauthorized"));
       }
-      return reply
-        .code(200)
-        .send({ items: listMyServices(dependencies.database, session.principal.userId) });
+      // Purchases first (newest first), then active admin gifts; revoked gifts and
+      // every admin-only field (admin_note, grant reason) never reach the buyer.
+      return reply.code(200).send({
+        items: [
+          ...listMyServices(dependencies.database, session.principal.userId),
+          ...listMyGrants(dependencies.database, session.principal.userId),
+        ],
+      });
     } catch {
       return reply.code(503).send(errorResponse("payment_unavailable"));
     }
