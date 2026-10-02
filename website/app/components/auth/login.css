@@ -16,7 +16,7 @@
 
 .cc-shell.cc-auth { flex-direction: column; }
 
-.auth-topbar { display: flex; justify-content: flex-end; padding: 15px var(--cc-gutter); }
+.auth-topbar { display: flex; justify-content: flex-end; gap: 10px; padding: 15px var(--cc-gutter); }
 .auth-theme-toggle { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--cc-line); border-radius: 9px; background: var(--cc-inset); color: var(--cc-text-2); cursor: pointer; }
 .auth-theme-toggle:hover { border-color: var(--cc-text-4); color: var(--cc-text); }
 .auth-theme-toggle svg { width: 15px; height: 15px; stroke-width: 1.8; }

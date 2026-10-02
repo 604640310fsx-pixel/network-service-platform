@@ -1,6 +1,9 @@
+import type { Messages } from "../../i18n/zh";
+
 /* 注册表单的本地校验与提交流程（纯逻辑，无 DOM / 网络依赖，便于测试）。
    本地校验只做格式与既有冻结策略检查（验证码 6 位数字、密码 12–256 位、
-   两次一致），不猜测账号或邀请码状态；服务端错误仍由页面按通用文案展示。 */
+   两次一致），不猜测账号或邀请码状态；服务端错误仍由页面按通用文案展示。
+   文案由调用方按当前界面语言传入（Messages["register"] 的对应分组）。 */
 
 export type RegistrationPhase =
   | "not_started"
@@ -27,27 +30,28 @@ export function validateRegistrationSubmission(
     confirmPassword: string;
   },
   policy: PasswordPolicy,
+  messages: Messages["register"]["validation"],
 ): RegistrationFieldErrors {
   const errors: RegistrationFieldErrors = {};
   if (input.phase === "awaiting_verification") {
     const code = input.verificationCode.trim();
     if (code === "") {
-      errors.verificationCode = "请输入邮箱验证码。";
+      errors.verificationCode = messages.codeRequired;
     } else if (!VERIFICATION_CODE_PATTERN.test(code)) {
-      errors.verificationCode = "验证码应为 6 位数字。";
+      errors.verificationCode = messages.codeFormat;
     }
   }
   if (input.password === "") {
-    errors.password = "请设置密码。";
+    errors.password = messages.passwordRequired;
   } else if (input.password.length < policy.minLength) {
-    errors.password = `密码至少需要 ${policy.minLength} 个字符。`;
+    errors.password = messages.passwordMin(policy.minLength);
   } else if (input.password.length > policy.maxLength) {
-    errors.password = `密码不能超过 ${policy.maxLength} 个字符。`;
+    errors.password = messages.passwordMax(policy.maxLength);
   }
   if (input.confirmPassword === "") {
-    errors.confirmPassword = "请再次输入密码。";
+    errors.confirmPassword = messages.confirmRequired;
   } else if (input.password !== input.confirmPassword) {
-    errors.confirmPassword = "两次输入的密码不一致。";
+    errors.confirmPassword = messages.confirmMismatch;
   }
   return errors;
 }
@@ -58,22 +62,25 @@ export type RegistrationErrorNotice = { text: string; loginLink: boolean };
    验证码确认后才会出现）时才提示“已注册”；其余错误一律保持通用文案，
    不从 invalid_request / invalid_or_expired 等推测账号或邀请码状态。
    code 为 null 表示网络或非 API 错误。 */
-export function registrationErrorNotice(code: string | null): RegistrationErrorNotice {
+export function registrationErrorNotice(
+  code: string | null,
+  messages: Messages["register"]["errors"],
+): RegistrationErrorNotice {
   switch (code) {
     case null:
-      return { text: "注册服务暂时不可用，请稍后重试。", loginLink: false };
+      return { text: messages.unavailable, loginLink: false };
     case "email_taken":
-      return { text: "该邮箱已注册，请直接登录。", loginLink: true };
+      return { text: messages.emailTaken, loginLink: true };
     case "rate_limited":
-      return { text: "请求过于频繁，请稍后再试。", loginLink: false };
+      return { text: messages.rateLimited, loginLink: false };
     case "password_policy_violation":
-      return { text: "密码不符合安全要求，请检查后重试。", loginLink: false };
+      return { text: messages.passwordPolicy, loginLink: false };
     case "invalid_or_expired":
-      return { text: "注册信息无效或已过期，请重新开始。", loginLink: false };
+      return { text: messages.invalidOrExpired, loginLink: false };
     case "invalid_request":
-      return { text: "请检查填写内容后重试。", loginLink: false };
+      return { text: messages.invalidRequest, loginLink: false };
     default:
-      return { text: "暂时无法完成注册，请稍后重试。", loginLink: false };
+      return { text: messages.generic, loginLink: false };
   }
 }
 
@@ -140,8 +147,6 @@ export const REGISTRATION_SUCCESS_NAVIGATION = Object.freeze({
     state: Object.freeze({ registrationComplete: true }),
   }),
 });
-
-export const REGISTRATION_SUCCESS_LOGIN_NOTICE = "注册成功，请登录";
 
 export function registrationCompleteFromLocationState(state: unknown): boolean {
   return (

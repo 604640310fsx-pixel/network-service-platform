@@ -1,16 +1,14 @@
 import { useId, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
+import { useT } from "../../lib/i18n";
 import { PasswordResetApiError, requestPasswordReset } from "../../lib/password-reset-api";
 import { AuthNotice, AuthShell } from "./AuthShell";
-import {
-  RESET_REQUEST_SENT_NOTICE,
-  resetRequestErrorMessage,
-  validateResetEmail,
-} from "./passwordResetModel";
+import { resetRequestErrorMessage, validateResetEmail } from "./passwordResetModel";
 
 type Status = "idle" | "submitting" | "sent";
 
 export function ForgotPasswordPage() {
+  const t = useT();
   const emailId = useId();
   const emailErrorId = useId();
   const errorId = useId();
@@ -23,7 +21,7 @@ export function ForgotPasswordPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) return;
-    const invalid = validateResetEmail(email);
+    const invalid = validateResetEmail(email, t.forgot.validation);
     setEmailError(invalid);
     if (invalid) return;
 
@@ -36,6 +34,7 @@ export function ForgotPasswordPage() {
     } catch (requestError: unknown) {
       setError(resetRequestErrorMessage(
         requestError instanceof PasswordResetApiError ? requestError.code : "request_failed",
+        t.forgot.errors,
       ));
       setStatus("idle");
     }
@@ -43,22 +42,22 @@ export function ForgotPasswordPage() {
 
   if (status === "sent") {
     return (
-      <AuthShell title="查收重置邮件" subtitle="重置链接 30 分钟内有效，且只能使用一次。">
-        <AuthNotice tone="neutral">{RESET_REQUEST_SENT_NOTICE}</AuthNotice>
+      <AuthShell title={t.forgot.sentTitle} subtitle={t.forgot.sentSubtitle}>
+        <AuthNotice tone="neutral">{t.forgot.sentNotice}</AuthNotice>
         <p className="auth-switch">
-          <Link to="/login">返回登录</Link>
+          <Link to="/login">{t.common.backToLogin}</Link>
         </p>
       </AuthShell>
     );
   }
 
   return (
-    <AuthShell title="忘记密码" subtitle="输入注册邮箱，我们会发送重置密码的链接。">
+    <AuthShell title={t.forgot.title} subtitle={t.forgot.subtitle}>
       {error && <AuthNotice tone="danger" id={errorId}>{error}</AuthNotice>}
 
       <form className="auth-form" onSubmit={handleSubmit} noValidate>
         <div className="auth-field">
-          <label htmlFor={emailId}>邮箱</label>
+          <label htmlFor={emailId}>{t.common.emailLabel}</label>
           <div className="auth-input-wrap">
             <input
               id={emailId}
@@ -69,7 +68,7 @@ export function ForgotPasswordPage() {
               autoCapitalize="none"
               spellCheck={false}
               maxLength={254}
-              placeholder="you@example.com"
+              placeholder={t.common.emailPlaceholder}
               value={email}
               disabled={submitting}
               aria-invalid={emailError !== null}
@@ -86,12 +85,12 @@ export function ForgotPasswordPage() {
         </div>
 
         <button type="submit" className="auth-submit" disabled={submitting} aria-busy={submitting}>
-          {submitting ? "正在发送…" : "发送重置链接"}
+          {submitting ? t.forgot.sending : t.forgot.submit}
         </button>
       </form>
 
       <p className="auth-switch">
-        想起密码了？<Link to="/login">返回登录</Link>
+        {t.forgot.remembered}<Link to="/login">{t.common.backToLogin}</Link>
       </p>
     </AuthShell>
   );

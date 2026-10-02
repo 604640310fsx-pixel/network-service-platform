@@ -7,7 +7,9 @@ function source(relativePath: string): string {
 }
 
 test("home preview presents only connected information and labels unavailable capabilities", () => {
-  const page = source("../app/components/home/HomePage.tsx");
+  // Home copy lives in the zh dictionary; the page renders it by key.
+  const page = source("../app/i18n/zh.ts");
+  assert.match(source("../app/components/home/HomePage.tsx"), /\{copy\.observability\.lead\}/);
 
   assert.match(page, /交付后可在客户中心查看已接入的服务信息；状态与用量能力按接入结果显示。/);
   assert.match(page, /交付后，已接入信息可在客户中心查看/);

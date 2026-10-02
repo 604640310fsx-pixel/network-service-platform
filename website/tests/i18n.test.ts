@@ -1,0 +1,205 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+import ts from "typescript";
+
+import { en } from "../app/i18n/en.ts";
+import { zh } from "../app/i18n/zh.ts";
+import { createTsxLoader } from "./support/tsxModules.ts";
+
+const CJK = /[㐀-鿿！-｠]/;
+const MIGRATED = [
+  "app/components/home/SiteHeader.tsx",
+  "app/components/home/SiteFooter.tsx",
+  "app/components/home/HomePage.tsx",
+  "app/components/auth/AuthShell.tsx",
+  "app/components/auth/LoginPage.tsx",
+  "app/components/auth/RegisterPage.tsx",
+  "app/components/auth/ForgotPasswordPage.tsx",
+  "app/components/auth/ResetPasswordPage.tsx",
+  "app/components/auth/registrationFlow.ts",
+  "app/components/auth/passwordResetModel.ts",
+  "app/components/common/LanguageToggle.tsx",
+];
+
+function source(relativePath: string): string {
+  return readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8");
+}
+
+// Lookup tables keyed by catalog ids or catalog text: Chinese leaves them empty
+// (it shows the catalog as written), other languages translate what they need.
+const LOOKUP_TABLES = new Set(["home.types.meta", "home.types.names", "home.types.badges", "home.types.features", "home.regions.names", "home.regions.tags"]);
+
+/** Shape of a dictionary: nested keys, with functions reduced to their arity. */
+function shape(value: unknown, path = ""): unknown {
+  if (LOOKUP_TABLES.has(path)) return "lookup";
+  if (typeof value === "function") return `fn/${value.length}`;
+  if (Array.isArray(value)) return value.map((item) => shape(item));
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, shape((value as Record<string, unknown>)[key], path ? `${path}.${key}` : key)]));
+  }
+  return typeof value;
+}
+
+function strings(value: unknown, path = ""): Array<[string, string]> {
+  if (typeof value === "string") return [[path, value]];
+  if (typeof value === "function") return strings((value as (...a: number[]) => string)(1, 2), path);
+  if (Array.isArray(value)) return value.flatMap((item, index) => strings(item, `${path}[${index}]`));
+  if (typeof value === "object" && value !== null) {
+    return Object.entries(value).flatMap(([key, item]) => strings(item, path ? `${path}.${key}` : key));
+  }
+  return [];
+}
+
+test("initial language: stored choice wins, else zh* browsers get Chinese and the rest English", async () => {
+  const { resolveInitialLang, htmlLangFor, LANG_STORAGE_KEY } = createTsxLoader().load("app/lib/i18n.tsx") as {
+    resolveInitialLang: (stored: string | null, language: string | null | undefined) => string;
+    htmlLangFor: (lang: string) => string;
+    LANG_STORAGE_KEY: string;
+  };
+  assert.equal(LANG_STORAGE_KEY, "nsp.lang");
+  assert.equal(resolveInitialLang("en", "zh-CN"), "en");
+  assert.equal(resolveInitialLang("zh", "en-US"), "zh");
+  assert.equal(resolveInitialLang(null, "zh-CN"), "zh");
+  assert.equal(resolveInitialLang(null, "zh-TW"), "zh");
+  assert.equal(resolveInitialLang(null, "en-GB"), "en");
+  assert.equal(resolveInitialLang(null, "ja"), "en");
+  assert.equal(resolveInitialLang("fr", undefined), "zh");
+  assert.equal(htmlLangFor("zh"), "zh-CN");
+  assert.equal(htmlLangFor("en"), "en");
+});
+
+test("zh and en dictionaries have the same keys, arrays and interpolation arity", () => {
+  assert.deepEqual(shape(en), shape(zh));
+});
+
+test("English copy contains no Chinese except the language switch and catalog lookups", () => {
+  const allowed = new Set(["language.zh", "language.zhLabel"]);
+  const leaks = strings(en).filter(([path, value]) => CJK.test(value) && !allowed.has(path));
+  assert.deepEqual(leaks, []);
+  // Catalog lookups translate every catalog string the home page shows.
+  const catalog = source("app/lib/subscribeCatalog.ts");
+  for (const feature of Object.keys(en.home.types.features)) assert.ok(catalog.includes(`"${feature}"`), feature);
+  for (const [path, value] of strings(zh)) assert.notEqual(value.trim(), "", path);
+});
+
+test("migrated components keep no hard-coded Chinese in strings or JSX text", () => {
+  for (const file of MIGRATED) {
+    const sourceFile = ts.createSourceFile(file, source(file), ts.ScriptTarget.Latest, true, file.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+    const hits: string[] = [];
+    const visit = (node: ts.Node) => {
+      if (
+        (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isJsxText(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) &&
+        CJK.test(node.text)
+      ) {
+        hits.push(`${file}:${sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1} ${node.text.trim().slice(0, 30)}`);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    assert.deepEqual(hits, [], file);
+  }
+});
+
+function renderer() {
+  const loader = createTsxLoader({
+    "app/lib/auth.tsx": { useAuth: () => ({ status: "unauthenticated" }) },
+  });
+  const react = loader.requirePackage("react") as typeof import("react");
+  const { renderToStaticMarkup } = loader.requirePackage("react-dom/server") as typeof import("react-dom/server");
+  const { MemoryRouter } = loader.requirePackage("react-router-dom") as typeof import("react-router-dom");
+  const { I18nProvider } = loader.load("app/lib/i18n.tsx") as { I18nProvider: (props: { initial: "zh" | "en"; children: unknown }) => unknown };
+  return (file: string, exportName: string, lang: "zh" | "en", url = "/") => {
+    const Component = loader.load(file)[exportName] as () => unknown;
+    return renderToStaticMarkup(
+      react.createElement(MemoryRouter, { initialEntries: [url] },
+        react.createElement(I18nProvider as never, { initial: lang } as never, react.createElement(Component as never))),
+    );
+  };
+}
+
+const PAGES: Array<{ file: string; name: string; url?: string; zh: string[]; en: string[] }> = [
+  { file: "app/components/home/HomePage.tsx", name: "HomePage", zh: ["先判断当前网络环境", "首页", "实时监控", "可选地区", "新加坡"], en: ["Not every problem needs a new network", "Home", "Live monitor", "Available regions", "Singapore", "Real Residential Broadband", "China Telecom"] },
+  { file: "app/components/auth/LoginPage.tsx", name: "LoginPage", url: "/login", zh: ["登录客户中心", "忘记密码？", "去注册"], en: ["Sign in to the dashboard", "Forgot password?", "No account yet? "] },
+  { file: "app/components/auth/RegisterPage.tsx", name: "RegisterPage", url: "/register", zh: ["注册客户中心", "邀请码", "发送验证码"], en: ["Create your account", "Invite code", "Send code"] },
+  { file: "app/components/auth/ForgotPasswordPage.tsx", name: "ForgotPasswordPage", url: "/forgot-password", zh: ["忘记密码", "发送重置链接"], en: ["Forgot password", "Send reset link"] },
+  { file: "app/components/auth/ResetPasswordPage.tsx", name: "ResetPasswordPage", url: "/reset-password", zh: ["链接无效", "重新申请"], en: ["Invalid link", "Request a new link"] },
+  { file: "app/components/auth/ResetPasswordPage.tsx", name: "ResetPasswordPage", url: `/reset-password?token=${"A".repeat(43)}`, zh: ["设置新密码", "确认新密码"], en: ["Set a new password", "Confirm new password"] },
+];
+
+function withBrowserStub<Result>(run: () => Result): Result {
+  const previous = (globalThis as { window?: unknown }).window;
+  (globalThis as { window?: unknown }).window = {
+    location: { search: "" },
+    localStorage: { getItem: () => null, setItem: () => undefined },
+    matchMedia: () => ({ matches: false, addEventListener: () => undefined, removeEventListener: () => undefined }),
+    navigator: { language: "zh-CN" },
+  };
+  try {
+    return run();
+  } finally {
+    (globalThis as { window?: unknown }).window = previous;
+  }
+}
+
+test("each migrated page renders in both languages with its own copy and the language switch", () => withBrowserStub(() => {
+  const render = renderer();
+  for (const page of PAGES) {
+    for (const lang of ["zh", "en"] as const) {
+      const html = render(page.file, page.name, lang, page.url);
+      for (const expected of page[lang]) assert.ok(html.includes(expected), `${page.name} ${lang}: ${expected}`);
+      assert.match(html, /<div class="lang-toggle" role="group"/, `${page.name} ${lang} toggle`);
+      const pressed = lang === "zh" ? /lang="zh-CN" aria-pressed="true"/ : /lang="en" aria-pressed="true"/;
+      assert.match(html, pressed, `${page.name} ${lang} pressed`);
+      if (lang === "en") {
+        // Only brand-neutral and allowed fragments may stay Chinese in English mode.
+        const text = html.replace(/<[^>]+>/g, " ").replace(/中文/g, "");
+        assert.doesNotMatch(text, CJK, `${page.name} en leaks Chinese: ${text.match(new RegExp(`.{0,20}${CJK.source}.{0,20}`))?.[0]}`);
+      }
+    }
+  }
+}));
+
+test("the provider reads and persists nsp.lang and switches the dictionary", () => {
+  const previous = (globalThis as { window?: unknown }).window;
+  const store = new Map<string, string>([["nsp.lang", "en"]]);
+  (globalThis as { window?: unknown }).window = {
+    localStorage: { getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => store.set(key, value) },
+    navigator: { language: "zh-CN" },
+  };
+  try {
+    const loader = createTsxLoader();
+    const react = loader.requirePackage("react") as typeof import("react");
+    const { renderToStaticMarkup } = loader.requirePackage("react-dom/server") as typeof import("react-dom/server");
+    const i18n = loader.load("app/lib/i18n.tsx") as {
+      I18nProvider: unknown;
+      useI18n: () => { lang: string; t: typeof zh; setLang: (lang: "zh" | "en") => void };
+    };
+    let captured: ReturnType<typeof i18n.useI18n> | undefined;
+    const Probe = () => {
+      captured = i18n.useI18n();
+      return react.createElement("span", null, captured.t.login.submit);
+    };
+    const html = renderToStaticMarkup(react.createElement(i18n.I18nProvider as never, null, react.createElement(Probe)));
+    assert.equal(html, "<span>Sign in</span>");
+    assert.equal(captured?.lang, "en");
+    captured?.setLang("zh");
+    assert.equal(store.get("nsp.lang"), "zh");
+    store.delete("nsp.lang");
+    renderToStaticMarkup(react.createElement(i18n.I18nProvider as never, null, react.createElement(Probe)));
+    assert.equal(captured?.lang, "zh");
+  } finally {
+    (globalThis as { window?: unknown }).window = previous;
+  }
+});
+
+test("outside a provider components fall back to Chinese", () => {
+  const loader = createTsxLoader();
+  const react = loader.requirePackage("react") as typeof import("react");
+  const { renderToStaticMarkup } = loader.requirePackage("react-dom/server") as typeof import("react-dom/server");
+  const { LanguageToggle } = loader.load("app/components/common/LanguageToggle.tsx") as { LanguageToggle: () => unknown };
+  const html = renderToStaticMarkup(react.createElement(LanguageToggle as never));
+  assert.match(html, /aria-label="界面语言"/);
+  assert.match(html, /<button type="button" lang="zh-CN" aria-pressed="true" aria-label="切换到中文" class="is-active">中文<\/button>/);
+  assert.match(html, /<button type="button" lang="en" aria-pressed="false" aria-label="Switch to English">EN<\/button>/);
+});

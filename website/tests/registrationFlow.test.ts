@@ -9,12 +9,13 @@ import {
 import {
   hasFieldErrors,
   registrationErrorNotice,
-  REGISTRATION_SUCCESS_LOGIN_NOTICE,
   REGISTRATION_SUCCESS_NAVIGATION,
   registrationCompleteFromLocationState,
   runRegistrationSubmission,
   validateRegistrationSubmission,
 } from "../app/components/auth/registrationFlow.ts";
+import { en } from "../app/i18n/en.ts";
+import { zh } from "../app/i18n/zh.ts";
 
 const POLICY = { minLength: REGISTRATION_PASSWORD_MIN_LENGTH, maxLength: PASSWORD_MAX_LENGTH };
 const GOOD = "correct-horse-12";
@@ -35,6 +36,7 @@ function validate(overrides: Partial<Parameters<typeof validateRegistrationSubmi
       ...overrides,
     },
     POLICY,
+    zh.register.validation,
   );
 }
 
@@ -127,7 +129,7 @@ test("successful completion navigates to /login replacing history with no secret
   assert.deepEqual(result, { kind: "completed" });
   assert.equal(REGISTRATION_SUCCESS_NAVIGATION.to, "/login");
   assert.deepEqual(REGISTRATION_SUCCESS_NAVIGATION.options, { replace: true, state: { registrationComplete: true } });
-  assert.equal(REGISTRATION_SUCCESS_LOGIN_NOTICE, "注册成功，请登录");
+  assert.equal(zh.login.registeredNotice, "注册成功，请登录");
 });
 
 test("the login notice only accepts the exact non-sensitive success flag", () => {
@@ -156,7 +158,7 @@ test("the register page validates before requests and navigates only after compl
   assert.ok(request < failedBranch && failedBranch < clear && clear < navigation);
   const failed = register.slice(failedBranch, register.indexOf("return;", failedBranch));
   assert.doesNotMatch(failed, /navigate\(/);
-  assert.match(failed, /registrationErrorNoticeFor\(result\.error\)/);
+  assert.match(failed, /registrationErrorNoticeFor\(result\.error, t\.register\.errors\)/);
   assert.equal(register.match(/navigate\(/g)?.length, 1);
 });
 
@@ -172,23 +174,31 @@ test("registration secrets never travel through URL, router state or storage", (
 });
 
 test("only an explicit email_taken error names the email as registered", () => {
-  assert.deepEqual(registrationErrorNotice("email_taken"), { text: "该邮箱已注册，请直接登录。", loginLink: true });
+  assert.deepEqual(registrationErrorNotice("email_taken", zh.register.errors), { text: "该邮箱已注册，请直接登录。", loginLink: true });
   for (const code of [null, "invalid_request", "invalid_or_expired", "request_failed", "invalid_response", "network_error", "anything_else"]) {
-    const notice = registrationErrorNotice(code);
+    const notice = registrationErrorNotice(code, zh.register.errors);
     assert.equal(notice.loginLink, false, String(code));
     assert.doesNotMatch(notice.text, /已注册|已存在|邀请码/, String(code));
   }
-  assert.equal(registrationErrorNotice(null).text, "注册服务暂时不可用，请稍后重试。");
-  assert.equal(registrationErrorNotice("request_failed").text, "暂时无法完成注册，请稍后重试。");
-  assert.equal(registrationErrorNotice("invalid_or_expired").text, "注册信息无效或已过期，请重新开始。");
+  assert.equal(registrationErrorNotice(null, zh.register.errors).text, "注册服务暂时不可用，请稍后重试。");
+  assert.equal(registrationErrorNotice("request_failed", zh.register.errors).text, "暂时无法完成注册，请稍后重试。");
+  assert.equal(registrationErrorNotice("invalid_or_expired", zh.register.errors).text, "注册信息无效或已过期，请重新开始。");
 });
 
 test("registration copy never claims a specific account or invite failure elsewhere", () => {
   const register = source("../app/components/auth/RegisterPage.tsx");
   const flow = source("../app/components/auth/registrationFlow.ts");
   assert.doesNotMatch(register, /邮箱已注册|账号已存在|邀请码无效|邀请码已使用|邀请码已撤销|邀请码已过期|邀请码已耗尽/);
-  assert.equal(flow.match(/该邮箱已注册，请直接登录。/g)?.length, 1);
-  assert.match(flow, /case "email_taken":\s*return \{ text: "该邮箱已注册，请直接登录。", loginLink: true \};/);
-  assert.doesNotMatch(flow, /账号已存在|邀请码无效|邀请码已使用|邀请码已撤销|邀请码已过期|邀请码已耗尽/);
-  assert.match(register, /notice\.loginLink && <> <Link to="\/login">去登录<\/Link><\/>/);
+  const dictionary = source("../app/i18n/zh.ts");
+  assert.equal(dictionary.match(/该邮箱已注册，请直接登录。/g)?.length, 1);
+  assert.match(flow, /case "email_taken":\s*return \{ text: messages\.emailTaken, loginLink: true \};/);
+  for (const text of [flow, dictionary]) {
+    assert.doesNotMatch(text, /账号已存在|邀请码无效|邀请码已使用|邀请码已撤销|邀请码已过期|邀请码已耗尽/);
+  }
+  assert.match(register, /notice\.loginLink && <> <Link to="\/login">\{t\.common\.toLogin\}<\/Link><\/>/);
+  // English keeps the same rule: only email_taken says the address is registered.
+  for (const [key, text] of Object.entries(en.register.errors)) {
+    if (key === "emailTaken") assert.match(text, /already registered/);
+    else assert.doesNotMatch(text, /registered|exists|invite/i, key);
+  }
 });
