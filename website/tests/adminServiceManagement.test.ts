@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getMyServiceListing, getMyServices, PaymentApiError } from "../app/lib/payment-api.ts";
+import { getMyDeliveryLines, getMyGrantDelivery, getMyServiceListing, getMyServices, PaymentApiError } from "../app/lib/payment-api.ts";
 import { endOfUtcDay, serviceTerm, utcDateInput } from "../app/lib/serviceTerm.ts";
 import { en } from "../app/i18n/en.ts";
 import { zh } from "../app/i18n/zh.ts";
@@ -41,7 +41,12 @@ test("the services listing splits purchases and gifts and keeps server order", a
   assert.deepEqual(listing.services.map((item) => [item.orderRef, item.endsAt, item.planLabel]), [
     ["DL0000000001", "2026-12-31T23:59:59.999Z", "US Residential Pro"],
   ]);
-  assert.deepEqual(listing.grants, [{ grantId: 7, label: "Trial line", startsAt: "2026-08-21T00:00:00.000Z", endsAt: null }]);
+  // GRANT mimics a gift from a server before Migration 023: catalog fields absent → null, no delivery.
+  assert.deepEqual(listing.grants, [{
+    grantId: 7, label: "Trial line", startsAt: "2026-08-21T00:00:00.000Z", endsAt: null,
+    typeId: null, regionId: null, ispId: null, specId: null, durationId: null, months: null, valueFen: null,
+    deliveryStatus: "pending_open",
+  }]);
   // Other pages keep receiving purchases only.
   const purchases = await withFetch({ items: [PURCHASE, GRANT] }, () => getMyServices());
   assert.deepEqual(purchases.map((item) => item.orderRef), ["DL0000000001"]);
@@ -102,4 +107,78 @@ test("customer-plan copy exists in both languages and English has no Chinese", (
   assert.equal(en.services.gift, "Gift");
   assert.equal(zh.services.gift, "赠送");
   assert.equal(zh.services.termExpired, "已到期");
+});
+
+const STRUCTURED_GRANT = {
+  ...GRANT,
+  grantId: 9,
+  typeId: "local-isp",
+  regionId: "us",
+  ispId: "us-verizon",
+  specId: null,
+  durationId: "month-1",
+  months: 3,
+  valueFen: 23700,
+  deliveryStatus: "open",
+};
+
+test("structured gifts parse every catalog, month, value and delivery field", async () => {
+  const { grants } = await withFetch({ items: [STRUCTURED_GRANT] }, () => getMyServiceListing());
+  assert.deepEqual(grants[0], {
+    grantId: 9, label: "Trial line", startsAt: "2026-08-21T00:00:00.000Z", endsAt: null,
+    typeId: "local-isp", regionId: "us", ispId: "us-verizon", specId: null, durationId: "month-1",
+    months: 3, valueFen: 23700, deliveryStatus: "open",
+  });
+  for (const bad of [{ months: 0 }, { valueFen: -1 }, { deliveryStatus: "delivered" }, { typeId: "" }, { months: 1.5 }]) {
+    await assert.rejects(
+      () => withFetch({ items: [{ ...STRUCTURED_GRANT, ...bad }] }, () => getMyServiceListing()),
+      (error) => error instanceof PaymentApiError && error.code === "invalid_response",
+      JSON.stringify(bad),
+    );
+  }
+});
+
+test("delivery-lines keeps gift lines out of the order-grouped list but still validates them", async () => {
+  const serviceLine = { orderRef: "DL0000000001", position: 1, label: "Line A" };
+  const giftLine = { source: "grant", grantId: 9, position: 1, label: "Gift line" };
+  assert.deepEqual(await withFetch({ items: [serviceLine, giftLine] }, () => getMyDeliveryLines()), [serviceLine]);
+  await assert.rejects(
+    () => withFetch({ items: [{ ...giftLine, subscriptionUrl: "https://x.example.invalid" }] }, () => getMyDeliveryLines()),
+    (error) => error instanceof PaymentApiError && error.code === "invalid_response",
+  );
+});
+
+test("gift delivery parses https lines in order and rejects mismatched or unsafe payloads", async () => {
+  const items = [
+    { position: 1, label: "Line A", subscriptionUrl: "https://sub.example.invalid/a" },
+    { position: 2, label: "Line B", subscriptionUrl: "https://sub.example.invalid/b" },
+  ];
+  const delivery = await withFetch({ grantId: 9, items }, () => getMyGrantDelivery(9));
+  assert.deepEqual(delivery, { grantId: 9, items });
+  for (const body of [
+    { grantId: 8, items },
+    { grantId: 9, items: [{ ...items[0], subscriptionUrl: "http://sub.example.invalid/a" }] },
+    { grantId: 9, items: [{ ...items[1] }] },
+    { grantId: 9, items: [] },
+  ]) {
+    await assert.rejects(
+      () => withFetch(body, () => getMyGrantDelivery(9)),
+      (error) => error instanceof PaymentApiError && error.code === "invalid_response",
+      JSON.stringify(body),
+    );
+  }
+});
+
+test("structured-gift copy exists in both languages", () => {
+  for (const key of ["grantPlan", "grantMonths", "grantValue", "open", "openTitle", "lineLabel", "lineUrl", "legacyGift"] as const) {
+    assert.equal(typeof en.adminServices[key], "string", key);
+    assert.equal(typeof zh.adminServices[key], "string", key);
+    assert.doesNotMatch(en.adminServices[key], CJK, key);
+  }
+  assert.deepEqual(Object.keys(en.adminServices.deliveryStatus).sort(), Object.keys(zh.adminServices.deliveryStatus).sort());
+  assert.equal(en.services.giftMonths(1), "1 month");
+  assert.equal(en.services.giftMonths(3), "3 months");
+  assert.equal(zh.services.giftMonths(3), "3 个月");
+  assert.equal(en.services.giftValue("237"), "Value ¥237");
+  assert.equal(en.adminServices.deliveredLines(2), "2 lines delivered");
 });

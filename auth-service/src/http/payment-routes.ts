@@ -35,7 +35,12 @@ import {
   type OrderServiceDependencies,
   type ServiceStatus,
 } from "../payment/orders.js";
-import { listMyGrants } from "../payment/admin-services.js";
+import {
+  auditGrantDeliveryDecryptFailure,
+  listMyGrantDeliveryLines,
+  listMyGrants,
+  readMyGrantDelivery,
+} from "../payment/admin-services.js";
 import { refreshPaymentFromAlipay } from "../payment/payment-refresh.js";
 import {
   acceptPendingPaymentEvent,
@@ -756,8 +761,53 @@ export function registerPaymentHttpRoutes(
       }
       return reply
         .code(200)
-        .send({ items: listMyDeliveryLines(dependencies.database, session.principal.userId) });
+        .send({
+          items: [
+            ...listMyDeliveryLines(dependencies.database, session.principal.userId),
+            // Names of opened gift lines; their URLs come only from /api/me/grants/:id/delivery.
+            ...listMyGrantDeliveryLines(dependencies.database, session.principal.userId),
+          ],
+        });
     } catch {
+      return reply.code(503).send(errorResponse("payment_unavailable"));
+    }
+  });
+
+  app.get<{ Params: { id: string } }>("/api/me/grants/:id/delivery", async (request, reply) => {
+    setNoStore(reply);
+    if (!dependencies.enabled) {
+      return reply.code(503).send(errorResponse("payment_unavailable"));
+    }
+    let session;
+    try {
+      session = readPaymentSession(request, dependencies);
+    } catch {
+      return reply.code(503).send(errorResponse("payment_unavailable"));
+    }
+    if (session === null) {
+      return reply.code(401).send(errorResponse("unauthorized"));
+    }
+    if (!/^[1-9][0-9]*$/.test(request.params.id) || !Number.isSafeInteger(Number(request.params.id))) {
+      return reply.code(404).send(errorResponse("not_found"));
+    }
+    const grantId = Number(request.params.id);
+    try {
+      return reply.code(200).send(
+        readMyGrantDelivery(dependencies.database, {
+          userId: session.principal.userId,
+          grantId,
+          keyring: dependencies.deliveryEncKeyring,
+        }),
+      );
+    } catch (error) {
+      if (error instanceof PaymentDomainError) {
+        return reply.code(error.statusCode).send(errorResponse(error.code));
+      }
+      try {
+        auditGrantDeliveryDecryptFailure(dependencies.database, grantId, dependencies.now);
+      } catch {
+        // The response remains fail-closed even when audit persistence fails.
+      }
       return reply.code(503).send(errorResponse("payment_unavailable"));
     }
   });

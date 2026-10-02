@@ -14,6 +14,7 @@ Function("require", "module", "exports", compiled)(
     if (specifier === "../../lib/payment-api") return { PaymentApiError: class extends Error {} };
     if (specifier === "../../lib/i18n") return { useT: () => ({}) };
     if (specifier === "../../lib/serviceTerm") return { serviceTerm: () => ({ kind: "long_term" }) };
+    if (specifier === "../../lib/resolveSelection") return { resolveSelection: () => ({ summary: {}, requiresSpec: false }) };
     if (["react", "react-router-dom", "../subscription-import", "./customer-services.css", "react/jsx-runtime"].includes(specifier)) return {};
     throw new Error(`Unexpected import: ${specifier}`);
   },

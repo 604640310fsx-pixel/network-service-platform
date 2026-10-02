@@ -120,12 +120,26 @@ export type MyServiceItem = {
   readonly planLabel: string | null;
 };
 
-/** An admin gift (no order or payment behind it). */
+/** An admin gift (no order or payment behind it). Catalog fields are null on gifts
+    created before Migration 023. */
 export type MyGrantItem = {
   readonly grantId: number;
   readonly label: string;
   readonly startsAt: string;
   readonly endsAt: string | null;
+  readonly typeId: string | null;
+  readonly regionId: string | null;
+  readonly ispId: string | null;
+  readonly specId: string | null;
+  readonly durationId: string | null;
+  readonly months: number | null;
+  readonly valueFen: number | null;
+  readonly deliveryStatus: "pending_open" | "open";
+};
+
+export type MyGrantDelivery = {
+  readonly grantId: number;
+  readonly items: readonly ServiceDeliveryItem[];
 };
 
 export type MyServiceListing = {
@@ -432,7 +446,38 @@ function parseMyServiceListing(value: unknown): MyServiceListing {
       ) {
         throw new PaymentApiError("invalid_response");
       }
-      grants.push({ grantId: item.grantId, label: item.label, startsAt: item.startsAt, endsAt: item.endsAt });
+      const nullableText = (value: unknown): string | null | undefined =>
+        value === undefined || value === null ? null : isNonEmptyString(value) ? value : undefined;
+      const nullableCount = (value: unknown, min: number): number | null | undefined =>
+        value === undefined || value === null ? null : typeof value === "number" && Number.isSafeInteger(value) && value >= min ? value : undefined;
+      const catalog = [item.typeId, item.regionId, item.ispId, item.specId, item.durationId].map(nullableText);
+      const months = nullableCount(item.months, 1);
+      const valueFen = nullableCount(item.valueFen, 0);
+      // Servers before Migration 023 send no deliveryStatus; their gifts have no delivery.
+      const deliveryStatus = item.deliveryStatus === undefined ? "pending_open" : item.deliveryStatus;
+      if (
+        catalog.some((value) => value === undefined) ||
+        months === undefined ||
+        valueFen === undefined ||
+        (deliveryStatus !== "pending_open" && deliveryStatus !== "open")
+      ) {
+        throw new PaymentApiError("invalid_response");
+      }
+      const [typeId, regionId, ispId, specId, durationId] = catalog as Array<string | null>;
+      grants.push({
+        grantId: item.grantId,
+        label: item.label,
+        startsAt: item.startsAt,
+        endsAt: item.endsAt,
+        typeId,
+        regionId,
+        ispId,
+        specId,
+        durationId,
+        months,
+        valueFen,
+        deliveryStatus,
+      });
       continue;
     }
     // Purchases; servers before Migration 022 send no source / endsAt / planLabel.
@@ -473,8 +518,24 @@ function parseMyDeliveryLines(value: unknown): MyDeliveryLineItem[] {
   const body = requireRecord(value);
   if (!Array.isArray(body.items)) throw new PaymentApiError("invalid_response");
 
-  return body.items.map((rawItem) => {
+  const lines: MyDeliveryLineItem[] = [];
+  for (const rawItem of body.items) {
     const item = requireRecord(rawItem);
+    if (item.source === "grant") {
+      // Gift line names are validated but belong to the gift card (see getMyGrantDelivery),
+      // not to the order-grouped network view.
+      if (
+        !hasExactKeys(item, ["source", "grantId", "position", "label"]) ||
+        !isPositiveInteger(item.grantId) ||
+        !isPositiveInteger(item.position) ||
+        !isNonEmptyString(item.label) ||
+        item.label !== item.label.trim() ||
+        item.label.length > DELIVERY_MAX_LABEL_LENGTH
+      ) {
+        throw new PaymentApiError("invalid_response");
+      }
+      continue;
+    }
     if (
       !hasExactKeys(item, ["orderRef", "position", "label"]) ||
       !isNonEmptyString(item.orderRef) ||
@@ -485,12 +546,13 @@ function parseMyDeliveryLines(value: unknown): MyDeliveryLineItem[] {
     ) {
       throw new PaymentApiError("invalid_response");
     }
-    return {
+    lines.push({
       orderRef: item.orderRef,
       position: item.position,
       label: item.label,
-    };
-  });
+    });
+  }
+  return lines;
 }
 
 /* 严格解析 GET /api/me/orders：每个字段的类型与枚举都必须精确匹配冻结契约。
@@ -826,6 +888,20 @@ export async function getMyServiceListing(signal?: AbortSignal): Promise<MyServi
     signal,
   });
   return parseMyServiceListing(response);
+}
+
+/** Decrypted lines of the signed-in buyer's own opened gift. */
+export async function getMyGrantDelivery(grantId: number, signal?: AbortSignal): Promise<MyGrantDelivery> {
+  const response = await requestJson(`/api/me/grants/${grantId}/delivery`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  const body = requireRecord(response);
+  if (!hasExactKeys(body, ["grantId", "items"]) || body.grantId !== grantId) {
+    throw new PaymentApiError("invalid_response");
+  }
+  return { grantId, items: parseDeliveryItems(body.items) };
 }
 
 export async function getMyDeliveryLines(signal?: AbortSignal): Promise<MyDeliveryLineItem[]> {

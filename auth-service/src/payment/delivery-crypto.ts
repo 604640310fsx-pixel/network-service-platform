@@ -217,3 +217,85 @@ export function decryptServiceDeliveryItem(
   }
   return subscriptionUrl;
 }
+
+/* 赠送套餐（admin_grants）交付行：与服务交付同一套 URL 校验、密钥环与 AES-256-GCM，
+   但 AAD 绑定 grant_id（而非 service_id），使赠送行与服务行即使 id 相同也不能互换解密。
+   Migration 023 的 admin_grant_delivery_items 没有监控目标列，赠送交付只含名称与订阅 URL。 */
+export interface GrantDeliveryInput {
+  readonly label: string;
+  readonly subscriptionUrl: string;
+}
+
+export interface EncryptedGrantDeliveryItem {
+  readonly position: number;
+  readonly label: string;
+  readonly keyVersion: number;
+  readonly nonce: Buffer;
+  readonly ciphertext: Buffer;
+  readonly tag: Buffer;
+}
+
+function serializeGrantAad(grantId: number, position: number, keyVersion: number): Buffer {
+  return Buffer.from(
+    JSON.stringify({ schema_version: 1, grant_id: grantId, position, key_version: keyVersion }),
+    "utf8",
+  );
+}
+
+export function normalizeGrantDeliveryInput(value: unknown): GrantDeliveryInput | null {
+  return normalizeDeliveryPayload(value);
+}
+
+export function encryptGrantDeliveryItem(
+  input: { readonly grantId: number; readonly position: number; readonly item: GrantDeliveryInput },
+  keyring: TokenHmacKeyring,
+  randomBytesSource: DeliveryRandomBytesSource = randomBytes,
+): EncryptedGrantDeliveryItem {
+  assertPositiveInteger(input.grantId);
+  assertPositiveInteger(input.position);
+  const normalized = normalizeDeliveryPayload(input.item);
+  if (normalized === null) {
+    throw new Error("Grant delivery input is invalid");
+  }
+  const keyVersion = keyring.version;
+  const key = decodeEncryptionKey(keyring, keyVersion);
+  const nonce = randomBytesSource(DELIVERY_NONCE_BYTES);
+  if (!Buffer.isBuffer(nonce) || nonce.length !== DELIVERY_NONCE_BYTES) {
+    throw new Error("Grant delivery nonce generation failed");
+  }
+  const cipher = createCipheriv("aes-256-gcm", key, nonce, { authTagLength: DELIVERY_AUTH_TAG_BYTES });
+  cipher.setAAD(serializeGrantAad(input.grantId, input.position, keyVersion));
+  const ciphertext = Buffer.concat([cipher.update(normalized.subscriptionUrl, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  if (tag.length !== DELIVERY_AUTH_TAG_BYTES) {
+    throw new Error("Grant delivery authentication tag is invalid");
+  }
+  return { position: input.position, label: normalized.label, keyVersion, nonce, ciphertext, tag };
+}
+
+export function decryptGrantDeliveryItem(
+  input: EncryptedGrantDeliveryItem & { readonly grantId: number },
+  keyring: TokenHmacKeyring,
+): string {
+  assertPositiveInteger(input.grantId);
+  assertPositiveInteger(input.position);
+  if (
+    !Buffer.isBuffer(input.nonce) ||
+    input.nonce.length !== DELIVERY_NONCE_BYTES ||
+    !Buffer.isBuffer(input.tag) ||
+    input.tag.length !== DELIVERY_AUTH_TAG_BYTES ||
+    !Buffer.isBuffer(input.ciphertext)
+  ) {
+    throw new Error("Grant delivery payload is invalid");
+  }
+  const decipher = createDecipheriv("aes-256-gcm", decodeEncryptionKey(keyring, input.keyVersion), input.nonce, {
+    authTagLength: DELIVERY_AUTH_TAG_BYTES,
+  });
+  decipher.setAAD(serializeGrantAad(input.grantId, input.position, input.keyVersion));
+  decipher.setAuthTag(input.tag);
+  const subscriptionUrl = Buffer.concat([decipher.update(input.ciphertext), decipher.final()]).toString("utf8");
+  if (normalizeDeliveryPayload({ label: input.label, subscriptionUrl }) === null) {
+    throw new Error("Grant delivery payload is invalid");
+  }
+  return subscriptionUrl;
+}

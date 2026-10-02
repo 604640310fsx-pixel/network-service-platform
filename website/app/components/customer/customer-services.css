@@ -230,6 +230,7 @@
   font-weight: 600;
 }
 .cc-svc-gifts { margin-top: 10px; }
+.cc-svc-item-id small.cc-svc-gift-details { color: var(--cc-text-2); font-size: 13px; }
 .cc-svc-item-foot {
   display: flex;
   align-items: center;

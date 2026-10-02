@@ -1,15 +1,18 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { getAdminPlans, type AdminPlanItem } from "../../lib/admin-commerce-api";
 import {
   createAdminGrant,
   getAdminUserServices,
+  openAdminGrant,
   searchAdminUsers,
   updateAdminGrant,
   updateAdminService,
   type AdminGrant,
   type AdminUserService,
   type AdminUserSummary,
+  type GrantSelection,
 } from "../../lib/admin-services-api";
-import { useT, type Messages } from "../../lib/i18n";
+import { useCatalogText, useT, type Messages } from "../../lib/i18n";
 import { PaymentApiError } from "../../lib/payment-api";
 import { resolveSelection } from "../../lib/resolveSelection";
 import { endOfUtcDay, serviceTerm, utcDateInput } from "../../lib/serviceTerm";
@@ -130,6 +133,161 @@ function ServiceRow({
   );
 }
 
+function yuan(fen: number): string {
+  const amount = fen / 100;
+  return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+}
+
+function durationMonths(durationId: string): number {
+  const match = /^month-(\d+)$/.exec(durationId);
+  return match ? Number(match[1]) : 1;
+}
+
+/** Catalog name of a selection in the current language, e.g. "Local ISP · US · Verizon". */
+function useSelectionName(): (selection: GrantSelection) => string {
+  const catalogText = useCatalogText();
+  return (selection) => {
+    const { summary, requiresSpec } = resolveSelection(selection);
+    const parts = [summary.type, summary.region, summary.isp, ...(requiresSpec ? [summary.spec] : [])];
+    return parts.filter((part) => part && part !== "—").map(catalogText).join(" · ");
+  };
+}
+
+function selectionOf(grant: AdminGrant): GrantSelection | null {
+  return grant.typeId && grant.regionId && grant.ispId && grant.durationId
+    ? { typeId: grant.typeId, regionId: grant.regionId, ispId: grant.ispId, specId: grant.specId, durationId: grant.durationId }
+    : null;
+}
+
+function OpenGrantForm({
+  grant,
+  csrfToken,
+  copy,
+  onDone,
+  onCancel,
+}: {
+  grant: AdminGrant;
+  csrfToken: string | null;
+  copy: Copy;
+  onDone: (grant: AdminGrant) => void;
+  onCancel: () => void;
+}) {
+  const [lines, setLines] = useState([{ label: "", subscriptionUrl: "" }]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ready = lines.every((line) => line.label.trim() !== "" && line.subscriptionUrl.trim() !== "");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (csrfToken === null || !ready) return;
+    setBusy(true);
+    setError(null);
+    try {
+      onDone(await openAdminGrant(grant.id, lines.map((line) => ({ label: line.label.trim(), subscriptionUrl: line.subscriptionUrl.trim() })), csrfToken));
+    } catch (caught) {
+      setError(errorMessage(caught, copy));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="dash-usvc-open" onSubmit={(event) => void submit(event)}>
+      <p className="dash-usvc-meta">{copy.openTitle}</p>
+      {lines.map((line, index) => (
+        <div className="dash-usvc-grid" key={index}>
+          <label>
+            {copy.lineLabel} {index + 1}
+            <input type="text" maxLength={200} value={line.label} disabled={busy}
+              onChange={(event) => setLines(lines.map((item, i) => (i === index ? { ...item, label: event.target.value } : item)))} />
+          </label>
+          <label>
+            {copy.lineUrl}
+            <input type="url" inputMode="url" value={line.subscriptionUrl} disabled={busy} autoComplete="off"
+              onChange={(event) => setLines(lines.map((item, i) => (i === index ? { ...item, subscriptionUrl: event.target.value } : item)))} />
+          </label>
+          {lines.length > 1 && (
+            <button type="button" className="dash-usvc-ghost dash-usvc-line-remove" disabled={busy}
+              onClick={() => setLines(lines.filter((_, i) => i !== index))}>
+              {copy.removeLine}
+            </button>
+          )}
+        </div>
+      ))}
+      <div className="dash-usvc-foot">
+        <button type="button" className="dash-usvc-ghost" disabled={busy || lines.length >= 20}
+          onClick={() => setLines([...lines, { label: "", subscriptionUrl: "" }])}>
+          {copy.addLine}
+        </button>
+        <button type="submit" className="dash-primary-link" disabled={busy || !ready || csrfToken === null} aria-busy={busy}>
+          {busy ? copy.opening : copy.open}
+        </button>
+        <button type="button" className="dash-usvc-ghost" onClick={onCancel} disabled={busy}>{copy.cancel}</button>
+        {error && <p className="dash-inline-error" role="alert">{error}</p>}
+      </div>
+    </form>
+  );
+}
+
+function EditGrantForm({
+  grant,
+  csrfToken,
+  copy,
+  onDone,
+  onCancel,
+}: {
+  grant: AdminGrant;
+  csrfToken: string | null;
+  copy: Copy;
+  onDone: (grant: AdminGrant) => void;
+  onCancel: () => void;
+}) {
+  const [label, setLabel] = useState(grant.label);
+  const [months, setMonths] = useState(grant.months === null ? "" : String(grant.months));
+  const [value, setValue] = useState(grant.valueFen === null ? "" : yuan(grant.valueFen));
+  const [endsAt, setEndsAt] = useState(utcDateInput(grant.endsAt));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (csrfToken === null) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const patch: Parameters<typeof updateAdminGrant>[1] = {
+        label: label.trim(),
+        endsAt: endOfUtcDay(endsAt),
+        ...(months.trim() === "" ? {} : { months: Number(months) }),
+        ...(value.trim() === "" ? {} : { valueFen: Math.round(Number(value) * 100) }),
+      };
+      onDone(await updateAdminGrant(grant.id, patch, csrfToken));
+    } catch (caught) {
+      setError(caught instanceof RangeError ? copy.errors.invalid_grant_patch : errorMessage(caught, copy));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="dash-usvc-open" onSubmit={(event) => void submit(event)}>
+      <div className="dash-usvc-grid">
+        <label>{copy.grantLabel}<input type="text" required maxLength={80} value={label} onChange={(event) => setLabel(event.target.value)} disabled={busy} /></label>
+        <label>{copy.grantMonths}<input type="number" min={1} max={120} step={1} value={months} onChange={(event) => setMonths(event.target.value)} disabled={busy} /></label>
+        <label>{copy.grantValue}<input type="number" min={0} step={0.01} value={value} onChange={(event) => setValue(event.target.value)} disabled={busy} /></label>
+        <label>{copy.grantEndsAt}<input type="date" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} disabled={busy} /></label>
+      </div>
+      <div className="dash-usvc-foot">
+        <button type="submit" className="dash-primary-link" disabled={busy || label.trim() === "" || csrfToken === null} aria-busy={busy}>
+          {busy ? copy.saving : copy.save}
+        </button>
+        <button type="button" className="dash-usvc-ghost" onClick={onCancel} disabled={busy}>{copy.cancel}</button>
+        {error && <p className="dash-inline-error" role="alert">{error}</p>}
+      </div>
+    </form>
+  );
+}
+
 function GrantRow({
   grant,
   csrfToken,
@@ -147,7 +305,11 @@ function GrantRow({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<"view" | "open" | "edit">("view");
+  const selectionName = useSelectionName();
+  const selection = selectionOf(grant);
   const term = serviceTerm(grant.endsAt, new Date());
+  const active = grant.status === "active";
 
   async function revoke() {
     if (csrfToken === null || !window.confirm(copy.revokeConfirm(grant.label))) return;
@@ -162,11 +324,17 @@ function GrantRow({
     }
   }
 
+  const done = (updated: AdminGrant) => {
+    setMode("view");
+    onChanged(updated);
+  };
+
   return (
-    <li className={`dash-usvc-item${grant.status === "revoked" ? " is-revoked" : ""}`}>
+    <li className={`dash-usvc-item${active ? "" : " is-revoked"}`}>
       <div className="dash-usvc-head">
         <strong>{grant.label}</strong>
-        <span className={`dash-tag${grant.status === "active" ? " is-accent" : ""}`}>{copy.grantStatus[grant.status]}</span>
+        <span className={`dash-tag${active ? " is-accent" : ""}`}>{copy.grantStatus[grant.status]}</span>
+        {active && <span className={`dash-tag${grant.deliveryStatus === "open" ? " is-accent" : ""}`}>{copy.deliveryStatus[grant.deliveryStatus]}</span>}
         <span className="dash-usvc-meta">
           {copy.startedAt(new Date(grant.startsAt).toLocaleDateString(locale, { timeZone: "UTC" }))}
           {" · "}
@@ -174,9 +342,25 @@ function GrantRow({
           {term.kind === "expired" ? ` · ${expiredLabel}` : ""}
         </span>
       </div>
+      <p className="dash-usvc-meta">
+        {selection === null
+          ? copy.legacyGift
+          : [selectionName(selection),
+            grant.months === null ? null : copy.monthsValue(grant.months),
+            grant.valueFen === null ? null : copy.valueAmount(yuan(grant.valueFen))].filter(Boolean).join(" · ")}
+      </p>
+      {grant.deliveryLines.length > 0 && (
+        <p className="dash-usvc-meta">{copy.deliveredLines(grant.deliveryLines.length)}: {grant.deliveryLines.map((line) => line.label).join(" / ")}</p>
+      )}
       {grant.reason && <p className="dash-usvc-meta">{copy.grantReason}: {grant.reason}</p>}
-      {grant.status === "active" && (
+      {active && mode === "open" && <OpenGrantForm grant={grant} csrfToken={csrfToken} copy={copy} onDone={done} onCancel={() => setMode("view")} />}
+      {active && mode === "edit" && <EditGrantForm grant={grant} csrfToken={csrfToken} copy={copy} onDone={done} onCancel={() => setMode("view")} />}
+      {active && mode === "view" && (
         <div className="dash-usvc-foot">
+          {grant.deliveryStatus === "pending_open" && (
+            <button type="button" className="dash-primary-link" onClick={() => setMode("open")} disabled={busy || csrfToken === null}>{copy.open}</button>
+          )}
+          <button type="button" className="dash-usvc-ghost" onClick={() => setMode("edit")} disabled={busy || csrfToken === null}>{copy.edit}</button>
           <button type="button" className="dash-usvc-ghost" onClick={() => void revoke()} disabled={busy || csrfToken === null} aria-busy={busy}>
             {busy ? copy.revoking : copy.revoke}
           </button>
@@ -198,23 +382,68 @@ function GrantForm({
   copy: Copy;
   onCreated: (grant: AdminGrant) => void;
 }) {
+  const selectionName = useSelectionName();
+  const catalogText = useCatalogText();
+  const [plans, setPlans] = useState<AdminPlanItem[] | null>(null);
+  const [planId, setPlanId] = useState("");
+  const [months, setMonths] = useState("");
+  const [value, setValue] = useState("");
   const [label, setLabel] = useState("");
   const [endsAt, setEndsAt] = useState("");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    void getAdminPlans(controller.signal)
+      .then((items) => setPlans(items))
+      .catch((caught: unknown) => {
+        if (!controller.signal.aborted) setError(errorMessage(caught, copy));
+      });
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const plan = plans?.find((item) => String(item.id) === planId) ?? null;
+  const planName = (item: AdminPlanItem) => selectionName(item);
+  const suggestedLabel = plan === null || months.trim() === "" ? "" : `${planName(plan)} · ${copy.monthsValue(Number(months))}`;
+
+  function choosePlan(id: string) {
+    setPlanId(id);
+    const chosen = plans?.find((item) => String(item.id) === id);
+    if (chosen) {
+      setMonths(String(durationMonths(chosen.durationId)));
+      setValue(yuan(chosen.priceFen));
+    }
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (csrfToken === null || label.trim() === "") return;
+    if (csrfToken === null || plan === null) return;
     setBusy(true);
     setError(null);
     try {
       const grant = await createAdminGrant(
-        { userId, label: label.trim(), endsAt: endOfUtcDay(endsAt), reason: reason.trim() === "" ? null : reason.trim() },
+        {
+          userId,
+          typeId: plan.typeId,
+          regionId: plan.regionId,
+          ispId: plan.ispId,
+          specId: plan.specId,
+          durationId: plan.durationId,
+          months: Number(months),
+          valueFen: Math.round(Number(value) * 100),
+          label: label.trim() !== "" ? label.trim() : suggestedLabel !== "" ? suggestedLabel.slice(0, 80) : null,
+          endsAt: endOfUtcDay(endsAt),
+          reason: reason.trim() === "" ? null : reason.trim(),
+        },
         csrfToken,
       );
       onCreated(grant);
+      setPlanId("");
+      setMonths("");
+      setValue("");
       setLabel("");
       setEndsAt("");
       setReason("");
@@ -225,17 +454,39 @@ function GrantForm({
     }
   }
 
+  const monthsValid = /^[1-9]\d*$/.test(months) && Number(months) <= 120;
+  const valueValid = value.trim() !== "" && Number.isFinite(Number(value)) && Number(value) >= 0;
+
   return (
     <form className="dash-coupon-create dash-usvc-grant-form" onSubmit={(event) => void submit(event)}>
       <h3>{copy.grantFormTitle}</h3>
       <div className="dash-usvc-grid">
+        <label className="dash-usvc-wide">
+          {copy.grantPlan}
+          <select value={planId} onChange={(event) => choosePlan(event.target.value)} disabled={busy || plans === null} required>
+            <option value="">{plans === null ? copy.plansLoading : copy.grantPlanPlaceholder}</option>
+            {(plans ?? []).map((item) => (
+              <option key={item.id} value={String(item.id)}>
+                {planName(item)} · {catalogText(resolveSelection(item).summary.duration)} · ¥{yuan(item.priceFen)}
+              </option>
+            ))}
+          </select>
+        </label>
         <label>
-          {copy.grantLabel}
-          <input type="text" required maxLength={80} value={label} onChange={(event) => setLabel(event.target.value)} disabled={busy} />
+          {copy.grantMonths}
+          <input type="number" min={1} max={120} step={1} required value={months} onChange={(event) => setMonths(event.target.value)} disabled={busy} />
+        </label>
+        <label>
+          {copy.grantValue}
+          <input type="number" min={0} step={0.01} required value={value} onChange={(event) => setValue(event.target.value)} disabled={busy} />
         </label>
         <label>
           {copy.grantEndsAt}
           <input type="date" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} disabled={busy} />
+        </label>
+        <label className="dash-usvc-wide">
+          {copy.grantLabelOptional}
+          <input type="text" maxLength={80} value={label} placeholder={suggestedLabel} onChange={(event) => setLabel(event.target.value)} disabled={busy} />
         </label>
         <label className="dash-usvc-wide">
           {copy.grantReason}
@@ -243,7 +494,7 @@ function GrantForm({
         </label>
       </div>
       <div className="dash-usvc-foot">
-        <button type="submit" className="dash-primary-link" disabled={busy || label.trim() === "" || csrfToken === null} aria-busy={busy}>
+        <button type="submit" className="dash-primary-link" disabled={busy || plan === null || !monthsValid || !valueValid || csrfToken === null} aria-busy={busy}>
           {busy ? copy.creatingGrant : copy.createGrant}
         </button>
         {error && <p className="dash-inline-error" role="alert">{error}</p>}

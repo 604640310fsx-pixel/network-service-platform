@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { useT, type Messages } from "../../lib/i18n";
+import { useCatalogText, useT, type Messages } from "../../lib/i18n";
 import { Link } from "react-router-dom";
 import {
   PaymentApiError,
   getPaymentOrder,
+  getMyGrantDelivery,
   getMyServiceListing,
   type MyGrantItem,
   type MyServiceItem,
@@ -11,6 +12,7 @@ import {
   type ServiceDeliveryItem,
   type ServiceStatus,
 } from "../../lib/payment-api";
+import { resolveSelection } from "../../lib/resolveSelection";
 import { serviceTerm } from "../../lib/serviceTerm";
 import { SubscriptionImportModule, verifiedSubscriptionDeepLink } from "../subscription-import";
 import "./customer-services.css";
@@ -170,6 +172,81 @@ function ServiceSubscription({ item }: { item: MyServiceItem }) {
       <div className="cc-svc-import-links">
         <Link to="/docs">{t.services.importGuide}</Link>
         <Link to={`/subscribe/request?orderRef=${encodeURIComponent(item.orderRef)}`}>{t.services.orderDetails}</Link>
+      </div>
+    </section>
+  );
+}
+
+function formatYuan(fen: number): string {
+  const amount = fen / 100;
+  return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+}
+
+/* 赠送套餐详情：目录 id 由前端译成当前语言的名称；022 时代的旧赠送没有这些字段，只显示名称与赠送徽标。 */
+function GiftDetails({ grant }: { grant: MyGrantItem }) {
+  const t = useT();
+  const catalogText = useCatalogText();
+  const parts: string[] = [];
+  if (grant.typeId && grant.regionId && grant.ispId && grant.durationId) {
+    const { summary, requiresSpec } = resolveSelection({
+      typeId: grant.typeId,
+      regionId: grant.regionId,
+      ispId: grant.ispId,
+      specId: grant.specId,
+      durationId: grant.durationId,
+    });
+    for (const part of [summary.type, summary.region, summary.isp, ...(requiresSpec ? [summary.spec] : [])]) {
+      if (part && part !== "—") parts.push(catalogText(part));
+    }
+  }
+  if (grant.months !== null) parts.push(t.services.giftMonths(grant.months));
+  if (grant.valueFen !== null) parts.push(t.services.giftValue(formatYuan(grant.valueFen)));
+  return parts.length > 0 ? <small className="cc-svc-gift-details">{parts.join(" · ")}</small> : null;
+}
+
+/* 已开通的赠送：订阅地址只从买家本人的 /api/me/grants/:id/delivery 读取（与已购服务读取订单快照同理）。 */
+function GiftSubscription({ grant }: { grant: MyGrantItem }) {
+  const t = useT();
+  const [state, setState] = useState<DeliveryState>({ kind: "loading" });
+  const [retryToken, setRetryToken] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let stopped = false;
+    setState({ kind: "loading" });
+    void getMyGrantDelivery(grant.grantId, controller.signal)
+      .then((delivery) => {
+        if (!stopped) setState({ kind: "ready", items: delivery.items });
+      })
+      .catch((error: unknown) => {
+        if (stopped) return;
+        const message = error instanceof PaymentApiError && error.code === "invalid_response"
+          ? t.services.deliveryInvalid
+          : t.services.subscriptionUnavailable;
+        setState({ kind: "error", message });
+      });
+    return () => {
+      stopped = true;
+      controller.abort();
+    };
+  }, [grant.grantId, retryToken]);
+
+  return (
+    <section className="cc-svc-import" aria-label={t.services.giftSubscriptionLabel(grant.label)}>
+      {state.kind === "loading" && <p className="cc-svc-import-state" role="status">{t.services.subscriptionLoading}</p>}
+      {state.kind === "error" && (
+        <div className="cc-svc-import-state" role="alert">
+          <p>{state.message}</p>
+          <button type="button" className="cc-svc-ghost" onClick={() => setRetryToken((token) => token + 1)}>
+            {t.services.retryRead}
+          </button>
+        </div>
+      )}
+      {state.kind === "ready" && (
+        <SubscriptionImportModule deliveryItems={state.items} compact getVerifiedDeepLink={verifiedSubscriptionDeepLink} />
+      )}
+      <div className="cc-svc-import-links">
+        <Link to="/docs">{t.services.importGuide}</Link>
       </div>
     </section>
   );
@@ -341,6 +418,7 @@ export function CustomerServicesPage() {
                 <div className="cc-svc-item-head">
                   <div className="cc-svc-item-id">
                     <strong>{grant.label}</strong>
+                    <GiftDetails grant={grant} />
                     <small>{t.services.giftStartedAt(formatDate(grant.startsAt, t.account.dateLocale))}</small>
                   </div>
                   <div className="cc-svc-badges">
@@ -348,7 +426,9 @@ export function CustomerServicesPage() {
                     <TermBadge endsAt={grant.endsAt} />
                   </div>
                 </div>
-                <p className="cc-svc-import-state">{t.services.giftHint}</p>
+                {grant.deliveryStatus === "open"
+                  ? <GiftSubscription grant={grant} />
+                  : <p className="cc-svc-import-state">{grant.typeId === null ? t.services.giftHint : t.services.giftAwaiting}</p>}
               </li>
             ))}
           </ul>
