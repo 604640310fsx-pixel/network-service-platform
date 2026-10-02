@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <!-- Only the frozen canonical website may push theme changes in production. -->
+  <meta name="monitor-embed-origin" content="https://www.siqiapparel.com">
+  <title>广州三网线路监控</title>
+  <link rel="icon" href="data:,">
+  <script>(function(){try{var t=new URLSearchParams(location.search).get('theme');document.documentElement.dataset.theme=(t==='light')?'light':'dark';}catch(e){document.documentElement.dataset.theme='dark';}})();</script>
+  <link rel="stylesheet" href="/master.css?v=20261002-i18n">
+</head>
+<body>
+  <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
+  <main class="shell">
+    <header class="topbar" id="overview">
+      <div class="brand-block">
+        <div class="eyebrow">NETWORK QUALITY · READ ONLY</div>
+        <div class="title-row">
+          <h1 data-i18n="heading">广州三网监控</h1>
+          <span class="overall-status stale" id="overallStatus"><i></i><b>读取中</b></span>
+          <div class="segmented lang-toggle" id="langToggle" role="group" aria-label="界面语言"><button type="button" data-lang="zh" lang="zh-CN" aria-label="切换到中文">中文</button><button type="button" data-lang="en" lang="en" aria-label="Switch to English">EN</button></div>
+        </div>
+        <p class="last-update"><span data-i18n="lastUpdate">最后更新：</span><time id="lastUpdate">—</time><span class="live-pulse" data-i18n="autoRefresh">每分钟自动刷新</span></p>
+      </div>
+      <div class="vps-picker" id="vpsPicker" aria-label="TCP VPS 测试点" data-i18n-aria="vpsPicker">
+        <button class="vps-option skeleton" disabled><i></i><span>读取 VPS</span></button>
+        <button class="vps-option skeleton" disabled><i></i><span>读取 VPS</span></button>
+        <button class="vps-option skeleton" disabled><i></i><span>读取 VPS</span></button>
+        <button class="vps-option skeleton" disabled><i></i><span>读取 VPS</span></button>
+        <button class="vps-option skeleton" disabled><i></i><span>读取 VPS</span></button>
+        <button class="vps-option skeleton" disabled><i></i><span>读取 VPS</span></button>
+        <button class="vps-option skeleton" disabled><i></i><span>读取 VPS</span></button>
+        <button class="vps-option skeleton" disabled><i></i><span>读取 VPS</span></button>
+      </div>
+    </header>
+
+    <section class="panel chart-panel" id="latencyPanel">
+      <div class="chart-toolbar">
+        <span class="axis-label" data-i18n="axisLabel">延迟（ms）</span>
+        <div class="legend-row" id="wanLegend">
+          <button class="legend-item telecom active" data-wan="telecom"><i></i><span><em class="city-prefix" data-i18n="city">广州</em><bdi data-i18n="wan.telecom">电信</bdi></span><b id="legendTelecom">—</b></button>
+          <button class="legend-item mobile active" data-wan="mobile"><i></i><span><em class="city-prefix" data-i18n="city">广州</em><bdi data-i18n="wan.mobile">移动</bdi></span><b id="legendMobile">—</b></button>
+          <button class="legend-item unicom active" data-wan="unicom"><i></i><span><em class="city-prefix" data-i18n="city">广州</em><bdi data-i18n="wan.unicom">联通</bdi></span><b id="legendUnicom">—</b></button>
+        </div>
+        <div class="chart-controls">
+          <div class="segmented" id="typeSwitch">
+            <button class="active" data-value="icmp">ICMP</button><button data-value="tcp">TCP</button>
+          </div>
+          <div class="segmented range-switch" id="rangeSwitch">
+            <button data-value="6h">6h</button><button class="active" data-value="24h">24h</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="chart-stage" id="chartStage">
+        <canvas id="latencyChart" aria-label="三网延迟趋势图" data-i18n-aria="chartLabel"></canvas>
+        <canvas id="chartHover" aria-hidden="true"></canvas>
+        <div class="chart-tooltip" id="chartTooltip"></div>
+        <div class="chart-loading" id="chartLoading"><span></span><bdi data-i18n="loadingSamples">正在读取真实样本</bdi></div>
+      </div>
+      <div class="chart-foot">
+        <span id="chartCount">—</span>
+        <span id="chartRangeLabel">最近 24 小时 · Asia/Shanghai</span>
+        <small id="liveStatus"><i></i><bdi>实时同步 · 5 秒轮询</bdi></small>
+        <span class="chart-update-caption" data-i18n="updateCaption">数据每分钟更新一次</span>
+      </div>
+    </section>
+
+    <section class="panel system-panel" id="systemPanel">
+      <div class="system-strip" id="systemStrip">
+        <div class="system-metric"><span data-i18n="uptime">运行时间</span><b id="vpsUptime">读取中</b></div>
+        <div class="system-metric percentage-metric"><span>CPU</span><b id="vpsCpu">—</b><div class="metric-bar"><i id="vpsCpuBar"></i></div></div>
+        <div class="system-metric percentage-metric"><span data-i18n="memory">内存</span><b id="vpsMemory">—</b><div class="metric-bar"><i id="vpsMemoryBar"></i></div></div>
+        <div class="system-metric percentage-metric"><span data-i18n="storage">存储</span><b id="vpsStorage">—</b><div class="metric-bar"><i id="vpsStorageBar"></i></div></div>
+        <div class="system-metric network-metric">
+          <i class="network-arrow up" aria-hidden="true">↑</i><div><span data-i18n="upload">上传</span><b id="vpsUpload">—</b></div>
+        </div>
+        <div class="system-metric network-metric">
+          <i class="network-arrow down" aria-hidden="true">↓</i><div><span data-i18n="download">下载</span><b id="vpsDownload">—</b></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel route-panel" id="routePanel">
+      <div class="section-head route-head">
+        <div><h2 data-i18n="routeTitle">路由追踪（广州）</h2><p data-i18n="routeLead">每日去回程真实结果 · 只读展示</p></div>
+        <div class="route-head-controls">
+          <div class="segmented" id="routeWanSwitch"><button class="active" data-value="telecom" data-i18n="wan.telecom">电信</button><button data-value="mobile" data-i18n="wan.mobile">移动</button><button data-value="unicom" data-i18n="wan.unicom">联通</button></div>
+          <div class="segmented" id="routeDirectionSwitch"><button class="active" data-value="outbound" data-i18n="outbound">去程路由</button><button data-value="return" data-i18n="returnRoute">回程路由</button></div>
+          <button class="outline-button" id="routeToggle" aria-expanded="false">展开 <span>⌄</span></button>
+        </div>
+      </div>
+      <div class="route-body" id="routeBody">
+        <div class="route-toolbar">
+          <div class="segmented" id="routeProtocolSwitch"><button class="active" data-value="icmp">ICMP</button><button data-value="tcp">TCP</button></div>
+          <label class="select-wrap" id="routeTargetWrap"><span>回程 VPS</span><select id="routeTarget" aria-label="回程 VPS" data-i18n-aria="returnVps"><option value="DMIT Premium">美国 DMIT Premium</option></select></label>
+          <div class="route-result" id="routeResult" data-status="loading"><i></i><b>正在读取</b><span></span></div>
+          <div class="route-updated"><bdi data-i18n="routeUpdated">最后更新</bdi> <b id="routeUpdated">—</b></div>
+        </div>
+        <div class="table-wrap empty-table" id="routeTableWrap">
+          <table><thead><tr><th data-i18n="cols.hop">跳数</th><th data-i18n="cols.ip">IP</th><th data-i18n="cols.latency">延迟</th><th data-i18n="cols.location">地区（仅供参考）</th><th data-i18n="cols.asn">ASN</th><th data-i18n="cols.reverse">反向解析</th></tr></thead>
+          <tbody id="routeRows"><tr><td colspan="6"><div class="empty-state"><span class="route-icon">⌁</span><b data-i18n="routeLoadingTitle">正在读取真实路由</b><p><bdi data-i18n="routeLoadingBody">只展示已入库的标准化逐跳数据。</bdi><span class="premium-route-note" data-i18n="premiumNote">精品线路将以金色突出。</span></p></div></td></tr></tbody>
+          <tfoot><tr><td colspan="6"><button class="route-more" id="routeMore" aria-expanded="false" disabled>展开完整路由（共 0 跳） <span>⌄</span></button></td></tr></tfoot></table>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel bandwidth-panel" id="bandwidthPanel" data-download-capacity="200" data-upload-capacity="100" data-streams="4">
+      <div class="section-head">
+        <div><span class="section-index">04</span><h2 data-i18n="bandwidthTitle">广州电信每日 4 线程测速</h2><p data-i18n="bandwidthLead">线路带宽：下行 200 Mbps · 上行 100 Mbps · 每项 20 秒</p></div>
+        <span class="waiting-badge" id="bandwidthStatus">等待测速上线</span>
+      </div>
+      <div class="speed-grid" id="bandwidthCards">
+        <article class="speed-card" data-server="美国 DMIT Premium" data-state="empty"><div><span class="target-dot"></span><h3 data-i18n-region="美国 DMIT Premium">美国 DMIT Premium</h3><small data-i18n="bandwidthCardNote">4 线程 · 每项 20 秒</small></div><dl><dt data-i18n="upload">上传</dt><dd data-field="upload_mbps">—</dd><dt data-i18n="download">下载</dt><dd data-field="download_mbps">—</dd><dt>Retr</dt><dd data-field="retr">—</dd><dt data-i18n="testedAt">测试时间</dt><dd data-field="tested_at">—</dd></dl></article>
+        <article class="speed-card" data-server="美国 DMIT Eyeball" data-state="empty"><div><span class="target-dot"></span><h3 data-i18n-region="美国 DMIT Eyeball">美国 DMIT Eyeball</h3><small data-i18n="bandwidthCardNote">4 线程 · 每项 20 秒</small></div><dl><dt data-i18n="upload">上传</dt><dd data-field="upload_mbps">—</dd><dt data-i18n="download">下载</dt><dd data-field="download_mbps">—</dd><dt>Retr</dt><dd data-field="retr">—</dd><dt data-i18n="testedAt">测试时间</dt><dd data-field="tested_at">—</dd></dl></article>
+        <article class="speed-card" data-server="美国 NetLab Global" data-state="empty"><div><span class="target-dot"></span><h3 data-i18n-region="美国 NetLab Global">美国 NetLab Global</h3><small data-i18n="bandwidthCardNote">4 线程 · 每项 20 秒</small></div><dl><dt data-i18n="upload">上传</dt><dd data-field="upload_mbps">—</dd><dt data-i18n="download">下载</dt><dd data-field="download_mbps">—</dd><dt>Retr</dt><dd data-field="retr">—</dd><dt data-i18n="testedAt">测试时间</dt><dd data-field="tested_at">—</dd></dl></article>
+        <article class="speed-card" data-server="美国 Zillion Network" data-state="empty"><div><span class="target-dot"></span><h3 data-i18n-region="美国 Zillion Network">美国 Zillion Network</h3><small data-i18n="bandwidthCardNote">4 线程 · 每项 20 秒</small></div><dl><dt data-i18n="upload">上传</dt><dd data-field="upload_mbps">—</dd><dt data-i18n="download">下载</dt><dd data-field="download_mbps">—</dd><dt>Retr</dt><dd data-field="retr">—</dd><dt data-i18n="testedAt">测试时间</dt><dd data-field="tested_at">—</dd></dl></article>
+        <article class="speed-card" data-server="马来 Evoxt Premium" data-state="empty"><div><span class="target-dot"></span><h3 data-i18n-region="马来 Evoxt Premium">马来 Evoxt Premium</h3><small data-i18n="bandwidthCardNote">4 线程 · 每项 20 秒</small></div><dl><dt data-i18n="upload">上传</dt><dd data-field="upload_mbps">—</dd><dt data-i18n="download">下载</dt><dd data-field="download_mbps">—</dd><dt>Retr</dt><dd data-field="retr">—</dd><dt data-i18n="testedAt">测试时间</dt><dd data-field="tested_at">—</dd></dl></article>
+        <article class="speed-card" data-server="新加坡 Sakura Cloud" data-state="empty"><div><span class="target-dot"></span><h3 data-i18n-region="新加坡 Sakura Cloud">新加坡 Sakura Cloud</h3><small data-i18n="bandwidthCardNote">4 线程 · 每项 20 秒</small></div><dl><dt data-i18n="upload">上传</dt><dd data-field="upload_mbps">—</dd><dt data-i18n="download">下载</dt><dd data-field="download_mbps">—</dd><dt>Retr</dt><dd data-field="retr">—</dd><dt data-i18n="testedAt">测试时间</dt><dd data-field="tested_at">—</dd></dl></article>
+        <article class="speed-card" data-server="香港 NetLab Global" data-state="empty"><div><span class="target-dot"></span><h3 data-i18n-region="香港 NetLab Global">香港 NetLab Global</h3><small data-i18n="bandwidthCardNote">4 线程 · 每项 20 秒</small></div><dl><dt data-i18n="upload">上传</dt><dd data-field="upload_mbps">—</dd><dt data-i18n="download">下载</dt><dd data-field="download_mbps">—</dd><dt>Retr</dt><dd data-field="retr">—</dd><dt data-i18n="testedAt">测试时间</dt><dd data-field="tested_at">—</dd></dl></article>
+        <article class="speed-card" data-server="香港 Yecaoyun Cloud" data-state="empty"><div><span class="target-dot"></span><h3 data-i18n-region="香港 Yecaoyun Cloud">香港 Yecaoyun Cloud</h3><small data-i18n="bandwidthCardNote">4 线程 · 每项 20 秒</small></div><dl><dt data-i18n="upload">上传</dt><dd data-field="upload_mbps">—</dd><dt data-i18n="download">下载</dt><dd data-field="download_mbps">—</dd><dt>Retr</dt><dd data-field="retr">—</dd><dt data-i18n="testedAt">测试时间</dt><dd data-field="tested_at">—</dd></dl></article>
+        <div class="speed-trend" id="bandwidthTrend" hidden>
+          <div class="mini-chart-grid"><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="speed-empty" id="bandwidthTrendEmpty" hidden><b data-i18n="bandwidthEmptyTitle">8 节点 4 线程测速尚未上线</b><p data-i18n="bandwidthEmptyBody">这里展示广州电信到各节点的真实链路结果；无数据时不显示 0 Mbps。</p></div>
+          <div class="trend-labels"><span data-i18n="trendLabels.0">7 天上传</span><span data-i18n="trendLabels.1">7 天下载</span><span data-i18n="trendLabels.2">Retr 趋势</span></div>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <span data-i18n="footerLeft">候选前端 · 端口 3003 · 数据库只读</span>
+      <span data-i18n="footerRight">不提供测速、重启、切换线路、修改路由或修复操作</span>
+    </footer>
+  </main>
+  <script src="/i18n.js?v=20261002-i18n"></script>
+  <script src="/app.js?v=20261002-i18n"></script>
+</body>
+</html>

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { useT } from "../../lib/i18n";
+import { useI18n, useT } from "../../lib/i18n";
 import { useThemePreference, type ThemePreference } from "../../lib/theme";
 import { WorkbenchBanner, workbenchBannerLayoutClass } from "../WorkbenchBanner";
 import { SiteHeader } from "../home/SiteHeader";
 import { useCustomerShellTheme } from "../customer/CustomerCenterShell";
 import {
   buildMonitorEmbedUrl,
+  createMonitorLangMessage,
   createMonitorThemeMessage,
   monitorBannerMode,
   monitorPostTargetOrigin,
@@ -74,13 +75,15 @@ export function CustomerShellMonitor() {
 /* 公开监控 iframe 主体：/monitor、匿名 /status 与客户中心 /status 共用。 */
 export function PublicMonitorEmbed({ theme }: { theme: ThemePreference }) {
   const copy = useT().monitor;
+  const { lang } = useI18n();
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const base = import.meta.env.VITE_MONITOR_URL;
   // 初始主题只取一次：src 不随主题变化，主题切换不触发 iframe 重载。
   const initialThemeRef = useRef(theme);
+  const initialLangRef = useRef(lang);
   const monitorSource = useMemo(
-    () => buildMonitorEmbedUrl(base, { theme: initialThemeRef.current, embedded: true }, window.location.origin),
+    () => buildMonitorEmbedUrl(base, { theme: initialThemeRef.current, lang: initialLangRef.current, embedded: true }, window.location.origin),
     [base],
   );
   const targetOrigin = useMemo(() => monitorPostTargetOrigin(base, window.location.origin), [base]);
@@ -98,6 +101,20 @@ export function PublicMonitorEmbed({ theme }: { theme: ThemePreference }) {
     postTheme(theme);
   }, [theme, postTheme]);
 
+  // 语言与主题同一通道：初始值写入 src，之后切换只发消息，不重载 iframe。
+  const postLang = useCallback(
+    (next: typeof lang) => {
+      const frameWindow = iframeRef.current?.contentWindow;
+      if (!frameWindow || !targetOrigin) return;
+      frameWindow.postMessage(createMonitorLangMessage(next), targetOrigin);
+    },
+    [targetOrigin],
+  );
+
+  useEffect(() => {
+    postLang(lang);
+  }, [lang, postLang]);
+
   return (
     <section className="pm-monitor">
       {monitorSource ? (
@@ -108,7 +125,10 @@ export function PublicMonitorEmbed({ theme }: { theme: ThemePreference }) {
           title={copy.frameTitle}
           allow="fullscreen"
           referrerPolicy="same-origin"
-          onLoad={() => postTheme(theme)}
+          onLoad={() => {
+            postTheme(theme);
+            postLang(lang);
+          }}
         />
       ) : (
         <div className="pm-empty" role="status" aria-live="polite">

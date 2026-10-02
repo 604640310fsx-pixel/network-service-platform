@@ -10,10 +10,11 @@ import {
 } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
-import { useT } from "../../lib/i18n";
+import { useI18n, useT } from "../../lib/i18n";
 import { useThemePreference, type ThemePreference } from "../../lib/theme";
 import {
   buildMonitorEmbedUrl,
+  createMonitorLangMessage,
   createMonitorThemeMessage,
   monitorPostTargetOrigin,
 } from "../../lib/monitorEmbed";
@@ -93,12 +94,14 @@ function NavIcon({ href }: { href: string }) {
    未配置监控地址时显示真实的“未配置”态，不伪造在线数据。 */
 function SidebarMonitorCard({ theme, onNavigate }: { theme: ThemePreference; onNavigate: () => void }) {
   const t = useT();
+  const { lang } = useI18n();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const base = import.meta.env.VITE_MONITOR_URL;
   // 初始 src 只取一次主题，避免首屏闪烁；后续切换主题不改变 src，不触发 iframe 重载。
   const initialThemeRef = useRef(theme);
+  const initialLangRef = useRef(lang);
   const monitorSource = useMemo(
-    () => buildMonitorEmbedUrl(base, { theme: initialThemeRef.current, compact: true }, window.location.origin),
+    () => buildMonitorEmbedUrl(base, { theme: initialThemeRef.current, lang: initialLangRef.current, compact: true }, window.location.origin),
     [base],
   );
   const targetOrigin = useMemo(() => monitorPostTargetOrigin(base, window.location.origin), [base]);
@@ -116,6 +119,20 @@ function SidebarMonitorCard({ theme, onNavigate }: { theme: ThemePreference; onN
     postTheme(theme);
   }, [theme, postTheme]);
 
+  // 语言与主题同一通道：初始值写入 src，之后切换只发消息，不重载 iframe。
+  const postLang = useCallback(
+    (next: typeof lang) => {
+      const frameWindow = iframeRef.current?.contentWindow;
+      if (!frameWindow || !targetOrigin) return;
+      frameWindow.postMessage(createMonitorLangMessage(next), targetOrigin);
+    },
+    [targetOrigin],
+  );
+
+  useEffect(() => {
+    postLang(lang);
+  }, [lang, postLang]);
+
   return (
     <section className="cc-monitor-card" aria-label={t.center.monitorLabel}>
       {monitorSource ? (
@@ -127,7 +144,10 @@ function SidebarMonitorCard({ theme, onNavigate }: { theme: ThemePreference; onN
             title={t.center.monitorFrameTitle}
             loading="lazy"
             referrerPolicy="same-origin"
-            onLoad={() => postTheme(theme)}
+            onLoad={() => {
+            postTheme(theme);
+            postLang(lang);
+          }}
           />
         </div>
       ) : (
