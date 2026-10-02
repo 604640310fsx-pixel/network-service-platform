@@ -16,6 +16,21 @@ export type MonitorThemeMessage = {
   theme: MonitorTheme;
 };
 
+export type MonitorLang = "zh" | "en";
+
+/** 运行时语言消息类型：与监控页 i18n.js 中的 LANG_MESSAGE_TYPE 精确一致。 */
+export const MONITOR_LANG_MESSAGE_TYPE = "nsp-monitor-lang:v1";
+
+export type MonitorLangMessage = {
+  type: typeof MONITOR_LANG_MESSAGE_TYPE;
+  lang: MonitorLang;
+};
+
+/** 归一化界面语言：只认 "en"，其余一律回落到 "zh"（与官网默认一致）。 */
+export function normalizeMonitorLang(value: unknown): MonitorLang {
+  return value === "en" ? "en" : "zh";
+}
+
 /** 归一化主题：只认 "light"，其余（含 null / 未知值）一律回落到 "dark"。 */
 export function normalizeMonitorTheme(value: unknown): MonitorTheme {
   return value === "light" ? "light" : "dark";
@@ -57,14 +72,14 @@ export function monitorBannerMode(base: string | undefined, origin: string): Mon
   return url.searchParams.get("preview") === "fixture" ? "fixture" : "embed";
 }
 
-/** 构造公共 iframe src：清除已有查询参数，只写入 theme 与受控 view；唯一保留项
+/** 构造公共 iframe src：清除已有查询参数，只写入 theme、可选 lang 与受控 view；唯一保留项
     是值精确等于 fixture 的 preview 标记，用于本地演示数据保持可见标识。
     compact=true 使用侧栏 mini；embedded=true 使用去掉重复标题带的官网嵌入视图。
     两种视图互斥，冲突时 fail closed。base 非法或未配置时返回 null，由调用方
     渲染真实缺失态。 */
 export function buildMonitorEmbedUrl(
   base: string | undefined,
-  options: { theme: MonitorTheme; compact?: boolean; embedded?: boolean },
+  options: { theme: MonitorTheme; lang?: MonitorLang; compact?: boolean; embedded?: boolean },
   origin: string,
 ): string | null {
   const url = toMonitorUrl(base, origin);
@@ -76,6 +91,7 @@ export function buildMonitorEmbedUrl(
   else if (options.embedded) url.searchParams.set("view", "embed");
   else url.searchParams.delete("view");
   url.searchParams.set("theme", normalizeMonitorTheme(options.theme));
+  if (options.lang !== undefined) url.searchParams.set("lang", normalizeMonitorLang(options.lang));
   return url.toString();
 }
 
@@ -90,4 +106,9 @@ export function monitorPostTargetOrigin(base: string | undefined, origin: string
     也不含任何回读通道。 */
 export function createMonitorThemeMessage(theme: MonitorTheme): MonitorThemeMessage {
   return { type: MONITOR_THEME_MESSAGE_TYPE, theme: normalizeMonitorTheme(theme) };
+}
+
+/** 运行时语言消息负载：仅 type + lang；官网切换语言时经同一精确 targetOrigin 下发。 */
+export function createMonitorLangMessage(lang: MonitorLang): MonitorLangMessage {
+  return { type: MONITOR_LANG_MESSAGE_TYPE, lang: normalizeMonitorLang(lang) };
 }

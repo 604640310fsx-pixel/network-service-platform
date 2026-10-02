@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  MONITOR_LANG_MESSAGE_TYPE,
   MONITOR_THEME_MESSAGE_TYPE,
   buildMonitorEmbedUrl,
+  createMonitorLangMessage,
   createMonitorThemeMessage,
   isMonitorFixturePreview,
   monitorBannerMode,
@@ -107,4 +109,20 @@ test("monitorBannerMode never reports a live embed without a valid public URL", 
   assert.equal(monitorBannerMode(MONITOR + "/?preview=fixture", ORIGIN), "fixture");
   assert.equal(monitorBannerMode(MONITOR + "/?preview=other", ORIGIN), "embed");
   assert.equal(monitorBannerMode(MONITOR, ORIGIN), "embed");
+});
+
+test("lang is an optional, normalized embed parameter and a narrow versioned message", () => {
+  const MONITOR_BASE = "https://monitor.example.net/?lang=fr&vps=private-target";
+  const en = new URL(buildMonitorEmbedUrl(MONITOR_BASE, { theme: "dark", lang: "en", embedded: true }, "https://www.example.net")!);
+  assert.deepEqual([...en.searchParams.keys()], ["view", "theme", "lang"]);
+  assert.equal(en.searchParams.get("lang"), "en");
+  const odd = new URL(buildMonitorEmbedUrl(MONITOR_BASE, { theme: "dark", lang: "fr" as never, compact: true }, "https://www.example.net")!);
+  assert.equal(odd.searchParams.get("lang"), "zh");
+  const none = new URL(buildMonitorEmbedUrl(MONITOR_BASE, { theme: "dark" }, "https://www.example.net")!);
+  assert.equal(none.searchParams.has("lang"), false);
+
+  assert.equal(MONITOR_LANG_MESSAGE_TYPE, "nsp-monitor-lang:v1");
+  assert.deepEqual(createMonitorLangMessage("en"), { type: "nsp-monitor-lang:v1", lang: "en" });
+  assert.deepEqual(createMonitorLangMessage("weird" as never), { type: "nsp-monitor-lang:v1", lang: "zh" });
+  assert.deepEqual(Object.keys(createMonitorLangMessage("zh")).sort(), ["lang", "type"]);
 });
