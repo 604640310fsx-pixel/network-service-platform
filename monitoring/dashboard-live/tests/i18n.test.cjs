@@ -3,8 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const I18n = require('../static/i18n.js');
 const {
+  MonitorI18n: I18n,
   LANG_MESSAGE_TYPE,
   THEME_MESSAGE_TYPE,
   isTrustedLangMessage,
@@ -54,9 +54,12 @@ test('every data-i18n key in index.html resolves to a string in both languages',
   }
 });
 
-test('index.html loads i18n.js before app.js and exposes a zh/en toggle', () => {
+test('index.html only references statics the VPS monitor proxy allows, and exposes a zh/en toggle', () => {
   const html = fs.readFileSync(path.join(STATIC, 'index.html'), 'utf8');
-  assert.ok(html.indexOf('/i18n.js') > 0 && html.indexOf('/i18n.js') < html.indexOf('/app.js'));
+  // monitor.siqiapparel.com proxies exact paths only: / /app.js /master.css (+ /api/*, /__monitor_mini/).
+  const refs = [...html.matchAll(/(?:src|href)="(\/[^"?#]*)/g)].map((match) => match[1]);
+  assert.ok(refs.length >= 2);
+  for (const ref of refs) assert.ok(['/', '/app.js', '/master.css'].includes(ref), `not proxied publicly: ${ref}`);
   assert.match(html, /id="langToggle"[^>]*>.*data-lang="zh".*data-lang="en"/);
 });
 
