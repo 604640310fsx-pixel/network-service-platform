@@ -16,6 +16,13 @@ import {
   resolveBuyerStatusHref,
 } from "../../lib/buyerStatusLink";
 import { resolveSelection } from "../../lib/resolveSelection";
+import {
+  getMyNodeStatus,
+  nodeStatusCounts,
+  type NodeLineStatus,
+  type NodeStatusItem,
+  type NodeStatusResult,
+} from "../../lib/node-status-api";
 import "./buyer-network.css";
 
 /* /network 买家「节点与流量」页。
@@ -54,6 +61,19 @@ type OrphanLineGroup = {
 };
 
 const UNKNOWN = "—";
+
+/* 节点状态：loading / ready(available|unavailable) / error。只有 ready+available 才给出真实计数。 */
+type NodeStatusState =
+  | { readonly kind: "loading" }
+  | { readonly kind: "ready"; readonly result: NodeStatusResult }
+  | { readonly kind: "error" };
+
+type StatusLookup = (ref: string, position: number) => NodeLineStatus | null;
+
+function NodeStatusBadge({ status }: { status: NodeLineStatus }) {
+  const t = useT();
+  return <span className={`cc-net-status is-${status}`}>{t.network.nodeStatus[status]}</span>;
+}
 
 function resourceErrorMessage(resource: string, error: unknown, messages: Messages["dashboard"]): string {
   if (error instanceof PaymentApiError && error.code === "invalid_response") {
@@ -273,9 +293,11 @@ function StateBlock({
 function DeliveryLineLinks({
   lines,
   orderRef,
+  statusFor,
 }: {
   lines: readonly MyDeliveryLineItem[];
   orderRef: string;
+  statusFor?: StatusLookup;
 }) {
   const t = useT();
   return (
@@ -289,6 +311,10 @@ function DeliveryLineLinks({
           >
             <span className="cc-net-line-label-index" aria-hidden="true">{line.position}</span>
             <span className="cc-net-line-label-text">{line.label}</span>
+            {(() => {
+              const status = statusFor?.(orderRef, line.position) ?? null;
+              return status === null ? null : <NodeStatusBadge status={status} />;
+            })()}
             <span className="cc-net-line-label-go" aria-hidden="true">{t.network.lineGo}</span>
           </Link>
         </li>
@@ -305,9 +331,11 @@ function DeliveryLineLinks({
 function ServiceDeliveryLines({
   service,
   deliveryState,
+  statusFor,
 }: {
   service: AccountServiceView;
   deliveryState: Resource<readonly MyDeliveryLineItem[]>;
+  statusFor?: StatusLookup;
 }) {
   const t = useT();
   if (service.serviceStatus === "pending_open") {
@@ -318,7 +346,7 @@ function ServiceDeliveryLines({
     );
   }
   if (service.lines.length > 0) {
-    return <DeliveryLineLinks lines={service.lines} orderRef={service.orderRef} />;
+    return <DeliveryLineLinks lines={service.lines} orderRef={service.orderRef} statusFor={statusFor} />;
   }
   if (deliveryState.kind === "loading") {
     return <p className="cc-net-line-note">{t.network.linesLoading}</p>;
@@ -343,16 +371,20 @@ function NodesPanel({
   ordersState,
   deliveryState,
   orphanLineGroups,
+  nodeStatus,
   onRetry,
   onRetryDeliveryLines,
+  onRetryStatus,
 }: {
   servicesState: Resource<readonly MyServiceItem[]>;
   accountServices: readonly AccountServiceView[];
   ordersState: Resource<readonly MyOrderItem[]>;
   deliveryState: Resource<readonly MyDeliveryLineItem[]>;
   orphanLineGroups: readonly OrphanLineGroup[];
+  nodeStatus: NodeStatusState;
   onRetry: () => void;
   onRetryDeliveryLines: () => void;
+  onRetryStatus: () => void;
 }) {
   const t = useT();
   const ct = useCatalogText();
@@ -367,16 +399,39 @@ function NodesPanel({
     : servicesState.kind === "loading"
       ? t.network.servicesLoading
       : t.network.servicesUnavailable;
-  const tag = servicesState.kind === "loading" ? t.network.loadingTag : t.network.nodesPendingTag;
+  const live = nodeStatus.kind === "ready" && nodeStatus.result.monitor === "available";
+  const statusItems: readonly NodeStatusItem[] = live ? nodeStatus.result.items : [];
+  const statusUnavailable =
+    nodeStatus.kind === "error" || (nodeStatus.kind === "ready" && nodeStatus.result.monitor === "unavailable");
+  const tag =
+    servicesState.kind === "loading" || nodeStatus.kind === "loading"
+      ? t.network.loadingTag
+      : live
+        ? t.network.nodesLiveTag
+        : t.network.nodesPendingTag;
+  const statusByLine = new Map(
+    statusItems.filter((item) => item.kind === "service").map((item) => [`${item.ref}#${item.position}`, item.status] as const),
+  );
+  const statusFor: StatusLookup | undefined = live ? (ref, position) => statusByLine.get(`${ref}#${position}`) ?? null : undefined;
+  const giftLines = statusItems.filter((item): item is Extract<NodeStatusItem, { kind: "grant" }> => item.kind === "grant");
 
-  /* 参考稿的四格：全部 / 在线 / 超时 / 离线。
-     当前公共接口连节点总数都不能证明，因此四项都保持 — 未知态。 */
-  const metrics = [
-    { label: t.network.metrics.all, value: UNKNOWN, hint: t.network.nodesApiPending, unknown: true },
-    { label: t.network.metrics.online, value: UNKNOWN, hint: t.network.pending, unknown: true },
-    { label: t.network.metrics.timeout, value: UNKNOWN, hint: t.network.pending, unknown: true },
-    { label: t.network.metrics.offline, value: UNKNOWN, hint: t.network.pending, unknown: true },
-  ] as const;
+  /* 四格：全部 / 在线 / 超时 / 离线。只有私有监控可用时显示真实计数；全部 = 全部交付线路，
+     未绑定与未知只计入「全部」并在其提示里单列（待接入组）。监控不可用 / 读取中保持 — 未知态。 */
+  const counts = nodeStatusCounts(statusItems);
+  const unknownHint = nodeStatus.kind === "loading" ? t.network.statusLoading : t.network.statusUnavailable;
+  const metrics = live
+    ? [
+        { label: t.network.metrics.all, value: String(counts.all), hint: t.network.metricHints.all(counts.unbound, counts.unknown), unknown: false, tone: "" },
+        { label: t.network.metrics.online, value: String(counts.online), hint: t.network.metricHints.online, unknown: false, tone: "is-online" },
+        { label: t.network.metrics.timeout, value: String(counts.stale), hint: t.network.metricHints.timeout, unknown: false, tone: "is-stale" },
+        { label: t.network.metrics.offline, value: String(counts.offline), hint: t.network.metricHints.offline, unknown: false, tone: "is-offline" },
+      ]
+    : [
+        { label: t.network.metrics.all, value: UNKNOWN, hint: unknownHint, unknown: true, tone: "" },
+        { label: t.network.metrics.online, value: UNKNOWN, hint: unknownHint, unknown: true, tone: "" },
+        { label: t.network.metrics.timeout, value: UNKNOWN, hint: unknownHint, unknown: true, tone: "" },
+        { label: t.network.metrics.offline, value: UNKNOWN, hint: unknownHint, unknown: true, tone: "" },
+      ];
 
   return (
     <section className="cc-net-panel" aria-labelledby="cc-net-nodes-title">
@@ -391,13 +446,25 @@ function NodesPanel({
 
       <div className="cc-net-metrics" aria-label={t.network.metricsLabel}>
         {metrics.map((metric) => (
-          <article className={metric.unknown ? "is-unknown" : ""} key={metric.label}>
+          <article className={[metric.unknown ? "is-unknown" : "", metric.tone].filter(Boolean).join(" ")} key={metric.label}>
             <strong>{metric.value}</strong>
             <span>{metric.label}</span>
             <small>{metric.hint}</small>
           </article>
         ))}
       </div>
+
+      {statusUnavailable && (
+        <div className="cc-net-warning cc-net-status-warning" role="status">
+          <div>
+            <strong>{t.network.statusUnavailable}</strong>
+            <p>{t.network.statusUnavailableHint}</p>
+          </div>
+          <div className="cc-net-warning-actions">
+            <button type="button" className="cc-net-ghost" onClick={onRetryStatus}>{t.network.retryStatus}</button>
+          </div>
+        </div>
+      )}
 
       {servicesState.kind === "loading" && <Skeleton rows={3} label={t.network.loadingServices} />}
 
@@ -498,12 +565,12 @@ function NodesPanel({
                         {isOpen ? t.account.serviceStatus.open : t.account.serviceStatus.pending}
                       </span>
                       {!isOpen && <span className="cc-net-badge is-waiting">{t.network.waitingDelivery}</span>}
-                      <span className="cc-net-badge is-unknown">{t.network.runtimePending}</span>
+                      {!live && <span className="cc-net-badge is-unknown">{t.network.runtimePending}</span>}
                     </div>
                   </div>
                   <div className="cc-net-line-delivery">
                     <span className="cc-net-line-delivery-label">{t.network.deliveryLines}</span>
-                    <ServiceDeliveryLines service={service} deliveryState={deliveryState} />
+                    <ServiceDeliveryLines service={service} deliveryState={deliveryState} statusFor={statusFor} />
                   </div>
                   {isOpen && service.orderRef.trim() !== "" && (
                     <div className="cc-net-line-actions">
@@ -528,9 +595,26 @@ function NodesPanel({
               {orphanLineGroups.map((group) => (
                 <div className="cc-net-orphan-group" key={group.orderRef}>
                   <small>{t.network.orphanOrder(group.orderRef)}</small>
-                  <DeliveryLineLinks lines={group.lines} orderRef={group.orderRef} />
+                  <DeliveryLineLinks lines={group.lines} orderRef={group.orderRef} statusFor={statusFor} />
                 </div>
               ))}
+            </div>
+          )}
+
+          {giftLines.length > 0 && (
+            <div className="cc-net-gift-lines">
+              <strong>{t.network.giftLinesTitle}</strong>
+              <ul className="cc-net-line-labels">
+                {giftLines.map((line) => (
+                  <li key={`${line.ref}-${line.position}`}>
+                    <div className="cc-net-line-label is-static">
+                      <span className="cc-net-line-label-index" aria-hidden="true">{line.position}</span>
+                      <span className="cc-net-line-label-text">{line.label}<small>{t.network.giftRef(line.ref)}</small></span>
+                      <NodeStatusBadge status={line.status} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 
@@ -678,6 +762,8 @@ export function BuyerNetworkPage() {
   const [deliveryState, setDeliveryState] = useState<Resource<readonly MyDeliveryLineItem[]>>({ kind: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
   const [deliveryToken, setDeliveryToken] = useState(0);
+  const [nodeStatus, setNodeStatus] = useState<NodeStatusState>({ kind: "loading" });
+  const [statusToken, setStatusToken] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -744,6 +830,24 @@ export function BuyerNetworkPage() {
     };
   }, [reloadToken, deliveryToken]);
 
+  /* 在线状态独立读取：失败只把四格与徽标降级为「状态暂不可用」，不影响服务与线路数据。 */
+  useEffect(() => {
+    const controller = new AbortController();
+    let stopped = false;
+    setNodeStatus({ kind: "loading" });
+    void getMyNodeStatus(controller.signal)
+      .then((result) => {
+        if (!stopped) setNodeStatus({ kind: "ready", result });
+      })
+      .catch(() => {
+        if (!stopped) setNodeStatus({ kind: "error" });
+      });
+    return () => {
+      stopped = true;
+      controller.abort();
+    };
+  }, [reloadToken, statusToken]);
+
   const services = servicesState.kind === "ready" ? servicesState.items : null;
   const orders = ordersState.kind === "ready" ? ordersState.items : null;
   const deliveryLines = deliveryState.kind === "ready" ? deliveryState.items : null;
@@ -755,7 +859,8 @@ export function BuyerNetworkPage() {
   const isLoading =
     servicesState.kind === "loading" ||
     ordersState.kind === "loading" ||
-    deliveryState.kind === "loading";
+    deliveryState.kind === "loading" ||
+    nodeStatus.kind === "loading";
   const reload = () => setReloadToken((token) => token + 1);
   const reloadDeliveryLines = () => setDeliveryToken((token) => token + 1);
 
@@ -781,8 +886,10 @@ export function BuyerNetworkPage() {
             ordersState={ordersState}
             deliveryState={deliveryState}
             orphanLineGroups={orphanLineGroups}
+            nodeStatus={nodeStatus}
             onRetry={reload}
             onRetryDeliveryLines={reloadDeliveryLines}
+            onRetryStatus={() => setStatusToken((token) => token + 1)}
           />
           <TrafficPanel
             servicesState={servicesState}

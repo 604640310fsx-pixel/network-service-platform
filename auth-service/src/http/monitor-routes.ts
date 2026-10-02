@@ -11,6 +11,7 @@ import {
   type MonitorPrivateClient,
 } from "../monitor/private-client.js";
 import { readPaymentSession } from "../payment/http-auth.js";
+import { listMyNodeLines, resolveNodeStatuses } from "../monitor/node-status.js";
 import type { TokenHmacKeyring } from "../session/session-token.js";
 import {
   consumeMonitorStatusRateLimit,
@@ -176,5 +177,54 @@ export function registerMonitorHttpRoutes(
         return reply.code(503).send(errorResponse("monitor_unavailable"));
       }
     },
+  });
+
+  /* 买家节点在线状态：会话鉴权 + 与 monitor-status 共用的按用户限流；私有监控未配置时
+     返回 200 {monitor:"unavailable", items:[]}，由前端显示「状态暂不可用」，不让整页 503。 */
+  app.get("/api/me/node-status", async (request, reply) => {
+    setJsonNoStore(reply);
+    if (hasQueryString(request)) {
+      return reply.code(400).send(errorResponse("invalid_request"));
+    }
+    if (dependencies === null) {
+      return reply.code(503).send(errorResponse("monitor_unconfigured"));
+    }
+    let session: ReturnType<typeof readPaymentSession>;
+    try {
+      session = readPaymentSession(request, dependencies);
+    } catch {
+      return reply.code(503).send(errorResponse("monitor_unavailable"));
+    }
+    if (session === null) {
+      return reply.code(401).send(errorResponse("unauthorized"));
+    }
+    if (dependencies.privateClient === null) {
+      return reply.code(200).send({ monitor: "unavailable", items: [] });
+    }
+    try {
+      consumeMonitorStatusRateLimit(
+        dependencies.database,
+        dependencies.rateLimitKeyring,
+        session.principal.userId,
+        dependencies.now ? { now: dependencies.now } : {},
+      );
+    } catch (error) {
+      if (error instanceof RateLimitExceededError) {
+        return reply.code(429).send(errorResponse("rate_limited"));
+      }
+      return reply.code(503).send(errorResponse("monitor_unavailable"));
+    }
+    try {
+      const lines = listMyNodeLines(dependencies.database, session.principal.userId);
+      const client = dependencies.privateClient;
+      const items = await resolveNodeStatuses(
+        lines,
+        (target, signal) => client.status(target, signal),
+        AbortSignal.timeout(MONITOR_AUTH_TOTAL_TIMEOUT_MS),
+      );
+      return reply.code(200).send({ monitor: "available", items });
+    } catch {
+      return reply.code(503).send(errorResponse("monitor_unavailable"));
+    }
   });
 }
