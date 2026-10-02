@@ -329,9 +329,9 @@ test("the Resend transport words email-change codes and notices without leaking 
   );
   await transport.send({ idempotencyKey: "email-change-otp-v1:7:1790000000:AAAAAAAAAAAAAAAAAAAAAA", toEmail: "new@example.net", template: "verification_code", verificationCode: "042917" });
   await transport.send({ idempotencyKey: "email-changed-notice-v1:7:1790000000:AAAAAAAAAAAAAAAAAAAAAA", toEmail: "old@example.net", template: "email_changed_notice", verificationCode: null });
-  assert.equal(bodies[0]!.subject, "Network Service Platform 邮箱变更验证码");
+  assert.equal(bodies[0]!.subject, "Drink Life 邮箱变更验证码");
   assert.match(bodies[0]!.text, /042917/);
-  assert.equal(bodies[1]!.subject, "Network Service Platform 登录邮箱已变更");
+  assert.equal(bodies[1]!.subject, "Drink Life 登录邮箱已变更");
   assert.doesNotMatch(bodies[1]!.text, /new@example\.net|[0-9]{6}/);
   await assert.rejects(
     transport.send({ idempotencyKey: "email-changed-notice-v1:7:1790000000:AAAAAAAAAAAAAAAAAAAAAA", toEmail: "old@example.net", template: "email_changed_notice", verificationCode: "042917" }),

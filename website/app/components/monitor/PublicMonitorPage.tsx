@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useT } from "../../lib/i18n";
 import { useThemePreference, type ThemePreference } from "../../lib/theme";
 import { WorkbenchBanner, workbenchBannerLayoutClass } from "../WorkbenchBanner";
 import { SiteHeader } from "../home/SiteHeader";
@@ -17,28 +18,10 @@ import "./public-monitor.css";
 /* 横幅文案按真实配置状态选择。本页没有网关健康或数据新鲜度证明，因此任何
    模式都不显示 LIVE / 实时同步；统一复用既有 is-fixture 的非绿色状态点，
    避免把“地址已配置”读成在线。 */
-const BANNER_COPY: Record<
-  MonitorBannerMode,
-  { description: string; statusLabel: string; badge: string; className?: string }
-> = {
-  unconfigured: {
-    description: "公共监控地址尚未配置，本页不显示任何实时或演示数据",
-    statusLabel: "监控未接入",
-    badge: "NOT CONFIGURED",
-    className: "is-fixture",
-  },
-  fixture: {
-    description: "查看身份无关的三网监控本地演示布局",
-    statusLabel: "本地演示数据",
-    badge: "FIXTURE · 15S",
-    className: "is-fixture",
-  },
-  embed: {
-    description: "监控地址已配置，下方内容由公共监控网关提供；可达性与数据新鲜度未经本页确认",
-    statusLabel: "状态待确认",
-    badge: "CONFIGURED",
-    className: "is-fixture",
-  },
+const BANNER_STYLE: Record<MonitorBannerMode, { badge: string; className?: string }> = {
+  unconfigured: { badge: "NOT CONFIGURED", className: "is-fixture" },
+  fixture: { badge: "FIXTURE · 15S", className: "is-fixture" },
+  embed: { badge: "CONFIGURED", className: "is-fixture" },
 };
 
 /* 公开 /monitor：官网统一风格的公共实时监控页（游客与登录用户看到同一页面）。
@@ -54,7 +37,8 @@ export function PublicMonitorPage() {
   const { theme, toggleTheme } = useThemePreference();
   const base = import.meta.env.VITE_MONITOR_URL;
   const bannerMode = useMemo(() => monitorBannerMode(base, window.location.origin), [base]);
-  const banner = BANNER_COPY[bannerMode];
+  const copy = useT().monitor;
+  const banner = { ...BANNER_STYLE[bannerMode], ...copy.banner[bannerMode] };
 
   return (
     <div className="cc-shell cc-home pm-shell" data-theme={theme}>
@@ -65,7 +49,7 @@ export function PublicMonitorPage() {
           <div className={workbenchBannerLayoutClass}>
             <WorkbenchBanner
               kicker="REAL-TIME OBSERVABILITY"
-              title="实时网络监控"
+              title={copy.title}
               description={banner.description}
               statusLabel={banner.statusLabel}
               badge={banner.badge}
@@ -89,6 +73,7 @@ export function CustomerShellMonitor() {
 
 /* 公开监控 iframe 主体：/monitor、匿名 /status 与客户中心 /status 共用。 */
 export function PublicMonitorEmbed({ theme }: { theme: ThemePreference }) {
+  const copy = useT().monitor;
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const base = import.meta.env.VITE_MONITOR_URL;
@@ -120,15 +105,15 @@ export function PublicMonitorEmbed({ theme }: { theme: ThemePreference }) {
           ref={iframeRef}
           className="pm-frame"
           src={monitorSource}
-          title="三网实时监控"
+          title={copy.frameTitle}
           allow="fullscreen"
           referrerPolicy="same-origin"
           onLoad={() => postTheme(theme)}
         />
       ) : (
         <div className="pm-empty" role="status" aria-live="polite">
-          <strong>监控地址未配置</strong>
-          <p>监控地址尚未配置，配置后此处将显示实时网络监控。</p>
+          <strong>{copy.emptyTitle}</strong>
+          <p>{copy.emptyBody}</p>
         </div>
       )}
     </section>

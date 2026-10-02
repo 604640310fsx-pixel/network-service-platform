@@ -1,5 +1,6 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useCatalogText, useT, type Messages } from "../../lib/i18n";
 import { networkTypes } from "../../lib/subscribeCatalog";
 import { parseSelectionParams, selectionToQuery, type CatalogSelection } from "../../lib/resolveSelection";
 import { usePlanAvailability } from "../../lib/planAvailability";
@@ -13,39 +14,13 @@ import { StepProgress } from "./StepProgress";
 import { useSubscriptionSelection } from "./useSubscriptionSelection";
 import "./subscribe.css";
 
-const stepsWithSpec = [
-  ["网络类型", "选择网络类型"],
-  ["国家/地区", "选择目标国家"],
-  ["运营商", "选择运营商"],
-  ["规格", "选择套餐规格"],
-  ["有效期", "选择购买时长"],
-  ["确认并提交", "核对方案并填写需求"],
-] as const;
+const STEP_KEYS_WITH_SPEC = ["type", "region", "isp", "spec", "duration", "confirm"] as const;
+const STEP_KEYS_WITHOUT_SPEC = ["type", "region", "isp", "duration", "confirm"] as const;
 
-const stepsWithoutSpec = [
-  ["网络类型", "选择网络类型"],
-  ["国家/地区", "选择目标国家"],
-  ["运营商", "选择运营商"],
-  ["有效期", "选择购买时长"],
-  ["确认并提交", "核对方案并填写需求"],
-] as const;
-
-const solutionPresentation: Record<string, { code: string; label: string; highlights: string[] }> = {
-  "us-local-carrier": {
-    code: "US LOCAL CARRIER",
-    label: "美国本地运营商",
-    highlights: ["NTT", "GTT", "Cogent", "Charter"],
-  },
-  "local-isp": {
-    code: "LOCAL PREMIUM",
-    label: "覆盖地区",
-    highlights: ["美国", "台湾", "日本", "马来西亚"],
-  },
-  residential: {
-    code: "RESIDENTIAL ISP",
-    label: "直连高级路线",
-    highlights: ["CN2 GIA", "9929", "CMIN2"],
-  },
+const solutionCodes: Record<string, string> = {
+  "us-local-carrier": "US LOCAL CARRIER",
+  "local-isp": "LOCAL PREMIUM",
+  residential: "RESIDENTIAL ISP",
 };
 
 /* 真住宅宽带的能力概览把线路名称（电信 CN2 GIA / 联通 9929 / 移动 CMIN2）与住宅环境属性
@@ -53,28 +28,15 @@ const solutionPresentation: Record<string, { code: string; label: string; highli
    呈现，这里从 catalog 的 features 里把线路字符串过滤掉，只保留住宅环境事实，避免同一张
    卡片里出现两次线路信息。不改写 catalog 数据本身。 */
 const RESIDENTIAL_ROUTE_FEATURES = ["电信 CN2 GIA", "联通 9929", "移动 CMIN2"];
-const RESIDENTIAL_FEATURE_LABELS: Record<string, string> = { UDP: "支持完整UDP" };
 
-function residentialEnvironmentFeatures(features: string[]) {
+function residentialEnvironmentFeatures(features: string[], copy: Messages["subscribe"], ct: (text: string) => string) {
   const environment = features
     .filter((feature) => !RESIDENTIAL_ROUTE_FEATURES.includes(feature))
-    .map((feature) => RESIDENTIAL_FEATURE_LABELS[feature] ?? feature);
+    .map((feature) => (feature === "UDP" ? copy.fullUdp : ct(feature)));
   // "真实住宅 ISP" 并非 catalog features 里的字符串，但对应 ispsByTypeAndRegion.residential
   // 里真实命名的住宅 ISP——是同一份 catalog 数据里已有的真实事实，只是换成客户能懂的话。
-  return ["真实住宅 ISP", ...environment];
+  return [copy.realResidentialIsp, ...environment];
 }
-
-/* 地区场景标签：本地展示层覆盖，不写入 subscribeCatalog 的 badge 字段（仅一个短语）。
-   只在真住宅宽带的地区选择卡片上显示，其余网络类型的地区不受影响。 */
-const RESIDENTIAL_REGION_TAGS: Record<string, string[]> = {
-  sg: ["AI 首选", "社媒", "低延迟", "高速", "稳定"],
-  jp: ["AI 推荐", "社媒", "低延迟", "高速", "稳定"],
-  vn: ["AI 推荐", "社媒", "低延迟", "性价比高"],
-  my: ["AI 推荐", "社媒", "低延迟", "稳定"],
-  kr: ["AI 推荐", "社媒", "低延迟", "稳定"],
-  tw: ["AI 推荐", "社媒", "低延迟", "稳定"],
-  us: ["AI 推荐", "社媒", "稳定"],
-};
 
 function optionTabIndex<T extends { id: string }>(
   options: readonly T[],
@@ -121,6 +83,9 @@ function SolutionIcon({ typeId }: { typeId: string }) {
 
 export function SubscribePage() {
   const navigate = useNavigate();
+  const t = useT();
+  const copy = t.subscribe;
+  const ct = useCatalogText();
   const [searchParams, setSearchParams] = useSearchParams();
   // 仅在挂载时读取一次 query 作为初始选择；hook 只有在其解析为完整方案时才采纳，
   // 不完整 / 非法参数不会污染 hook（回退默认选择）。
@@ -128,9 +93,9 @@ export function SubscribePage() {
   const availability = usePlanAvailability();
   const selection = useSubscriptionSelection(initialSelection, availability.index ?? undefined);
   const priceStatus = availability.loading
-    ? "价格加载中…"
+    ? copy.priceLoading
     : availability.error
-      ? "价格暂不可用，请稍后重试"
+      ? copy.priceUnavailable
       : null;
   const canRequest =
     !availability.loading &&
@@ -140,7 +105,9 @@ export function SubscribePage() {
     selection.summary.availability === "available";
   const { activeDrawer, openDrawer, closeDrawer } = useCustomerDrawer();
   const orderOpen = activeDrawer === "order";
-  const steps = selection.requiresSpec ? stepsWithSpec : stepsWithoutSpec;
+  const steps = (selection.requiresSpec ? STEP_KEYS_WITH_SPEC : STEP_KEYS_WITHOUT_SPEC).map(
+    (key) => [copy.steps[key].name, copy.steps[key].tip] as const,
+  );
   // 选择步骤对应的 DOM 区块；最后一步"确认并提交"不再对应区块（跳转独立页）。
   const sectionIds = selection.requiresSpec
     ? ["sub-section-type", "sub-section-region", "sub-section-isp", "sub-section-spec", "sub-section-duration"]
@@ -183,9 +150,9 @@ export function SubscribePage() {
         <div className="sub-content">
           <WorkbenchBanner
             kicker="NETWORK SOLUTION CONFIGURATOR"
-            title="配置适合业务场景的网络方案"
-            description="按网络架构、服务地区与所需选项逐步确认方案。目录价格已接入，未提供的周期价格保持待确认。"
-            statusLabel="方案配置台"
+            title={copy.banner.title}
+            description={copy.banner.description}
+            statusLabel={copy.banner.statusLabel}
             badge="CATALOG V1"
           />
 
@@ -193,40 +160,42 @@ export function SubscribePage() {
 
           <section className="sub-section sub-solution-section" id="sub-section-type">
             <div className="sub-section-heading">
-              <div><span>STEP 01 · NETWORK TYPE</span><h2>选择网络方案架构</h2><p>先确定接入网络的技术方向，再继续配置地区与运营商。</p></div>
-              <small>三类方案</small>
+              <div><span>STEP 01 · NETWORK TYPE</span><h2>{copy.typeSection.title}</h2><p>{copy.typeSection.lead}</p></div>
+              <small>{copy.typeSection.count}</small>
             </div>
-            <div className="sub-grid sub-solution-grid" role="radiogroup" aria-label="网络类型" onKeyDown={handleRadioGroupKeyDown}>
+            <div className="sub-grid sub-solution-grid" role="radiogroup" aria-label={copy.typeSection.groupLabel} onKeyDown={handleRadioGroupKeyDown}>
               {networkTypes.map((option) => {
-                const presentation = solutionPresentation[option.id];
+                const presentation = copy.solutions[option.id];
                 const typeFromFen = typeFromPriceFen(availability.index, option.id);
                 const selected = selection.typeId === option.id;
                 return (
-                  <OptionCard key={option.id} selected={selected} onSelect={() => selection.selectType(option.id)} label={option.name} className="sub-type-option" tabIndex={optionTabIndex(networkTypes, selection.typeId, option.id)}>
+                  <OptionCard key={option.id} selected={selected} onSelect={() => selection.selectType(option.id)} label={ct(option.name)} className="sub-type-option" tabIndex={optionTabIndex(networkTypes, selection.typeId, option.id)}>
                     <span className="sub-solution-top">
                       <span className="sub-solution-icon"><SolutionIcon typeId={option.id} /></span>
-                      <span className="sub-solution-title"><small>{presentation.code}</small><strong>{option.name}</strong></span>
-                      {option.badge && <i className="sub-tag is-accent">{option.badge}</i>}
+                      <span className="sub-solution-title"><small>{solutionCodes[option.id]}</small><strong>{ct(option.name)}</strong></span>
+                      {option.badge && <i className="sub-tag is-accent">{ct(option.badge)}</i>}
                     </span>
-                    <span className="sub-description">{option.description}</span>
-                    <span className="sub-route-group">
-                      <small>{presentation.label}</small>
-                      <span>{presentation.highlights.map((item) => <i key={item}>{item}</i>)}</span>
-                    </span>
+                    <span className="sub-description">{ct(option.description)}</span>
+                    {presentation && (
+                      <span className="sub-route-group">
+                        <small>{presentation.label}</small>
+                        <span>{presentation.highlights.map((item) => <i key={item}>{item}</i>)}</span>
+                      </span>
+                    )}
                     {option.id === "residential" ? (
                       <>
-                        <span className="sub-capability-label">住宅环境</span>
-                        <span className="sub-features">{residentialEnvironmentFeatures(option.features).map((feature) => <span key={feature}>{feature}</span>)}</span>
+                        <span className="sub-capability-label">{copy.typeSection.residentialEnvironment}</span>
+                        <span className="sub-features">{residentialEnvironmentFeatures(option.features, copy, ct).map((feature) => <span key={feature}>{feature}</span>)}</span>
                       </>
                     ) : (
                       <>
-                        <span className="sub-capability-label">能力概览</span>
-                        <span className="sub-features">{option.features.map((feature) => <span key={feature}>{feature}</span>)}</span>
+                        <span className="sub-capability-label">{copy.typeSection.capabilities}</span>
+                        <span className="sub-features">{option.features.map((feature) => <span key={feature}>{ct(feature)}</span>)}</span>
                       </>
                     )}
                     <span className="sub-solution-footer">
-                      <span><small>正式价格</small><b>{typeFromFen === null ? "价格待确认" : `${formatCardYuan(typeFromFen)} 起`}</b></span>
-                      <strong>{selected ? "当前方案" : "选择方案"}<i aria-hidden="true">→</i></strong>
+                      <span><small>{copy.typeSection.officialPrice}</small><b>{typeFromFen === null ? copy.pricePending : copy.from(formatCardYuan(typeFromFen))}</b></span>
+                      <strong>{selected ? copy.typeSection.current : copy.typeSection.choose}<i aria-hidden="true">→</i></strong>
                     </span>
                   </OptionCard>
                 );
@@ -236,29 +205,29 @@ export function SubscribePage() {
 
           <section className="sub-section" id="sub-section-region">
             <div className="sub-section-heading">
-              <div><span>STEP 02 · LOCATION</span><h2>选择国家/地区</h2><p>确认网络服务的目标接入区域。</p></div>
-              <small>{selection.availableRegions.length} 个可用区域</small>
+              <div><span>STEP 02 · LOCATION</span><h2>{copy.regionSection.title}</h2><p>{copy.regionSection.lead}</p></div>
+              <small>{copy.regionSection.count(selection.availableRegions.length)}</small>
             </div>
             <div
               className={`sub-grid sub-grid-region${selection.typeId === "residential" ? " has-tags" : ""}`}
               role="radiogroup"
-              aria-label="国家或地区"
+              aria-label={copy.regionSection.groupLabel}
               onKeyDown={handleRadioGroupKeyDown}
             >
               {selection.availableRegions.map((option) => {
                 const regionFromFen = selection.typeId === null ? null : regionFromPriceFen(availability.index, selection.typeId, option.id);
                 return (
-                <OptionCard key={option.id} selected={selection.regionId === option.id} onSelect={() => selection.selectRegion(option.id)} label={option.name} className="sub-region-option" tabIndex={optionTabIndex(selection.availableRegions, selection.regionId, option.id)}>
+                <OptionCard key={option.id} selected={selection.regionId === option.id} onSelect={() => selection.selectRegion(option.id)} label={ct(option.name)} className="sub-region-option" tabIndex={optionTabIndex(selection.availableRegions, selection.regionId, option.id)}>
                   <span className="sub-region-main">
-                    <span className="sub-option-head"><i className={`sub-flag is-${option.flagClass}`} aria-hidden="true" /><strong>{option.name}</strong></span>
+                    <span className="sub-option-head"><i className={`sub-flag is-${option.flagClass}`} aria-hidden="true" /><strong>{ct(option.name)}</strong></span>
                     <span className="sub-region-meta">
-                      {regionFromFen === null ? <small>价格待确认</small> : <b>{formatCardYuan(regionFromFen)}<small> 起</small></b>}
-                      {option.badge && <i className={`sub-tag ${option.configured ? "is-accent" : ""}`}>{option.badge}</i>}
+                      {regionFromFen === null ? <small>{copy.pricePending}</small> : <b>{copy.fromPrefix && <small>{copy.fromPrefix}</small>}{formatCardYuan(regionFromFen)}{copy.fromSuffix && <small>{copy.fromSuffix}</small>}</b>}
+                      {option.badge && <i className={`sub-tag ${option.configured ? "is-accent" : ""}`}>{ct(option.badge)}</i>}
                     </span>
                   </span>
-                  {selection.typeId === "residential" && RESIDENTIAL_REGION_TAGS[option.id] && (
+                  {selection.typeId === "residential" && copy.residentialRegionTags[option.id] && (
                     <span className="sub-region-tags">
-                      {RESIDENTIAL_REGION_TAGS[option.id]!.map((tag) => <i key={tag} className="sub-tag">{tag}</i>)}
+                      {copy.residentialRegionTags[option.id]!.map((tag) => <i key={tag} className="sub-tag">{tag}</i>)}
                     </span>
                   )}
                 </OptionCard>
@@ -269,64 +238,64 @@ export function SubscribePage() {
 
           <section className="sub-section" id="sub-section-isp">
             <div className="sub-section-heading">
-              <div><span>STEP 03 · NETWORK OPERATOR</span><h2>选择运营商{selection.regionId && <em>· {selection.summary.region}</em>}</h2><p>查看当前地区已经配置的 ISP 接入方案。</p></div>
-              <small>{selection.availableIsps.length ? `${selection.availableIsps.length} 个可用项` : "待配置"}</small>
+              <div><span>STEP 03 · NETWORK OPERATOR</span><h2>{copy.ispSection.title}{selection.regionId && <em>· {ct(selection.summary.region)}</em>}</h2><p>{copy.ispSection.lead}</p></div>
+              <small>{selection.availableIsps.length ? copy.ispSection.count(selection.availableIsps.length) : copy.ispSection.pendingConfig}</small>
             </div>
             {selection.availableIsps.length ? (
-              <div className="sub-grid sub-isp-grid" role="radiogroup" aria-label="运营商" onKeyDown={handleRadioGroupKeyDown}>
+              <div className="sub-grid sub-isp-grid" role="radiogroup" aria-label={copy.ispSection.groupLabel} onKeyDown={handleRadioGroupKeyDown}>
                 {selection.availableIsps.map((option) => (
                   <OptionCard key={option.id} selected={selection.ispId === option.id} onSelect={() => selection.selectIsp(option.id)} label={option.name} className="sub-isp-option" tabIndex={optionTabIndex(selection.availableIsps, selection.ispId, option.id)}>
-                    <span><strong>{option.name}</strong><small>{option.routeInfo ?? option.description}</small></span>
+                    <span><strong>{option.name}</strong><small>{ct(option.routeInfo ?? option.description)}</small></span>
                   </OptionCard>
                 ))}
               </div>
-            ) : <div className="sub-pending" role="status">该地区方案待配置</div>}
+            ) : <div className="sub-pending" role="status">{copy.ispSection.regionPending}</div>}
           </section>
 
           {selection.requiresSpec && <section className="sub-section" id="sub-section-spec">
             <div className="sub-section-heading">
-              <div><span>STEP 04 · SERVICE PROFILE</span><h2>选择使用规格</h2><p>按共享方式、流量与使用场景确认接入规格。</p></div>
-              <small>{selection.availableSpecs.length ? `${selection.availableSpecs.length} 个规格` : "请先选择 ISP"}</small>
+              <div><span>STEP 04 · SERVICE PROFILE</span><h2>{copy.specSection.title}</h2><p>{copy.specSection.lead}</p></div>
+              <small>{selection.availableSpecs.length ? copy.specSection.count(selection.availableSpecs.length) : copy.specSection.chooseIspFirst}</small>
             </div>
             {selection.availableSpecs.length ? (
-              <div className="sub-grid sub-grid-three" role="radiogroup" aria-label="套餐规格" onKeyDown={handleRadioGroupKeyDown}>
+              <div className="sub-grid sub-grid-three" role="radiogroup" aria-label={copy.specSection.groupLabel} onKeyDown={handleRadioGroupKeyDown}>
                 {selection.availableSpecs.map((option) => {
                   const monthlyFen = selection.typeId === null ? null : specMonthlyPriceFen(availability.index, selection.typeId, selection.regionId, selection.ispId, option.id);
                   return (
-                  <OptionCard key={option.id} selected={selection.specId === option.id} onSelect={() => selection.selectSpec(option.id)} label={option.name} className="sub-spec-option" tabIndex={optionTabIndex(selection.availableSpecs, selection.specId, option.id)}>
-                    <span className="sub-option-head"><strong>{option.name}</strong>{option.badge && <i className="sub-tag is-accent">{option.badge}</i>}<i className="sub-tag">{monthlyFen === null ? "价格待确认" : `${formatCardYuan(monthlyFen)} / 月`}</i></span>
-                    <span className="sub-features">{option.features.map((feature) => <span key={feature}>{feature}</span>)}</span>
-                    <span className="sub-option-cta">{option.description}</span>
+                  <OptionCard key={option.id} selected={selection.specId === option.id} onSelect={() => selection.selectSpec(option.id)} label={ct(option.name)} className="sub-spec-option" tabIndex={optionTabIndex(selection.availableSpecs, selection.specId, option.id)}>
+                    <span className="sub-option-head"><strong>{ct(option.name)}</strong>{option.badge && <i className="sub-tag is-accent">{ct(option.badge)}</i>}<i className="sub-tag">{monthlyFen === null ? copy.pricePending : copy.perMonth(formatCardYuan(monthlyFen))}</i></span>
+                    <span className="sub-features">{option.features.map((feature) => <span key={feature}>{ct(feature)}</span>)}</span>
+                    <span className="sub-option-cta">{ct(option.description)}</span>
                   </OptionCard>
                   );
                 })}
               </div>
-            ) : <div className="sub-pending">请先选择可用的运营商方案</div>}
+            ) : <div className="sub-pending">{copy.specSection.chooseIspPlanFirst}</div>}
           </section>}
 
           <section className="sub-section" id="sub-section-duration">
             <div className="sub-section-heading">
               <div>
                 <span>{selection.requiresSpec ? "STEP 05" : "STEP 04"} · SERVICE TERM</span>
-                <h2>选择有效期</h2>
-                <p>价格由服务器实时核定；未提供价格或已停售/售罄的周期保持待确认。</p>
+                <h2>{copy.durationSection.title}</h2>
+                <p>{copy.durationSection.lead}</p>
                 {priceStatus && <p className={`sub-price-status${availability.error ? " is-error" : ""}`} role={availability.error ? "alert" : "status"}>{priceStatus}</p>}
               </div>
-              <small>{selection.availableDurations.length} 个期限</small>
+              <small>{copy.durationSection.count(selection.availableDurations.length)}</small>
             </div>
             {selection.canSelectDuration ? (
-              <div className="sub-grid sub-grid-four" role="radiogroup" aria-label="购买有效期" onKeyDown={handleRadioGroupKeyDown}>
+              <div className="sub-grid sub-grid-four" role="radiogroup" aria-label={copy.durationSection.groupLabel} onKeyDown={handleRadioGroupKeyDown}>
                 {selection.availableDurations.map((option) => {
                   const total = selection.durationPrices[option.id] ?? null;
                   const status = selection.durationAvailability[option.id] ?? "unknown";
-                  const statusLabel = status === "sold_out" ? "售罄" : status === "unavailable" ? "暂不可选" : null;
+                  const statusLabel = status === "sold_out" ? copy.durationSection.soldOut : status === "unavailable" ? copy.durationSection.unavailable : null;
                   const durationDisabled = status === "sold_out" || status === "unavailable";
                   return (
                     <OptionCard
                       key={option.id}
                       selected={selection.durationId === option.id}
                       onSelect={() => selection.selectDuration(option.id)}
-                      label={option.name}
+                      label={ct(option.name)}
                       className="sub-duration-option"
                       disabled={durationDisabled}
                       tabIndex={optionTabIndex(
@@ -340,20 +309,20 @@ export function SubscribePage() {
                       )}
                     >
                       <span className="sub-option-head">
-                        <strong>{option.name}</strong>
-                        {statusLabel ? <i className="sub-tag">{statusLabel}</i> : option.badge && <i className="sub-tag is-accent">{option.badge}</i>}
+                        <strong>{ct(option.name)}</strong>
+                        {statusLabel ? <i className="sub-tag">{statusLabel}</i> : option.badge && <i className="sub-tag is-accent">{ct(option.badge)}</i>}
                       </span>
                       <span className="sub-duration-total">{total === null ? "—" : `¥${total}`}</span>
-                      <span className="sub-duration-meta"><span>{total === null ? (statusLabel ?? "价格待确认") : `约 ¥${Math.floor(total / option.months)} / 月`}</span><b /></span>
+                      <span className="sub-duration-meta"><span>{total === null ? (statusLabel ?? copy.pricePending) : copy.durationSection.approxPerMonth(Math.floor(total / option.months))}</span><b /></span>
                     </OptionCard>
                   );
                 })}
               </div>
-            ) : <div className="sub-pending">{selection.requiresSpec ? "请先选择套餐规格" : "请先选择运营商"}</div>}
+            ) : <div className="sub-pending">{selection.requiresSpec ? copy.durationSection.chooseSpecFirst : copy.durationSection.chooseIspFirst}</div>}
           </section>
         </div>
 
-        <aside className="sub-desktop-summary" aria-label="方案摘要"><OrderSummary summary={selection.summary} canRequest={canRequest} onRequest={goToRequest} /></aside>
+        <aside className="sub-desktop-summary" aria-label={copy.summaryLabel}><OrderSummary summary={selection.summary} canRequest={canRequest} onRequest={goToRequest} /></aside>
       </div>
 
       <aside
@@ -361,9 +330,9 @@ export function SubscribePage() {
         data-cc-drawer="order"
         role={orderOpen ? "dialog" : undefined}
         aria-modal={orderOpen ? true : undefined}
-        aria-label="方案摘要抽屉"
+        aria-label={copy.summaryDrawerLabel}
       >
-        <button type="button" className="sub-drawer-close" onClick={closeDrawer} aria-label="关闭方案摘要">×</button>
+        <button type="button" className="sub-drawer-close" onClick={closeDrawer} aria-label={copy.closeSummary}>×</button>
         <OrderSummary summary={selection.summary} canRequest={canRequest} drawer onRequest={goToRequest} />
       </aside>
       <MobileOrderBar summary={selection.summary} canRequest={canRequest} open={orderOpen} onOpen={(trigger) => openDrawer("order", trigger)} onRequest={goToRequest} />

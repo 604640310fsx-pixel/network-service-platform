@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { useCatalogText, useT, type Messages } from "../../lib/i18n";
 import {
   PaymentApiError,
   getMyDeliveryLines,
@@ -54,17 +55,17 @@ type OrphanLineGroup = {
 
 const UNKNOWN = "—";
 
-function resourceErrorMessage(resource: "服务" | "订单" | "交付线路", error: unknown): string {
+function resourceErrorMessage(resource: string, error: unknown, messages: Messages["dashboard"]): string {
   if (error instanceof PaymentApiError && error.code === "invalid_response") {
-    return `${resource}数据返回异常，请稍后重试。`;
+    return messages.resourceInvalid(resource);
   }
-  return `暂时无法读取${resource}状态，请稍后重试。`;
+  return messages.resourceUnavailable(resource);
 }
 
-function formatDate(value: string): string {
+function formatDate(value: string, locale: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(locale, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -276,6 +277,7 @@ function DeliveryLineLinks({
   lines: readonly MyDeliveryLineItem[];
   orderRef: string;
 }) {
+  const t = useT();
   return (
     <ul className="cc-net-line-labels">
       {lines.map((line) => (
@@ -283,11 +285,11 @@ function DeliveryLineLinks({
           <Link
             className="cc-net-line-label"
             to={buyerStatusHref()}
-            aria-label={`线路 ${line.position}：${line.label}（订单 ${orderRef}），前往服务器状态页查看`}
+            aria-label={t.network.lineAria(line.position, line.label, orderRef)}
           >
             <span className="cc-net-line-label-index" aria-hidden="true">{line.position}</span>
             <span className="cc-net-line-label-text">{line.label}</span>
-            <span className="cc-net-line-label-go" aria-hidden="true">服务器状态</span>
+            <span className="cc-net-line-label-go" aria-hidden="true">{t.network.lineGo}</span>
           </Link>
         </li>
       ))}
@@ -307,10 +309,11 @@ function ServiceDeliveryLines({
   service: AccountServiceView;
   deliveryState: Resource<readonly MyDeliveryLineItem[]>;
 }) {
+  const t = useT();
   if (service.serviceStatus === "pending_open") {
     return (
       <p className="cc-net-line-note">
-        等待人工交付：服务完成开通后才会生成买家可见线路名称，当前不展示任何线路。
+        {t.network.awaitingDelivery}
       </p>
     );
   }
@@ -318,18 +321,18 @@ function ServiceDeliveryLines({
     return <DeliveryLineLinks lines={service.lines} orderRef={service.orderRef} />;
   }
   if (deliveryState.kind === "loading") {
-    return <p className="cc-net-line-note">正在读取该服务的线路名称…</p>;
+    return <p className="cc-net-line-note">{t.network.linesLoading}</p>;
   }
   if (deliveryState.kind === "ready") {
     return (
       <p className="cc-net-line-note is-unknown">
-        尚未配置买家可见线路名称：服务已开通，但没有可展示的线路条目。
+        {t.network.linesNotConfigured}
       </p>
     );
   }
   return (
     <p className="cc-net-line-note is-unknown">
-      线路名称暂不可读取，本次未显示该服务的任何线路。
+      {t.network.linesUnavailable}
     </p>
   );
 }
@@ -351,40 +354,42 @@ function NodesPanel({
   onRetry: () => void;
   onRetryDeliveryLines: () => void;
 }) {
+  const t = useT();
+  const ct = useCatalogText();
   const openCount = accountServices.filter((service) => service.serviceStatus === "open").length;
   const ready = servicesState.kind === "ready";
   /* 线路条数只作为「名称记录数」出现在说明文字里，并且始终与「不代表节点数量」同句，
      绝不进入四格统计，也绝不被读成在线节点数。 */
   const lineCountText =
-    deliveryState.kind === "ready" ? ` · 已交付线路名称 ${deliveryState.items.length} 条` : "";
+    deliveryState.kind === "ready" ? t.network.lineCount(deliveryState.items.length) : "";
   const subline = ready
-    ? `关联服务 ${accountServices.length} 项 · 已开通 ${openCount} 项${lineCountText} · 不代表节点数量`
+    ? t.network.nodesSubline(accountServices.length, openCount, lineCountText)
     : servicesState.kind === "loading"
-      ? "正在读取账户服务"
-      : "账户服务暂不可读取";
-  const tag = servicesState.kind === "loading" ? "读取中" : "节点待接入";
+      ? t.network.servicesLoading
+      : t.network.servicesUnavailable;
+  const tag = servicesState.kind === "loading" ? t.network.loadingTag : t.network.nodesPendingTag;
 
   /* 参考稿的四格：全部 / 在线 / 超时 / 离线。
      当前公共接口连节点总数都不能证明，因此四项都保持 — 未知态。 */
   const metrics = [
-    { label: "全部", value: UNKNOWN, hint: "节点接口待接入", unknown: true },
-    { label: "在线", value: UNKNOWN, hint: "待接入", unknown: true },
-    { label: "超时", value: UNKNOWN, hint: "待接入", unknown: true },
-    { label: "离线", value: UNKNOWN, hint: "待接入", unknown: true },
+    { label: t.network.metrics.all, value: UNKNOWN, hint: t.network.nodesApiPending, unknown: true },
+    { label: t.network.metrics.online, value: UNKNOWN, hint: t.network.pending, unknown: true },
+    { label: t.network.metrics.timeout, value: UNKNOWN, hint: t.network.pending, unknown: true },
+    { label: t.network.metrics.offline, value: UNKNOWN, hint: t.network.pending, unknown: true },
   ] as const;
 
   return (
     <section className="cc-net-panel" aria-labelledby="cc-net-nodes-title">
       <PanelHead
         eyebrow="NODES"
-        title="可用节点"
+        title={t.network.nodesTitle}
         titleId="cc-net-nodes-title"
         subline={subline}
         tag={tag}
         icon={<NodesIcon />}
       />
 
-      <div className="cc-net-metrics" aria-label="节点状态统计">
+      <div className="cc-net-metrics" aria-label={t.network.metricsLabel}>
         {metrics.map((metric) => (
           <article className={metric.unknown ? "is-unknown" : ""} key={metric.label}>
             <strong>{metric.value}</strong>
@@ -394,16 +399,16 @@ function NodesPanel({
         ))}
       </div>
 
-      {servicesState.kind === "loading" && <Skeleton rows={3} label="正在读取关联账户服务…" />}
+      {servicesState.kind === "loading" && <Skeleton rows={3} label={t.network.loadingServices} />}
 
       {/* 会话失效必须整页导航；SPA Link 会被旧的 authenticated 状态弹回 /dashboard。 */}
       {servicesState.kind === "unauthorized" && (
         <StateBlock
           tone="alert"
           icon={<NodesIcon />}
-          title="登录状态已失效"
-          hint="重新登录后即可查看当前账户的关联服务；节点数据仍以接口接入状态为准。"
-          action={<a className="cc-net-primary" href="/login">重新登录</a>}
+          title={t.network.signedOutTitle}
+          hint={t.network.signedOutHint}
+          action={<a className="cc-net-primary" href="/login">{t.account.signInAgain}</a>}
         />
       )}
 
@@ -412,10 +417,10 @@ function NodesPanel({
           tone="alert"
           icon={<NodesIcon />}
           title={servicesState.message}
-          hint="网络恢复后可重新读取关联账户服务；不会据此推算节点数量。"
+          hint={t.network.errorHint}
           action={
             <button type="button" className="cc-net-primary" onClick={onRetry}>
-              重新加载
+              {t.account.reload}
             </button>
           }
         />
@@ -425,9 +430,9 @@ function NodesPanel({
         <StateBlock
           tone="empty"
           icon={<NodesIcon />}
-          title="暂无关联账户服务"
-          hint="节点接口尚未接入；当前账户也没有可用于辅助说明的服务记录。"
-          action={<Link className="cc-net-primary" to="/subscribe">前往套餐订阅</Link>}
+          title={t.network.emptyTitle}
+          hint={t.network.emptyHint}
+          action={<Link className="cc-net-primary" to="/subscribe">{t.account.goSubscribe}</Link>}
         />
       )}
 
@@ -435,7 +440,7 @@ function NodesPanel({
         <>
           {(ordersState.kind === "error" || ordersState.kind === "unauthorized") && (
             <p className="cc-net-inline-note" role="status">
-              服务属性（地区、运营商、类型）暂时无法读取，已留空而非猜测。
+              {t.network.attributesUnavailable}
             </p>
           )}
 
@@ -447,18 +452,18 @@ function NodesPanel({
                 <strong>
                   {deliveryState.kind === "error"
                     ? deliveryState.message
-                    : "线路名称需要重新登录后读取"}
+                    : t.network.linesNeedLogin}
                 </strong>
                 <p>
-                  下方服务与开通状态仍是本次读取到的真实数据；仅线路名称未能读取，已按服务逐条标注，不使用缓存或示例线路顶替。
+                  {t.network.linesPartialFailure}
                 </p>
               </div>
               <div className="cc-net-warning-actions">
                 <button type="button" className="cc-net-ghost" onClick={onRetryDeliveryLines}>
-                  重试读取线路名称
+                  {t.network.retryLines}
                 </button>
                 {deliveryState.kind === "unauthorized" && (
-                  <a className="cc-net-ghost" href="/login">重新登录</a>
+                  <a className="cc-net-ghost" href="/login">{t.account.signInAgain}</a>
                 )}
               </div>
             </div>
@@ -467,15 +472,15 @@ function NodesPanel({
           <ul className="cc-net-lines">
             {accountServices.map((service) => {
               const isOpen = service.serviceStatus === "open";
-              const attributes = [service.region, service.isp, service.type].filter(
-                (value): value is string => value !== null,
-              );
+              const attributes = [service.region, service.isp, service.type]
+                .filter((value): value is string => value !== null)
+                .map(ct);
               const attributeLabel =
                 ordersState.kind === "loading"
-                  ? "套餐属性读取中"
+                  ? t.network.attributesLoading
                   : ordersState.kind === "ready"
-                    ? "套餐目录未匹配"
-                    : "套餐属性待读取";
+                    ? t.network.catalogUnmatched
+                    : t.network.attributesPending;
               return (
                 <li className="cc-net-line" key={service.orderRef}>
                   <div className="cc-net-line-top">
@@ -485,19 +490,19 @@ function NodesPanel({
                       <small>
                         {attributes.length > 0 ? attributes.join(" · ") : attributeLabel}
                         <i aria-hidden="true" />
-                        {formatDate(service.createdAt)}
+                        {formatDate(service.createdAt, t.account.dateLocale)}
                       </small>
                     </div>
                     <div className="cc-net-line-meta">
                       <span className={`cc-net-badge ${isOpen ? "is-open" : ""}`}>
-                        {isOpen ? "已开通" : "待开通"}
+                        {isOpen ? t.account.serviceStatus.open : t.account.serviceStatus.pending}
                       </span>
-                      {!isOpen && <span className="cc-net-badge is-waiting">等待人工交付</span>}
-                      <span className="cc-net-badge is-unknown">运行状态待接入</span>
+                      {!isOpen && <span className="cc-net-badge is-waiting">{t.network.waitingDelivery}</span>}
+                      <span className="cc-net-badge is-unknown">{t.network.runtimePending}</span>
                     </div>
                   </div>
                   <div className="cc-net-line-delivery">
-                    <span className="cc-net-line-delivery-label">交付线路名称</span>
+                    <span className="cc-net-line-delivery-label">{t.network.deliveryLines}</span>
                     <ServiceDeliveryLines service={service} deliveryState={deliveryState} />
                   </div>
                   {isOpen && service.orderRef.trim() !== "" && (
@@ -506,9 +511,9 @@ function NodesPanel({
                         className="cc-net-ghost"
                         to={`/subscribe/request?orderRef=${encodeURIComponent(service.orderRef)}`}
                       >
-                        查看订阅信息
+                        {t.network.viewSubscription}
                       </Link>
-                      <Link className="cc-net-ghost" to="/docs">查看导入说明</Link>
+                      <Link className="cc-net-ghost" to="/docs">{t.network.importGuide}</Link>
                     </div>
                   )}
                 </li>
@@ -518,11 +523,11 @@ function NodesPanel({
 
           {orphanLineGroups.length > 0 && (
             <div className="cc-net-orphan">
-              <strong>未匹配到账户服务的已交付线路</strong>
-              <p>以下线路名称属于当前账户，但本次读到的服务列表里没有对应记录；刷新后通常会归入对应服务。</p>
+              <strong>{t.network.orphanTitle}</strong>
+              <p>{t.network.orphanBody}</p>
               {orphanLineGroups.map((group) => (
                 <div className="cc-net-orphan-group" key={group.orderRef}>
-                  <small>关联订单 {group.orderRef}</small>
+                  <small>{t.network.orphanOrder(group.orderRef)}</small>
                   <DeliveryLineLinks lines={group.lines} orderRef={group.orderRef} />
                 </div>
               ))}
@@ -530,8 +535,7 @@ function NodesPanel({
           )}
 
           <p className="cc-net-panel-foot">
-            以上仅为关联账户服务与其买家可见线路名称，不等于节点清单：线路条数不是在线节点数，
-            节点总数、在线、超时与离线状态均保持未知态。线路名称不包含订阅地址、主机名、IP、面板地址或任何连接信息。
+            {t.network.nodesFoot}
           </p>
         </>
       )}
@@ -539,11 +543,7 @@ function NodesPanel({
   );
 }
 
-const TRAFFIC_FACTS = [
-  { label: "已用流量", hint: "用量接口待接入" },
-  { label: "剩余流量", hint: "配额接口待接入" },
-  { label: "重置周期", hint: "周期数据待接入" },
-] as const;
+const TRAFFIC_FACTS = ["used", "remaining", "reset"] as const;
 
 function TrafficPanel({
   servicesState,
@@ -554,6 +554,8 @@ function TrafficPanel({
   ordersState: Resource<readonly MyOrderItem[]>;
   accountServices: readonly AccountServiceView[];
 }) {
+  const t = useT();
+  const ct = useCatalogText();
   const ready = servicesState.kind === "ready";
   const statusHref = resolveBuyerStatusHref();
 
@@ -561,19 +563,19 @@ function TrafficPanel({
     <section className="cc-net-panel" aria-labelledby="cc-net-traffic-title">
       <PanelHead
         eyebrow="TRAFFIC"
-        title="流量明细"
+        title={t.network.trafficTitle}
         titleId="cc-net-traffic-title"
-        subline="查看你的流量使用记录与套餐标称"
-        tag="统计待接入"
+        subline={t.network.trafficSubline}
+        tag={t.network.trafficTag}
         icon={<TrafficIcon />}
       />
 
-      <div className="cc-net-traffic-summary" aria-label="流量统计">
+      <div className="cc-net-traffic-summary" aria-label={t.network.trafficLabel}>
         {TRAFFIC_FACTS.map((fact) => (
-          <div key={fact.label}>
-            <span>{fact.label}</span>
+          <div key={fact}>
+            <span>{t.network.trafficFacts[fact].label}</span>
             <strong>{UNKNOWN}</strong>
-            <small>{fact.hint}</small>
+            <small>{t.network.trafficFacts[fact].hint}</small>
           </div>
         ))}
       </div>
@@ -581,17 +583,17 @@ function TrafficPanel({
       {/* 未知态用斜纹轨道表达，不用任何会被误读为 0% 或健康值的实心进度条。 */}
       <div className="cc-net-meter">
         <div className="cc-net-meter-track" aria-hidden="true" />
-        <small>用量与配额均未接入，此处不显示任何推算值或 0 值。</small>
+        <small>{t.network.meterNote}</small>
       </div>
 
-      {servicesState.kind === "loading" && <Skeleton rows={2} label="正在读取关联账户服务…" />}
+      {servicesState.kind === "loading" && <Skeleton rows={2} label={t.network.loadingServices} />}
 
       {(servicesState.kind === "unauthorized" || servicesState.kind === "error") && (
         <StateBlock
           tone="alert"
           icon={<TrafficIcon />}
-          title="暂无法显示流量明细"
-          hint="账户服务不可读取时，不展示任何服务标称或用量数据。"
+          title={t.network.trafficUnavailableTitle}
+          hint={t.network.trafficUnavailableHint}
         />
       )}
 
@@ -599,13 +601,13 @@ function TrafficPanel({
         <StateBlock
           tone="empty"
           icon={<TrafficIcon />}
-          title="暂无流量记录"
-          hint="账户还没有关联服务，也没有可展示的用量记录；开通服务后这里会显示对应服务的目录标称。"
+          title={t.network.trafficEmptyTitle}
+          hint={t.network.trafficEmptyHint}
         />
       )}
 
       {ready && accountServices.length > 0 && ordersState.kind === "loading" && (
-        <Skeleton rows={2} label="正在读取服务目录标称…" />
+        <Skeleton rows={2} label={t.network.catalogLoading} />
       )}
 
       {ready && accountServices.length > 0 &&
@@ -613,43 +615,43 @@ function TrafficPanel({
         <StateBlock
           tone="alert"
           icon={<TrafficIcon />}
-          title="套餐目录暂不可读取"
-          hint="目录读取失败时不会显示推算标称，也不会把缺失数据误报为 0。"
+          title={t.network.catalogUnavailableTitle}
+          hint={t.network.catalogUnavailableHint}
         />
       )}
 
       {ready && accountServices.length > 0 && ordersState.kind === "ready" && (
         <>
           <div className="cc-net-subhead">
-            <strong>各服务目录标称</strong>
-            <span>来自已冻结套餐目录，非实测用量</span>
+            <strong>{t.network.catalogTitle}</strong>
+            <span>{t.network.catalogNote}</span>
           </div>
           <ul className="cc-net-traffic-rows">
             <li className="cc-net-traffic-row is-head" aria-hidden="true">
-              <span>服务</span>
-              <span>目录标称流量</span>
-              <span>目录标称带宽</span>
-              <span>实际用量</span>
+              <span>{t.network.columns.service}</span>
+              <span>{t.network.columns.traffic}</span>
+              <span>{t.network.columns.bandwidth}</span>
+              <span>{t.network.columns.usage}</span>
             </li>
             {accountServices.map((service) => (
               <li className="cc-net-traffic-row" key={service.orderRef}>
                 <span className="cc-net-traffic-ref">
                   <strong>{service.orderRef}</strong>
-                  <small>{service.region ?? "套餐目录未匹配"}</small>
+                  <small>{service.region === null ? t.network.catalogUnmatched : ct(service.region)}</small>
                 </span>
                 {/* 表头行是纯视觉的（aria-hidden），字段名因此写进每个单元格：
                     桌面视觉隐藏但可被读屏读到，窄屏直接显示为行内标签。 */}
                 <span>
-                  <i className="cc-net-cell-label">目录标称流量</i>
-                  {service.traffic ?? "目录未收录"}
+                  <i className="cc-net-cell-label">{t.network.columns.traffic}</i>
+                  {service.traffic ?? t.network.notInCatalog}
                 </span>
                 <span>
-                  <i className="cc-net-cell-label">目录标称带宽</i>
-                  {service.bandwidth ?? "目录未收录"}
+                  <i className="cc-net-cell-label">{t.network.columns.bandwidth}</i>
+                  {service.bandwidth ?? t.network.notInCatalog}
                 </span>
                 <span className="cc-net-traffic-unknown">
-                  <i className="cc-net-cell-label">实际用量</i>
-                  待接入
+                  <i className="cc-net-cell-label">{t.network.columns.usage}</i>
+                  {t.network.pending}
                 </span>
               </li>
             ))}
@@ -660,16 +662,17 @@ function TrafficPanel({
       <div className="cc-net-monitor-note">
         <span className="cc-net-monitor-icon"><MonitorIcon /></span>
         <div>
-          <strong>服务器状态入口</strong>
-          <p>前往服务器状态页查看当前账户获准的状态投影；目标由服务端按所有权选择，不会进入浏览器。</p>
+          <strong>{t.network.statusTitle}</strong>
+          <p>{t.network.statusBody}</p>
         </div>
-        <Link className="cc-net-ghost" to={statusHref}>查看服务器状态</Link>
+        <Link className="cc-net-ghost" to={statusHref}>{t.network.viewStatus}</Link>
       </div>
     </section>
   );
 }
 
 export function BuyerNetworkPage() {
+  const t = useT();
   const [servicesState, setServicesState] = useState<Resource<readonly MyServiceItem[]>>({ kind: "loading" });
   const [ordersState, setOrdersState] = useState<Resource<readonly MyOrderItem[]>>({ kind: "loading" });
   const [deliveryState, setDeliveryState] = useState<Resource<readonly MyDeliveryLineItem[]>>({ kind: "loading" });
@@ -692,7 +695,7 @@ export function BuyerNetworkPage() {
           setServicesState({ kind: "unauthorized" });
           return;
         }
-        setServicesState({ kind: "error", message: resourceErrorMessage("服务", error) });
+        setServicesState({ kind: "error", message: resourceErrorMessage(t.network.resources.services, error, t.dashboard) });
       });
 
     void getMyOrders(controller.signal)
@@ -705,7 +708,7 @@ export function BuyerNetworkPage() {
           setOrdersState({ kind: "unauthorized" });
           return;
         }
-        setOrdersState({ kind: "error", message: resourceErrorMessage("订单", error) });
+        setOrdersState({ kind: "error", message: resourceErrorMessage(t.network.resources.orders, error, t.dashboard) });
       });
 
     return () => {
@@ -732,7 +735,7 @@ export function BuyerNetworkPage() {
           setDeliveryState({ kind: "unauthorized" });
           return;
         }
-        setDeliveryState({ kind: "error", message: resourceErrorMessage("交付线路", error) });
+        setDeliveryState({ kind: "error", message: resourceErrorMessage(t.network.resources.lines, error, t.dashboard) });
       });
 
     return () => {
@@ -762,12 +765,12 @@ export function BuyerNetworkPage() {
         <header className="cc-net-head">
           <span className="cc-net-head-icon"><NodesIcon /></span>
           <div>
-            <h1>可用节点与流量明细</h1>
-            <p>关联服务、开通状态与已交付线路名称来自你的真实账户数据；节点清单、在线状态与流量统计尚未接入，保持未知态而不显示为 0。</p>
+            <h1>{t.network.pageTitle}</h1>
+            <p>{t.network.pageLead}</p>
           </div>
           <button type="button" onClick={reload} disabled={isLoading}>
             <RefreshIcon />
-            {isLoading ? "读取中…" : "刷新账户数据"}
+            {isLoading ? t.network.refreshing : t.network.refresh}
           </button>
         </header>
 

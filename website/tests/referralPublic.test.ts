@@ -2,6 +2,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+// The referral center's interface copy lives in the zh dictionary: centre copy runs from
+// `referral: {` up to the shared withdraw/dialog strings, which run up to `records: {`.
+function referralCopySlices(read: (path: string) => string) {
+  const zh = read("../app/i18n/zh.ts");
+  const start = zh.indexOf("  referral: {");
+  const parts = zh.indexOf("    withdrawTitlePending:", start);
+  const records = zh.indexOf("    records: {", start);
+  return { center: zh.slice(start, parts), parts: zh.slice(parts, records), records: zh.slice(records, zh.indexOf("\n  },\n", records)) };
+}
+
 import {
   ReferralPublicApiError,
   parseReferralPublicResolution,
@@ -81,12 +91,18 @@ test("landing keeps registration closed and does not claim attribution", () => {
     new URL("../app/components/auth/RegisterPage.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(landing, /当前仅开放邀请注册/);
+  assert.match(landing, /<p>\{copy\.policy\}<\/p>/);
+  {
+    const zhCopy = readFileSync(new URL("../app/i18n/zh.ts", import.meta.url), "utf8");
+    const landingCopy = zhCopy.slice(zhCopy.indexOf("  referralLanding: {"), zhCopy.indexOf("\n  },\n", zhCopy.indexOf("  referralLanding: {")));
+    assert.match(landingCopy, /当前仅开放邀请注册/);
+    assert.match(landingCopy, /不代表推荐归属或佣金资格/);
+    assert.match(landingCopy, /管理员签发、绑定邮箱的一次性邀请码，或已注册用户分享的个人邀请码/);
+    assert.match(landingCopy, /推荐链接中的代码同时是分享者的个人邀请码，只能用于注册，不能登录任何账户/);
+    assert.doesNotMatch(landingCopy, /注册暂未开放|推荐链接不包含邀请码|获取邀请码|申请邀请码|即将开放|预计开放/);
+  }
   assert.doesNotMatch(landing, /注册暂未开放/);
   assert.doesNotMatch(landing, /href=\{`\/register\?referralCode=/);
-  assert.match(landing, /不代表推荐归属或佣金资格/);
-  assert.match(landing, /管理员签发、绑定邮箱的一次性邀请码，或已注册用户分享的个人邀请码/);
-  assert.match(landing, /推荐链接中的代码同时是分享者的个人邀请码，只能用于注册，不能登录任何账户/);
   assert.doesNotMatch(landing, /推荐链接不包含邀请码/);
   assert.doesNotMatch(landing, /获取邀请码|申请邀请码|即将开放|预计开放/);
   assert.match(registration, /name="inviteCode"/);
@@ -102,10 +118,7 @@ test("landing keeps registration closed and does not claim attribution", () => {
 });
 
 test("formal referral center states closed actions and leaves withdrawal disabled", () => {
-  const center = readFileSync(
-    new URL("../app/components/referrals/ReferralCenter.tsx", import.meta.url),
-    "utf8",
-  );
+  const center = referralCopySlices((path) => readFileSync(new URL(path, import.meta.url), "utf8")).center;
   const parts = readFileSync(
     new URL("../app/components/referrals/referralParts.tsx", import.meta.url),
     "utf8",

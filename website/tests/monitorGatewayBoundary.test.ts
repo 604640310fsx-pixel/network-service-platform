@@ -16,15 +16,25 @@ test("public monitor uses the dedicated embed view without target identity", () 
   const page = source("../app/components/monitor/PublicMonitorPage.tsx");
   assert.match(page, /embedded:\s*true/);
   assert.match(page, /referrerPolicy="same-origin"/);
-  assert.match(page, /本地演示数据/);
   assert.match(page, /FIXTURE · 15S/);
   assert.match(page, /monitorBannerMode\(/);
-  assert.match(page, /unconfigured:\s*\{[^}]*statusLabel:\s*"监控未接入"/);
-  assert.match(page, /embed:\s*\{[^}]*statusLabel:\s*"状态待确认"/);
+  assert.match(page, /\.\.\.copy\.banner\[bannerMode\]/);
+  // Banner copy lives in the dictionaries (both languages).
+  const zhCopy = source("../app/i18n/zh.ts");
+  const enCopy = source("../app/i18n/en.ts");
+  assert.match(zhCopy, /fixture: \{[^}]*statusLabel: "本地演示数据"/);
+  assert.match(zhCopy, /unconfigured: \{[^}]*statusLabel: "监控未接入"/);
+  assert.match(zhCopy, /embed: \{[^}]*statusLabel: "状态待确认"/);
   // URL validation is not gateway health or freshness proof: no mode may claim live data.
-  const embedCopy = page.match(/\n  embed:\s*\{[^}]*\}/)?.[0];
-  assert.ok(embedCopy, "BANNER_COPY.embed block must exist");
-  assert.doesNotMatch(embedCopy, /LIVE|实时数据同步|15S/);
+  const embedStyle = page.match(/\n  embed:\s*\{[^}]*\}/)?.[0];
+  assert.ok(embedStyle, "BANNER_STYLE.embed block must exist");
+  assert.doesNotMatch(embedStyle, /LIVE|15S/);
+  for (const dictionary of [zhCopy, enCopy]) {
+    const monitorCopy = dictionary.slice(dictionary.indexOf("  monitor: {"), dictionary.indexOf("  notFound: {"));
+    const embedCopy = monitorCopy.match(/embed: \{[^}]*\}/)?.[0];
+    assert.ok(embedCopy, "monitor.banner.embed copy must exist");
+    assert.doesNotMatch(embedCopy, /LIVE|实时数据同步|15S|live data/i);
+  }
   assert.doesNotMatch(page, /target\s*:/);
   assert.doesNotMatch(page, /广州三网/);
 });

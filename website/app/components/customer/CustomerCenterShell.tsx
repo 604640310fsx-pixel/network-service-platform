@@ -10,6 +10,7 @@ import {
 } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
+import { useT } from "../../lib/i18n";
 import { useThemePreference, type ThemePreference } from "../../lib/theme";
 import {
   buildMonitorEmbedUrl,
@@ -17,6 +18,7 @@ import {
   monitorPostTargetOrigin,
 } from "../../lib/monitorEmbed";
 import { requestPostLogoutFocus } from "../auth/AuthShell";
+import { LanguageToggle } from "../common/LanguageToggle";
 import "./customer-center.css";
 
 type DrawerKind = "navigation" | "order";
@@ -59,10 +61,10 @@ export function useCustomerShellTheme(): ThemePreference {
 }
 
 const navigation = [
-  { group: "概览", items: [["/status", "服务器状态"], ["/dashboard", "仪表板"]] },
-  { group: "订阅管理", items: [["/subscribe", "套餐订阅"], ["/services", "当前套餐"], ["/network", "节点与流量"], ["/orders", "订单"]] },
-  { group: "支持与帮助", items: [["/tickets", "工单"], ["/docs", "使用文档"]] },
-  { group: "账户设置", items: [["/profile", "个人中心"], ["/invites", "邀请中心"], ["/referrals", "邀请/推广"]] },
+  { group: "overview", items: ["/status", "/dashboard"] },
+  { group: "subscription", items: ["/subscribe", "/services", "/network", "/orders"] },
+  { group: "support", items: ["/tickets", "/docs"] },
+  { group: "account", items: ["/profile", "/invites", "/referrals"] },
 ] as const;
 
 function NavIcon({ href }: { href: string }) {
@@ -90,6 +92,7 @@ function NavIcon({ href }: { href: string }) {
    经精确 targetOrigin 单向 postMessage 下发，iframe 不重载、也不丢失内部刷新态。
    未配置监控地址时显示真实的“未配置”态，不伪造在线数据。 */
 function SidebarMonitorCard({ theme, onNavigate }: { theme: ThemePreference; onNavigate: () => void }) {
+  const t = useT();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const base = import.meta.env.VITE_MONITOR_URL;
   // 初始 src 只取一次主题，避免首屏闪烁；后续切换主题不改变 src，不触发 iframe 重载。
@@ -114,14 +117,14 @@ function SidebarMonitorCard({ theme, onNavigate }: { theme: ThemePreference; onN
   }, [theme, postTheme]);
 
   return (
-    <section className="cc-monitor-card" aria-label="网络状态监控">
+    <section className="cc-monitor-card" aria-label={t.center.monitorLabel}>
       {monitorSource ? (
         <div className="cc-monitor-embed">
           <iframe
             ref={iframeRef}
             className="cc-monitor-frame"
             src={monitorSource}
-            title="电信 / 移动 / 联通 实时延迟概览"
+            title={t.center.monitorFrameTitle}
             loading="lazy"
             referrerPolicy="same-origin"
             onLoad={() => postTheme(theme)}
@@ -129,12 +132,12 @@ function SidebarMonitorCard({ theme, onNavigate }: { theme: ThemePreference; onN
         </div>
       ) : (
         <div className="cc-monitor-unconfigured" role="status">
-          <b>网络状态监控</b>
-          <p>监控地址未配置，配置后此处显示电信 / 移动 / 联通实时延迟。</p>
+          <b>{t.center.monitorLabel}</b>
+          <p>{t.center.monitorUnconfigured}</p>
         </div>
       )}
       <NavLink to="/status" className="cc-monitor-link" onClick={onNavigate}>
-        查看服务器状态<span aria-hidden="true">→</span>
+        {t.center.viewServerStatus}<span aria-hidden="true">→</span>
       </NavLink>
     </section>
   );
@@ -153,6 +156,7 @@ export function CustomerCenterShell({
       让 /status 的监控成为单层贴边工作面，仅 iframe 自身滚动。 */
   fill?: boolean;
 }) {
+  const t = useT();
   const { theme, toggleTheme } = useThemePreference();
   const { status: authStatus, logout } = useAuth();
   const navigate = useNavigate();
@@ -237,27 +241,30 @@ export function CustomerCenterShell({
           data-cc-drawer="navigation"
           role={activeDrawer === "navigation" ? "dialog" : undefined}
           aria-modal={activeDrawer === "navigation" ? true : undefined}
-          aria-label="客户中心导航"
+          aria-label={t.center.sidebarLabel}
         >
           <div className="cc-brand">
-            <Link to="/" className="cc-brand-link" aria-label="Drink Life 首页" onClick={closeDrawer}>
+            <Link to="/" className="cc-brand-link" aria-label={t.center.homeLabel} onClick={closeDrawer}>
               <span className="cc-brand-mark" aria-hidden="true" />
             </Link>
-            <button type="button" className="cc-sidebar-close" onClick={closeDrawer} aria-label="关闭导航"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 6h18M3 12h18M3 18h18" /></svg></button>
+            <button type="button" className="cc-sidebar-close" onClick={closeDrawer} aria-label={t.center.closeNav}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 6h18M3 12h18M3 18h18" /></svg></button>
           </div>
-          <nav className="cc-navigation" aria-label="客户中心">
+          <nav className="cc-navigation" aria-label={t.center.navLabel}>
             {navigation.map((group) => (
               <div className="cc-nav-group" key={group.group}>
-                <p>{group.group}</p>
-                {group.items.map(([href, label]) => migratedPaths.has(href) ? (
+                <p>{t.center.navGroups[group.group]}</p>
+                {group.items.map((href) => {
+                  const label = t.center.nav[href] ?? href;
+                  return migratedPaths.has(href) ? (
                   <NavLink key={href} to={href} onClick={closeDrawer} className={({ isActive }) => isActive ? "is-active" : ""}>
                     <NavIcon href={href} />{label}
                   </NavLink>
                 ) : (
-                  <button key={href} type="button" className="cc-nav-pending" aria-disabled="true" disabled title={`${label}待接入`}>
+                  <button key={href} type="button" className="cc-nav-pending" aria-disabled="true" disabled title={t.center.navPending(label)}>
                     <NavIcon href={href} />{label}
                   </button>
-                ))}
+                );
+                })}
               </div>
             ))}
           </nav>
@@ -269,7 +276,7 @@ export function CustomerCenterShell({
             <button
               type="button"
               className="cc-icon-button cc-menu-button"
-              aria-label="打开导航"
+              aria-label={t.center.openNav}
               aria-expanded={activeDrawer === "navigation"}
               onClick={(event) => openDrawer("navigation", event.currentTarget)}
             >
@@ -279,10 +286,11 @@ export function CustomerCenterShell({
             </button>
             <div className="cc-page-title"><h1>{title}</h1><p>{description}</p></div>
             <div className="cc-top-actions">
+              <LanguageToggle />
               <button
                 type="button"
                 className="cc-icon-button"
-                aria-label={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
+                aria-label={theme === "dark" ? t.common.toLightTheme : t.common.toDarkTheme}
                 aria-pressed={theme === "light"}
                 onClick={toggleTheme}
               >
@@ -292,13 +300,13 @@ export function CustomerCenterShell({
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
                 )}
               </button>
-              <span className="cc-balance-placeholder" aria-label="余额功能待接入" title="余额功能待接入">余额 <b>—</b></span>
-              <Link className="cc-user-link" to="/profile" aria-label="进入个人中心"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="3.4" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></svg><span>个人中心</span></Link>
+              <span className="cc-balance-placeholder" aria-label={t.center.balancePending} title={t.center.balancePending}>{t.center.balance} <b>—</b></span>
+              <Link className="cc-user-link" to="/profile" aria-label={t.center.profileLabel}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="3.4" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></svg><span>{t.center.profile}</span></Link>
               {authStatus === "authenticated" && (
                 <button
                   type="button"
                   className={`cc-logout-button${logoutPending ? " is-pending" : ""}`}
-                  aria-label="退出登录"
+                  aria-label={t.center.logout}
                   aria-busy={logoutPending}
                   disabled={logoutPending}
                   onClick={() => void handleLogout()}
@@ -306,16 +314,16 @@ export function CustomerCenterShell({
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
                     <path d="M10 5H5v14h5M14 8l4 4-4 4M8 12h10" />
                   </svg>
-                  <span>{logoutPending ? "退出中…" : "退出登录"}</span>
+                  <span>{logoutPending ? t.center.loggingOut : t.center.logout}</span>
                 </button>
               )}
             </div>
-            {logoutFailed && <span className="cc-logout-error" role="alert">退出失败，请重试</span>}
+            {logoutFailed && <span className="cc-logout-error" role="alert">{t.center.logoutFailed}</span>}
           </header>
           <CustomerShellThemeContext.Provider value={theme}>{children}</CustomerShellThemeContext.Provider>
         </div>
 
-        {activeDrawer && <button type="button" className={`cc-scrim ${activeDrawer === "navigation" ? "is-navigation" : ""}`} onClick={closeDrawer} aria-label="关闭抽屉" />}
+        {activeDrawer && <button type="button" className={`cc-scrim ${activeDrawer === "navigation" ? "is-navigation" : ""}`} onClick={closeDrawer} aria-label={t.center.closeDrawer} />}
       </div>
     </CustomerDrawerContext.Provider>
   );

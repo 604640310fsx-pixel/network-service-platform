@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { useT } from "../../lib/i18n";
 import { CustomerCenterShell } from "../customer/CustomerCenterShell";
 import { RequirementForm } from "./RequirementForm";
 import { OrderStatusPanel } from "./OrderStatusPanel";
@@ -33,6 +34,8 @@ import "./subscribe.css";
 export function SubmitRequestPage() {
   const [searchParams] = useSearchParams();
   const location = useLocation();
+  const t = useT();
+  const copy = t.subscribe.request;
   const availability = usePlanAvailability();
   const explicitOrderRef = searchParams.get("orderRef")?.trim() ?? "";
   const alipayOrderRef = searchParams.get("out_trade_no")?.trim() ?? "";
@@ -61,7 +64,7 @@ export function SubmitRequestPage() {
   if (visibleOrderRef !== "") {
     const initialResult = readInitialResult(location.state, visibleOrderRef);
     return (
-      <CustomerCenterShell title="服务状态" description="查看支付结果与服务开通进度">
+      <CustomerCenterShell title={copy.statusTitle} description={copy.statusDescription}>
         <main className="sub-page">
           <div className="sub-request-page">
             <OrderStatusPanel key={visibleOrderRef} orderRef={visibleOrderRef} initialResult={initialResult} />
@@ -72,43 +75,43 @@ export function SubmitRequestPage() {
   }
 
   return (
-    <CustomerCenterShell title="提交方案需求" description="核对已选方案并填写交付信息，提交后立即付款">
+    <CustomerCenterShell title={copy.title} description={copy.description}>
       <main className="sub-page">
         <div className="sub-request-page">
           {overPaymentLimit ? (
             <section className="sub-section sub-request-invalid" role="status">
-              <h2>暂不支持在线购买</h2>
-              <p>该方案超过当前在线支付限额，请返回选择其他规格或周期。</p>
-              <Link className="sub-request-back-btn" to={`/subscribe?${selectionToQuery(selection)}`}>返回修改方案</Link>
+              <h2>{copy.overLimitTitle}</h2>
+              <p>{copy.overLimitBody}</p>
+              <Link className="sub-request-back-btn" to={`/subscribe?${selectionToQuery(selection)}`}>{copy.backToEdit}</Link>
             </section>
           ) : !summary.complete ? (
             <section className="sub-section sub-request-invalid" role="status">
-              <h2>方案信息已失效</h2>
-              <p>请返回网络方案页重新选择</p>
-              <Link className="sub-request-back-btn" to="/subscribe">返回选择方案</Link>
+              <h2>{copy.invalidTitle}</h2>
+              <p>{copy.invalidBody}</p>
+              <Link className="sub-request-back-btn" to="/subscribe">{copy.backToChoose}</Link>
             </section>
           ) : availability.loading ? (
             <section className="sub-section sub-request-invalid" role="status">
-              <h2>价格核对中</h2>
-              <p>正在获取服务器实时价格与库存，请稍候。</p>
+              <h2>{copy.checkingTitle}</h2>
+              <p>{copy.checkingBody}</p>
             </section>
           ) : availability.error ? (
             <section className="sub-section sub-request-invalid" role="status">
-              <h2>价格暂不可用</h2>
-              <p>价格暂不可用，请稍后重试。</p>
-              <Link className="sub-request-back-btn" to={`/subscribe?${selectionToQuery(selection)}`}>返回修改方案</Link>
+              <h2>{copy.priceUnavailableTitle}</h2>
+              <p>{copy.priceUnavailableBody}</p>
+              <Link className="sub-request-back-btn" to={`/subscribe?${selectionToQuery(selection)}`}>{copy.backToEdit}</Link>
             </section>
           ) : unavailable ? (
             <section className="sub-section sub-request-invalid" role="status">
-              <h2>{summary.availability === "sold_out" ? "该方案已售罄" : "该方案暂不可选"}</h2>
-              <p>请返回选择其他规格或周期。</p>
-              <Link className="sub-request-back-btn" to={`/subscribe?${selectionToQuery(selection)}`}>返回修改方案</Link>
+              <h2>{summary.availability === "sold_out" ? copy.soldOutTitle : copy.unavailableTitle}</h2>
+              <p>{copy.chooseOther}</p>
+              <Link className="sub-request-back-btn" to={`/subscribe?${selectionToQuery(selection)}`}>{copy.backToEdit}</Link>
             </section>
           ) : (
             <>
               <div className="sub-request-page-bar">
                 <Link className="sub-request-back" to={`/subscribe?${selectionToQuery(selection)}`}>
-                  <span aria-hidden="true">←</span> 返回修改方案
+                  <span aria-hidden="true">←</span> {copy.backToEdit}
                 </Link>
               </div>
               <section className="sub-section">

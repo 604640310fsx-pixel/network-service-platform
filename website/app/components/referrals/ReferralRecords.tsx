@@ -2,7 +2,6 @@ import { useId, useRef, useState, type KeyboardEvent } from "react";
 import {
   ALL_MONTHS,
   WITHDRAW_MIN_FEN,
-  formatRate,
   formatYuan,
   groupOrders,
   monthFilterModel,
@@ -13,15 +12,27 @@ import {
   type ReferralOrderStatus,
   type ReferralSnapshot,
 } from "./referralModel";
+import { useT, type Messages } from "../../lib/i18n";
 import { ReferralDialog } from "./ReferralDialog";
 import { Money, WithdrawButton } from "./referralParts";
 
 type TabKey = "commission" | "customers" | "settlement";
-const TABS: readonly { key: TabKey; label: string }[] = [
-  { key: "commission", label: "佣金明细" },
-  { key: "customers", label: "推荐客户" },
-  { key: "settlement", label: "结算与提现" },
-];
+const TABS: readonly { key: TabKey }[] = [{ key: "commission" }, { key: "customers" }, { key: "settlement" }];
+
+type ReferralCopy = Messages["referral"];
+type RecordsCopy = ReferralCopy["records"];
+
+function rateText(copy: ReferralCopy, rate: number | null): string {
+  return rate === null ? copy.pending : `${rate}%`;
+}
+
+function tierText(copy: ReferralCopy, name: string | null, rate: number | null): string {
+  return name ? `${copy.tierNames[name] ?? name} ${rateText(copy, rate)}` : copy.pending;
+}
+
+function statusText(copy: ReferralCopy, status: string): string {
+  return copy.statuses[status] ?? status;
+}
 
 export function statusClass(status: ReferralOrderStatus): string {
   if (status === "可提现") return " is-ok";
@@ -45,6 +56,7 @@ export function ReferralRecords({ data, candidates = { status: "pending" }, onCa
   onCandidatePageChange?: (page: number) => void;
 }) {
   const baseId = useId();
+  const copy = useT().referral.records;
   const [tab, setTab] = useState<TabKey>("commission");
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
@@ -58,7 +70,7 @@ export function ReferralRecords({ data, candidates = { status: "pending" }, onCa
 
   return (
     <div className="rfc-card rfc-records">
-      <div className="rfc-tablist" role="tablist" aria-label="记录分类">
+      <div className="rfc-tablist" role="tablist" aria-label={copy.tabsLabel}>
         {TABS.map((item, index) => (
           <button
             key={item.key}
@@ -73,7 +85,7 @@ export function ReferralRecords({ data, candidates = { status: "pending" }, onCa
             onClick={() => setTab(item.key)}
             onKeyDown={(event) => onTabKey(event, index)}
           >
-            {item.label}
+            {copy.tabs[item.key]}
           </button>
         ))}
       </div>
@@ -104,26 +116,27 @@ function CandidatePanel({ candidates, onPageChange }: {
   candidates: ReferralCandidatesState;
   onPageChange?: (page: number) => void;
 }) {
+  const copy = useT().referral.records;
   return (
-    <section className="rfc-candidates" aria-label="待确认推荐">
-      <h3>待确认推荐</h3>
-      <p className="rfc-privacy">仅表示推荐注册候选，尚未建立正式客户归属，不计入月销、等级、佣金或余额。</p>
-      {candidates.status === "pending" ? <p className="rfc-privacy">候选记录尚未接入。</p> : null}
-      {candidates.status === "loading" ? <p className="rfc-privacy" aria-busy="true">正在读取候选记录…</p> : null}
-      {candidates.status === "error" ? <p className="rfc-privacy" role="alert">候选记录读取失败，请重试。</p> : null}
+    <section className="rfc-candidates" aria-label={copy.candidates}>
+      <h3>{copy.candidates}</h3>
+      <p className="rfc-privacy">{copy.candidatesNote}</p>
+      {candidates.status === "pending" ? <p className="rfc-privacy">{copy.candidatesPending}</p> : null}
+      {candidates.status === "loading" ? <p className="rfc-privacy" aria-busy="true">{copy.candidatesLoading}</p> : null}
+      {candidates.status === "error" ? <p className="rfc-privacy" role="alert">{copy.candidatesError}</p> : null}
       {candidates.status === "ready" && candidates.items.length === 0 ? (
-        <p className="rfc-privacy">暂无待确认推荐。</p>
+        <p className="rfc-privacy">{copy.candidatesEmpty}</p>
       ) : null}
       {candidates.status === "ready" && candidates.items.length > 0 ? (
         <div className="rfc-table-wrap">
           <table className="rfc-table">
-            <thead><tr><th>推荐标识</th><th>状态</th><th>注册时间</th></tr></thead>
+            <thead><tr><th>{copy.candidateId}</th><th>{copy.status}</th><th>{copy.registeredAt}</th></tr></thead>
             <tbody>
               {candidates.items.map((candidate) => (
                 <tr key={candidate.displayId}>
-                  <td data-label="推荐标识">{candidate.displayId}</td>
-                  <td data-label="状态"><span className="rfc-status is-pending">待确认推荐</span></td>
-                  <td data-label="注册时间">{new Date(candidate.createdAt).toLocaleString("zh-CN")}</td>
+                  <td data-label={copy.candidateId}>{candidate.displayId}</td>
+                  <td data-label={copy.status}><span className="rfc-status is-pending">{copy.candidates}</span></td>
+                  <td data-label={copy.registeredAt}>{new Date(candidate.createdAt).toLocaleString(copy.dateLocale)}</td>
                 </tr>
               ))}
             </tbody>
@@ -132,9 +145,9 @@ function CandidatePanel({ candidates, onPageChange }: {
       ) : null}
       {candidates.status === "ready" && (candidates.page > 1 || candidates.hasMore) ? (
         <div className="rfc-candidate-pages">
-          <button type="button" className="rfc-mini" disabled={candidates.page === 1} onClick={() => onPageChange?.(candidates.page - 1)}>上一页</button>
-          <span>第 {candidates.page} 页</span>
-          <button type="button" className="rfc-mini" disabled={!candidates.hasMore} onClick={() => onPageChange?.(candidates.page + 1)}>下一页</button>
+          <button type="button" className="rfc-mini" disabled={candidates.page === 1} onClick={() => onPageChange?.(candidates.page - 1)}>{copy.prevPage}</button>
+          <span>{copy.pageNumber(candidates.page)}</span>
+          <button type="button" className="rfc-mini" disabled={!candidates.hasMore} onClick={() => onPageChange?.(candidates.page + 1)}>{copy.nextPage}</button>
         </div>
       ) : null}
     </section>
@@ -142,6 +155,7 @@ function CandidatePanel({ candidates, onPageChange }: {
 }
 
 function RecordsPanel({ tab, data }: { tab: TabKey; data: ReferralCenterData }) {
+  const copy = useT().referral.records;
   if (data.status === "loading") {
     return (
       <div aria-busy="true">
@@ -152,18 +166,16 @@ function RecordsPanel({ tab, data }: { tab: TabKey; data: ReferralCenterData }) 
   if (data.status === "error") {
     return (
       <div className="rfc-notice" role="alert">
-        <h3>暂时无法读取记录</h3>
-        <p>读取失败与“暂无记录”不同：失败时不显示空列表或 ¥0.00，也不会回退到任何示例数据。</p>
+        <h3>{copy.errorTitle}</h3>
+        <p>{copy.errorBody}</p>
       </div>
     );
   }
   if (data.status === "pending") {
     return (
       <div className="rfc-notice">
-        <h3>{tab === "customers" ? "正式客户记录尚未接入" : "正式佣金与结算记录尚未接入"}</h3>
-        <p>{tab === "customers"
-          ? "上方展示待确认推荐候选；正式客户归属仍待确认。"
-          : "正式金额尚未接入，此处显示“—”而不是 0。"}</p>
+        <h3>{tab === "customers" ? copy.customersPendingTitle : copy.commissionPendingTitle}</h3>
+        <p>{tab === "customers" ? copy.customersPendingBody : copy.commissionPendingBody}</p>
       </div>
     );
   }
@@ -173,6 +185,8 @@ function RecordsPanel({ tab, data }: { tab: TabKey; data: ReferralCenterData }) 
 }
 
 function CommissionPanel({ snapshot }: { snapshot: ReferralSnapshot }) {
+  const referralCopy = useT().referral;
+  const copy = referralCopy.records;
   const months = ordersMonths(snapshot.orders);
   const [filter, setFilter] = useState<string>(snapshot.month);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
@@ -182,14 +196,14 @@ function CommissionPanel({ snapshot }: { snapshot: ReferralSnapshot }) {
   if (snapshot.orders.length === 0) {
     return (
       <div className="rfc-notice">
-        <h3>本月暂无有效订单</h3>
-        <p>这是真实零记录：账户可正常推荐，但本月尚无计入有效月销的消费。</p>
+        <h3>{copy.noOrdersTitle}</h3>
+        <p>{copy.noOrdersBody}</p>
       </div>
     );
   }
 
   const activeFilter = filter === ALL_MONTHS || months.includes(filter) ? filter : months[0];
-  const filterModel = monthFilterModel(months);
+  const filterModel = monthFilterModel(months, { year: referralCopy.yearLabel, month: referralCopy.monthLabel });
   const groups = groupOrders(snapshot.orders, activeFilter);
 
   function toggle(id: string) {
@@ -203,9 +217,9 @@ function CommissionPanel({ snapshot }: { snapshot: ReferralSnapshot }) {
   return (
     <>
       <div className="rfc-filter">
-        <span className="rfc-filter-label">{filterModel.yearLabel ?? "所属月份"}</span>
-        <div className="rfc-filter-options" role="group" aria-label="按所属月份筛选">
-          <button type="button" className="rfc-chip" aria-pressed={activeFilter === ALL_MONTHS} onClick={() => setFilter(ALL_MONTHS)}>全部</button>
+        <span className="rfc-filter-label">{filterModel.yearLabel ?? copy.monthFilter}</span>
+        <div className="rfc-filter-options" role="group" aria-label={copy.monthFilterLabel}>
+          <button type="button" className="rfc-chip" aria-pressed={activeFilter === ALL_MONTHS} onClick={() => setFilter(ALL_MONTHS)}>{copy.all}</button>
           {filterModel.options.map((option) => (
             <button
               key={option.value}
@@ -229,8 +243,8 @@ function CommissionPanel({ snapshot }: { snapshot: ReferralSnapshot }) {
           </colgroup>
           <thead>
             <tr>
-              <th>客户与商品</th><th>状态</th><th className="is-num">计佣金额</th>
-              <th className="is-num">实际比例</th><th className="is-num">佣金</th><th className="is-act">详情</th>
+              <th>{copy.colCustomer}</th><th>{copy.status}</th><th className="is-num">{copy.colAmount}</th>
+              <th className="is-num">{copy.colRate}</th><th className="is-num">{copy.colCommission}</th><th className="is-act">{copy.colDetail}</th>
             </tr>
           </thead>
           {groups.map((group) => (
@@ -238,7 +252,7 @@ function CommissionPanel({ snapshot }: { snapshot: ReferralSnapshot }) {
               <tr className="rfc-group">
                 <td colSpan={6}>
                   {group.month}
-                  <span>{group.month === snapshot.month ? "本月 · 预估" : "历史月份 · 按当期等级"}</span>
+                  <span>{group.month === snapshot.month ? copy.currentMonth : copy.pastMonth}</span>
                 </td>
               </tr>
               {group.orders.map((order) => {
@@ -250,17 +264,17 @@ function CommissionPanel({ snapshot }: { snapshot: ReferralSnapshot }) {
                     <td colSpan={6}>
                       <OrderDetail order={order} snapshot={snapshot} />
                       <div className="rfc-detail-actions">
-                        <button type="button" className="rfc-mini" onClick={() => setDetail(order)}>在面板中查看完整详情</button>
+                        <button type="button" className="rfc-mini" onClick={() => setDetail(order)}>{copy.openPanel}</button>
                       </div>
                     </td>
                   </tr>,
                 ];
               })}
               <tr className="rfc-sum">
-                <td className="rfc-sum-title" colSpan={2}>合计 · {group.month}</td>
-                <td className="is-num" data-label="计佣金额合计">{formatYuan(group.amountTotal)}</td>
+                <td className="rfc-sum-title" colSpan={2}>{copy.total(group.month)}</td>
+                <td className="is-num" data-label={copy.amountTotal}>{formatYuan(group.amountTotal)}</td>
                 <td className="is-num is-empty-cell" />
-                <td className="is-num" data-label="佣金合计">{group.commissionTotal === null ? "待确认" : formatYuan(group.commissionTotal)}</td>
+                <td className="is-num" data-label={copy.commissionTotal}>{group.commissionTotal === null ? referralCopy.pending : formatYuan(group.commissionTotal)}</td>
                 <td className="is-act is-empty-cell" />
               </tr>
             </tbody>
@@ -270,18 +284,24 @@ function CommissionPanel({ snapshot }: { snapshot: ReferralSnapshot }) {
 
       {snapshot.original ? (
         <p className="rfc-adjust-note">
-          <b>退款调整（保留原记录）</b>　原有效月销 {formatYuan(snapshot.original.sales)}（{snapshot.original.tierName} {snapshot.original.rate}%）
-          原预估佣金 {formatYuan(snapshot.original.commission)}；退款 {formatYuan(snapshot.original.refund)} 后有效月销 {formatYuan(snapshot.sales)}，
-          佣金 {snapshot.estimate === "unknown" ? "待确认" : formatYuan(snapshot.estimate)}，调整差额 {formatYuan(snapshot.original.adjustment)}。
-          原始订单记录不删除，差额以独立调整记录呈现。
+          <b>{copy.adjustTitle}</b>{copy.adjustBody(
+            formatYuan(snapshot.original.sales),
+            referralCopy.tierNames[snapshot.original.tierName] ?? snapshot.original.tierName,
+            snapshot.original.rate,
+            formatYuan(snapshot.original.commission),
+            formatYuan(snapshot.original.refund),
+            formatYuan(snapshot.sales),
+            snapshot.estimate === "unknown" ? referralCopy.pending : formatYuan(snapshot.estimate),
+            formatYuan(snapshot.original.adjustment),
+          )}
         </p>
       ) : null}
 
       <ReferralDialog
         open={detail !== null}
         onClose={() => setDetail(null)}
-        eyebrow={detail ? `${detail.adjustment ? "调整记录" : "佣金详情"} · ${detail.month}` : "佣金详情"}
-        title={detail ? detail.product : "佣金详情"}
+        eyebrow={detail ? `${detail.adjustment ? copy.adjustRecord : copy.commissionDetail} · ${detail.month}` : copy.commissionDetail}
+        title={detail ? detail.product : copy.commissionDetail}
       >
         {detail ? <OrderDialogBody order={detail} snapshot={snapshot} /> : null}
       </ReferralDialog>
@@ -290,26 +310,28 @@ function CommissionPanel({ snapshot }: { snapshot: ReferralSnapshot }) {
 }
 
 function OrderRow({ order, rowId, open, onToggle }: { order: ReferralOrder; rowId: string; open: boolean; onToggle: () => void }) {
+  const referralCopy = useT().referral;
+  const copy = referralCopy.records;
   return (
     <tr className={order.adjustment ? "rfc-adjust" : undefined}>
-      <td className="rfc-cell-primary" data-label="客户与商品">
+      <td className="rfc-cell-primary" data-label={copy.colCustomer}>
         <span className="rfc-cell-main">{order.customer}</span>
-        <span className="rfc-cell-sub">{order.product} · {order.type}{order.refunded ? " · 已退款" : ""}</span>
+        <span className="rfc-cell-sub">{order.product} · {order.type}{order.refunded ? copy.refunded : ""}</span>
       </td>
-      <td data-label="状态">
-        <span className={`rfc-status${statusClass(order.status)}`}>{order.status}</span>
+      <td data-label={copy.status}>
+        <span className={`rfc-status${statusClass(order.status)}`}>{statusText(referralCopy, order.status)}</span>
         {order.hint ? <span className="rfc-status-hint">{order.hint}</span> : null}
       </td>
-      <td className="is-num" data-label="计佣金额">
+      <td className="is-num" data-label={copy.colAmount}>
         <span className={order.amount < 0 ? "rfc-amount-neg" : undefined}>{formatYuan(order.amount)}</span>
       </td>
-      <td className="is-num" data-label="实际比例">
-        {formatRate(order.rate)}
-        {order.capped ? <span className="rfc-rate-cap">按商品上限</span> : null}
+      <td className="is-num" data-label={copy.colRate}>
+        {rateText(referralCopy, order.rate)}
+        {order.capped ? <span className="rfc-rate-cap">{copy.capped}</span> : null}
       </td>
-      <td className="is-num" data-label="佣金">
+      <td className="is-num" data-label={copy.colCommission}>
         {order.commission === null
-          ? "待确认"
+          ? referralCopy.pending
           : <span className={order.commission < 0 ? "rfc-amount-neg" : undefined}>{formatYuan(order.commission)}</span>}
       </td>
       <td className="is-act">
@@ -318,10 +340,10 @@ function OrderRow({ order, rowId, open, onToggle }: { order: ReferralOrder; rowI
           className="rfc-expand"
           aria-expanded={open}
           aria-controls={rowId}
-          aria-label={`展开「${order.product}」的计算详情`}
+          aria-label={copy.expand(order.product)}
           onClick={onToggle}
         >
-          <span className="rfc-expand-label">计算详情</span>
+          <span className="rfc-expand-label">{copy.calcDetail}</span>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
         </button>
       </td>
@@ -329,36 +351,39 @@ function OrderRow({ order, rowId, open, onToggle }: { order: ReferralOrder; rowI
   );
 }
 
-function calculation(order: ReferralOrder, snapshot: ReferralSnapshot): { code: string; note: string } {
+function calculation(order: ReferralOrder, snapshot: ReferralSnapshot, referralCopy: ReferralCopy): { code: string; note: string } {
+  const copy: RecordsCopy = referralCopy.records;
+  const formatRate = (rate: number | null) => rateText(referralCopy, rate);
   if (order.commission === null) {
     return {
-      code: `月销 ${formatYuan(snapshot.sales)} < ¥59.00 → 计佣方式待确认`,
-      note: "低于 ¥59 的计佣方式尚未最终确认，因此不展示推测金额，也不按 0% 或 10% 处理。",
+      code: copy.calcBelowCode(formatYuan(snapshot.sales)),
+      note: copy.calcBelowNote,
     };
   }
   if (order.adjustment) {
     const adjustment = order.adjustment;
     return {
       code: `${formatYuan(adjustment.original)} − ${formatYuan(adjustment.recalculated)} = ${formatYuan(Math.abs(order.commission))}`,
-      note: "此处为隔离预览的合成调整示例；正式退款调整方式待确认。",
+      note: copy.calcAdjustNote,
     };
   }
   return {
     code: `${formatYuan(order.amount)} × ${formatRate(order.rate)} = ${formatYuan(order.commission)}`,
-    note: `实际比例 = min（当期等级 ${formatRate(order.tierRate)}，商品上限 ${formatRate(order.cap)}） = ${formatRate(order.rate)}。` +
-      "历史订单保留当期等级，不套用其他月份的比例。",
+    note: copy.calcRateNote(formatRate(order.tierRate), formatRate(order.cap), formatRate(order.rate)),
   };
 }
 
 function OrderDetail({ order, snapshot }: { order: ReferralOrder; snapshot: ReferralSnapshot }) {
-  const calc = calculation(order, snapshot);
+  const referralCopy = useT().referral;
+  const copy = referralCopy.records;
+  const calc = calculation(order, snapshot, referralCopy);
   return (
     <>
       <dl className="rfc-detail-grid">
-        <div><dt>订单号</dt><dd>{order.id}</dd></div>
-        <div><dt>所属月份</dt><dd>{order.month}</dd></div>
-        <div><dt>该期适用等级</dt><dd>{order.tierName ? `${order.tierName} ${formatRate(order.tierRate)}` : "待确认"}</dd></div>
-        <div><dt>该单商品上限</dt><dd>{order.cap === null ? "—" : formatRate(order.cap)}</dd></div>
+        <div><dt>{copy.orderNo}</dt><dd>{order.id}</dd></div>
+        <div><dt>{copy.month}</dt><dd>{order.month}</dd></div>
+        <div><dt>{copy.tierApplied}</dt><dd>{tierText(referralCopy, order.tierName, order.tierRate)}</dd></div>
+        <div><dt>{copy.cap}</dt><dd>{order.cap === null ? "—" : rateText(referralCopy, order.cap)}</dd></div>
       </dl>
       <div className="rfc-detail-calc"><code>{calc.code}</code><p>{calc.note}</p></div>
       {order.note ? <div className="rfc-detail-calc"><p>{order.note}</p></div> : null}
@@ -367,41 +392,44 @@ function OrderDetail({ order, snapshot }: { order: ReferralOrder; snapshot: Refe
 }
 
 function OrderDialogBody({ order, snapshot }: { order: ReferralOrder; snapshot: ReferralSnapshot }) {
-  const calc = calculation(order, snapshot);
+  const referralCopy = useT().referral;
+  const copy = referralCopy.records;
+  const calc = calculation(order, snapshot, referralCopy);
   const warn = Boolean(order.adjustment || order.refunded);
   return (
     <>
       <dl className="rfc-facts">
-        <div><dt>订单所属月份</dt><dd>{order.month}</dd></div>
-        <div><dt>订单号</dt><dd>{order.id}</dd></div>
-        <div><dt>客户（脱敏）</dt><dd>{order.customer}<small>不含姓名、联系方式或交付配置</small></dd></div>
-        <div><dt>类型</dt><dd>{order.type}</dd></div>
-        <div><dt>有效计佣金额</dt><dd>{formatYuan(order.amount)}</dd></div>
-        <div><dt>该期适用等级</dt><dd>{order.tierName ? `${order.tierName} ${formatRate(order.tierRate)}` : "待确认"}</dd></div>
-        <div><dt>该单商品上限</dt><dd>{order.cap === null ? "—" : formatRate(order.cap)}</dd></div>
-        <div><dt>实际返佣比例</dt><dd>{formatRate(order.rate)}{order.capped ? <small>受商品上限约束</small> : null}</dd></div>
-        <div><dt>佣金</dt><dd>{order.commission === null ? "待确认" : formatYuan(order.commission)}</dd></div>
-        <div><dt>账务状态</dt><dd>{order.status}{order.hint ? <small>{order.hint}</small> : null}</dd></div>
+        <div><dt>{copy.orderMonth}</dt><dd>{order.month}</dd></div>
+        <div><dt>{copy.orderNo}</dt><dd>{order.id}</dd></div>
+        <div><dt>{copy.customerMasked}</dt><dd>{order.customer}<small>{copy.customerMaskedNote}</small></dd></div>
+        <div><dt>{copy.type}</dt><dd>{order.type}</dd></div>
+        <div><dt>{copy.effectiveAmount}</dt><dd>{formatYuan(order.amount)}</dd></div>
+        <div><dt>{copy.tierApplied}</dt><dd>{tierText(referralCopy, order.tierName, order.tierRate)}</dd></div>
+        <div><dt>{copy.cap}</dt><dd>{order.cap === null ? "—" : rateText(referralCopy, order.cap)}</dd></div>
+        <div><dt>{copy.actualRate}</dt><dd>{rateText(referralCopy, order.rate)}{order.capped ? <small>{copy.cappedNote}</small> : null}</dd></div>
+        <div><dt>{copy.colCommission}</dt><dd>{order.commission === null ? referralCopy.pending : formatYuan(order.commission)}</dd></div>
+        <div><dt>{copy.ledgerStatus}</dt><dd>{statusText(referralCopy, order.status)}{order.hint ? <small>{order.hint}</small> : null}</dd></div>
       </dl>
-      <div className="rfc-calc"><b>{order.adjustment ? "调整计算" : order.commission === null ? "计算说明" : "计算过程"}</b><code>{calc.code}</code><p>{calc.note}</p></div>
+      <div className="rfc-calc"><b>{order.adjustment ? copy.calcAdjust : order.commission === null ? copy.calcExplain : copy.calcProcess}</b><code>{calc.code}</code><p>{calc.note}</p></div>
       <div className={`rfc-block${warn ? " is-warn" : ""}`}>
-        <h3>调整与说明</h3>
-        <p>{order.note ?? "无调整记录。"}</p>
+        <h3>{copy.adjustNotes}</h3>
+        <p>{order.note ?? copy.noAdjust}</p>
       </div>
       <div className="rfc-block">
-        <h3>状态含义</h3>
-        <p>“预估”只是准确性提示，不是新的账务状态。账务状态仍为待结算 → 可提现 → 已提现；退款与拒付以调整记录解释，不会把已支付历史改写成从未支付。</p>
+        <h3>{copy.statusMeaning}</h3>
+        <p>{copy.statusMeaningBody}</p>
       </div>
     </>
   );
 }
 
 function CustomersPanel({ snapshot }: { snapshot: ReferralSnapshot }) {
+  const copy = useT().referral.records;
   if (snapshot.customers.length === 0) {
     return (
       <div className="rfc-notice">
-        <h3>暂无推荐客户</h3>
-        <p>这是真实空列表：还没有客户通过你的推荐完成首次有效成交。</p>
+        <h3>{copy.noCustomersTitle}</h3>
+        <p>{copy.noCustomersBody}</p>
       </div>
     );
   }
@@ -414,45 +442,47 @@ function CustomersPanel({ snapshot }: { snapshot: ReferralSnapshot }) {
             <col style={{ width: "17%" }} /><col style={{ width: "13%" }} />
           </colgroup>
           <thead>
-            <tr><th>客户（脱敏）</th><th>演示记录时间</th><th>演示状态</th><th className="is-num">本月有效消费</th><th className="is-num">本月订单数</th></tr>
+            <tr><th>{copy.customerMasked}</th><th>{copy.demoSince}</th><th>{copy.demoStatus}</th><th className="is-num">{copy.monthSpend}</th><th className="is-num">{copy.monthOrders}</th></tr>
           </thead>
           <tbody>
             {snapshot.customers.map((customer) => (
               <tr key={customer.id}>
-                <td className="rfc-cell-primary" data-label="客户（脱敏）">
+                <td className="rfc-cell-primary" data-label={copy.customerMasked}>
                   <span className="rfc-cell-main">{customer.id}</span>
                   {customer.hint ? <span className="rfc-cell-sub">{customer.hint}</span> : null}
                 </td>
-                <td data-label="演示记录时间">{customer.since}</td>
-                <td data-label="演示状态"><span className="rfc-status is-ok">合成示例</span></td>
-                <td className="is-num" data-label="本月有效消费">{formatYuan(customer.monthAmount)}</td>
-                <td className="is-num" data-label="本月订单数">{customer.monthOrders}</td>
+                <td data-label={copy.demoSince}>{customer.since}</td>
+                <td data-label={copy.demoStatus}><span className="rfc-status is-ok">{copy.synthetic}</span></td>
+                <td className="is-num" data-label={copy.monthSpend}>{formatYuan(customer.monthAmount)}</td>
+                <td className="is-num" data-label={copy.monthOrders}>{customer.monthOrders}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <p className="rfc-privacy">列表只包含返佣所需的最小信息，不展示姓名、手机号、邮箱、真实资源、节点或交付配置。</p>
+      <p className="rfc-privacy">{copy.customersPrivacy}</p>
     </>
   );
 }
 
 function SettlementPanel({ snapshot }: { snapshot: ReferralSnapshot }) {
+  const referralCopy = useT().referral;
+  const copy = referralCopy.records;
   const { ledger, periods } = snapshot;
   return (
     <>
       <div className="rfc-ledger">
-        <article><span className="rfc-ledger-label">已结算佣金余额</span><Money fen={ledger.withdrawable} size="md" /><small>仅来自已结算期间；达 {formatYuan(WITHDRAW_MIN_FEN)} 才可申请提现</small></article>
-        <article><span className="rfc-ledger-label">待结算</span><Money fen={ledger.pending} size="md" /><small>已核算、观察期中；不计入佣金余额</small></article>
-        <article><span className="rfc-ledger-label">已提现</span><Money fen={ledger.withdrawn} size="md" /><small>历史已完成提现</small></article>
+        <article><span className="rfc-ledger-label">{referralCopy.settledBalance}</span><Money fen={ledger.withdrawable} size="md" /><small>{copy.ledgerSettledNote(formatYuan(WITHDRAW_MIN_FEN))}</small></article>
+        <article><span className="rfc-ledger-label">{referralCopy.pendingSettlement}</span><Money fen={ledger.pending} size="md" /><small>{copy.ledgerPendingNote}</small></article>
+        <article><span className="rfc-ledger-label">{referralCopy.withdrawn}</span><Money fen={ledger.withdrawn} size="md" /><small>{copy.ledgerWithdrawnNote}</small></article>
         <article>
-          <span className="rfc-ledger-label">本月预估（另计）</span>
-          {snapshot.estimate === "unknown" ? <span className="rfc-plain">待确认</span> : <Money fen={snapshot.estimate} size="md" />}
-          <small>月末核算后才可能进入待结算，不计入佣金余额</small>
+          <span className="rfc-ledger-label">{copy.ledgerEstimate}</span>
+          {snapshot.estimate === "unknown" ? <span className="rfc-plain">{referralCopy.pending}</span> : <Money fen={snapshot.estimate} size="md" />}
+          <small>{copy.ledgerEstimateNote}</small>
         </article>
       </div>
       {periods.length === 0 ? (
-        <div className="rfc-notice"><h3>暂无结算记录</h3><p>这是真实零记录：还没有进入月度核算的期间。</p></div>
+        <div className="rfc-notice"><h3>{copy.noPeriodsTitle}</h3><p>{copy.noPeriodsBody}</p></div>
       ) : (
         <div className="rfc-table-wrap">
           <table className="rfc-table">
@@ -461,17 +491,17 @@ function SettlementPanel({ snapshot }: { snapshot: ReferralSnapshot }) {
               <col style={{ width: "17%" }} /><col style={{ width: "30%" }} />
             </colgroup>
             <thead>
-              <tr><th>期间</th><th className="is-num">有效月销</th><th>当期等级</th><th className="is-num">佣金</th><th>账务状态</th></tr>
+              <tr><th>{copy.period}</th><th className="is-num">{referralCopy.effectiveSales}</th><th>{copy.periodTier}</th><th className="is-num">{copy.colCommission}</th><th>{copy.ledgerStatus}</th></tr>
             </thead>
             <tbody>
               {periods.map((period) => (
                 <tr key={period.month}>
-                  <td data-label="期间">{period.month}</td>
-                  <td className="is-num" data-label="有效月销">{formatYuan(period.sales)}</td>
-                  <td data-label="当期等级">{period.tierName ? `${period.tierName} ${formatRate(period.rate)}` : "待确认"}</td>
-                  <td className="is-num" data-label="佣金">{period.commission === null ? "待确认" : formatYuan(period.commission)}</td>
-                  <td data-label="账务状态">
-                    <span className={`rfc-status${statusClass(period.status)}`}>{period.status}</span>
+                  <td data-label={copy.period}>{period.month}</td>
+                  <td className="is-num" data-label={referralCopy.effectiveSales}>{formatYuan(period.sales)}</td>
+                  <td data-label={copy.periodTier}>{tierText(referralCopy, period.tierName, period.rate)}</td>
+                  <td className="is-num" data-label={copy.colCommission}>{period.commission === null ? referralCopy.pending : formatYuan(period.commission)}</td>
+                  <td data-label={copy.ledgerStatus}>
+                    <span className={`rfc-status${statusClass(period.status)}`}>{statusText(referralCopy, period.status)}</span>
                     {period.hint ? <span className="rfc-status-hint">{period.hint}</span> : null}
                   </td>
                 </tr>
@@ -481,10 +511,7 @@ function SettlementPanel({ snapshot }: { snapshot: ReferralSnapshot }) {
         </div>
       )}
       <div className="rfc-withdraw-row">
-        <p>
-          已结算佣金余额达到 {formatYuan(WITHDRAW_MIN_FEN)} 才具备申请提现资格；本月预估与待结算不计入。
-          不申请则留在佣金余额，不会自动转出。提现功能待接入。结算天数与观察期仍待批准。
-        </p>
+        <p>{copy.withdrawRule(formatYuan(WITHDRAW_MIN_FEN))}</p>
         <WithdrawButton balance={ledger.withdrawable} />
       </div>
     </>

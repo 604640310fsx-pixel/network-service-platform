@@ -80,7 +80,7 @@ interface MailContent {
 
 function registrationCodeContent(code: string): MailContent {
   return {
-    subject: "Network Service Platform 验证码",
+    subject: "Drink Life 验证码",
     text:
       `您的邮箱验证码是：${code}\n\n` +
       "此验证码仅用于验证您对该邮箱的访问。收到并验证验证码不代表邀请码仍然有效，也不代表注册一定成功。请勿转发。",
@@ -89,18 +89,18 @@ function registrationCodeContent(code: string): MailContent {
 
 function emailChangeCodeContent(code: string): MailContent {
   return {
-    subject: "Network Service Platform 邮箱变更验证码",
+    subject: "Drink Life 邮箱变更验证码",
     text:
-      `您正在将 Network Service Platform 账户的登录邮箱更改为此邮箱，验证码是：${code}\n\n` +
+      `您正在将 Drink Life 账户的登录邮箱更改为此邮箱，验证码是：${code}\n\n` +
       "验证码 10 分钟内有效。如非本人操作，请忽略本邮件，账户不会发生任何变化。请勿转发。",
   };
 }
 
 // Sent to the previous address; it names no code and not the new address.
 const EMAIL_CHANGED_NOTICE_CONTENT: MailContent = {
-  subject: "Network Service Platform 登录邮箱已变更",
+  subject: "Drink Life 登录邮箱已变更",
   text:
-    "您的 Network Service Platform 账户登录邮箱已更改为其他地址，此邮箱今后不能再用于登录该账户。\n\n" +
+    "您的 Drink Life 账户登录邮箱已更改为其他地址，此邮箱今后不能再用于登录该账户。\n\n" +
     "如果这不是您本人的操作，请立即联系客服处理。本邮件无需回复。",
 };
 
@@ -108,9 +108,9 @@ export const PASSWORD_RESET_LINK_BASE = "https://www.siqiapparel.com/reset-passw
 
 function passwordResetContent(token: string): MailContent {
   return {
-    subject: "Network Service Platform 重置密码",
+    subject: "Drink Life 重置密码",
     text:
-      "我们收到了重置您 Network Service Platform 账户密码的请求。请在 30 分钟内打开以下链接设置新密码：\n\n" +
+      "我们收到了重置您 Drink Life 账户密码的请求。请在 30 分钟内打开以下链接设置新密码：\n\n" +
       `${PASSWORD_RESET_LINK_BASE}${token}\n\n` +
       "链接仅可使用一次。重置成功后，该账户所有设备上的登录都会失效。\n\n" +
       "如非本人操作，请忽略本邮件，您的密码不会发生任何变化。请勿转发。",

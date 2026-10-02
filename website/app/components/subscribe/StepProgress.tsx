@@ -1,4 +1,5 @@
 import { Fragment } from "react";
+import { useT } from "../../lib/i18n";
 
 type StepProgressProps = {
   steps: readonly (readonly [string, string])[];
@@ -7,10 +8,11 @@ type StepProgressProps = {
 };
 
 export function StepProgress({ steps, currentStep, onStep }: StepProgressProps) {
+  const t = useT();
   const current = steps[currentStep - 1] ?? steps[0];
   return (
     <>
-      <nav className="sub-steps" aria-label="套餐选择步骤">
+      <nav className="sub-steps" aria-label={t.subscribe.stepsNavLabel}>
         {steps.map(([name, tip], index) => {
           const number = index + 1;
           return (
@@ -30,7 +32,7 @@ export function StepProgress({ steps, currentStep, onStep }: StepProgressProps) 
         })}
       </nav>
       <button type="button" className="sub-mobile-progress" onClick={() => onStep(currentStep)}>
-        <span className="sub-mobile-progress-label"><b>{current[1]}</b><span>步骤 <em>{currentStep}</em> / {steps.length}</span></span>
+        <span className="sub-mobile-progress-label"><b>{current[1]}</b><span>{t.subscribe.mobileStep} <em>{currentStep}</em> / {steps.length}</span></span>
         <span className="sub-mobile-progress-track"><i style={{ width: `${(currentStep / steps.length) * 100}%` }} /></span>
       </button>
     </>

@@ -9,6 +9,7 @@ import {
   type PaymentOrderStatus,
   type ServiceStatus,
 } from "../../lib/payment-api";
+import { useT, type Messages } from "../../lib/i18n";
 
 type ResourceState<T> =
   | { readonly kind: "loading" }
@@ -16,21 +17,15 @@ type ResourceState<T> =
   | { readonly kind: "unauthorized" }
   | { readonly kind: "error"; readonly message: string };
 
-const ORDER_STATUS_LABEL: Record<PaymentOrderStatus, string> = {
-  pending: "待支付",
-  paid: "已支付",
-  closed: "已关闭",
-};
-
 function formatFen(amountFen: number): string {
   const amount = amountFen / 100;
   return `¥${Number.isInteger(amount) ? amount : amount.toFixed(2)}`;
 }
 
-function formatDate(value: string): string {
+function formatDate(value: string, locale: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(locale, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -39,59 +34,62 @@ function formatDate(value: string): string {
   }).format(date);
 }
 
-function serviceStatusLabel(status: ServiceStatus | null): string {
-  if (status === null) return "无服务";
-  return status === "open" ? "已开通" : "待开通";
+function serviceStatusLabel(status: ServiceStatus | null, messages: Messages["account"]): string {
+  if (status === null) return messages.serviceStatus.none;
+  return status === "open" ? messages.serviceStatus.open : messages.serviceStatus.pending;
 }
 
-function resourceErrorMessage(resource: "服务" | "订单", error: unknown): string {
+function resourceErrorMessage(resource: string, error: unknown, messages: Messages["dashboard"]): string {
   if (error instanceof PaymentApiError && error.code === "invalid_response") {
-    return `${resource}数据返回异常，请稍后重试。`;
+    return messages.resourceInvalid(resource);
   }
-  return `暂时无法读取${resource}状态，请稍后重试。`;
+  return messages.resourceUnavailable(resource);
 }
 
-function stateHint<T>(state: ResourceState<T>, readyHint: string): string {
-  if (state.kind === "loading") return "正在读取";
-  if (state.kind === "unauthorized") return "登录已失效";
-  if (state.kind === "error") return "读取失败";
+function stateHint<T>(state: ResourceState<T>, readyHint: string, messages: Messages["dashboard"]): string {
+  if (state.kind === "loading") return messages.stateLoading;
+  if (state.kind === "unauthorized") return messages.stateSignedOut;
+  if (state.kind === "error") return messages.stateFailed;
   return readyHint;
 }
 
 function LoadingCard({ label }: { label: string }) {
+  const t = useT();
   return (
     <div className="dash-service" role="status" aria-live="polite" aria-busy="true">
       <div className="dash-service-head">
-        <div><strong>—</strong><small>正在读取{label}状态</small></div>
-        <span className="dash-tag">加载中</span>
+        <div><strong>—</strong><small>{t.dashboard.loadingResource(label)}</small></div>
+        <span className="dash-tag">{t.account.loadingTag}</span>
       </div>
     </div>
   );
 }
 
 function UnauthorizedCard({ label }: { label: string }) {
+  const t = useT();
   return (
     <div className="dash-service" role="alert">
       <div className="dash-service-head">
-        <div><strong>—</strong><small>登录状态已失效，重新登录后可查看{label}。</small></div>
-        <span className="dash-tag">登录失效</span>
+        <div><strong>—</strong><small>{t.dashboard.signedOutResource(label)}</small></div>
+        <span className="dash-tag">{t.account.signedOutTag}</span>
       </div>
       <div className="dash-service-foot">
-        <a className="dash-primary-link" href="/login">重新登录</a>
+        <a className="dash-primary-link" href="/login">{t.account.signInAgain}</a>
       </div>
     </div>
   );
 }
 
 function ErrorCard({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const t = useT();
   return (
     <div className="dash-service" role="alert">
       <div className="dash-service-head">
         <div><strong>—</strong><small>{message}</small></div>
-        <span className="dash-tag">读取失败</span>
+        <span className="dash-tag">{t.account.loadFailedTag}</span>
       </div>
       <div className="dash-service-foot">
-        <button type="button" className="dash-primary-link" onClick={onRetry}>重新加载</button>
+        <button type="button" className="dash-primary-link" onClick={onRetry}>{t.account.reload}</button>
       </div>
     </div>
   );
@@ -104,8 +102,9 @@ function CurrentServiceCard({
   state: ResourceState<readonly MyServiceItem[]>;
   onRetry: () => void;
 }) {
-  if (state.kind === "loading") return <LoadingCard label="服务" />;
-  if (state.kind === "unauthorized") return <UnauthorizedCard label="服务与开通进度" />;
+  const t = useT();
+  if (state.kind === "loading") return <LoadingCard label={t.dashboard.resources.services} />;
+  if (state.kind === "unauthorized") return <UnauthorizedCard label={t.dashboard.resources.serviceProgress} />;
   if (state.kind === "error") return <ErrorCard message={state.message} onRetry={onRetry} />;
 
   const current = [...state.items].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ?? null;
@@ -113,11 +112,11 @@ function CurrentServiceCard({
     return (
       <div className="dash-service">
         <div className="dash-service-head">
-          <div><strong>暂无服务</strong><small>完成付款后，可在这里查看服务开通进度。</small></div>
-          <span className="dash-tag">0 项</span>
+          <div><strong>{t.dashboard.noServices}</strong><small>{t.dashboard.noServicesHint}</small></div>
+          <span className="dash-tag">{t.account.zeroItems}</span>
         </div>
         <div className="dash-service-foot">
-          <Link className="dash-primary-link" to="/subscribe">前往套餐订阅</Link>
+          <Link className="dash-primary-link" to="/subscribe">{t.account.goSubscribe}</Link>
         </div>
       </div>
     );
@@ -127,18 +126,18 @@ function CurrentServiceCard({
   return (
     <div className="dash-service dash-buyer-card">
       <div className="dash-service-head">
-        <div><strong>{current.orderRef}</strong><small>最近一项已支付服务</small></div>
-        <span className={`dash-tag ${isOpen ? "is-accent" : ""}`}>{serviceStatusLabel(current.serviceStatus)}</span>
+        <div><strong>{current.orderRef}</strong><small>{t.dashboard.latestService}</small></div>
+        <span className={`dash-tag ${isOpen ? "is-accent" : ""}`}>{serviceStatusLabel(current.serviceStatus, t.account)}</span>
       </div>
       <dl className="dash-service-facts">
-        <div><dt>支付金额</dt><dd>{formatFen(current.amountFen)}</dd></div>
-        <div><dt>创建时间</dt><dd>{formatDate(current.createdAt)}</dd></div>
-        <div><dt>订单状态</dt><dd>{ORDER_STATUS_LABEL[current.orderStatus]}</dd></div>
-        <div><dt>服务状态</dt><dd>{serviceStatusLabel(current.serviceStatus)}</dd></div>
+        <div><dt>{t.dashboard.paidAmount}</dt><dd>{formatFen(current.amountFen)}</dd></div>
+        <div><dt>{t.dashboard.createdTime}</dt><dd>{formatDate(current.createdAt, t.account.dateLocale)}</dd></div>
+        <div><dt>{t.dashboard.orderStatus}</dt><dd>{t.account.orderStatus[current.orderStatus]}</dd></div>
+        <div><dt>{t.dashboard.serviceStatus}</dt><dd>{serviceStatusLabel(current.serviceStatus, t.account)}</dd></div>
       </dl>
       <div className="dash-service-foot">
-        <p>{isOpen ? "服务已完成人工开通。" : "服务正在等待人工开通，请留意状态更新。"}</p>
-        <Link className="dash-secondary-link" to="/services">查看全部服务</Link>
+        <p>{isOpen ? t.dashboard.serviceOpen : t.dashboard.servicePending}</p>
+        <Link className="dash-secondary-link" to="/services">{t.dashboard.allServices}</Link>
       </div>
     </div>
   );
@@ -151,8 +150,9 @@ function RecentOrderCard({
   state: ResourceState<readonly MyOrderItem[]>;
   onRetry: () => void;
 }) {
-  if (state.kind === "loading") return <LoadingCard label="订单" />;
-  if (state.kind === "unauthorized") return <UnauthorizedCard label="订单" />;
+  const t = useT();
+  if (state.kind === "loading") return <LoadingCard label={t.dashboard.resources.orders} />;
+  if (state.kind === "unauthorized") return <UnauthorizedCard label={t.dashboard.resources.orders} />;
   if (state.kind === "error") return <ErrorCard message={state.message} onRetry={onRetry} />;
 
   const current = state.items[0] ?? null;
@@ -160,11 +160,11 @@ function RecentOrderCard({
     return (
       <div className="dash-service">
         <div className="dash-service-head">
-          <div><strong>暂无订单</strong><small>选择套餐并提交需求后，订单会显示在这里。</small></div>
-          <span className="dash-tag">0 项</span>
+          <div><strong>{t.dashboard.noOrders}</strong><small>{t.dashboard.noOrdersHint}</small></div>
+          <span className="dash-tag">{t.account.zeroItems}</span>
         </div>
         <div className="dash-service-foot">
-          <Link className="dash-primary-link" to="/subscribe">选择套餐</Link>
+          <Link className="dash-primary-link" to="/subscribe">{t.account.choosePlan}</Link>
         </div>
       </div>
     );
@@ -173,20 +173,20 @@ function RecentOrderCard({
   return (
     <div className="dash-service dash-buyer-card">
       <div className="dash-service-head">
-        <div><strong>{current.orderRef}</strong><small>最近一笔订单</small></div>
+        <div><strong>{current.orderRef}</strong><small>{t.dashboard.latestOrder}</small></div>
         <span className={`dash-tag ${current.status === "paid" ? "is-accent" : ""}`}>
-          {ORDER_STATUS_LABEL[current.status]}
+          {t.account.orderStatus[current.status]}
         </span>
       </div>
       <dl className="dash-service-facts">
-        <div><dt>订单金额</dt><dd>{formatFen(current.amountFen)}</dd></div>
-        <div><dt>创建时间</dt><dd>{formatDate(current.createdAt)}</dd></div>
-        <div><dt>订单状态</dt><dd>{ORDER_STATUS_LABEL[current.status]}</dd></div>
-        <div><dt>服务状态</dt><dd>{serviceStatusLabel(current.serviceStatus)}</dd></div>
+        <div><dt>{t.dashboard.orderAmount}</dt><dd>{formatFen(current.amountFen)}</dd></div>
+        <div><dt>{t.dashboard.createdTime}</dt><dd>{formatDate(current.createdAt, t.account.dateLocale)}</dd></div>
+        <div><dt>{t.dashboard.orderStatus}</dt><dd>{t.account.orderStatus[current.status]}</dd></div>
+        <div><dt>{t.dashboard.serviceStatus}</dt><dd>{serviceStatusLabel(current.serviceStatus, t.account)}</dd></div>
       </dl>
       <div className="dash-service-foot">
-        <p>订单与付款状态均来自当前账户的真实订单记录。</p>
-        <Link className="dash-secondary-link" to="/orders">查看全部订单</Link>
+        <p>{t.dashboard.ordersFromAccount}</p>
+        <Link className="dash-secondary-link" to="/orders">{t.dashboard.allOrders}</Link>
       </div>
     </div>
   );
@@ -240,6 +240,7 @@ function NetworkIcon({ kind }: { kind: "nodes" | "monitor" }) {
 }
 
 export function BuyerDashboardOverview() {
+  const t = useT();
   const [servicesState, setServicesState] = useState<ResourceState<readonly MyServiceItem[]>>({ kind: "loading" });
   const [ordersState, setOrdersState] = useState<ResourceState<readonly MyOrderItem[]>>({ kind: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
@@ -260,7 +261,7 @@ export function BuyerDashboardOverview() {
           setServicesState({ kind: "unauthorized" });
           return;
         }
-        setServicesState({ kind: "error", message: resourceErrorMessage("服务", error) });
+        setServicesState({ kind: "error", message: resourceErrorMessage(t.dashboard.resources.services, error, t.dashboard) });
       });
 
     void getMyOrders(controller.signal)
@@ -273,7 +274,7 @@ export function BuyerDashboardOverview() {
           setOrdersState({ kind: "unauthorized" });
           return;
         }
-        setOrdersState({ kind: "error", message: resourceErrorMessage("订单", error) });
+        setOrdersState({ kind: "error", message: resourceErrorMessage(t.dashboard.resources.orders, error, t.dashboard) });
       });
 
     return () => {
@@ -296,8 +297,8 @@ export function BuyerDashboardOverview() {
   const extraServices = sortedServices.slice(1, 4).map((item) => ({
     key: item.orderRef,
     orderRef: item.orderRef,
-    meta: `${formatDate(item.createdAt)} · ${formatFen(item.amountFen)}`,
-    badge: serviceStatusLabel(item.serviceStatus),
+    meta: `${formatDate(item.createdAt, t.account.dateLocale)} · ${formatFen(item.amountFen)}`,
+    badge: serviceStatusLabel(item.serviceStatus, t.account),
     accent: item.serviceStatus === "open",
   }));
   // 订单不在前端重排：后端已按 createdAt DESC 排序。
@@ -305,43 +306,43 @@ export function BuyerDashboardOverview() {
   const extraOrders = recentOrders.slice(1, 4).map((item) => ({
     key: item.orderRef,
     orderRef: item.orderRef,
-    meta: `${formatDate(item.createdAt)} · ${formatFen(item.amountFen)}`,
-    badge: ORDER_STATUS_LABEL[item.status],
+    meta: `${formatDate(item.createdAt, t.account.dateLocale)} · ${formatFen(item.amountFen)}`,
+    badge: t.account.orderStatus[item.status],
     accent: item.status === "paid",
   }));
 
   const overviewStats = [
     {
-      label: "服务总数",
+      label: t.dashboard.stats.services.label,
       value: services === null ? "—" : String(services.length),
-      hint: stateHint(servicesState, "已支付服务"),
+      hint: stateHint(servicesState, t.dashboard.stats.services.hint, t.dashboard),
     },
     {
-      label: "已开通",
+      label: t.dashboard.stats.open.label,
       value: openCount === null ? "—" : String(openCount),
-      hint: stateHint(servicesState, "已完成人工开通"),
+      hint: stateHint(servicesState, t.dashboard.stats.open.hint, t.dashboard),
     },
     {
-      label: "待开通",
+      label: t.dashboard.stats.pending.label,
       value: pendingCount === null ? "—" : String(pendingCount),
-      hint: stateHint(servicesState, "等待人工开通"),
+      hint: stateHint(servicesState, t.dashboard.stats.pending.hint, t.dashboard),
     },
     {
-      label: "订单总数",
+      label: t.dashboard.stats.orders.label,
       value: orders === null ? "—" : String(orders.length),
-      hint: stateHint(ordersState, "全部订单"),
+      hint: stateHint(ordersState, t.dashboard.stats.orders.hint, t.dashboard),
     },
     {
-      label: "待支付",
+      label: t.dashboard.stats.unpaid.label,
       value: unpaidCount === null ? "—" : String(unpaidCount),
-      hint: stateHint(ordersState, "等待付款"),
+      hint: stateHint(ordersState, t.dashboard.stats.unpaid.hint, t.dashboard),
     },
   ] as const;
 
   return (
     <>
       <section className="dash-panel" aria-labelledby="dash-overview-title">
-        <h2 id="dash-overview-title"><em>OVERVIEW</em>买家概览<span>账户实时数据</span></h2>
+        <h2 id="dash-overview-title"><em>OVERVIEW</em>{t.dashboard.overviewTitle}<span>{t.dashboard.overviewTag}</span></h2>
         <div className="dash-stat-grid">
           {overviewStats.map((stat) => (
             <article className="dash-stat" key={stat.label}>
@@ -356,47 +357,47 @@ export function BuyerDashboardOverview() {
       <div className="dash-split">
         <section className="dash-panel" aria-labelledby="dash-service-title">
           <h2 id="dash-service-title">
-            <em>SERVICE</em>当前服务
-            {services !== null && <span>共 {services.length} 项</span>}
+            <em>SERVICE</em>{t.dashboard.currentService}
+            {services !== null && <span>{t.account.itemCount(services.length)}</span>}
           </h2>
           <CurrentServiceCard state={servicesState} onRetry={reload} />
           {extraServices.length > 0 && (
-            <MoreList title="更早的服务" items={extraServices} to="/services" linkLabel="查看全部服务" />
+            <MoreList title={t.dashboard.earlierServices} items={extraServices} to="/services" linkLabel={t.dashboard.allServices} />
           )}
         </section>
 
         <section className="dash-panel" aria-labelledby="dash-order-title">
           <h2 id="dash-order-title">
-            <em>ORDERS</em>最近订单
-            {orders !== null && <span>共 {orders.length} 项</span>}
+            <em>ORDERS</em>{t.dashboard.recentOrders}
+            {orders !== null && <span>{t.account.itemCount(orders.length)}</span>}
           </h2>
           <RecentOrderCard state={ordersState} onRetry={reload} />
           {extraOrders.length > 0 && (
-            <MoreList title="更早的订单" items={extraOrders} to="/orders" linkLabel="查看全部订单" />
+            <MoreList title={t.dashboard.earlierOrders} items={extraOrders} to="/orders" linkLabel={t.dashboard.allOrders} />
           )}
         </section>
       </div>
 
       <section className="dash-panel" aria-labelledby="dash-network-title">
-        <h2 id="dash-network-title"><em>NETWORK</em>节点与网络<span>节点与流量数据待接入</span></h2>
+        <h2 id="dash-network-title"><em>NETWORK</em>{t.dashboard.networkTitle}<span>{t.dashboard.networkTag}</span></h2>
         <div className="dash-network-entry-grid">
           <article className="dash-network-entry">
             <span className="dash-network-icon"><NetworkIcon kind="nodes" /></span>
             <div>
-              <strong>买家节点与流量</strong>
-              <p>查看节点与流量页面；未提供的在线、超时和用量数据会明确显示为“待接入”。</p>
-              <small>当前已开通服务：{openCount === null ? "—" : openCount}</small>
+              <strong>{t.dashboard.nodesTitle}</strong>
+              <p>{t.dashboard.nodesBody}</p>
+              <small>{t.dashboard.nodesOpen}{openCount === null ? "—" : openCount}</small>
             </div>
-            <Link className="dash-secondary-link" to="/network">进入节点与流量</Link>
+            <Link className="dash-secondary-link" to="/network">{t.dashboard.nodesLink}</Link>
           </article>
           <article className="dash-network-entry">
             <span className="dash-network-icon"><NetworkIcon kind="monitor" /></span>
             <div>
-              <strong>公开实时监控</strong>
-              <p>查看三网线路的公开运行状态，与买家账户内的节点与流量页保持独立。</p>
-              <small>无需登录即可访问</small>
+              <strong>{t.dashboard.monitorTitle}</strong>
+              <p>{t.dashboard.monitorBody}</p>
+              <small>{t.dashboard.monitorNoLogin}</small>
             </div>
-            <Link className="dash-secondary-link" to="/monitor">查看实时监控</Link>
+            <Link className="dash-secondary-link" to="/monitor">{t.dashboard.monitorLink}</Link>
           </article>
         </div>
       </section>

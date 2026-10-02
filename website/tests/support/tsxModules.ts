@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,8 +18,12 @@ export function createTsxLoader(stubs: Record<string, unknown> = {}) {
 
   function resolveFile(fromFile: string, specifier: string): string {
     const base = resolve(dirname(fromFile), specifier);
-    for (const candidate of [base, `${base}.ts`, `${base}.tsx`, resolve(base, "index.ts")]) {
-      if (existsSync(candidate) && !candidate.endsWith("/")) return candidate;
+    for (const candidate of [base, `${base}.ts`, `${base}.tsx`, resolve(base, "index.ts"), resolve(base, "index.tsx")]) {
+      try {
+        if (statSync(candidate).isFile()) return candidate;
+      } catch {
+        // try the next candidate
+      }
     }
     throw new Error(`Cannot resolve ${specifier} from ${fromFile}`);
   }
@@ -31,7 +35,9 @@ export function createTsxLoader(stubs: Record<string, unknown> = {}) {
     if (cached !== undefined) return cached;
     const module = { exports: {} as Record<string, unknown> };
     cache.set(file, module.exports);
-    const output = ts.transpileModule(readFileSync(file, "utf8"), {
+    // CommonJS has no import.meta: Vite env reads come from a test-controlled object.
+    const sourceText = readFileSync(file, "utf8").replace(/import\.meta\.env/g, "(globalThis.__VITE_ENV__ ?? {})");
+    const output = ts.transpileModule(sourceText, {
       compilerOptions: {
         module: ts.ModuleKind.CommonJS,
         target: ts.ScriptTarget.ES2022,

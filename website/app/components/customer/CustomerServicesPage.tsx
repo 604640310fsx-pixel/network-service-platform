@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useT, type Messages } from "../../lib/i18n";
 import { Link } from "react-router-dom";
 import {
   PaymentApiError,
@@ -27,14 +28,14 @@ type DeliveryState =
   | { readonly kind: "ready"; readonly items: readonly ServiceDeliveryItem[] }
   | { readonly kind: "error"; readonly message: string };
 
-function serviceStatusLabel(status: ServiceStatus): string {
-  return status === "open" ? "已开通" : "待开通";
+function serviceStatusLabel(status: ServiceStatus, messages: Messages["account"]): string {
+  return status === "open" ? messages.serviceStatus.open : messages.serviceStatus.pending;
 }
 
-function formatDate(value: string): string {
+function formatDate(value: string, locale: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(locale, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -43,11 +44,11 @@ function formatDate(value: string): string {
   }).format(date);
 }
 
-function genericErrorMessage(error: unknown): string {
+function genericErrorMessage(error: unknown, messages: Messages["services"]): string {
   if (error instanceof PaymentApiError && error.code === "invalid_response") {
-    return "服务数据返回异常，请稍后重试。";
+    return messages.invalid;
   }
-  return "暂时无法读取服务状态，请稍后重试。";
+  return messages.unavailable;
 }
 
 function PageFrame({ children }: { children: React.ReactNode }) {
@@ -59,11 +60,12 @@ function PageFrame({ children }: { children: React.ReactNode }) {
 }
 
 function PanelHead({ tag }: { tag: string }) {
+  const t = useT();
   return (
     <div className="cc-svc-panel-head">
       <div>
         <em>SERVICES</em>
-        <h2>服务清单</h2>
+        <h2>{t.services.title}</h2>
       </div>
       <span className="cc-svc-tag">{tag}</span>
     </div>
@@ -88,6 +90,7 @@ export function ownedDeliveryItems(
 }
 
 function ServiceSubscription({ item }: { item: MyServiceItem }) {
+  const t = useT();
   const [state, setState] = useState<DeliveryState>({ kind: "loading" });
   const [retryToken, setRetryToken] = useState(0);
 
@@ -100,7 +103,7 @@ function ServiceSubscription({ item }: { item: MyServiceItem }) {
         if (stopped) return;
         const deliveryItems = ownedDeliveryItems(item, snapshot);
         if (deliveryItems === null) {
-          setState({ kind: "error", message: "交付数据与当前套餐不一致，请稍后重试。" });
+          setState({ kind: "error", message: t.services.deliveryMismatch });
           return;
         }
         setState({ kind: "ready", items: deliveryItems });
@@ -108,8 +111,8 @@ function ServiceSubscription({ item }: { item: MyServiceItem }) {
       .catch((error: unknown) => {
         if (stopped) return;
         const message = error instanceof PaymentApiError && error.code === "invalid_response"
-          ? "交付数据返回异常，请稍后重试。"
-          : "订阅信息暂不可读取，请稍后重试。";
+          ? t.services.deliveryInvalid
+          : t.services.subscriptionUnavailable;
         setState({ kind: "error", message });
       });
     return () => {
@@ -119,15 +122,15 @@ function ServiceSubscription({ item }: { item: MyServiceItem }) {
   }, [item.orderRef, item.orderStatus, item.amountFen, item.currency, item.serviceStatus, retryToken]);
 
   return (
-    <section className="cc-svc-import" aria-label={`套餐 ${item.orderRef} 的订阅信息`}>
+    <section className="cc-svc-import" aria-label={t.services.subscriptionLabel(item.orderRef)}>
       {state.kind === "loading" && (
-        <p className="cc-svc-import-state" role="status">正在读取此套餐的订阅信息…</p>
+        <p className="cc-svc-import-state" role="status">{t.services.subscriptionLoading}</p>
       )}
       {state.kind === "error" && (
         <div className="cc-svc-import-state" role="alert">
           <p>{state.message}</p>
           <button type="button" className="cc-svc-ghost" onClick={() => setRetryToken((token) => token + 1)}>
-            重试读取
+            {t.services.retryRead}
           </button>
         </div>
       )}
@@ -139,14 +142,15 @@ function ServiceSubscription({ item }: { item: MyServiceItem }) {
         />
       )}
       <div className="cc-svc-import-links">
-        <Link to="/docs">查看导入教程</Link>
-        <Link to={`/subscribe/request?orderRef=${encodeURIComponent(item.orderRef)}`}>查看订单详情</Link>
+        <Link to="/docs">{t.services.importGuide}</Link>
+        <Link to={`/subscribe/request?orderRef=${encodeURIComponent(item.orderRef)}`}>{t.services.orderDetails}</Link>
       </div>
     </section>
   );
 }
 
 export function CustomerServicesPage() {
+  const t = useT();
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -165,7 +169,7 @@ export function CustomerServicesPage() {
           setState({ kind: "unauthorized" });
           return;
         }
-        setState({ kind: "error", message: genericErrorMessage(error) });
+        setState({ kind: "error", message: genericErrorMessage(error, t.services) });
       });
     return () => {
       stopped = true;
@@ -177,11 +181,11 @@ export function CustomerServicesPage() {
     return (
       <PageFrame>
         <section className="cc-svc-panel" role="status" aria-live="polite" aria-busy="true">
-          <PanelHead tag="加载中" />
+          <PanelHead tag={t.account.loadingTag} />
           <ul className="cc-svc-skeleton" aria-hidden="true">
             <li /><li /><li />
           </ul>
-          <p className="cc-svc-status-text">正在读取服务状态…</p>
+          <p className="cc-svc-status-text">{t.services.loading}</p>
         </section>
       </PageFrame>
     );
@@ -191,16 +195,16 @@ export function CustomerServicesPage() {
     return (
       <PageFrame>
         <section className="cc-svc-panel" role="alert">
-          <PanelHead tag="登录失效" />
+          <PanelHead tag={t.account.signedOutTag} />
           <div className="cc-svc-notice">
-            <p className="cc-svc-notice-title">登录状态已失效，请重新登录。</p>
-            <p className="cc-svc-notice-hint">重新登录后即可查看你的服务与开通进度。</p>
+            <p className="cc-svc-notice-title">{t.account.signedOut}</p>
+            <p className="cc-svc-notice-hint">{t.services.signedOutHint}</p>
             <div className="cc-svc-notice-actions">
               {/* 会话失效恢复：必须整页导航而非 SPA Link。AuthProvider 仅在首次挂载时
                   检查 /api/auth/me，之后 /api/me/services 的 401 不会把 status 从
                   authenticated 降级；用 <Link> 时 LoginRoute 会读到旧的 authenticated
                   并立即重定向回 /dashboard。原生 <a> 触发整页加载，强制重新检查会话。 */}
-              <a className="cc-svc-primary" href="/login">重新登录</a>
+              <a className="cc-svc-primary" href="/login">{t.account.signInAgain}</a>
             </div>
           </div>
         </section>
@@ -212,19 +216,19 @@ export function CustomerServicesPage() {
     return (
       <PageFrame>
         <section className="cc-svc-panel" role="alert">
-          <PanelHead tag="读取失败" />
+          <PanelHead tag={t.account.loadFailedTag} />
           <div className="cc-svc-notice">
             <p className="cc-svc-notice-title">{state.message}</p>
-            <p className="cc-svc-notice-hint">网络恢复后可重新读取服务列表。</p>
+            <p className="cc-svc-notice-hint">{t.services.retryHint}</p>
             <div className="cc-svc-notice-actions">
               <button
                 type="button"
                 className="cc-svc-primary"
                 onClick={() => setReloadToken((token) => token + 1)}
               >
-                重新加载
+                {t.account.reload}
               </button>
-              <Link className="cc-svc-ghost" to="/subscribe">前往套餐订阅</Link>
+              <Link className="cc-svc-ghost" to="/subscribe">{t.account.goSubscribe}</Link>
             </div>
           </div>
         </section>
@@ -237,12 +241,12 @@ export function CustomerServicesPage() {
     return (
       <PageFrame>
         <section className="cc-svc-panel">
-          <PanelHead tag="暂无服务" />
+          <PanelHead tag={t.services.emptyTag} />
           <div className="cc-svc-notice">
-            <p className="cc-svc-notice-title">暂无已支付服务</p>
-            <p className="cc-svc-notice-hint">完成付款后，你的服务与开通进度会显示在这里。</p>
+            <p className="cc-svc-notice-title">{t.services.empty}</p>
+            <p className="cc-svc-notice-hint">{t.services.emptyHint}</p>
             <div className="cc-svc-notice-actions">
-              <Link className="cc-svc-primary" to="/subscribe">前往套餐订阅</Link>
+              <Link className="cc-svc-primary" to="/subscribe">{t.account.goSubscribe}</Link>
             </div>
           </div>
         </section>
@@ -255,26 +259,26 @@ export function CustomerServicesPage() {
 
   return (
     <PageFrame>
-      <section className="cc-svc-summary" aria-label="服务概览">
+      <section className="cc-svc-summary" aria-label={t.services.summaryLabel}>
         <article>
-          <span>服务总数</span>
+          <span>{t.services.total}</span>
           <strong>{items.length}</strong>
-          <small>来自已支付订单</small>
+          <small>{t.services.totalHint}</small>
         </article>
         <article>
-          <span>已开通</span>
+          <span>{t.services.open}</span>
           <strong>{openCount}</strong>
-          <small>已完成人工开通</small>
+          <small>{t.services.openHint}</small>
         </article>
         <article>
-          <span>待开通</span>
+          <span>{t.services.pending}</span>
           <strong>{pendingCount}</strong>
-          <small>等待人工开通</small>
+          <small>{t.services.pendingHint}</small>
         </article>
       </section>
 
       <section className="cc-svc-panel">
-        <PanelHead tag={`共 ${items.length} 项`} />
+        <PanelHead tag={t.account.itemCount(items.length)} />
         <ul className="cc-svc-list">
           {items.map((item) => {
             const isOpen = item.serviceStatus === "open";
@@ -283,19 +287,19 @@ export function CustomerServicesPage() {
                 <div className="cc-svc-item-head">
                   <div className="cc-svc-item-id">
                     <strong>{item.orderRef}</strong>
-                    <small>创建于 {formatDate(item.createdAt)}</small>
+                    <small>{t.account.createdAt(formatDate(item.createdAt, t.account.dateLocale))}</small>
                   </div>
                   <span className={`cc-svc-badge ${isOpen ? "is-open" : "is-pending"}`}>
-                    {serviceStatusLabel(item.serviceStatus)}
+                    {serviceStatusLabel(item.serviceStatus, t.account)}
                   </span>
                 </div>
                 {!isOpen && (
                   <div className="cc-svc-item-foot">
-                    <p>服务正在等待人工开通，请留意状态更新。</p>
+                    <p>{t.services.pendingNotice}</p>
                   </div>
                 )}
                 {isOpen && <ServiceSubscription item={item} />}
-                {!isOpen && <p className="cc-svc-import-state">等待人工交付，订阅信息暂未提供。</p>}
+                {!isOpen && <p className="cc-svc-import-state">{t.services.awaitingDelivery}</p>}
               </li>
             );
           })}

@@ -1,10 +1,10 @@
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
+import { useI18n, useT } from "../../lib/i18n";
 import { getMyServices, type MyServiceItem } from "../../lib/payment-api";
 import {
   TICKET_BODY_MAX,
-  TICKET_STATUS_LABEL,
   TICKET_SUBJECT_MAX,
   TicketApiError,
   createMyTicket,
@@ -31,10 +31,10 @@ const STATUS_MODIFIER: Record<TicketStatus, string> = {
   closed: "is-closed",
 };
 
-function formatDate(value: string): string {
+function formatDate(value: string, locale: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(locale, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -68,28 +68,31 @@ function PanelHead({ title, tag, action }: { title: string; tag?: string; action
 }
 
 function NewTicketLink({ className = "cc-ord-primary cc-tk-new" }: { className?: string }) {
+  const t = useT();
   return (
     <Link className={className} to="/tickets?new=1">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-      新建工单
+      {t.tickets.newTicket}
     </Link>
   );
 }
 
 function StatusBadge({ status }: { status: TicketStatus }) {
-  return <span className={`cc-ord-badge ${STATUS_MODIFIER[status]}`}>{TICKET_STATUS_LABEL[status]}</span>;
+  const t = useT();
+  return <span className={`cc-ord-badge ${STATUS_MODIFIER[status]}`}>{t.tickets.status[status]}</span>;
 }
 
 // 会话失效时整页导航到 /login，强制重新检查会话（与订单页一致）。
 function SignedOutNotice() {
+  const copy = useT().tickets;
   return (
     <section className="cc-ord-panel" role="alert">
-      <PanelHead title="工单" tag="登录失效" />
+      <PanelHead title={copy.pageTitle} tag={copy.signedOutTag} />
       <div className="cc-ord-notice">
-        <p className="cc-ord-notice-title">登录状态已失效，请重新登录。</p>
-        <p className="cc-ord-notice-hint">重新登录后即可查看和提交工单。</p>
+        <p className="cc-ord-notice-title">{copy.signedOutTitle}</p>
+        <p className="cc-ord-notice-hint">{copy.signedOutHint}</p>
         <div className="cc-ord-notice-actions">
-          <a className="cc-ord-primary" href="/login">重新登录</a>
+          <a className="cc-ord-primary" href="/login">{copy.signInAgain}</a>
         </div>
       </div>
     </section>
@@ -97,14 +100,15 @@ function SignedOutNotice() {
 }
 
 function ErrorNotice({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  const copy = useT().tickets;
   return (
     <section className="cc-ord-panel" role="alert">
-      <PanelHead title="工单" tag="读取失败" />
+      <PanelHead title={copy.pageTitle} tag={copy.loadFailedTag} />
       <div className="cc-ord-notice">
         <p className="cc-ord-notice-title">{message}</p>
         <div className="cc-ord-notice-actions">
-          {onRetry && <button type="button" className="cc-ord-primary" onClick={onRetry}>重新加载</button>}
-          <Link className="cc-ord-ghost" to="/tickets">返回工单列表</Link>
+          {onRetry && <button type="button" className="cc-ord-primary" onClick={onRetry}>{copy.reload}</button>}
+          <Link className="cc-ord-ghost" to="/tickets">{copy.backToList}</Link>
         </div>
       </div>
     </section>
@@ -118,6 +122,8 @@ type Load<Value> =
   | { readonly kind: "error"; readonly message: string };
 
 function TicketList({ page }: { page: number }) {
+  const { t } = useI18n();
+  const copy = t.tickets;
   const [, setSearchParams] = useSearchParams();
   const [state, setState] = useState<Load<TicketPage<TicketSummary>>>({ kind: "loading" });
   const [reload, setReload] = useState(0);
@@ -130,7 +136,7 @@ function TicketList({ page }: { page: number }) {
       .then((value) => !stopped && setState({ kind: "ready", value }))
       .catch((error: unknown) => {
         if (stopped) return;
-        setState(isUnauthorized(error) ? { kind: "unauthorized" } : { kind: "error", message: ticketErrorMessage(error) });
+        setState(isUnauthorized(error) ? { kind: "unauthorized" } : { kind: "error", message: ticketErrorMessage(error, copy.errors) });
       });
     return () => {
       stopped = true;
@@ -143,9 +149,9 @@ function TicketList({ page }: { page: number }) {
   if (state.kind === "loading") {
     return (
       <section className="cc-ord-panel" role="status" aria-live="polite" aria-busy="true">
-        <PanelHead title="我的工单" tag="加载中" />
+        <PanelHead title={copy.myTickets} tag={copy.loadingTag} />
         <ul className="cc-ord-skeleton" aria-hidden="true"><li /><li /><li /></ul>
-        <p className="cc-ord-status-text">正在读取工单…</p>
+        <p className="cc-ord-status-text">{copy.loading}</p>
       </section>
     );
   }
@@ -153,15 +159,15 @@ function TicketList({ page }: { page: number }) {
   const { items, hasMore } = state.value;
   return (
     <section className="cc-ord-panel">
-      <PanelHead title="我的工单" action={<NewTicketLink />} />
+      <PanelHead title={copy.myTickets} action={<NewTicketLink />} />
       {items.length === 0 ? (
         <div className="cc-tk-empty">
           <span className="cc-tk-empty-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 5h16v11H9l-5 4z" /><path d="M8 9h8M8 12.5h5" /></svg>
           </span>
-          <p className="cc-tk-empty-title">{page === 1 ? "还没有工单" : "这一页没有工单"}</p>
-          <p className="cc-tk-empty-hint">遇到服务问题时，可新建工单描述情况，客服会在工单内以文字回复。</p>
-          {page === 1 ? <NewTicketLink className="cc-ord-primary" /> : <Link className="cc-ord-ghost" to="/tickets">回到第一页</Link>}
+          <p className="cc-tk-empty-title">{page === 1 ? copy.emptyFirst : copy.emptyPage}</p>
+          <p className="cc-tk-empty-hint">{copy.emptyHint}</p>
+          {page === 1 ? <NewTicketLink className="cc-ord-primary" /> : <Link className="cc-ord-ghost" to="/tickets">{copy.firstPage}</Link>}
         </div>
       ) : (
         <ul className="cc-tk-list">
@@ -170,12 +176,12 @@ function TicketList({ page }: { page: number }) {
               <Link className="cc-tk-row" to={`/tickets?ref=${encodeURIComponent(item.ref)}`}>
                 <span className="cc-tk-row-main">
                   <strong className="cc-tk-subject">{item.subject}</strong>
-                  <small>{item.ref} · 更新于 {formatDate(item.updatedAt)}</small>
+                  <small>{copy.updatedAt(item.ref, formatDate(item.updatedAt, copy.dateLocale))}</small>
                 </span>
                 <span className="cc-tk-row-meta">
-                  <span>{item.messageCount} 条消息</span>
-                  <span>最近回复：{item.lastMessageRole === "admin" ? "客服" : "我"}</span>
-                  <span>{item.serviceOrderRef ?? "未关联服务"}</span>
+                  <span>{copy.messageCount(item.messageCount)}</span>
+                  <span>{copy.lastReply(item.lastMessageRole === "admin" ? copy.support : copy.me)}</span>
+                  <span>{item.serviceOrderRef ?? copy.noService}</span>
                 </span>
                 <StatusBadge status={item.status} />
                 <svg className="cc-tk-row-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
@@ -185,10 +191,10 @@ function TicketList({ page }: { page: number }) {
         </ul>
       )}
       {(page > 1 || hasMore) && (
-        <nav className="cc-tk-pager" aria-label="工单分页">
-          <button type="button" className="cc-ord-ghost" disabled={page <= 1} onClick={() => setSearchParams({ page: String(page - 1) })}>上一页</button>
-          <span className="cc-tk-page">第 {page} 页</span>
-          <button type="button" className="cc-ord-ghost" disabled={!hasMore} onClick={() => setSearchParams({ page: String(page + 1) })}>下一页</button>
+        <nav className="cc-tk-pager" aria-label={copy.pagerLabel}>
+          <button type="button" className="cc-ord-ghost" disabled={page <= 1} onClick={() => setSearchParams({ page: String(page - 1) })}>{copy.prevPage}</button>
+          <span className="cc-tk-page">{copy.pageNumber(page)}</span>
+          <button type="button" className="cc-ord-ghost" disabled={!hasMore} onClick={() => setSearchParams({ page: String(page + 1) })}>{copy.nextPage}</button>
         </nav>
       )}
     </section>
@@ -197,6 +203,7 @@ function TicketList({ page }: { page: number }) {
 
 function NewTicketForm() {
   const { csrfToken } = useAuth();
+  const copy = useT().tickets;
   const [, setSearchParams] = useSearchParams();
   const subjectId = useId();
   const bodyId = useId();
@@ -234,7 +241,7 @@ function NewTicketForm() {
       setSearchParams({ ref: ticket.ref });
     } catch (submitError) {
       if (isUnauthorized(submitError)) setSignedOut(true);
-      else setError(ticketErrorMessage(submitError));
+      else setError(ticketErrorMessage(submitError, copy.errors));
     } finally {
       setSubmitting(false);
     }
@@ -243,44 +250,44 @@ function NewTicketForm() {
   if (signedOut) return <SignedOutNotice />;
   return (
     <section className="cc-ord-panel">
-      <PanelHead title="新建工单" tag="纯文本" />
+      <PanelHead title={copy.newTicket} tag={copy.plainTextTag} />
       <form className="cc-tk-form" onSubmit={handleSubmit}>
-        <label htmlFor={subjectId}>主题</label>
+        <label htmlFor={subjectId}>{copy.subjectLabel}</label>
         <input
           id={subjectId}
           type="text"
           maxLength={TICKET_SUBJECT_MAX}
           value={subject}
           disabled={submitting}
-          placeholder="一句话概括问题"
+          placeholder={copy.subjectPlaceholder}
           onChange={(event) => setSubject(event.target.value)}
         />
-        <label htmlFor={serviceId}>关联服务（可选）</label>
+        <label htmlFor={serviceId}>{copy.serviceLabel}</label>
         <select id={serviceId} value={serviceOrderRef} disabled={submitting} onChange={(event) => setServiceOrderRef(event.target.value)}>
-          <option value="">不关联服务</option>
+          <option value="">{copy.noServiceOption}</option>
           {services.map((service) => (
             <option key={service.orderRef} value={service.orderRef}>
-              {service.orderRef} · {service.serviceStatus === "open" ? "已开通" : "待开通"}
+              {service.orderRef} · {service.serviceStatus === "open" ? copy.serviceOpen : copy.servicePending}
             </option>
           ))}
         </select>
-        <label htmlFor={bodyId}>问题描述</label>
+        <label htmlFor={bodyId}>{copy.bodyLabel}</label>
         <textarea
           id={bodyId}
           rows={6}
           maxLength={TICKET_BODY_MAX}
           value={body}
           disabled={submitting}
-          placeholder="描述现象、出现时间和已尝试的操作。请勿填写密码或密钥。"
+          placeholder={copy.bodyPlaceholder}
           onChange={(event) => setBody(event.target.value)}
         />
         <p className="cc-tk-counter">{body.trim().length} / {TICKET_BODY_MAX}</p>
         {error && <p className="cc-tk-error" role="alert">{error}</p>}
         <div className="cc-ord-notice-actions">
           <button type="submit" className="cc-ord-primary" disabled={!canSubmit} aria-busy={submitting}>
-            {submitting ? "正在提交…" : "提交工单"}
+            {submitting ? copy.submitting : copy.submit}
           </button>
-          <Link className="cc-ord-ghost" to="/tickets">取消</Link>
+          <Link className="cc-ord-ghost" to="/tickets">{copy.cancel}</Link>
         </div>
       </form>
     </section>
@@ -289,6 +296,7 @@ function NewTicketForm() {
 
 function TicketThread({ ticketRef }: { ticketRef: string }) {
   const { csrfToken } = useAuth();
+  const copy = useT().tickets;
   const replyId = useId();
   const [state, setState] = useState<Load<TicketDetail>>({ kind: "loading" });
   const [reload, setReload] = useState(0);
@@ -304,7 +312,7 @@ function TicketThread({ ticketRef }: { ticketRef: string }) {
       .then((value) => !stopped && setState({ kind: "ready", value }))
       .catch((loadError: unknown) => {
         if (stopped) return;
-        setState(isUnauthorized(loadError) ? { kind: "unauthorized" } : { kind: "error", message: ticketErrorMessage(loadError) });
+        setState(isUnauthorized(loadError) ? { kind: "unauthorized" } : { kind: "error", message: ticketErrorMessage(loadError, copy.errors) });
       });
     return () => {
       stopped = true;
@@ -317,8 +325,8 @@ function TicketThread({ ticketRef }: { ticketRef: string }) {
   if (state.kind === "loading") {
     return (
       <section className="cc-ord-panel" role="status" aria-live="polite" aria-busy="true">
-        <PanelHead title="工单详情" tag="加载中" />
-        <p className="cc-ord-status-text">正在读取工单…</p>
+        <PanelHead title={copy.detailTitle} tag={copy.loadingTag} />
+        <p className="cc-ord-status-text">{copy.loading}</p>
       </section>
     );
   }
@@ -337,7 +345,7 @@ function TicketThread({ ticketRef }: { ticketRef: string }) {
       setState({ kind: "ready", value: updated });
     } catch (replyError) {
       if (isUnauthorized(replyError)) setState({ kind: "unauthorized" });
-      else setError(ticketErrorMessage(replyError));
+      else setError(ticketErrorMessage(replyError, copy.errors));
     } finally {
       setSending(false);
     }
@@ -345,55 +353,56 @@ function TicketThread({ ticketRef }: { ticketRef: string }) {
 
   return (
     <section className="cc-ord-panel">
-      <PanelHead title="工单详情" tag={ticket.ref} />
+      <PanelHead title={copy.detailTitle} tag={ticket.ref} />
       <div className="cc-ord-item-head cc-tk-detail-head">
         <div className="cc-ord-item-id">
           <strong className="cc-tk-subject">{ticket.subject}</strong>
-          <small>创建于 {formatDate(ticket.createdAt)}{ticket.serviceOrderRef ? ` · 关联服务 ${ticket.serviceOrderRef}` : ""}</small>
+          <small>{copy.createdAt(formatDate(ticket.createdAt, copy.dateLocale))}{ticket.serviceOrderRef ? copy.linkedService(ticket.serviceOrderRef) : ""}</small>
         </div>
         <StatusBadge status={ticket.status} />
       </div>
-      <ol className="cc-tk-thread" aria-label="工单消息">
+      <ol className="cc-tk-thread" aria-label={copy.threadLabel}>
         {ticket.messages.map((message, index) => (
           <li key={`${message.createdAt}-${index}`} className={message.role === "admin" ? "is-admin" : "is-customer"}>
             <div className="cc-tk-meta">
-              <b>{message.role === "admin" ? "客服" : "我"}</b>
-              <small>{formatDate(message.createdAt)}</small>
+              <b>{message.role === "admin" ? copy.support : copy.me}</b>
+              <small>{formatDate(message.createdAt, copy.dateLocale)}</small>
             </div>
             <p className="cc-tk-body">{message.body}</p>
           </li>
         ))}
       </ol>
       {ticket.status === "closed" ? (
-        <p className="cc-tk-closed">该工单已由客服关闭，无法继续回复。如有新问题，请新建工单。</p>
+        <p className="cc-tk-closed">{copy.closedNotice}</p>
       ) : (
         <form className="cc-tk-form" onSubmit={handleReply}>
-          <label htmlFor={replyId}>回复</label>
+          <label htmlFor={replyId}>{copy.replyLabel}</label>
           <textarea
             id={replyId}
             rows={4}
             maxLength={TICKET_BODY_MAX}
             value={reply}
             disabled={sending}
-            placeholder="补充信息或回复客服。请勿填写密码或密钥。"
+            placeholder={copy.replyPlaceholder}
             onChange={(event) => setReply(event.target.value)}
           />
           {error && <p className="cc-tk-error" role="alert">{error}</p>}
           <div className="cc-ord-notice-actions">
             <button type="submit" className="cc-ord-primary" disabled={!replyValid || sending || csrfToken === null} aria-busy={sending}>
-              {sending ? "正在发送…" : "发送回复"}
+              {sending ? copy.sending : copy.sendReply}
             </button>
           </div>
         </form>
       )}
       <div className="cc-ord-item-foot">
-        <Link className="cc-ord-ghost" to="/tickets">返回工单列表</Link>
+        <Link className="cc-ord-ghost" to="/tickets">{copy.backToList}</Link>
       </div>
     </section>
   );
 }
 
 export function CustomerTicketsPage() {
+  const copy = useT().tickets;
   const [searchParams] = useSearchParams();
   const ref = searchParams.get("ref");
   const pageParam = Number(searchParams.get("page") ?? "1");
@@ -402,7 +411,7 @@ export function CustomerTicketsPage() {
   return (
     <PageFrame>
       {ref !== null ? (
-        isTicketRef(ref) ? <TicketThread ticketRef={ref} /> : <ErrorNotice message="未找到该工单。" />
+        isTicketRef(ref) ? <TicketThread ticketRef={ref} /> : <ErrorNotice message={copy.notFound} />
       ) : searchParams.get("new") === "1" ? (
         <NewTicketForm />
       ) : (

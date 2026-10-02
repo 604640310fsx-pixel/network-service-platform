@@ -81,6 +81,10 @@
 .sub-solution-title small { margin-bottom: 1px; color: var(--cc-text-4); font-size: 8.5px; font-weight: 700; letter-spacing: 0.12em; }
 .sub-solution-title strong { font-size: 16px; font-weight: 650; }
 .sub-solution-top > .sub-tag { margin-left: auto; }
+/* 英文界面：长英文单词（如 Residential）与「Recommended」徽标放不进同一行时，
+   徽标换到下一行右侧，标题保持整词；中文界面不受影响。 */
+:lang(en) .sub-solution-top { flex-wrap: wrap; row-gap: 6px; }
+:lang(en) .sub-solution-title { flex: 1 1 0; min-width: min-content; }
 .sub-type-option > .sub-description { min-height: 0; margin: 10px 0 11px; padding-bottom: 10px; border-bottom: 1px solid var(--cc-hairline); line-height: 1.5; }
 .sub-route-group { display: block; min-height: 56px; }
 .sub-route-group > small,

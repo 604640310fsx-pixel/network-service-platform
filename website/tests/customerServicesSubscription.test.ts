@@ -12,6 +12,7 @@ const runtimeModule: { exports: Record<string, unknown> } = { exports: {} };
 Function("require", "module", "exports", compiled)(
   (specifier: string) => {
     if (specifier === "../../lib/payment-api") return { PaymentApiError: class extends Error {} };
+    if (specifier === "../../lib/i18n") return { useT: () => ({}) };
     if (["react", "react-router-dom", "../subscription-import", "./customer-services.css", "react/jsx-runtime"].includes(specifier)) return {};
     throw new Error(`Unexpected import: ${specifier}`);
   },

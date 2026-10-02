@@ -7,6 +7,7 @@ import {
   type PaymentOrderStatus,
   type ServiceStatus,
 } from "../../lib/payment-api";
+import { useT, type Messages } from "../../lib/i18n";
 import "./customer-orders.css";
 
 /* /orders 客户中心「订单」页：数据只来自 GET /api/me/orders（listMyOrders），
@@ -20,21 +21,15 @@ type LoadState =
   | { readonly kind: "unauthorized" }
   | { readonly kind: "error"; readonly message: string };
 
-const ORDER_STATUS_LABEL: Record<PaymentOrderStatus, string> = {
-  pending: "待支付",
-  paid: "已支付",
-  closed: "已关闭",
-};
-
 const ORDER_STATUS_MODIFIER: Record<PaymentOrderStatus, string> = {
   pending: "is-pending",
   paid: "is-paid",
   closed: "is-closed",
 };
 
-function serviceStatusLabel(status: ServiceStatus | null): string {
-  if (status === null) return "无服务";
-  return status === "open" ? "已开通" : "待开通";
+function serviceStatusLabel(status: ServiceStatus | null, messages: Messages["account"]): string {
+  if (status === null) return messages.serviceStatus.none;
+  return status === "open" ? messages.serviceStatus.open : messages.serviceStatus.pending;
 }
 
 function formatFen(amountFen: number): string {
@@ -42,10 +37,10 @@ function formatFen(amountFen: number): string {
   return `¥${Number.isInteger(amount) ? amount : amount.toFixed(2)}`;
 }
 
-function formatDate(value: string): string {
+function formatDate(value: string, locale: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(locale, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -54,11 +49,11 @@ function formatDate(value: string): string {
   }).format(date);
 }
 
-function genericErrorMessage(error: unknown): string {
+function genericErrorMessage(error: unknown, messages: Messages["orders"]): string {
   if (error instanceof PaymentApiError && error.code === "invalid_response") {
-    return "订单数据返回异常，请稍后重试。";
+    return messages.invalid;
   }
-  return "暂时无法读取订单，请稍后重试。";
+  return messages.unavailable;
 }
 
 function PageFrame({ children }: { children: React.ReactNode }) {
@@ -70,11 +65,12 @@ function PageFrame({ children }: { children: React.ReactNode }) {
 }
 
 function PanelHead({ tag }: { tag: string }) {
+  const t = useT();
   return (
     <div className="cc-ord-panel-head">
       <div>
         <em>ORDERS</em>
-        <h2>订单列表</h2>
+        <h2>{t.orders.title}</h2>
       </div>
       <span className="cc-ord-tag">{tag}</span>
     </div>
@@ -82,6 +78,7 @@ function PanelHead({ tag }: { tag: string }) {
 }
 
 export function CustomerOrdersPage() {
+  const t = useT();
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -101,7 +98,7 @@ export function CustomerOrdersPage() {
           setState({ kind: "unauthorized" });
           return;
         }
-        setState({ kind: "error", message: genericErrorMessage(error) });
+        setState({ kind: "error", message: genericErrorMessage(error, t.orders) });
       });
     return () => {
       stopped = true;
@@ -113,11 +110,11 @@ export function CustomerOrdersPage() {
     return (
       <PageFrame>
         <section className="cc-ord-panel" role="status" aria-live="polite" aria-busy="true">
-          <PanelHead tag="加载中" />
+          <PanelHead tag={t.account.loadingTag} />
           <ul className="cc-ord-skeleton" aria-hidden="true">
             <li /><li /><li />
           </ul>
-          <p className="cc-ord-status-text">正在读取订单…</p>
+          <p className="cc-ord-status-text">{t.orders.loading}</p>
         </section>
       </PageFrame>
     );
@@ -127,16 +124,16 @@ export function CustomerOrdersPage() {
     return (
       <PageFrame>
         <section className="cc-ord-panel" role="alert">
-          <PanelHead tag="登录失效" />
+          <PanelHead tag={t.account.signedOutTag} />
           <div className="cc-ord-notice">
-            <p className="cc-ord-notice-title">登录状态已失效，请重新登录。</p>
-            <p className="cc-ord-notice-hint">重新登录后即可查看你的订单。</p>
+            <p className="cc-ord-notice-title">{t.account.signedOut}</p>
+            <p className="cc-ord-notice-hint">{t.orders.signedOutHint}</p>
             <div className="cc-ord-notice-actions">
               {/* 会话失效恢复：必须整页导航而非 SPA Link。AuthProvider 仅在首次挂载时
                   检查 /api/auth/me，之后 /api/me/orders 的 401 不会把 status 从
                   authenticated 降级；用 <Link> 时 LoginRoute 会读到旧的 authenticated
                   并立即重定向回 /dashboard。原生 <a> 触发整页加载，强制重新检查会话。 */}
-              <a className="cc-ord-primary" href="/login">重新登录</a>
+              <a className="cc-ord-primary" href="/login">{t.account.signInAgain}</a>
             </div>
           </div>
         </section>
@@ -148,19 +145,19 @@ export function CustomerOrdersPage() {
     return (
       <PageFrame>
         <section className="cc-ord-panel" role="alert">
-          <PanelHead tag="读取失败" />
+          <PanelHead tag={t.account.loadFailedTag} />
           <div className="cc-ord-notice">
             <p className="cc-ord-notice-title">{state.message}</p>
-            <p className="cc-ord-notice-hint">网络恢复后可重新读取订单列表。</p>
+            <p className="cc-ord-notice-hint">{t.orders.retryHint}</p>
             <div className="cc-ord-notice-actions">
               <button
                 type="button"
                 className="cc-ord-primary"
                 onClick={() => setReloadToken((token) => token + 1)}
               >
-                重新加载
+                {t.account.reload}
               </button>
-              <Link className="cc-ord-ghost" to="/subscribe">前往套餐订阅</Link>
+              <Link className="cc-ord-ghost" to="/subscribe">{t.account.goSubscribe}</Link>
             </div>
           </div>
         </section>
@@ -173,12 +170,12 @@ export function CustomerOrdersPage() {
     return (
       <PageFrame>
         <section className="cc-ord-panel">
-          <PanelHead tag="暂无订单" />
+          <PanelHead tag={t.orders.emptyTag} />
           <div className="cc-ord-notice">
-            <p className="cc-ord-notice-title">暂无订单</p>
-            <p className="cc-ord-notice-hint">选择套餐并提交需求后，你的订单会显示在这里。</p>
+            <p className="cc-ord-notice-title">{t.orders.empty}</p>
+            <p className="cc-ord-notice-hint">{t.orders.emptyHint}</p>
             <div className="cc-ord-notice-actions">
-              <Link className="cc-ord-primary" to="/subscribe">选择套餐</Link>
+              <Link className="cc-ord-primary" to="/subscribe">{t.account.choosePlan}</Link>
             </div>
           </div>
         </section>
@@ -191,70 +188,70 @@ export function CustomerOrdersPage() {
 
   return (
     <PageFrame>
-      <section className="cc-ord-summary" aria-label="订单概览">
+      <section className="cc-ord-summary" aria-label={t.orders.summaryLabel}>
         <article>
-          <span>订单总数</span>
+          <span>{t.orders.total}</span>
           <strong>{items.length}</strong>
-          <small>全部订单</small>
+          <small>{t.orders.totalHint}</small>
         </article>
         <article>
-          <span>待支付</span>
+          <span>{t.orders.pending}</span>
           <strong>{pendingCount}</strong>
-          <small>等待付款</small>
+          <small>{t.orders.pendingHint}</small>
         </article>
         <article>
-          <span>已支付</span>
+          <span>{t.orders.paid}</span>
           <strong>{paidCount}</strong>
-          <small>付款成功</small>
+          <small>{t.orders.paidHint}</small>
         </article>
       </section>
 
       <section className="cc-ord-panel">
-        <PanelHead tag={`共 ${items.length} 项`} />
+        <PanelHead tag={t.account.itemCount(items.length)} />
         <ul className="cc-ord-list">
           {items.map((item) => (
             <li className="cc-ord-item" key={item.orderRef}>
               <div className="cc-ord-item-head">
                 <div className="cc-ord-item-id">
                   <strong>{item.orderRef}</strong>
-                  <small>创建于 {formatDate(item.createdAt)}</small>
+                  <small>{t.account.createdAt(formatDate(item.createdAt, t.account.dateLocale))}</small>
                 </div>
                 <span className={`cc-ord-badge ${ORDER_STATUS_MODIFIER[item.status]}`}>
-                  {ORDER_STATUS_LABEL[item.status]}
+                  {t.account.orderStatus[item.status]}
                 </span>
               </div>
 
               <dl className="cc-ord-facts">
                 <div>
-                  <dt>金额</dt>
+                  <dt>{t.orders.amount}</dt>
                   <dd>{formatFen(item.amountFen)}</dd>
                 </div>
                 <div>
-                  <dt>服务状态</dt>
-                  <dd>{serviceStatusLabel(item.serviceStatus)}</dd>
+                  <dt>{t.orders.serviceStatus}</dt>
+                  <dd>{serviceStatusLabel(item.serviceStatus, t.account)}</dd>
                 </div>
                 <div>
-                  <dt>地区</dt>
+                  <dt>{t.orders.region}</dt>
                   <dd>{item.regionId}</dd>
                 </div>
                 <div>
-                  <dt>运营商</dt>
+                  <dt>{t.orders.isp}</dt>
                   <dd>{item.ispId}</dd>
                 </div>
                 <div>
-                  <dt>时长</dt>
+                  <dt>{t.orders.duration}</dt>
                   <dd>{item.durationId}</dd>
                 </div>
                 <div>
-                  <dt>类型</dt>
+                  <dt>{t.orders.type}</dt>
                   <dd>{item.specId === null ? item.typeId : `${item.typeId} · ${item.specId}`}</dd>
                 </div>
               </dl>
 
               {item.status === "pending" && item.reservedUntil !== null && (
                 <p className="cc-ord-reserved">
-                  <span>付款保留至</span>
-                  <b>{formatDate(item.reservedUntil)}</b>
+                  <span>{t.orders.reservedUntil}</span>
+                  <b>{formatDate(item.reservedUntil, t.account.dateLocale)}</b>
                 </p>
               )}
 
@@ -263,7 +260,7 @@ export function CustomerOrdersPage() {
                   className="cc-ord-ghost"
                   to={`/subscribe/request?orderRef=${encodeURIComponent(item.orderRef)}`}
                 >
-                  查看订单状态
+                  {t.orders.viewStatus}
                 </Link>
               </div>
             </li>

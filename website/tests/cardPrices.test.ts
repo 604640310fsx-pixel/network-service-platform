@@ -96,6 +96,6 @@ test("card prices come only from the server availability index", () => {
   assert.match(page, /regionFromPriceFen\(availability\.index, selection\.typeId, option\.id\)/);
   assert.match(page, /specMonthlyPriceFen\(availability\.index, selection\.typeId, selection\.regionId, selection\.ispId, option\.id\)/);
   // Each card still falls back to the fail-closed label.
-  assert.equal(page.match(/=== null \? "价格待确认"/g)?.length, 2);
-  assert.match(page, /regionFromFen === null \? <small>价格待确认<\/small>/);
+  assert.equal(page.match(/=== null \? copy\.pricePending/g)?.length, 2);
+  assert.match(page, /regionFromFen === null \? <small>\{copy\.pricePending\}<\/small>/);
 });

@@ -20,6 +20,16 @@ function source(relativePath: string): string {
   return readFileSync(new URL(relativePath, import.meta.url), "utf8");
 }
 
+// The referral center's interface copy lives in the zh dictionary: centre copy runs from
+// `referral: {` up to the shared withdraw/dialog strings, which run up to `records: {`.
+function referralCopySlices(read: (path: string) => string) {
+  const zh = read("../app/i18n/zh.ts");
+  const start = zh.indexOf("  referral: {");
+  const parts = zh.indexOf("    withdrawTitlePending:", start);
+  const records = zh.indexOf("    records: {", start);
+  return { center: zh.slice(start, parts), parts: zh.slice(parts, records), records: zh.slice(records, zh.indexOf("\n  },\n", records)) };
+}
+
 const PRODUCTION_SOURCES = [
   "../app/components/referrals/ReferralCenter.tsx",
   "../app/components/referrals/ReferralCenterAdapter.tsx",
@@ -130,11 +140,12 @@ test("withdrawal stays disabled and pending integration in every state", () => {
   const button = parts.slice(parts.indexOf("export function WithdrawButton"), parts.indexOf("export function useInfoToggle"));
   assert.match(button, /disabled aria-disabled="true"/);
   assert.doesNotMatch(button, /onClick/);
-  assert.match(button, /提现功能待接入/);
+  assert.match(button, /copy\.withdrawTitleMet/);
+  assert.match(referralCopySlices(source).parts, /withdrawTitleMet: "提现功能待接入"/);
 });
 
 test("formal guidance preserves retained balance without promising unconfigured finance", () => {
-  const center = source("../app/components/referrals/ReferralCenter.tsx");
+  const center = referralCopySlices(source).center;
   assert.match(center, /未申请的已结算余额保留，不会自动转出/);
   assert.match(center, /提现门槛：已结算余额满 ¥1,000.00（功能开放后适用）/);
   assert.match(center, /计佣方式、商品上限及结算安排尚未配置或确认/);
@@ -156,7 +167,8 @@ test("approved customer route and public build entry use the formal referral com
   assert.match(dashboard, /<ReferralCenterAdapter \/>/);
   const migrated = shell.slice(shell.indexOf("const migratedPaths"), shell.indexOf("]);", shell.indexOf("const migratedPaths")));
   assert.match(migrated, /"\/referrals"/);
-  assert.match(shell, /\["\/referrals", "邀请\/推广"\]/);
+  assert.match(shell, /"\/referrals"\] \}/);
+  assert.match(source("../app/i18n/zh.ts"), /"\/referrals": "邀请\/推广"/);
   assert.match(viteConfig, /rollupOptions/);
   assert.match(viteConfig, /"referral\.html"/);
   assert.match(source("../referral.html"), /referral-public\/main\.tsx/);

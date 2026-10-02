@@ -1,4 +1,5 @@
 import { useParams } from "react-router-dom";
+import { useT } from "../lib/i18n";
 import { CustomerCenterShell } from "./customer/CustomerCenterShell";
 import { CustomerOrdersPage } from "./customer/CustomerOrdersPage";
 import { CustomerServicesPage } from "./customer/CustomerServicesPage";
@@ -18,6 +19,7 @@ import { sectionKeys } from "../lib/sections";
 
 export function DashboardShell() {
   const { section: requestedSection = "dashboard" } = useParams();
+  const pages = useT().center.pages;
 
   if (!sectionKeys.includes(requestedSection as SectionKey)) {
     return <NotFoundPage />;
@@ -27,7 +29,7 @@ export function DashboardShell() {
   // /status 显示同一公开 3002 监控，始终在客户中心壳层内；无需登录，也不跳到官网公开页。
   if (section === "status") {
     return (
-      <CustomerCenterShell fill title="服务器状态" description="查看公开运营方三网实时监控">
+      <CustomerCenterShell fill title={pages.status.title} description={pages.status.description}>
         <CustomerShellMonitor />
       </CustomerCenterShell>
     );
@@ -35,8 +37,8 @@ export function DashboardShell() {
   if (section === "subscribe") {
     return (
       <CustomerCenterShell
-        title="套餐订阅"
-        description="选择方案并提交需求，完成付款后进入人工交付流程"
+        title={pages.subscribe.title}
+        description={pages.subscribe.description}
       >
         <SubscribePage />
       </CustomerCenterShell>
@@ -44,63 +46,63 @@ export function DashboardShell() {
   }
   if (section === "dashboard") {
     return (
-      <CustomerCenterShell title="仪表板" description="查看服务概览、当前服务与网络状态">
+      <CustomerCenterShell title={pages.dashboard.title} description={pages.dashboard.description}>
         <DashboardPage />
       </CustomerCenterShell>
     );
   }
   if (section === "services") {
     return (
-      <CustomerCenterShell title="当前套餐" description="查看已支付服务与人工开通进度">
+      <CustomerCenterShell title={pages.services.title} description={pages.services.description}>
         <CustomerServicesPage />
       </CustomerCenterShell>
     );
   }
   if (section === "orders") {
     return (
-      <CustomerCenterShell title="订单" description="查看你的订单、支付状态与开通进度">
+      <CustomerCenterShell title={pages.orders.title} description={pages.orders.description}>
         <CustomerOrdersPage />
       </CustomerCenterShell>
     );
   }
   if (section === "docs") {
     return (
-      <CustomerCenterShell title="使用文档" description="搜索并阅读已批准的客户端与服务使用说明">
+      <CustomerCenterShell title={pages.docs.title} description={pages.docs.description}>
         <DocsLibrary articles={SUBSCRIPTION_IMPORT_ARTICLES} />
       </CustomerCenterShell>
     );
   }
   if (section === "profile") {
     return (
-      <CustomerCenterShell title="个人中心" description="查看当前登录账户的只读资料">
+      <CustomerCenterShell title={pages.profile.title} description={pages.profile.description}>
         <ProfilePage />
       </CustomerCenterShell>
     );
   }
   if (section === "referrals") {
     return (
-      <CustomerCenterShell title="邀请/推广" description="查看推荐链接、待确认来源和当前接入状态">
+      <CustomerCenterShell title={pages.referrals.title} description={pages.referrals.description}>
         <ReferralCenterAdapter />
       </CustomerCenterShell>
     );
   }
   if (section === "tickets") {
     return (
-      <CustomerCenterShell title="工单" description="提交问题并查看客服的文字回复">
+      <CustomerCenterShell title={pages.tickets.title} description={pages.tickets.description}>
         <CustomerTicketsPage />
       </CustomerCenterShell>
     );
   }
   if (section === "invites") {
     return (
-      <CustomerCenterShell title="邀请中心" description="查看你的个人邀请码与直接邀请人数">
+      <CustomerCenterShell title={pages.invites.title} description={pages.invites.description}>
         <CustomerInvitesPage />
       </CustomerCenterShell>
     );
   }
   if (section === "network") {
     return (
-      <CustomerCenterShell title="节点与流量" description="查看账户服务、节点状态与流量数据接入情况">
+      <CustomerCenterShell title={pages.network.title} description={pages.network.description}>
         <BuyerNetworkPage />
       </CustomerCenterShell>
     );

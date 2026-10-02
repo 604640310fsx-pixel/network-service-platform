@@ -4,6 +4,10 @@
 
 export type Fen = number;
 
+/** 开发预览页（./preview、./integrated-local）的壳层标题；正式路由使用 i18n 页面标题。 */
+export const REFERRAL_CENTER_TITLE = "推荐返佣中心";
+export const REFERRAL_CENTER_DESCRIPTION = "推荐来源与客户记录";
+
 export type ReferralTier = {
   readonly key: "entry" | "advanced" | "core" | "senior";
   readonly name: string;
@@ -225,14 +229,20 @@ export type MonthFilterModel = {
   readonly options: readonly { readonly value: string; readonly label: string; readonly ariaLabel: string }[];
 };
 
-export function monthFilterModel(months: readonly string[]): MonthFilterModel {
+export function monthFilterModel(
+  months: readonly string[],
+  labels: { readonly year: (year: string) => string; readonly month: (month: number) => string } = {
+    year: (year) => `${year} 年`,
+    month: (month) => `${month}月`,
+  },
+): MonthFilterModel {
   const years = Array.from(new Set(months.map((month) => month.slice(0, 4))));
   const singleYear = years.length === 1;
   return {
-    yearLabel: singleYear ? `${years[0]} 年` : null,
+    yearLabel: singleYear ? labels.year(years[0]) : null,
     options: months.map((month) => ({
       value: month,
-      label: singleYear ? `${Number(month.slice(5, 7))}月` : month,
+      label: singleYear ? labels.month(Number(month.slice(5, 7))) : month,
       ariaLabel: month,
     })),
   };

@@ -92,7 +92,7 @@ test("sends a plain-text verification email to the fixed Resend endpoint", async
   assert.deepEqual(body, {
     from: "no-reply@example.com",
     to: ["recipient@example.com"],
-    subject: "Network Service Platform 验证码",
+    subject: "Drink Life 验证码",
     text:
       "您的邮箱验证码是：042917\n\n" +
       "此验证码仅用于验证您对该邮箱的访问。收到并验证验证码不代表邀请码仍然有效，也不代表注册一定成功。请勿转发。",

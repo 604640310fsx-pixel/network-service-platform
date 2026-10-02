@@ -189,7 +189,8 @@ test("DiagnosisPage keeps attempts in refs and never exposes or persists them", 
   assert.match(page, /window\.crypto\.randomUUID\(\)/);
   assert.match(page, /attemptManager\.clear\(\);\n\s+setSubmitted\(true\)/);
   assert.match(page, /\(\) => \(\) => \{[\s\S]*attemptManager\.clear\(\);/);
-  assert.match(page, /本次提交凭证已失效，请重新点击提交。/);
+  assert.match(page, /return messages\.idempotency;/);
+  assert.match(readFileSync(new URL("../app/i18n/zh.ts", import.meta.url), "utf8"), /idempotency: "本次提交凭证已失效，请重新点击提交。"/);
 
   const combined = `${page}\n${api}`;
   assert.doesNotMatch(

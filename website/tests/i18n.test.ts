@@ -20,7 +20,58 @@ const MIGRATED = [
   "app/components/auth/registrationFlow.ts",
   "app/components/auth/passwordResetModel.ts",
   "app/components/common/LanguageToggle.tsx",
+  "app/components/WorkbenchBanner.tsx",
+  "app/components/subscribe/SubscribePage.tsx",
+  "app/components/subscribe/StepProgress.tsx",
+  "app/components/subscribe/MobileOrderBar.tsx",
+  "app/components/subscribe/OrderSummary.tsx",
+  "app/components/subscribe/SubmitRequestPage.tsx",
+  "app/components/subscribe/RequirementForm.tsx",
+  "app/components/subscribe/OrderStatusPanel.tsx",
+  "app/components/subscribe/AlipayQrPay.tsx",
+  "app/components/customer/CustomerCenterShell.tsx",
+  "app/components/customer/CustomerTicketsPage.tsx",
+  "app/components/customer/CustomerInvitesPage.tsx",
+  "app/components/customer/CustomerOrdersPage.tsx",
+  "app/components/customer/CustomerServicesPage.tsx",
+  "app/components/DashboardShell.tsx",
+  "app/components/dashboard/DashboardPage.tsx",
+  "app/components/dashboard/BuyerDashboardOverview.tsx",
+  "app/components/network/BuyerNetworkPage.tsx",
+  "app/components/subscription-import/SubscriptionImportModule.tsx",
+  "app/components/profile/ProfilePage.tsx",
+  "app/components/profile/AccountSecurityForms.tsx",
+  "app/components/profile/accountSecurityModel.ts",
+  "app/components/referral-public/ReferralLandingPage.tsx",
+  "app/components/diagnosis/DiagnosisPage.tsx",
+  "app/components/monitor/PublicMonitorPage.tsx",
+  "app/components/not-found/NotFoundPage.tsx",
+  "app/components/referrals/ReferralCenter.tsx",
+  "app/components/referrals/ReferralRecords.tsx",
+  "app/components/referrals/referralParts.tsx",
+  "app/components/referrals/ReferralDialog.tsx",
 ];
+
+/** Every Chinese string literal in a source file (comments excluded). */
+function chineseLiterals(file: string): string[] {
+  const sourceFile = ts.createSourceFile(file, source(file), ts.ScriptTarget.Latest, true, file.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const found: string[] = [];
+  const visit = (node: ts.Node) => {
+    if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && CJK.test(node.text)) found.push(node.text);
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found;
+}
+
+// Catalog text is data, not UI copy: components may compare against it, and
+// English renders it through the `catalog` table.
+const CATALOG_TEXT = new Set([
+  ...Object.keys(en.catalog),
+  // Referral data values (status / tier names) are compared as data and rendered through lookups.
+  ...Object.keys(en.referral.statuses),
+  ...Object.keys(en.referral.tierNames),
+]);
 
 function source(relativePath: string): string {
   return readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8");
@@ -28,7 +79,15 @@ function source(relativePath: string): string {
 
 // Lookup tables keyed by catalog ids or catalog text: Chinese leaves them empty
 // (it shows the catalog as written), other languages translate what they need.
-const LOOKUP_TABLES = new Set(["home.types.meta", "home.types.names", "home.types.badges", "home.types.features", "home.regions.names", "home.regions.tags"]);
+const LOOKUP_TABLES = new Set([
+  "catalog",
+  "home.types.meta",
+  "home.regions.tags",
+  "subscribe.solutions",
+  "subscribe.residentialRegionTags",
+  "referral.tierNames",
+  "referral.statuses",
+]);
 
 /** Shape of a dictionary: nested keys, with functions reduced to their arity. */
 function shape(value: unknown, path = ""): unknown {
@@ -73,14 +132,16 @@ test("zh and en dictionaries have the same keys, arrays and interpolation arity"
   assert.deepEqual(shape(en), shape(zh));
 });
 
-test("English copy contains no Chinese except the language switch and catalog lookups", () => {
+test("English copy contains no Chinese except the language switch, and every catalog string is translated", () => {
   const allowed = new Set(["language.zh", "language.zhLabel"]);
   const leaks = strings(en).filter(([path, value]) => CJK.test(value) && !allowed.has(path));
   assert.deepEqual(leaks, []);
-  // Catalog lookups translate every catalog string the home page shows.
-  const catalog = source("app/lib/subscribeCatalog.ts");
-  for (const feature of Object.keys(en.home.types.features)) assert.ok(catalog.includes(`"${feature}"`), feature);
-  for (const [path, value] of strings(zh)) assert.notEqual(value.trim(), "", path);
+  const catalogText = new Set([...chineseLiterals("app/lib/subscribeCatalog.ts"), "不适用"]);
+  assert.deepEqual([...catalogText].filter((text) => !(text in en.catalog)), [], "untranslated catalog text");
+  assert.deepEqual(Object.keys(en.catalog).filter((text) => !catalogText.has(text)), [], "stale catalog translations");
+  // Chinese strings are never empty, except affixes that only one language uses.
+  const affixes = new Set(["subscribe.fromPrefix"]);
+  for (const [path, value] of strings(zh)) if (!affixes.has(path)) assert.notEqual(value.trim(), "", path);
 });
 
 test("migrated components keep no hard-coded Chinese in strings or JSX text", () => {
@@ -90,7 +151,8 @@ test("migrated components keep no hard-coded Chinese in strings or JSX text", ()
     const visit = (node: ts.Node) => {
       if (
         (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isJsxText(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) &&
-        CJK.test(node.text)
+        CJK.test(node.text) &&
+        !CATALOG_TEXT.has(node.text)
       ) {
         hits.push(`${file}:${sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1} ${node.text.trim().slice(0, 30)}`);
       }
@@ -130,7 +192,7 @@ const PAGES: Array<{ file: string; name: string; url?: string; zh: string[]; en:
 function withBrowserStub<Result>(run: () => Result): Result {
   const previous = (globalThis as { window?: unknown }).window;
   (globalThis as { window?: unknown }).window = {
-    location: { search: "" },
+    location: { search: "", origin: "http://localhost:5173" },
     localStorage: { getItem: () => null, setItem: () => undefined },
     matchMedia: () => ({ matches: false, addEventListener: () => undefined, removeEventListener: () => undefined }),
     navigator: { language: "zh-CN" },
@@ -156,6 +218,88 @@ test("each migrated page renders in both languages with its own copy and the lan
         const text = html.replace(/<[^>]+>/g, " ").replace(/中文/g, "");
         assert.doesNotMatch(text, CJK, `${page.name} en leaks Chinese: ${text.match(new RegExp(`.{0,20}${CJK.source}.{0,20}`))?.[0]}`);
       }
+    }
+  }
+}));
+
+const SIGNED_IN_AUTH = {
+  useAuth: () => ({
+    status: "authenticated",
+    principal: { email: "owner@example.net", role: "user" },
+    csrfToken: "csrf-test",
+    logout: async () => undefined,
+    refresh: async () => undefined,
+  }),
+};
+
+function dashboardRenderer() {
+  const loader = createTsxLoader({ "app/lib/auth.tsx": SIGNED_IN_AUTH });
+  const react = loader.requirePackage("react") as typeof import("react");
+  const { renderToStaticMarkup } = loader.requirePackage("react-dom/server") as typeof import("react-dom/server");
+  const router = loader.requirePackage("react-router-dom") as typeof import("react-router-dom");
+  const { I18nProvider } = loader.load("app/lib/i18n.tsx") as { I18nProvider: unknown };
+  const { DashboardShell } = loader.load("app/components/DashboardShell.tsx") as { DashboardShell: unknown };
+  const pages = loader.load("app/components/subscribe/SubmitRequestPage.tsx") as { SubmitRequestPage: unknown };
+  return (url: string, lang: "zh" | "en") => {
+    const element = url.startsWith("/subscribe/request")
+      ? react.createElement(pages.SubmitRequestPage as never)
+      : react.createElement(router.Routes, null, react.createElement(router.Route, { path: "/:section", element: react.createElement(DashboardShell as never) }));
+    return renderToStaticMarkup(
+      react.createElement(router.MemoryRouter, { initialEntries: [url] },
+        react.createElement(I18nProvider as never, { initial: lang } as never, element)),
+    );
+  };
+}
+
+const DASHBOARD_PAGES: Array<{ url: string; zh: string[]; en: string[] }> = [
+  { url: "/dashboard", zh: ["仪表板", "买家概览", "快捷操作"], en: ["Dashboard", "Buyer overview", "Quick actions"] },
+  { url: "/subscribe", zh: ["套餐订阅", "选择网络方案架构", "真住宅宽带"], en: ["Plans", "Choose a network architecture", "Real Residential Broadband"] },
+  { url: "/subscribe/request?typeId=residential&regionId=vn&ispId=vnpt-corp&specId=shared-3&durationId=month-1", zh: ["提交方案需求", "核对已选方案"], en: ["Submit plan details", "Review the selected plan"] },
+  { url: "/services", zh: ["当前套餐", "正在读取服务状态…"], en: ["My plans", "Loading service status…"] },
+  { url: "/orders", zh: ["订单", "正在读取订单…"], en: ["Orders", "Loading orders…"] },
+  { url: "/network", zh: ["节点与流量", "可用节点与流量明细"], en: ["Nodes &amp; traffic", "Available nodes &amp; traffic"] },
+  { url: "/tickets", zh: ["工单", "正在读取工单…"], en: ["Tickets", "Loading tickets…"] },
+  { url: "/profile", zh: ["个人中心", "账号资料", "修改密码"], en: ["Profile", "Account details", "Change password"] },
+  { url: "/invites", zh: ["邀请中心", "正在读取你的邀请码…"], en: ["Invites", "Loading your invite code…"] },
+  { url: "/monitor", zh: ["实时网络监控", "监控地址未配置"], en: ["Live network monitor", "Monitor address not configured"] },
+  { url: "/nope", zh: ["页面不存在"], en: ["Page not found"] },
+  { url: "/referrals", zh: ["邀请/推广", "推荐链接", "伙伴等级", "战略推广合作"], en: ["Referrals", "Referral link", "Partner tiers", "Strategic promotion partnership", "Starter partner"] },
+];
+
+test("customer dashboard pages render in both languages with the shell, toggle and no Chinese in English", () => withBrowserStub(() => {
+  const render = dashboardRenderer();
+  for (const page of DASHBOARD_PAGES) {
+    for (const lang of ["zh", "en"] as const) {
+      const html = render(page.url, lang);
+      for (const expected of page[lang]) assert.ok(html.includes(expected), `${page.url} ${lang}: ${expected}`);
+      assert.match(html, /class="lang-toggle"/, `${page.url} ${lang} toggle`);
+      if (lang === "en") {
+        const text = html.replace(/<[^>]+>/g, " ").replace(/中文/g, "");
+        assert.doesNotMatch(text, CJK, `${page.url} en leaks Chinese: ${text.match(new RegExp(`.{0,20}${CJK.source}.{0,20}`))?.[0]}`);
+        const attributes = [...html.matchAll(/(?:aria-label|title|placeholder)="([^"]*)"/g)].map((match) => match[1]!).filter((value) => value !== "切换到中文");
+        assert.deepEqual(attributes.filter((value) => CJK.test(value)), [], `${page.url} en attribute leaks`);
+      }
+    }
+  }
+}));
+
+test("the diagnosis and referral landing pages render in both languages", () => withBrowserStub(() => {
+  const loader = createTsxLoader({ "app/lib/auth.tsx": { useAuth: () => ({ status: "unauthenticated" }) } });
+  const react = loader.requirePackage("react") as typeof import("react");
+  const { renderToStaticMarkup } = loader.requirePackage("react-dom/server") as typeof import("react-dom/server");
+  const { MemoryRouter } = loader.requirePackage("react-router-dom") as typeof import("react-router-dom");
+  const { I18nProvider } = loader.load("app/lib/i18n.tsx") as { I18nProvider: unknown };
+  const cases = [
+    { file: "app/components/diagnosis/DiagnosisPage.tsx", name: "DiagnosisPage", zh: "先把网络问题说清楚", en: "Describe your network problem first" },
+    { file: "app/components/referral-public/ReferralLandingPage.tsx", name: "ReferralLandingPage", zh: "正在确认推荐链接", en: "Checking the referral link" },
+  ];
+  for (const item of cases) {
+    const Component = loader.load(item.file)[item.name];
+    for (const lang of ["zh", "en"] as const) {
+      const html = renderToStaticMarkup(react.createElement(MemoryRouter, null,
+        react.createElement(I18nProvider as never, { initial: lang } as never, react.createElement(Component as never))));
+      assert.ok(html.includes(item[lang]), `${item.name} ${lang}`);
+      if (lang === "en") assert.doesNotMatch(html.replace(/<[^>]+>/g, " ").replace(/中文/g, ""), CJK, item.name);
     }
   }
 }));
