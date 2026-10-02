@@ -60,9 +60,10 @@ test("unknown multi-segment routes and DashboardShell fallbacks fail closed to N
 });
 
 test("NotFound UI has an accessible heading, explanation, and internal home action", () => {
-  assert.match(notFoundPage, /<h1 id="not-found-title">页面不存在<\/h1>/);
+  assert.match(notFoundPage, /<h1 id="not-found-title">\{copy\.title\}<\/h1>/);
+  assert.match(readFileSync(new URL("../app/i18n/zh.ts", import.meta.url), "utf8"), /notFound: \{\s*title: "页面不存在",[\s\S]*?home: "返回首页"/);
   assert.match(notFoundPage, /<section[^>]+aria-labelledby="not-found-title"/);
-  assert.match(notFoundPage, /<p>[^<]+<\/p>/);
-  assert.match(notFoundPage, /<Link to="\/"[^>]*>[\s\S]*返回首页/);
+  assert.match(notFoundPage, /<p>\{copy\.body\}<\/p>/);
+  assert.match(notFoundPage, /<Link to="\/"[^>]*>[\s\S]*\{copy\.home\}/);
   assert.doesNotMatch(notFoundPage, /https?:\/\/|window\.location|target="_blank"/);
 });

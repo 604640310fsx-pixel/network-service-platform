@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
+import { useT, type Messages } from "../../lib/i18n";
 import {
   PaymentApiError,
   bindOrderAccess,
@@ -23,60 +24,61 @@ function formatFen(amountFen: number) {
   return `¥${Number.isInteger(amount) ? amount : amount.toFixed(2)}`;
 }
 
-function orderErrorMessage(error: unknown): string {
-  if (!(error instanceof PaymentApiError)) return "暂时无法读取订单状态，请稍后重试。";
+type OrderMessages = Messages["subscribe"]["order"];
+
+function orderErrorMessage(error: unknown, messages: OrderMessages): string {
+  const m = messages.errors;
+  if (!(error instanceof PaymentApiError)) return m.generic;
   switch (error.code) {
     case "not_found":
-      return "未找到该订单，或当前浏览器没有有效的查询凭证。";
+      return m.notFound;
     case "unauthorized":
-      return "请登录下单时使用的账户后查看。";
+      return m.loginRequired;
     case "forbidden":
-      return "当前账户无权查看该订单。";
+      return m.forbidden;
     case "csrf_invalid":
-      return "登录状态已变化，请刷新页面后重试。";
+      return m.csrfInvalid;
     case "price_changed":
-      return error.currentAmountFen === null
-        ? "方案价格已变化，请返回方案页重新确认。"
-        : `方案价格已更新为 ${formatFen(error.currentAmountFen)}，请返回重新确认。`;
+      return error.currentAmountFen === null ? m.priceChanged : m.priceUpdated(formatFen(error.currentAmountFen));
     case "payment_unavailable":
-      return "支付服务暂未开放，请稍后再试。";
+      return m.paymentUnavailable;
     case "rate_limited":
-      return "查询过于频繁，请稍后再试。";
+      return m.rateLimited;
     case "storage_unavailable":
-      return "浏览器无法读取订单查询凭证，请检查本地存储设置。";
+      return m.storageUnavailable;
     case "network_error":
-      return "网络连接失败，请稍后重试。";
+      return m.network;
     case "invalid_response":
-      return "订单状态返回异常，请稍后重试。";
+      return m.invalidResponse;
     case "idempotency_key_conflict":
-      return "本次重新支付凭证已失效，请再次点击重新支付。";
+      return m.retryConflict;
     default:
-      return "暂时无法读取订单状态，请稍后重试。";
+      return m.generic;
   }
 }
 
 // 重新支付会生成新订单，必须登录。旧订单查询凭证仍保存在本浏览器，
 // 登录后回到同一订单页即可继续重试；凭证不进入 URL / 日志。
-const RETRY_LOGIN_REQUIRED = "重新支付需先登录；登录后请在本浏览器重新打开本订单页面，再点击“重新支付”。";
 
-function payPageErrorMessage(error: unknown): string {
-  if (!(error instanceof PaymentApiError)) return "暂时无法刷新支付页面，请稍后重试。";
+function payPageErrorMessage(error: unknown, messages: OrderMessages): string {
+  if (!(error instanceof PaymentApiError)) return messages.refreshErrors.generic;
   switch (error.code) {
     case "pay_page_unavailable":
     case "qr_unavailable":
-      return "订单已失效，请点击“重新支付”获取新的支付页面。";
+      return messages.refreshErrors.expired;
     case "not_found":
-      return "未找到该订单，或当前浏览器没有有效的查询凭证。";
+      return messages.errors.notFound;
     case "unauthorized":
-      return "请登录下单时使用的账户后查看。";
+      return messages.errors.loginRequired;
     case "payment_unavailable":
-      return "支付服务暂未开放，请稍后再试。";
+      return messages.errors.paymentUnavailable;
     case "network_error":
-      return "网络连接失败，请稍后重试。";
+      return messages.errors.network;
     default:
-      return "暂时无法刷新支付页面，请稍后重试。";
+      return messages.refreshErrors.generic;
   }
 }
+
 
 function canManuallyRetryQuery(error: unknown): boolean {
   if (!(error instanceof PaymentApiError)) return false;
@@ -103,6 +105,8 @@ export function OrderStatusPanel({
 }) {
   const navigate = useNavigate();
   const { status: authStatus, csrfToken } = useAuth();
+  const t = useT();
+  const copy = t.subscribe.order;
   const [snapshot, setSnapshot] = useState<PaymentOrderSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -141,14 +145,14 @@ export function OrderStatusPanel({
       accessTokenRef.current = readOrderAccessToken(orderRef);
     } catch (storageError) {
       setLoading(false);
-      setError(orderErrorMessage(storageError));
+      setError(orderErrorMessage(storageError, copy));
       setQueryRetryable(false);
       return () => controller.abort();
     }
 
     if (authStatus === "unauthenticated" && accessTokenRef.current === null) {
       setLoading(false);
-      setError("该订单不在本浏览器；请使用下单时的浏览器，或登录已绑定的账户查看。");
+      setError(copy.errors.notInBrowser);
       setQueryRetryable(false);
       return () => controller.abort();
     }
@@ -175,7 +179,7 @@ export function OrderStatusPanel({
       } catch (pollError) {
         if (stopped || (pollError instanceof DOMException && pollError.name === "AbortError")) return;
         setLoading(false);
-        setError(orderErrorMessage(pollError));
+        setError(orderErrorMessage(pollError, copy));
         setQueryRetryable(canManuallyRetryQuery(pollError));
         setReturningFromAlipay(false);
       }
@@ -222,7 +226,7 @@ export function OrderStatusPanel({
         setQueryGeneration((generation) => generation + 1);
       }
     } catch (refreshError) {
-      setActionError(payPageErrorMessage(refreshError));
+      setActionError(payPageErrorMessage(refreshError, copy));
     } finally {
       setRefreshingPayPage(false);
     }
@@ -250,7 +254,7 @@ export function OrderStatusPanel({
     if (retrying) return;
     // 未登录时不生成或改动任何重试凭证，只提示先登录。
     if (authStatus !== "authenticated" || csrfToken === null) {
-      setActionError(RETRY_LOGIN_REQUIRED);
+      setActionError(copy.retryLoginRequired);
       return;
     }
     setRetrying(true);
@@ -270,7 +274,7 @@ export function OrderStatusPanel({
     } catch (retryError) {
       // 登录失效（401）时保留本次重试凭证，重新登录后回到本页可安全重放同一请求。
       if (retryError instanceof PaymentApiError && retryError.code === "unauthorized") {
-        setActionError(RETRY_LOGIN_REQUIRED);
+        setActionError(copy.retryLoginRequired);
         return;
       }
       if (credentials !== null && shouldClearAttemptAfterError(retryError)) {
@@ -280,7 +284,7 @@ export function OrderStatusPanel({
           // 保留原始请求错误；本地存储不可用时无法额外清理。
         }
       }
-      setActionError(orderErrorMessage(retryError));
+      setActionError(orderErrorMessage(retryError, copy));
     } finally {
       setRetrying(false);
     }
@@ -289,8 +293,8 @@ export function OrderStatusPanel({
   if (loading && snapshot === null) {
     return (
       <section className="sub-section sub-request-invalid" role="status">
-        <h2>正在查询支付结果</h2>
-        <p>请稍候，本页不会仅凭跳转结果标记付款成功。</p>
+        <h2>{copy.queryingTitle}</h2>
+        <p>{copy.queryingBody}</p>
       </section>
     );
   }
@@ -298,13 +302,13 @@ export function OrderStatusPanel({
   if (snapshot === null) {
     return (
       <section className="sub-section sub-request-invalid" role="alert">
-        <h2>暂时无法查看订单</h2>
-        <p>{error ?? "请稍后重试。"}</p>
+        <h2>{copy.unavailableTitle}</h2>
+        <p>{error ?? copy.tryLater}</p>
         <div className="sub-request-recovery">
           {queryRetryable && (
-            <button className="sub-request-back-btn" type="button" onClick={queryAgain}>重新查询</button>
+            <button className="sub-request-back-btn" type="button" onClick={queryAgain}>{copy.queryAgain}</button>
           )}
-          <Link className="sub-request-back-btn" to="/subscribe">返回选择方案</Link>
+          <Link className="sub-request-back-btn" to="/subscribe">{t.subscribe.request.backToChoose}</Link>
         </div>
       </section>
     );
@@ -354,7 +358,7 @@ export function OrderStatusPanel({
         {snapshot.status === "closed" && authStatus === "unauthenticated" && (
           <div className="pay-requery" role="status">
             <p>
-              重新支付会生成新订单，需先<Link to="/login">登录</Link>；登录后请在本浏览器重新打开本订单页面，再点击“重新支付”。
+              {copy.retryNeedsLoginBefore}<Link to="/login">{t.subscribe.form.loginLink}</Link>{copy.retryNeedsLoginAfter}
             </p>
           </div>
         )}
@@ -362,7 +366,7 @@ export function OrderStatusPanel({
         {snapshot.status !== "closed" && error !== null && queryRetryable && (
           <div className="pay-requery" role="alert">
             <p>{error}</p>
-            <button type="button" onClick={queryAgain}>重新查询</button>
+            <button type="button" onClick={queryAgain}>{copy.queryAgain}</button>
           </div>
         )}
       </div>

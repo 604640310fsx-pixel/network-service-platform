@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../../lib/auth";
+import { useT } from "../../lib/i18n";
 import { InvitesApiError, ensureMyInvites, getMyInvites, personalInviteLink, type MyInvites } from "../../lib/invites-api";
 import "./customer-orders.css";
 import "./customer-invites.css";
@@ -18,11 +19,12 @@ type Load =
   | { readonly kind: "error" };
 
 function PanelHead({ tag }: { tag: string }) {
+  const t = useT();
   return (
     <div className="cc-ord-panel-head">
       <div>
         <em>INVITES</em>
-        <h2>我的邀请</h2>
+        <h2>{t.invites.title}</h2>
       </div>
       <span className="cc-ord-tag">{tag}</span>
     </div>
@@ -34,6 +36,7 @@ export function CustomerInvitesPage() {
   const [reload, setReload] = useState(0);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const { csrfToken } = useAuth();
+  const copyText = useT().invites;
   // The explicit ensure write runs at most once per load attempt (reload resets it).
   const ensureAttempted = useRef(-1);
 
@@ -70,15 +73,15 @@ export function CustomerInvitesPage() {
   async function copy(text: string, label: string) {
     try {
       await navigator.clipboard.writeText(text);
-      setCopyStatus(`已复制${label}。`);
+      setCopyStatus(copyText.copied(label));
     } catch {
-      setCopyStatus(`复制失败，请手动选择并复制${label}。`);
+      setCopyStatus(copyText.copyFailed(label));
     }
   }
 
   async function share(link: string) {
     try {
-      await navigator.share({ title: "注册邀请", url: link });
+      await navigator.share({ title: copyText.shareTitle, url: link });
     } catch {
       // The person cancelled or sharing is unavailable; the copy button still works.
     }
@@ -89,8 +92,8 @@ export function CustomerInvitesPage() {
       <main className="cc-ord-page">
         <div className="cc-ord-layout">
           <section className="cc-ord-panel" role="status" aria-live="polite" aria-busy="true">
-            <PanelHead tag={state.kind === "provisioning" ? "生成中" : "加载中"} />
-            <p className="cc-ord-status-text">{state.kind === "provisioning" ? "正在为你生成个人邀请码…" : "正在读取你的邀请码…"}</p>
+            <PanelHead tag={state.kind === "provisioning" ? copyText.provisioningTag : copyText.loadingTag} />
+            <p className="cc-ord-status-text">{state.kind === "provisioning" ? copyText.provisioning : copyText.loading}</p>
           </section>
         </div>
       </main>
@@ -101,11 +104,11 @@ export function CustomerInvitesPage() {
       <main className="cc-ord-page">
         <div className="cc-ord-layout">
           <section className="cc-ord-panel" role="alert">
-            <PanelHead tag="登录失效" />
+            <PanelHead tag={copyText.signedOutTag} />
             <div className="cc-ord-notice">
-              <p className="cc-ord-notice-title">登录状态已失效，请重新登录。</p>
+              <p className="cc-ord-notice-title">{copyText.signedOut}</p>
               <div className="cc-ord-notice-actions">
-                <a className="cc-ord-primary" href="/login">重新登录</a>
+                <a className="cc-ord-primary" href="/login">{copyText.signInAgain}</a>
               </div>
             </div>
           </section>
@@ -118,11 +121,11 @@ export function CustomerInvitesPage() {
       <main className="cc-ord-page">
         <div className="cc-ord-layout">
           <section className="cc-ord-panel" role="alert">
-            <PanelHead tag="读取失败" />
+            <PanelHead tag={copyText.loadFailedTag} />
             <div className="cc-ord-notice">
-              <p className="cc-ord-notice-title">暂时无法读取邀请信息，请稍后重试。</p>
+              <p className="cc-ord-notice-title">{copyText.loadFailed}</p>
               <div className="cc-ord-notice-actions">
-                <button type="button" className="cc-ord-primary" onClick={() => setReload((n) => n + 1)}>重新加载</button>
+                <button type="button" className="cc-ord-primary" onClick={() => setReload((n) => n + 1)}>{copyText.reload}</button>
               </div>
             </div>
           </section>
@@ -138,31 +141,29 @@ export function CustomerInvitesPage() {
     <main className="cc-ord-page">
       <div className="cc-ord-layout">
         <section className="cc-ord-panel">
-          <PanelHead tag="仅本人可见" />
+          <PanelHead tag={copyText.privateTag} />
           <dl className="cc-inv-facts">
             <div>
-              <dt>我的个人邀请码</dt>
+              <dt>{copyText.code}</dt>
               <dd><code className="cc-inv-code">{code}</code></dd>
             </div>
             <div>
-              <dt>注册链接</dt>
+              <dt>{copyText.link}</dt>
               <dd><code className="cc-inv-link">{link}</code></dd>
             </div>
             <div>
-              <dt>已直接邀请</dt>
-              <dd><strong>{directInviteCount}</strong> 人</dd>
+              <dt>{copyText.invited}</dt>
+              <dd><strong>{directInviteCount}</strong>{copyText.peopleSuffix}</dd>
             </div>
           </dl>
           <div className="cc-ord-notice-actions">
-            <button type="button" className="cc-ord-primary" onClick={() => void copy(link, "注册链接")}>复制注册链接</button>
-            <button type="button" className="cc-ord-ghost" onClick={() => void copy(code, "邀请码")}>复制邀请码</button>
-            {canShare && <button type="button" className="cc-ord-ghost" onClick={() => void share(link)}>分享</button>}
+            <button type="button" className="cc-ord-primary" onClick={() => void copy(link, copyText.link)}>{copyText.copyLink}</button>
+            <button type="button" className="cc-ord-ghost" onClick={() => void copy(code, copyText.code)}>{copyText.copyCode}</button>
+            {canShare && <button type="button" className="cc-ord-ghost" onClick={() => void share(link)}>{copyText.share}</button>}
           </div>
           {copyStatus && <p className="cc-inv-status" role="status">{copyStatus}</p>}
           <ul className="cc-inv-notes">
-            <li>好友通过你的邀请码或注册链接完成注册后，你会成为其直接邀请人；每个账户只有一位直接邀请人，之后不会更改。</li>
-            <li>邀请码只能用于注册新账户，不能登录你的账户，也不会让对方看到你的任何信息。</li>
-            <li>这里只显示直接邀请人数，不显示被邀请人的身份信息。</li>
+            {copyText.notes.map((note) => <li key={note}>{note}</li>)}
           </ul>
         </section>
       </div>

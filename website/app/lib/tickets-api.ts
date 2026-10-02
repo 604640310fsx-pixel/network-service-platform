@@ -251,28 +251,56 @@ export const TICKET_STATUS_LABEL: Record<TicketStatus, string> = {
   closed: "已关闭",
 };
 
-export function ticketErrorMessage(error: unknown): string {
-  if (!(error instanceof TicketApiError)) return "工单服务暂时不可用，请稍后重试。";
+/** 错误文案集合；客户工单页按当前界面语言传入（i18n `tickets.errors`），
+    未传入时（管理端，仍为中文界面）使用下方中文默认文案。 */
+export interface TicketErrorMessages {
+  readonly unavailable: string;
+  readonly unauthorized: string;
+  readonly csrfInvalid: string;
+  readonly forbidden: string;
+  readonly notFound: string;
+  readonly ticketClosed: string;
+  readonly messageLimit: string;
+  readonly invalidService: string;
+  readonly invalidRequest: (subjectMax: number, bodyMax: number) => string;
+  readonly network: string;
+}
+
+const DEFAULT_TICKET_ERRORS: TicketErrorMessages = {
+  unavailable: "工单服务暂时不可用，请稍后重试。",
+  unauthorized: "登录状态已失效，请重新登录后查看工单。",
+  csrfInvalid: "登录状态已变化，请刷新页面后重试。",
+  forbidden: "当前账户无权执行此操作。",
+  notFound: "未找到该工单。",
+  ticketClosed: "该工单已关闭，无法继续回复。",
+  messageLimit: "该工单消息已达上限，请新建工单继续沟通。",
+  invalidService: "所选服务无效，请重新选择或不关联服务。",
+  invalidRequest: (subjectMax, bodyMax) => `请检查填写内容：主题 1-${subjectMax} 字且为单行，内容 1-${bodyMax} 字。`,
+  network: "网络连接失败，请稍后重试。",
+};
+
+export function ticketErrorMessage(error: unknown, messages: TicketErrorMessages = DEFAULT_TICKET_ERRORS): string {
+  if (!(error instanceof TicketApiError)) return messages.unavailable;
   switch (error.code) {
     case "unauthorized":
-      return "登录状态已失效，请重新登录后查看工单。";
+      return messages.unauthorized;
     case "csrf_invalid":
-      return "登录状态已变化，请刷新页面后重试。";
+      return messages.csrfInvalid;
     case "forbidden":
-      return "当前账户无权执行此操作。";
+      return messages.forbidden;
     case "not_found":
-      return "未找到该工单。";
+      return messages.notFound;
     case "ticket_closed":
-      return "该工单已关闭，无法继续回复。";
+      return messages.ticketClosed;
     case "message_limit_reached":
-      return "该工单消息已达上限，请新建工单继续沟通。";
+      return messages.messageLimit;
     case "invalid_service":
-      return "所选服务无效，请重新选择或不关联服务。";
+      return messages.invalidService;
     case "invalid_request":
-      return `请检查填写内容：主题 1-${TICKET_SUBJECT_MAX} 字且为单行，内容 1-${TICKET_BODY_MAX} 字。`;
+      return messages.invalidRequest(TICKET_SUBJECT_MAX, TICKET_BODY_MAX);
     case "network_error":
-      return "网络连接失败，请稍后重试。";
+      return messages.network;
     default:
-      return "工单服务暂时不可用，请稍后重试。";
+      return messages.unavailable;
   }
 }

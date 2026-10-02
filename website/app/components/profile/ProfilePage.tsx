@@ -1,4 +1,5 @@
-import { useAuth, type AuthPrincipal } from "../../lib/auth";
+import { useAuth } from "../../lib/auth";
+import { useT } from "../../lib/i18n";
 import { EmailChangePanel, PasswordChangePanel } from "./AccountSecurityForms";
 import "./profile.css";
 
@@ -6,11 +7,6 @@ import "./profile.css";
    user.role；不展示 csrfToken、内部用户编号或 Session 字段，也不在接口失败时回退 Mock。
    其下的「修改密码」「修改邮箱」只调用 /api/me/password/change 与
    /api/me/email/change/{start,confirm}。 */
-
-const ROLE_LABEL: Readonly<Record<AuthPrincipal["role"], string>> = {
-  user: "普通用户",
-  admin: "管理员",
-};
 
 function PageFrame({ children }: { children: React.ReactNode }) {
   return (
@@ -21,11 +17,12 @@ function PageFrame({ children }: { children: React.ReactNode }) {
 }
 
 function PanelHead({ tag }: { tag: string }) {
+  const t = useT();
   return (
     <div className="cc-profile-panel-head">
       <div>
         <em>PROFILE</em>
-        <h2>账号资料</h2>
+        <h2>{t.profile.title}</h2>
       </div>
       <span className="cc-profile-tag">{tag}</span>
     </div>
@@ -33,17 +30,16 @@ function PanelHead({ tag }: { tag: string }) {
 }
 
 function UnavailableProfile() {
+  const copy = useT().profile;
   return (
     <PageFrame>
       <section className="cc-profile-panel" role="alert">
-        <PanelHead tag="登录失效" />
+        <PanelHead tag={copy.signedOutTag} />
         <div className="cc-profile-notice">
-          <p className="cc-profile-notice-title">登录状态不可用，请重新登录。</p>
-          <p className="cc-profile-notice-hint">
-            重新登录后即可读取当前账户资料。
-          </p>
+          <p className="cc-profile-notice-title">{copy.signedOutTitle}</p>
+          <p className="cc-profile-notice-hint">{copy.signedOutHint}</p>
           <a className="cc-profile-primary" href="/login">
-            重新登录
+            {copy.signInAgain}
           </a>
         </div>
       </section>
@@ -53,6 +49,7 @@ function UnavailableProfile() {
 
 export function ProfilePage() {
   const { status, principal } = useAuth();
+  const copy = useT().profile;
 
   if (status === "checking") {
     return (
@@ -63,12 +60,12 @@ export function ProfilePage() {
           aria-live="polite"
           aria-busy="true"
         >
-          <PanelHead tag="加载中" />
+          <PanelHead tag={copy.loadingTag} />
           <div className="cc-profile-skeleton" aria-hidden="true">
             <span />
             <span />
           </div>
-          <p className="cc-profile-status-text">正在读取账户资料…</p>
+          <p className="cc-profile-status-text">{copy.loading}</p>
         </section>
       </PageFrame>
     );
@@ -84,23 +81,21 @@ export function ProfilePage() {
         <div className="cc-profile-panel-head">
           <div>
             <em>PROFILE</em>
-            <h2 id="cc-profile-title">账号资料</h2>
+            <h2 id="cc-profile-title">{copy.title}</h2>
           </div>
-          <span className="cc-profile-tag">只读</span>
+          <span className="cc-profile-tag">{copy.readOnlyTag}</span>
         </div>
 
-        <p className="cc-profile-intro">
-          以下信息来自当前登录账户，仅供查看。
-        </p>
+        <p className="cc-profile-intro">{copy.intro}</p>
 
         <dl className="cc-profile-facts">
           <div>
-            <dt>登录邮箱</dt>
+            <dt>{copy.email}</dt>
             <dd>{principal.email}</dd>
           </div>
           <div>
-            <dt>账户类型</dt>
-            <dd>{ROLE_LABEL[principal.role]}</dd>
+            <dt>{copy.accountType}</dt>
+            <dd>{copy.roles[principal.role]}</dd>
           </div>
         </dl>
       </section>

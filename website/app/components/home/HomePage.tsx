@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Link } from "react-router-dom";
-import { useT } from "../../lib/i18n";
+import { useCatalogText, useT } from "../../lib/i18n";
 import { useThemePreference } from "../../lib/theme";
 import { networkTypes, regions } from "../../lib/subscribeCatalog";
 import { SiteHeader } from "./SiteHeader";
@@ -401,6 +401,7 @@ function ConsoleShowcase() {
 export function HomePage() {
   const { theme, toggleTheme } = useThemePreference();
   const t = useT();
+  const ct = useCatalogText();
   const copy = t.home;
   const diagnosis = useRevealOnce<HTMLDivElement>();
 
@@ -682,8 +683,8 @@ export function HomePage() {
                 <article className="home-type" key={type.id}>
                   <p className="home-type-role">{copy.types.meta[type.id]?.role ?? copy.types.roleFallback}</p>
                   <div className="home-type-head">
-                    <h3>{copy.types.names[type.id] ?? type.name}</h3>
-                    {type.badge ? <span className="home-chip is-accent">{copy.types.badges[type.badge] ?? type.badge}</span> : null}
+                    <h3>{ct(type.name)}</h3>
+                    {type.badge ? <span className="home-chip is-accent">{ct(type.badge)}</span> : null}
                   </div>
                   <p className="home-type-scene">
                     <b>{copy.types.sceneLabel}</b>
@@ -691,7 +692,7 @@ export function HomePage() {
                   </p>
                   <ul className="home-type-features">
                     {type.features.map((feature) => (
-                      <li key={feature}>{copy.types.features[feature] ?? feature}</li>
+                      <li key={feature}>{ct(feature)}</li>
                     ))}
                   </ul>
                   <Link to="/subscribe" className="home-text-link">{copy.types.viewPlan}{ARROW}</Link>
@@ -723,7 +724,7 @@ export function HomePage() {
                       <div className="home-region-top">
                         <span className={`home-flag is-${region.flagClass}`} aria-hidden="true" />
                         <span className="home-region-copy">
-                          <strong>{copy.regions.names[region.id] ?? region.name}<em>{regionCodes[region.id] ?? ""}</em></strong>
+                          <strong>{ct(region.name)}<em>{regionCodes[region.id] ?? ""}</em></strong>
                         </span>
                       </div>
                       {tags ? (
@@ -733,7 +734,7 @@ export function HomePage() {
                           ))}
                         </div>
                       ) : (
-                        <small className="home-region-note">{region.badge ?? "—"}</small>
+                        <small className="home-region-note">{region.badge ? ct(region.badge) : "—"}</small>
                       )}
                     </div>
                   );

@@ -318,7 +318,7 @@ test("the Resend transport sends the reset link with an ignore notice and reject
   const token = "B".repeat(43);
   const key = "password-reset-v1:7:1790000000:AAAAAAAAAAAAAAAAAAAAAA";
   await transport.send({ idempotencyKey: key, toEmail: "owner@example.net", template: "password_reset", verificationCode: null, resetToken: token });
-  assert.equal(bodies[0]!.subject, "Network Service Platform 重置密码");
+  assert.equal(bodies[0]!.subject, "Drink Life 重置密码");
   assert.ok(bodies[0]!.text.includes(`https://www.siqiapparel.com/reset-password?token=${token}`));
   assert.match(bodies[0]!.text, /如非本人操作，请忽略本邮件/);
   await assert.rejects(

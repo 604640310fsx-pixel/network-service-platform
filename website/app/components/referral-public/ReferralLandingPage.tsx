@@ -4,6 +4,8 @@ import {
   referralCodeFromSearch,
   resolvePublicReferral,
 } from "../../lib/referral-public-api";
+import { useT } from "../../lib/i18n";
+import { LanguageToggle } from "../common/LanguageToggle";
 import "../customer/customer-center.css";
 import "../auth/login.css";
 import "./referral-landing.css";
@@ -18,6 +20,8 @@ function initialTheme(): Theme {
 }
 
 export function ReferralLandingPage() {
+  const t = useT();
+  const copy = t.referralLanding;
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const [state, setState] = useState<LandingState>("loading");
   const [publicCode] = useState(() =>
@@ -44,30 +48,31 @@ export function ReferralLandingPage() {
 
   const title =
     state === "loading"
-      ? "正在确认推荐链接"
+      ? copy.titles.loading
       : state === "valid"
-        ? "推荐链接有效"
+        ? copy.titles.valid
         : state === "invalid"
-          ? "推荐链接不可用"
-          : "暂时无法确认推荐链接";
+          ? copy.titles.invalid
+          : copy.titles.error;
   const subtitle =
     state === "valid"
-      ? "推荐链接有效，你可以先了解服务。"
+      ? copy.subtitles.valid
       : state === "invalid"
-        ? "请检查链接是否完整，或向分享者重新获取链接。"
+        ? copy.subtitles.invalid
         : state === "rate_limited"
-          ? "请求过于频繁，请稍后再试。"
+          ? copy.subtitles.rateLimited
           : state === "error"
-            ? "服务暂时不可用，请稍后重试。"
-            : "正在读取公开链接状态，请稍候。";
+            ? copy.subtitles.error
+            : copy.subtitles.loading;
 
   return (
     <div className="cc-shell cc-auth referral-public" data-theme={theme}>
       <header className="auth-topbar">
+        <LanguageToggle />
         <button
           type="button"
           className="auth-theme-toggle"
-          aria-label={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
+          aria-label={theme === "dark" ? t.common.toLightTheme : t.common.toDarkTheme}
           aria-pressed={theme === "light"}
           onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
         >
@@ -81,9 +86,9 @@ export function ReferralLandingPage() {
 
       <main className="auth-main">
         <section className="auth-card referral-public-card" aria-live="polite" aria-busy={state === "loading"}>
-          <a className="auth-brand" href="/" aria-label="返回首页">
+          <a className="auth-brand" href="/" aria-label={t.authShell.backHome}>
             <span className="auth-brand-mark" aria-hidden="true" />
-            <span className="auth-home-label">返回首页</span>
+            <span className="auth-home-label">{t.authShell.backHome}</span>
           </a>
 
           <div className={`referral-public-status is-${state}`} aria-hidden="true">
@@ -93,7 +98,7 @@ export function ReferralLandingPage() {
           <p className="auth-subtitle">{subtitle}</p>
 
           <div className="referral-public-actions">
-            <p>当前仅开放邀请注册，可使用管理员签发、绑定邮箱的一次性邀请码，或已注册用户分享的个人邀请码；推荐链接中的代码同时是分享者的个人邀请码，只能用于注册，不能登录任何账户。此页面只确认链接状态，不代表推荐归属或佣金资格。</p>
+            <p>{copy.policy}</p>
           </div>
         </section>
       </main>

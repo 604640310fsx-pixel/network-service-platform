@@ -15,6 +15,12 @@ import {
 const DEMO_SUBSCRIPTION_URL = "https://subscription.example.invalid/demo";
 const COMPONENT_SOURCE = readFileSync(new URL("./SubscriptionImportModule.tsx", import.meta.url), "utf8");
 const COMPONENT_CSS = readFileSync(new URL("./subscription-import.css", import.meta.url), "utf8");
+// Interface copy lives in the zh dictionary; the module renders it by key.
+const ZH_COPY = (() => {
+  const text = readFileSync(new URL("../../i18n/zh.ts", import.meta.url), "utf8");
+  const start = text.indexOf("  subscriptionImport: {");
+  return text.slice(start, text.indexOf("\n  },\n", start));
+})();
 
 test("the frozen client catalog is complete and unique", () => {
   assert.deepEqual(
@@ -159,17 +165,18 @@ test("only catalog-eligible clients get a safe request", () => {
 
 test("location guidance covers frozen Chrome cases without a fake chrome settings link", () => {
   assert.match(COMPONENT_SOURCE, /chrome:\/\/settings\/content\/location/);
-  assert.match(COMPONENT_SOURCE, /检查并清理已允许查看位置的网站名单/);
-  assert.match(COMPONENT_SOURCE, /Android：同时检查 Chrome 的网站位置权限与系统中的 Chrome 位置权限，建议设为每次询问或拒绝/);
-  assert.match(COMPONENT_SOURCE, /iPhone \/ iPad：在系统设置的定位服务中检查 Chrome 位置权限，建议设为永不或下次询问，并按需拒绝/);
-  assert.match(COMPONENT_SOURCE, /非必要时建议关闭；需要时改为每次询问/);
+  assert.match(ZH_COPY, /检查并清理已允许查看位置的网站名单/);
+  assert.match(ZH_COPY, /Android：同时检查 Chrome 的网站位置权限与系统中的 Chrome 位置权限，建议设为每次询问或拒绝/);
+  assert.match(ZH_COPY, /iPhone \/ iPad：在系统设置的定位服务中检查 Chrome 位置权限，建议设为永不或下次询问，并按需拒绝/);
+  assert.match(ZH_COPY, /非必要时建议关闭；需要时改为每次询问/);
+  assert.match(COMPONENT_SOURCE, /\{copy\.locationDesktopBefore\}<code>chrome:\/\/settings\/content\/location<\/code>\{copy\.locationDesktopAfter\}/);
   assert.doesNotMatch(COMPONENT_SOURCE, /href=[^>]*chrome:\/\//);
 });
 
 test("the subscription controls follow the approved card order", () => {
   const orderedMarkers = [
     'className="cc-si-location-note"',
-    "<span>当前订阅地址</span>",
+    "<span>{copy.currentUrl}</span>",
     'className="cc-si-actions"',
     'className="cc-si-qr"',
     'className="cc-si-platform-tabs"',
@@ -188,8 +195,10 @@ test("the subscription controls follow the approved card order", () => {
 });
 
 test("client copy describes display choices without claiming verified compatibility", () => {
-  assert.match(COMPONENT_SOURCE, /可选客户端/);
-  assert.match(COMPONENT_SOURCE, /能否添加由客户端决定/);
+  assert.match(COMPONENT_SOURCE, /aria-label=\{copy\.clientGridLabel\(platformLabel\)\}/);
+  assert.match(ZH_COPY, /可选客户端/);
+  assert.match(ZH_COPY, /能否添加由客户端决定/);
+  assert.doesNotMatch(ZH_COPY, /已核验客户端/);
   assert.match(COMPONENT_SOURCE, /className="cc-si-client-import"/);
   assert.match(COMPONENT_SOURCE, /onClick=\{\(\) => setActionMessage\(/);
   assert.doesNotMatch(COMPONENT_SOURCE, /已核验客户端/);

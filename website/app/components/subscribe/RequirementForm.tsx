@@ -1,6 +1,7 @@
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
+import { useCatalogText, useT, type Messages } from "../../lib/i18n";
 import {
   PAYMENT_MAX_SINGLE_FEN_FRONTEND,
   PaymentApiError,
@@ -21,59 +22,49 @@ import type { SelectionSummary } from "./useSubscriptionSelection";
 
 /* 使用场景为需求信息里的可选多选项，仅用于让人工在确认阶段了解客户用途，
    不写入 catalog、不参与选择逻辑与定价。 */
-const SCENARIOS = [
-  { id: "ai", label: "AI 工具" },
-  { id: "social", label: "TikTok / 社媒" },
-  { id: "work", label: "跨境办公" },
-  { id: "other", label: "其他" },
-] as const;
-
-function recapValue(value: string) {
-  return value || "—";
-}
+const SCENARIO_IDS = ["ai", "social", "work", "other"] as const;
 
 function formatFen(amountFen: number) {
   const amount = amountFen / 100;
   return `¥${Number.isInteger(amount) ? amount : amount.toFixed(2)}`;
 }
 
-function paymentErrorMessage(error: unknown): string {
-  if (!(error instanceof PaymentApiError)) return "暂时无法发起付款，请稍后重试。";
+function paymentErrorMessage(error: unknown, messages: Messages["subscribe"]["form"]): string {
+  const m = messages.errors;
+  if (!(error instanceof PaymentApiError)) return m.generic;
   switch (error.code) {
     case "price_changed":
-      return error.currentAmountFen === null
-        ? "方案价格已变化，请返回方案页重新确认后再支付。"
-        : `方案价格已更新为 ${formatFen(error.currentAmountFen)}，请返回重新确认后再支付。`;
+      return error.currentAmountFen === null ? m.priceChanged : m.priceUpdated(formatFen(error.currentAmountFen));
     case "amount_limit_exceeded":
-      return "该方案超过当前在线支付限额，暂不支持在线购买。";
+      return m.amountLimit;
     case "plan_unavailable":
-      return "该方案当前已停售，请返回方案页重新选择。";
+      return m.planUnavailable;
     case "sold_out":
-      return "该方案名额已售罄，请返回方案页重新选择。";
+      return m.soldOut;
     case "coupon_invalid":
-      return "优惠码无效、已过期或不适用于当前方案，将按原价支付。";
+      return messages.couponInvalid;
     case "invalid_selection":
-      return "方案信息已失效，请返回方案页重新选择。";
+      return m.invalidSelection;
     case "contact_required":
-      return "请填写联系方式后再支付。";
+      return m.contactRequired;
     case "unauthorized":
-      return "登录状态已失效，请重新登录后返回“套餐订阅”重新选择套餐。";
+      return m.unauthorized;
     case "csrf_invalid":
-      return "登录状态已变化，请刷新页面后重试。";
+      return m.csrfInvalid;
     case "payment_unavailable":
-      return "支付服务暂未开放，请稍后再试。";
+      return m.paymentUnavailable;
     case "idempotency_key_conflict":
-      return "本次提交凭证已失效，请重新点击支付。";
+      return m.idempotencyConflict;
     case "rate_limited":
-      return "提交过于频繁，请稍后再试。";
+      return m.rateLimited;
     case "storage_unavailable":
-      return "浏览器无法保存订单查询凭证，请允许本地存储后再支付。";
+      return m.storageUnavailable;
     case "network_error":
-      return "网络连接失败，未确认是否已创建订单；再次点击会安全重试。";
+      return m.network;
     case "invalid_response":
-      return "支付服务返回异常，尚未发起扣款，请稍后重试。";
+      return m.invalidResponse;
     default:
-      return "暂时无法发起付款，请稍后重试。";
+      return m.generic;
   }
 }
 
@@ -87,6 +78,10 @@ export function RequirementForm({
   selection: CatalogSelection;
 }) {
   const navigate = useNavigate();
+  const t = useT();
+  const copy = t.subscribe.form;
+  const ct = useCatalogText();
+  const recapValue = (value: string) => (value ? ct(value) : "—");
   // 新建订单必须登录（服务端同样强制）；检查中与未登录都不允许提交。
   const { status: authStatus, csrfToken } = useAuth();
   const signedIn = authStatus === "authenticated" && csrfToken !== null;
@@ -141,7 +136,7 @@ export function RequirementForm({
     }
     if (!isValidCouponCode(normalizedCouponInput)) {
       setAppliedQuote(null);
-      setQuoteError("优惠码无效、已过期或不适用于当前方案，将按原价支付。");
+      setQuoteError(copy.couponInvalid);
       return;
     }
     setQuoteLoading(true);
@@ -151,9 +146,9 @@ export function RequirementForm({
     } catch (error) {
       setAppliedQuote(null);
       if (error instanceof PaymentApiError && error.code === "coupon_invalid") {
-        setQuoteError("优惠码无效、已过期或不适用于当前方案，将按原价支付。");
+        setQuoteError(copy.couponInvalid);
       } else {
-        setQuoteError(paymentErrorMessage(error));
+        setQuoteError(paymentErrorMessage(error, copy));
       }
     } finally {
       setQuoteLoading(false);
@@ -197,10 +192,10 @@ export function RequirementForm({
       }
       if (error instanceof PaymentApiError && error.code === "coupon_invalid") {
         setAppliedQuote(null);
-        setQuoteError("优惠码无效、已过期或不适用于当前方案，已恢复原价。");
-        setSubmitError("请确认原价后重新点击支付。");
+        setQuoteError(copy.couponInvalidRestored);
+        setSubmitError(copy.confirmListPrice);
       } else {
-        setSubmitError(paymentErrorMessage(error));
+        setSubmitError(paymentErrorMessage(error, copy));
       }
     } finally {
       setSubmitting(false);
@@ -209,23 +204,23 @@ export function RequirementForm({
 
   return (
     <div className="sub-request">
-      <div className="sub-request-recap" aria-label="已选方案确认">
+      <div className="sub-request-recap" aria-label={copy.recapLabel}>
         <div className="sub-request-recap-grid">
-          <div><span>网络类型</span><b>{recapValue(summary.type)}</b></div>
-          <div><span>国家/地区</span><b>{recapValue(summary.region)}</b></div>
-          <div><span>运营商</span><b>{recapValue(summary.isp)}</b></div>
-          <div><span>规格</span><b>{recapValue(summary.spec)}</b></div>
-          <div><span>周期</span><b>{recapValue(summary.duration)}</b></div>
+          <div><span>{t.subscribe.summary.type}</span><b>{recapValue(summary.type)}</b></div>
+          <div><span>{t.subscribe.summary.region}</span><b>{recapValue(summary.region)}</b></div>
+          <div><span>{t.subscribe.summary.isp}</span><b>{recapValue(summary.isp)}</b></div>
+          <div><span>{t.subscribe.summary.spec}</span><b>{recapValue(summary.spec)}</b></div>
+          <div><span>{copy.term}</span><b>{recapValue(summary.duration)}</b></div>
         </div>
         <div className="sub-request-recap-price">
-          <span>应付金额</span>
+          <span>{copy.amountDue}</span>
           <b>{priceKnown && amountFen !== null ? formatFen(amountFen) : "—"}</b>
-          {!priceKnown && <small>价格待确认</small>}
+          {!priceKnown && <small>{t.subscribe.pricePending}</small>}
         </div>
       </div>
 
       <div className="sub-field sub-coupon-field">
-        <label htmlFor={couponId}>优惠码 <em>可选</em></label>
+        <label htmlFor={couponId}>{copy.couponLabel} <em>{copy.optional}</em></label>
         <div className="sub-coupon-row">
           <input
             id={couponId}
@@ -236,7 +231,7 @@ export function RequirementForm({
               setAppliedQuote(null);
               setQuoteError(null);
             }}
-            placeholder="输入优惠码"
+            placeholder={copy.couponPlaceholder}
             autoComplete="off"
             disabled={submitting}
           />
@@ -247,29 +242,29 @@ export function RequirementForm({
             disabled={submitting || quoteLoading || normalizedCouponInput === null}
             aria-busy={quoteLoading}
           >
-            {quoteLoading ? "应用中…" : "应用"}
+            {quoteLoading ? copy.applying : copy.apply}
           </button>
         </div>
         {quoteError && <p className="sub-field-error" role="alert">{quoteError}</p>}
         {activeQuote && listPriceFen !== null && (
           <div className="sub-price-breakdown">
-            <div><span>原价</span><b>{formatFen(listPriceFen)}</b></div>
-            <div><span>优惠金额</span><b>-{formatFen(discountFen)}</b></div>
-            <div><span>最终应付金额</span><b>{formatFen(activeQuote.amountFen)}</b></div>
+            <div><span>{copy.listPrice}</span><b>{formatFen(listPriceFen)}</b></div>
+            <div><span>{copy.discount}</span><b>-{formatFen(discountFen)}</b></div>
+            <div><span>{copy.finalAmount}</span><b>{formatFen(activeQuote.amountFen)}</b></div>
           </div>
         )}
       </div>
 
       <form className="sub-request-form" onSubmit={handleSubmit}>
         <div className="sub-field">
-          <label htmlFor={contactId}>联系方式 <em>必填</em></label>
+          <label htmlFor={contactId}>{copy.contactLabel} <em>{copy.required}</em></label>
           <input
             id={contactId}
             type="text"
             value={contact}
             onChange={(event) => setContact(event.target.value)}
             onBlur={() => setContactTouched(true)}
-            placeholder="微信号 / Telegram 用户名 / 邮箱"
+            placeholder={copy.contactPlaceholder}
             autoComplete="off"
             disabled={submitting}
             aria-invalid={contactMissing || undefined}
@@ -277,26 +272,26 @@ export function RequirementForm({
           />
           {contactMissing && (
             <p id={`${contactId}-err`} className="sub-field-error" role="alert">
-              请填写联系方式，方便我们与你确认方案。
+              {copy.contactMissing}
             </p>
           )}
         </div>
 
         <div className="sub-field">
-          <label>使用场景 <em>可选 · 多选</em></label>
-          <div className="sub-scenario-chips" role="group" aria-label="使用场景">
-            {SCENARIOS.map((scenario) => {
-              const active = scenarios.includes(scenario.id);
+          <label>{copy.scenariosLabel} <em>{copy.optionalMulti}</em></label>
+          <div className="sub-scenario-chips" role="group" aria-label={copy.scenariosLabel}>
+            {SCENARIO_IDS.map((id) => {
+              const active = scenarios.includes(id);
               return (
                 <button
-                  key={scenario.id}
+                  key={id}
                   type="button"
                   className={`sub-scenario-chip ${active ? "is-active" : ""}`.trim()}
                   aria-pressed={active}
                   disabled={submitting}
-                  onClick={() => toggleScenario(scenario.id)}
+                  onClick={() => toggleScenario(id)}
                 >
-                  {scenario.label}
+                  {copy.scenarios[id]}
                 </button>
               );
             })}
@@ -304,13 +299,13 @@ export function RequirementForm({
         </div>
 
         <div className="sub-field">
-          <label htmlFor={notesId}>补充说明 <em>可选</em></label>
+          <label htmlFor={notesId}>{copy.notesLabel} <em>{copy.optional}</em></label>
           <textarea
             id={notesId}
             value={notes}
             onChange={(event) => setNotes(event.target.value)}
             rows={3}
-            placeholder="使用人数、目标平台、特殊需求等，便于我们判断适配方案。"
+            placeholder={copy.notesPlaceholder}
             disabled={submitting}
           />
         </div>
@@ -318,19 +313,19 @@ export function RequirementForm({
         <div className="sub-request-submit">
           {authStatus === "unauthenticated" && (
             <p>
-              下单需先<Link to="/login">登录</Link>；登录后需返回“套餐订阅”重新选择套餐。
+              {copy.loginBefore}<Link to="/login">{copy.loginLink}</Link>{copy.loginAfter}
             </p>
           )}
           <button type="submit" disabled={!canSubmit} aria-busy={submitting}>
             {submitting
-              ? "正在发起付款…"
+              ? copy.submitting
               : overPaymentLimit
-                ? "暂不支持在线购买"
+                ? copy.overLimit
                 : priceKnown && amountFen !== null
-                  ? `提交需求并立即支付 ${formatFen(amountFen)}`
-                  : "价格待确认"}
+                  ? copy.submit(formatFen(amountFen))
+                  : t.subscribe.pricePending}
           </button>
-          <p>付款成功后可在本页或用户中心查看服务状态。</p>
+          <p>{copy.afterPay}</p>
           {submitError && <p className="sub-field-error" role="alert">{submitError}</p>}
         </div>
       </form>

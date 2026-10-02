@@ -121,7 +121,7 @@ test("ticket pages render plain text only and promise no SLA, notifications, or 
   }
   assert.match(css, /\.cc-tk-body \{[^}]*white-space: pre-wrap;/);
   // Signed-out recovery is a full-page navigation, as on the orders page.
-  assert.match(page, /<a className="cc-ord-primary" href="\/login">重新登录<\/a>/);
+  assert.match(page, /<a className="cc-ord-primary" href="\/login">\{copy\.signInAgain\}<\/a>/);
   assert.match(page, /ticket\.status === "closed"/);
 });
 
@@ -129,7 +129,8 @@ test("the tickets section is wired into the shell, dashboard, and admin-only pan
   const shell = source("../app/components/customer/CustomerCenterShell.tsx");
   const dashboard = source("../app/components/dashboard/DashboardPage.tsx");
   assert.match(shell, /"\/tickets",\n  "\/invites",\n\]\);/);
-  assert.match(dashboard, /\{ href: "\/tickets", label: "工单"/);
+  assert.match(dashboard, /const quickActions = \[[^\]]*"\/tickets"[^\]]*\] as const;/);
+  assert.match(source("../app/i18n/zh.ts"), /"\/tickets": \{ label: "工单", hint: "提交问题并查看客服回复" \}/);
   assert.doesNotMatch(dashboard, /pendingActions|工单", hint: "待接入"/);
   assert.match(dashboard, /\{principal\?\.role === "admin" && <AdminTicketsPanel csrfToken=\{csrfToken\} \/>\}/);
 });

@@ -130,13 +130,15 @@ test("subscribe price surfaces are authority-gated and expose a mobile-visible e
   const css = source("../app/components/subscribe/subscribe.css");
 
   assert.doesNotMatch(page, /option\.(?:startingPrice|monthlyPrice)/);
-  assert.match(page, /价格暂不可用，请稍后重试/);
+  assert.match(page, /availability\.error\s*\? copy\.priceUnavailable/);
+  assert.match(source("../app/i18n/zh.ts"), /priceUnavailable: "价格暂不可用，请稍后重试"/);
   assert.match(page, /sub-price-status/);
   assert.match(css, /\.sub-section-heading \.sub-price-status/);
   assert.match(summary, /summary\.availability === "available" \? summary\.total : null/);
-  assert.match(summary, /价格待确认/);
+  assert.match(summary, /authoritativeTotal === null \? t\.subscribe\.pricePending/);
   assert.match(summary, /disabled=\{!canRequest\}/);
   assert.match(mobile, /summary\.availability === "available" && summary\.total !== null/);
-  assert.match(mobile, /价格待确认/);
+  assert.match(mobile, /: t\.subscribe\.pricePending;/);
+  assert.match(source("../app/i18n/zh.ts"), /pricePending: "价格待确认"/);
   assert.match(mobile, /disabled=\{!canRequest\}/);
 });

@@ -1,4 +1,5 @@
 import { QRCodeSVG } from "qrcode.react";
+import { useT } from "../../lib/i18n";
 
 /* 支付宝收银台不嵌入本站 iframe（可能被 X-Frame-Options 拒绝）。
    - 有当面付二维码内容（qrCode，qr.alipay.com 短地址）时：本地生成稀疏二维码供手机扫码，
@@ -36,13 +37,6 @@ function formatCountdown(seconds: number): string {
   return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 }
 
-const STATUS_LABEL: Record<AlipayQrPhase, string> = {
-  waiting: "等待支付",
-  confirming: "正在确认",
-  paid: "已支付",
-  closed: "支付页已失效",
-};
-
 export function AlipayQrPay({
   phase,
   serviceOpen,
@@ -57,16 +51,17 @@ export function AlipayQrPay({
   retrying,
   actionError,
 }: AlipayQrPayProps) {
-  const amountLabel = phase === "paid" ? "已支付金额" : "应付金额";
+  const copy = useT().subscribe.pay;
+  const amountLabel = phase === "paid" ? copy.paidAmount : copy.amountDue;
   return (
     <section className="pay-card" data-state={phase} aria-live="polite">
       <div className="pay-head">
-        <span className="pay-kicker">ALIPAY · 电脑网站支付</span>
-        <span className="pay-status"><i aria-hidden="true" />{STATUS_LABEL[phase]}</span>
+        <span className="pay-kicker">ALIPAY · {copy.kickerMethod}</span>
+        <span className="pay-status"><i aria-hidden="true" />{copy.status[phase]}</span>
       </div>
 
       <div className="pay-context">
-        <span className="pay-order">订单号 {orderRef}</span>
+        <span className="pay-order">{copy.orderNo} {orderRef}</span>
       </div>
 
       <div className="pay-amount">
@@ -77,36 +72,36 @@ export function AlipayQrPay({
       {phase === "waiting" && (
         <div className="pay-scan">
           {payUrl === null ? (
-            <div className="pay-open-loading" role="status">正在获取支付宝收银台…</div>
+            <div className="pay-open-loading" role="status">{copy.loadingCashier}</div>
           ) : (
             <div className="pay-open">
               {qrCode !== null ? (
-                <div className="pay-qr" role="img" aria-label="支付宝付款二维码">
+                <div className="pay-qr" role="img" aria-label={copy.qrLabel}>
                   <QRCodeSVG value={qrCode} size={240} level="M" marginSize={2} />
                 </div>
               ) : (
-                <div className="pay-qr is-dense" role="img" aria-label="支付宝付款二维码">
+                <div className="pay-qr is-dense" role="img" aria-label={copy.qrLabel}>
                   <QRCodeSVG value={payUrl} size={320} level="L" marginSize={4} />
                 </div>
               )}
-              <p className="pay-open-lead">请使用手机支付宝扫码付款</p>
+              <p className="pay-open-lead">{copy.scanLead}</p>
               <a className="pay-ghost pay-open-button" href={payUrl} target="_blank" rel="noopener noreferrer">
-                或在新窗口打开支付宝收银台
+                {copy.openCashier}
               </a>
-              <p className="pay-open-note">付款完成后无需操作，本页会自动更新结果。</p>
+              <p className="pay-open-note">{copy.autoUpdate}</p>
             </div>
           )}
           <p className="pay-hint">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h3v3M20 14v.01M14 20h.01M20 20v-3M17 20h.01"/></svg>
-            请按支付宝收银台提示完成付款，本页会自动查询支付结果。
+            {copy.hint}
           </p>
           <div className="pay-countdown">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-            {secondsLeft === null ? "有效期读取中" : <>支付页剩余 <b>{formatCountdown(secondsLeft)}</b></>}
+            {secondsLeft === null ? copy.expiryLoading : <>{copy.remaining} <b>{formatCountdown(secondsLeft)}</b></>}
           </div>
           <button type="button" className="pay-refresh" onClick={onRefreshPayPage} disabled={refreshing} aria-busy={refreshing}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M20 11a8 8 0 1 0-.9 4.5"/><path d="M20 4v5h-5"/></svg>
-            {refreshing ? "刷新中…" : "刷新收银台"}
+            {refreshing ? copy.refreshing : copy.refresh}
           </button>
         </div>
       )}
@@ -114,29 +109,29 @@ export function AlipayQrPay({
       {phase === "confirming" && (
         <div className="pay-confirming" role="status">
           <span className="pay-spinner" aria-hidden="true" />
-          <h2>正在确认支付结果</h2>
-          <p>只以支付宝通知或主动查单结果为准，请勿重复支付。</p>
+          <h2>{copy.confirmingTitle}</h2>
+          <p>{copy.confirmingBody}</p>
         </div>
       )}
 
       {phase === "paid" && (
         <div className="pay-success">
           <div className="pay-success-badge" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 6 9 17l-5-5"/></svg></div>
-          <h2>支付成功</h2>
+          <h2>{copy.paidTitle}</h2>
           <p>
             {serviceOpen
-              ? "服务已开通，可在下方查看订阅信息。"
-              : "服务已进入待开通状态，请在用户中心查看进度。"}
+              ? copy.paidOpen
+              : copy.paidPending}
           </p>
         </div>
       )}
 
       {phase === "closed" && (
         <div className="pay-closed">
-          <h2>支付页已失效</h2>
-          <p>本次支付未完成，未生成服务。你可以重新发起付款。</p>
+          <h2>{copy.closedTitle}</h2>
+          <p>{copy.closedBody}</p>
           <button type="button" className="pay-primary" onClick={onRetry} disabled={retrying} aria-busy={retrying}>
-            {retrying ? "正在重新发起…" : "重新支付"}
+            {retrying ? copy.retrying : copy.retry}
           </button>
         </div>
       )}

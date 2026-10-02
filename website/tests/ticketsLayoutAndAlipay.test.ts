@@ -13,19 +13,25 @@ test("the Alipay step shows the sparse 当面付 QR when qrCode exists, else a d
   assert.match(pay, /import \{ QRCodeSVG \} from "qrcode\.react";/);
   // QRs are generated locally: the short qr.alipay.com code when present (unchanged),
   // otherwise the full cashier payUrl at the lowest error-correction level, drawn larger.
-  assert.match(pay, /qrCode !== null \? \(\s*<div className="pay-qr" role="img" aria-label="支付宝付款二维码">\s*<QRCodeSVG value=\{qrCode\} size=\{240\} level="M" marginSize=\{2\} \/>/);
-  assert.match(pay, /\) : \(\s*<div className="pay-qr is-dense" role="img" aria-label="支付宝付款二维码">\s*<QRCodeSVG value=\{payUrl\} size=\{320\} level="L" marginSize=\{4\} \/>/);
+  assert.match(pay, /qrCode !== null \? \(\s*<div className="pay-qr" role="img" aria-label=\{copy\.qrLabel\}>\s*<QRCodeSVG value=\{qrCode\} size=\{240\} level="M" marginSize=\{2\} \/>/);
+  assert.match(pay, /\) : \(\s*<div className="pay-qr is-dense" role="img" aria-label=\{copy\.qrLabel\}>\s*<QRCodeSVG value=\{payUrl\} size=\{320\} level="L" marginSize=\{4\} \/>/);
   assert.equal(code.match(/<QRCodeSVG/g)?.length, 2);
   // Both branches share the Alipay-app copy and the new-window backup link.
-  assert.equal(code.match(/请使用手机支付宝扫码付款/g)?.length, 1);
-  assert.match(pay, /<\/div>\s*\)\}\s*<p className="pay-open-lead">请使用手机支付宝扫码付款<\/p>\s*<a className="pay-ghost pay-open-button" href=\{payUrl\} target="_blank" rel="noopener noreferrer">\s*或在新窗口打开支付宝收银台/);
+  assert.equal(code.match(/\{copy\.scanLead\}/g)?.length, 1);
+  assert.match(pay, /<\/div>\s*\)\}\s*<p className="pay-open-lead">\{copy\.scanLead\}<\/p>\s*<a className="pay-ghost pay-open-button" href=\{payUrl\} target="_blank" rel="noopener noreferrer">\s*\{copy\.openCashier\}/);
+  const zhCopy = source("../app/i18n/zh.ts");
+  assert.match(zhCopy, /scanLead: "请使用手机支付宝扫码付款"/);
+  assert.match(zhCopy, /openCashier: "或在新窗口打开支付宝收银台"/);
   assert.doesNotMatch(code, /点击下方按钮|pay-primary pay-open-button/);
   assert.match(source("../app/components/subscribe/subscribe.css"), /\.pay-qr\.is-dense \{ width: 100%; max-width: 320px;/);
   assert.doesNotMatch(code, /https?:\/\/[^"'\s]*qr[^"'\s]*"/i);
   // Without a pay URL the page still says it is fetching the cashier.
-  assert.match(pay, /payUrl === null \? \(\s*<div className="pay-open-loading" role="status">正在获取支付宝收银台…<\/div>/);
-  for (const kept of ["支付页剩余", "刷新收银台", "正在确认支付结果", "支付成功", "重新支付"]) {
-    assert.match(pay, new RegExp(kept));
+  assert.match(pay, /payUrl === null \? \(\s*<div className="pay-open-loading" role="status">\{copy\.loadingCashier\}<\/div>/);
+  for (const kept of ["支付页剩余", "刷新收银台", "正在确认支付结果", "支付成功", "重新支付", "正在获取支付宝收银台…"]) {
+    assert.match(zhCopy, new RegExp(kept));
+  }
+  for (const key of ["remaining", "refresh", "confirmingTitle", "paidTitle", "retry"]) {
+    assert.match(pay, new RegExp(`copy\\.${key}\\b`));
   }
   const css = source("../app/components/subscribe/subscribe.css");
   assert.doesNotMatch(css, /\.pay-cashier-/);
@@ -63,11 +69,12 @@ test("order status polling still lives in OrderStatusPanel and still feeds the p
 
 test("the ticket list has a header action, a centred empty state and compact linked rows", () => {
   const page = source("../app/components/customer/CustomerTicketsPage.tsx");
-  assert.match(page, /<PanelHead title="我的工单" action=\{<NewTicketLink \/>\} \/>/);
+  assert.match(page, /<PanelHead title=\{copy\.myTickets\} action=\{<NewTicketLink \/>\} \/>/);
   assert.match(page, /<Link className=\{className\} to="\/tickets\?new=1">/);
-  assert.match(page, /className="cc-tk-empty"[\s\S]*?还没有工单[\s\S]*?遇到服务问题时/);
+  assert.match(page, /className="cc-tk-empty"[\s\S]*?copy\.emptyFirst[\s\S]*?copy\.emptyHint/);
+  assert.match(source("../app/i18n/zh.ts"), /emptyFirst: "还没有工单"[\s\S]*?emptyHint: "遇到服务问题时/);
   assert.match(page, /<Link className="cc-tk-row" to=\{`\/tickets\?ref=\$\{encodeURIComponent\(item\.ref\)\}`\}>/);
-  assert.match(page, /<span className="cc-tk-page">第 \{page\} 页<\/span>/);
+  assert.match(page, /<span className="cc-tk-page">\{copy\.pageNumber\(page\)\}<\/span>/);
   assert.doesNotMatch(page, /cc-tk-toolbar/);
   // Same API calls and routes as before.
   for (const call of ["listMyTickets(page, controller.signal)", "createMyTicket(csrfToken", "getMyTicket(ticketRef, controller.signal)", "replyToMyTicket(csrfToken"]) {

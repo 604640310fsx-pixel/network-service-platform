@@ -156,10 +156,12 @@ test("AuthProvider clears principal and CSRF atomically only after success and s
 test("CustomerCenterShell exposes logout only for authenticated state with pending, retry, alert, and replace semantics", () => {
   const source = readFileSync(SHELL_SOURCE_URL, "utf8");
   assert.match(source, /authStatus === "authenticated" && \(/);
-  assert.match(source, /aria-label="退出登录"/);
+  assert.match(source, /aria-label=\{t\.center\.logout\}/);
   assert.match(source, /aria-busy=\{logoutPending\}/);
   assert.match(source, /disabled=\{logoutPending\}/);
-  assert.match(source, /退出中…/);
+  assert.match(source, /logoutPending \? t\.center\.loggingOut : t\.center\.logout/);
+  const zhCopy = readFileSync(new URL("../app/i18n/zh.ts", import.meta.url), "utf8");
+  assert.match(zhCopy, /logout: "退出登录",\s*loggingOut: "退出中…",\s*logoutFailed: "退出失败，请重试"/);
   assert.match(source, /logoutPendingRef\.current/);
   assert.match(
     source,
@@ -171,12 +173,12 @@ test("CustomerCenterShell exposes logout only for authenticated state with pendi
   );
   assert.match(
     source,
-    /role="alert">退出失败，请重试<\/span>/,
+    /role="alert">\{t\.center\.logoutFailed\}<\/span>/,
   );
   assert.doesNotMatch(source, /csrfToken|console\.|confirm\(/);
 
-  const profilePosition = source.indexOf("进入个人中心");
-  const logoutPosition = source.indexOf('aria-label="退出登录"');
+  const profilePosition = source.indexOf("aria-label={t.center.profileLabel}");
+  const logoutPosition = source.indexOf("aria-label={t.center.logout}");
   assert.ok(profilePosition >= 0 && logoutPosition > profilePosition);
 });
 

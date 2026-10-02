@@ -10,7 +10,6 @@ import { QRCodeSVG } from "qrcode.react";
 import type { ServiceDeliveryItem } from "../../lib/payment-api";
 import {
   SUBSCRIPTION_PLATFORMS,
-  clientManualImportReason,
   clientsForPlatform,
   safeSubscriptionHref,
   safeVerifiedDeepLinkHref,
@@ -18,6 +17,7 @@ import {
   type SubscriptionPlatform,
 } from "./subscriptionImportModel";
 import "./subscription-import.css";
+import { useT } from "../../lib/i18n";
 
 export type SubscriptionImportDelivery = Pick<
   ServiceDeliveryItem,
@@ -44,7 +44,7 @@ export type SubscriptionImportModuleProps = {
 };
 
 class LocalQrBoundary extends Component<
-  { readonly children: ReactNode },
+  { readonly children: ReactNode; readonly failedMessage: string },
   { readonly failed: boolean }
 > {
   state = { failed: false };
@@ -59,7 +59,7 @@ class LocalQrBoundary extends Component<
 
   render() {
     if (this.state.failed) {
-      return <p className="cc-si-inline-error" role="alert">二维码生成失败，请改用复制地址。</p>;
+      return <p className="cc-si-inline-error" role="alert">{this.props.failedMessage}</p>;
     }
     return this.props.children;
   }
@@ -85,6 +85,7 @@ export function SubscriptionImportModule({
   getVerifiedDeepLink,
 }: SubscriptionImportModuleProps) {
   const instanceId = useId();
+  const copy = useT().subscriptionImport;
   const [platform, setPlatform] = useState<SubscriptionPlatform>(initialPlatform);
   const initialClients = clientsForPlatform(initialPlatform);
   const [clientId, setClientId] = useState<SubscriptionClientId>(initialClients[0].id);
@@ -147,11 +148,11 @@ export function SubscriptionImportModule({
     try {
       if (!navigator.clipboard?.writeText) throw new Error("clipboard_unavailable");
       await navigator.clipboard.writeText(subscriptionUrl);
-      setActionMessage("订阅地址已复制。");
+      setActionMessage(copy.copied);
     } catch {
       inputRef.current?.focus();
       inputRef.current?.select();
-      setActionMessage("自动复制失败，已选中地址，请手动复制。");
+      setActionMessage(copy.copyFailed);
     }
   }
 
@@ -160,8 +161,8 @@ export function SubscriptionImportModule({
       <section className={pageClassName} aria-labelledby={`${instanceId}-empty-title`}>
         <section className="cc-si-panel cc-si-empty" role="status">
           <span>SUBSCRIPTION</span>
-          <h2 id={`${instanceId}-empty-title`}>订阅信息待接入</h2>
-          <p>只有授权接口返回已开通服务的真实交付数据后，才会在这里显示导入工具。</p>
+          <h2 id={`${instanceId}-empty-title`}>{copy.pendingTitle}</h2>
+          <p>{copy.pendingBody}</p>
         </section>
       </section>
     );
@@ -172,8 +173,8 @@ export function SubscriptionImportModule({
       <section className={pageClassName} aria-labelledby={`${instanceId}-invalid-title`}>
         <section className="cc-si-panel cc-si-empty" role="alert">
           <span>SUBSCRIPTION</span>
-          <h2 id={`${instanceId}-invalid-title`}>订阅地址暂不可用</h2>
-          <p>交付数据未通过安全校验，本页不会复制、打开或生成二维码。</p>
+          <h2 id={`${instanceId}-invalid-title`}>{copy.invalidTitle}</h2>
+          <p>{copy.invalidBody}</p>
         </section>
       </section>
     );
@@ -190,32 +191,32 @@ export function SubscriptionImportModule({
           <header className="cc-si-heading">
             <div>
               <span>SUBSCRIPTION</span>
-              <h2 id={`${instanceId}-title`}>导入订阅</h2>
-              <p>选择当前设备和已安装客户端，再使用真实交付地址导入。</p>
+              <h2 id={`${instanceId}-title`}>{copy.title}</h2>
+              <p>{copy.lead}</p>
             </div>
-            <small>线路 {activeItem.position}</small>
+            <small>{copy.line(activeItem.position)}</small>
           </header>
 
-          <aside className="cc-si-location-note" aria-label="Chrome 位置权限提醒">
-            <strong>建议关闭或按次询问位置权限</strong>
+          <aside className="cc-si-location-note" aria-label={copy.locationLabel}>
+            <strong>{copy.locationTitle}</strong>
             <ul>
-              <li>桌面 Chrome：在地址栏手动输入 <code>chrome://settings/content/location</code>，检查并清理已允许查看位置的网站名单；建议关闭网站位置权限，或在每次询问时按需拒绝。</li>
-              <li>Android：同时检查 Chrome 的网站位置权限与系统中的 Chrome 位置权限，建议设为每次询问或拒绝。</li>
-              <li>iPhone / iPad：在系统设置的定位服务中检查 Chrome 位置权限，建议设为永不或下次询问，并按需拒绝。</li>
+              <li>{copy.locationDesktopBefore}<code>chrome://settings/content/location</code>{copy.locationDesktopAfter}</li>
+              <li>{copy.locationAndroid}</li>
+              <li>{copy.locationIos}</li>
             </ul>
-            <p>非必要时建议关闭；需要时改为每次询问。上面的桌面设置地址仅供复制或选中，本页不会尝试打开、修改或声称权限已变更。</p>
+            <p>{copy.locationFoot}</p>
           </aside>
 
           {deliveryItems.length > 1 && (
             <label className="cc-si-field">
-              <span>选择线路</span>
+              <span>{copy.chooseLine}</span>
               <select
                 value={activeItem.position}
                 onChange={(event) => selectDelivery(Number(event.currentTarget.value))}
               >
                 {deliveryItems.map((item) => (
                   <option key={item.position} value={item.position}>
-                    线路 {item.position} · {item.label}
+                    {copy.lineOption(item.position, item.label)}
                   </option>
                 ))}
               </select>
@@ -223,7 +224,7 @@ export function SubscriptionImportModule({
           )}
 
           <label className="cc-si-field">
-            <span>当前订阅地址</span>
+            <span>{copy.currentUrl}</span>
             <input
               ref={inputRef}
               type="url"
@@ -231,13 +232,13 @@ export function SubscriptionImportModule({
               readOnly
               spellCheck={false}
               autoComplete="off"
-              aria-label={`${activeItem.label}订阅地址`}
+              aria-label={copy.urlLabel(activeItem.label)}
             />
           </label>
 
           <div className="cc-si-actions">
             <button type="button" className="cc-si-primary" onClick={() => void copySubscriptionUrl()}>
-              复制地址
+              {copy.copy}
             </button>
             <button
               type="button"
@@ -248,7 +249,7 @@ export function SubscriptionImportModule({
                 setActionMessage(null);
               }}
             >
-              安全打开
+              {copy.safeOpen}
             </button>
             <button
               type="button"
@@ -257,35 +258,35 @@ export function SubscriptionImportModule({
               aria-controls={qrPanelId}
               onClick={() => setQrOpen((open) => !open)}
             >
-              {qrOpen ? "收起二维码" : "显示二维码"}
+              {qrOpen ? copy.hideQr : copy.showQr}
             </button>
           </div>
 
           {qrOpen && (
-            <div id={qrPanelId} className="cc-si-qr" aria-label="订阅二维码">
+            <div id={qrPanelId} className="cc-si-qr" aria-label={copy.qrLabel}>
               <div className="cc-si-qr-code">
-                <LocalQrBoundary key={subscriptionUrl}>
+                <LocalQrBoundary key={subscriptionUrl} failedMessage={copy.qrFailed}>
                   <QRCodeSVG value={subscriptionUrl} size={184} level="M" marginSize={2} />
                 </LocalQrBoundary>
               </div>
-              <p>使用客户端扫码导入。</p>
+              <p>{copy.qrHint}</p>
             </div>
           )}
 
           {actionMessage !== null && <p className="cc-si-status" role="status">{actionMessage}</p>}
 
           {safeOpenVisible && (
-            <aside className="cc-si-browser-notice" aria-label="浏览器地址权限提醒">
-              <strong>打开前请确认浏览器地址权限</strong>
-              <p>订阅地址属于私密交付信息。请只在受信任设备中打开，不要截图、转发或粘贴到第三方网站。</p>
+            <aside className="cc-si-browser-notice" aria-label={copy.browserLabel}>
+              <strong>{copy.browserTitle}</strong>
+              <p>{copy.browserBody}</p>
               <a
                 href={subscriptionUrl}
                 target="_blank"
                 rel="noopener noreferrer nofollow"
                 referrerPolicy="no-referrer"
-                onClick={() => setActionMessage("已请求浏览器在新标签页打开，请以浏览器实际结果为准。")}
+                onClick={() => setActionMessage(copy.openRequested)}
               >
-                确认并在新标签页打开
+                {copy.confirmOpen}
               </a>
             </aside>
           )}
@@ -296,12 +297,12 @@ export function SubscriptionImportModule({
           <header className="cc-si-heading cc-si-heading-compact">
             <div>
               <span>CLIENT</span>
-              <h2>选择客户端</h2>
-              <p>客户端旁有「导入」时可请求打开；也可随时手动导入。</p>
+              <h2>{copy.clientTitle}</h2>
+              <p>{copy.clientLead}</p>
             </div>
           </header>
 
-          <div className="cc-si-platform-tabs" role="tablist" aria-label="设备系统">
+          <div className="cc-si-platform-tabs" role="tablist" aria-label={copy.platformLabel}>
             {SUBSCRIPTION_PLATFORMS.map((item, index) => {
               const selected = item.id === platform;
               return (
@@ -332,9 +333,9 @@ export function SubscriptionImportModule({
             className="cc-si-client-panel"
           >
             <p className="cc-si-client-caveat" role="note">
-              客户端清单仅按批准矩阵展示；「导入」只请求打开客户端，订阅内容格式未核实，能否添加由客户端决定。
+              {copy.clientCaveat}
             </p>
-            <div className="cc-si-client-grid" aria-label={`${platformLabel} 可选客户端`}>
+            <div className="cc-si-client-grid" aria-label={copy.clientGridLabel(platformLabel)}>
               {clients.map((client) => {
                 const deepLink = resolvedVerifiedDeepLink(getVerifiedDeepLink, {
                   platform,
@@ -353,22 +354,22 @@ export function SubscriptionImportModule({
                       }}
                     >
                       <span>{client.name}</span>
-                      {client.recommended && <small>推荐</small>}
+                      {client.recommended && <small>{copy.recommended}</small>}
                     </button>
                     {deepLink !== null && (
                       <a
                         className="cc-si-client-import"
                         href={deepLink}
                         aria-label={client.id === "clash"
-                          ? "请求系统的 Clash 协议处理客户端导入当前线路订阅"
-                          : `请求打开 ${client.name} 导入当前线路订阅`}
+                          ? copy.importClashLabel
+                          : copy.importClientLabel(client.name)}
                         onClick={() => setActionMessage(
                           client.id === "clash"
-                            ? "已请求系统的 Clash 协议处理客户端打开；可能由不同应用接管，请确认是否添加，未响应请手动导入。"
-                            : `已请求浏览器打开 ${client.name}；请在客户端确认是否添加，未响应请手动导入。`,
+                            ? copy.importClashRequested
+                            : copy.importClientRequested(client.name),
                         )}
                       >
-                        导入
+                        {copy.import}
                       </a>
                     )}
                   </div>
@@ -377,27 +378,25 @@ export function SubscriptionImportModule({
             </div>
 
             <div className="cc-si-manual">
-              <h3>{selectedClient.name} · 手动导入</h3>
+              <h3>{copy.manualTitle(selectedClient.name)}</h3>
               <ol>
-                <li>复制本页当前线路的订阅地址。</li>
-                <li>打开 {selectedClient.name}，进入它的订阅或配置导入入口。</li>
-                <li>粘贴地址并提交；是否导入成功以客户端实际显示为准。</li>
+                <li>{copy.manualStep1}</li>
+                <li>{copy.manualStep2(selectedClient.name)}</li>
+                <li>{copy.manualStep3}</li>
               </ol>
-              <p className="cc-si-manual-reason">{clientManualImportReason(selectedClient.id)}</p>
+              <p className="cc-si-manual-reason">{copy.manualReasons[selectedClient.id]}</p>
               <button type="button" className="cc-si-secondary" onClick={() => void copySubscriptionUrl()}>
-                复制后手动导入
+                {copy.copyThenManual}
               </button>
             </div>
           </div>
 
           <details className="cc-si-help">
-            <summary>导入不了？</summary>
+            <summary>{copy.helpTitle}</summary>
             <ul>
-              <li>重新复制当前线路地址，避免缺少字符或带入空格。</li>
-              <li>浏览器没有唤起客户端时，直接使用上面的手动导入步骤。</li>
-              <li>确认所选设备系统与当前客户端一致。</li>
+              {copy.help.map((item) => <li key={item}>{item}</li>)}
             </ul>
-            <p>仍无法导入时，只向现有支持渠道提供线路名称、设备系统和客户端名称；不要发送完整订阅地址。</p>
+            <p>{copy.helpFoot}</p>
           </details>
 
         </section>
