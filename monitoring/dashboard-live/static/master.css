@@ -172,6 +172,10 @@ html[data-theme="light"] .route-result{color:#5c6472}
 html[data-theme="light"] .route-result i{background:#9aa2ae}
 html[data-theme="light"] .route-result b{color:#1a1e25}
 html[data-theme="light"] .route-result span{color:#828b99}
+html[data-theme="light"] .route-result[data-status="ok"] i{background:var(--green)}
+html[data-theme="light"] .route-result[data-status="incomplete"] i,html[data-theme="light"] .route-result[data-status="no_data"] i{background:var(--orange)}
+html[data-theme="light"] .route-result[data-status="failed"] i,html[data-theme="light"] .route-result[data-status="unavailable"] i{background:var(--red)}
+html[data-theme="light"] .route-result[data-status="incomplete"] b{color:var(--orange)}
 html[data-theme="light"] .route-updated{color:#828b99}
 html[data-theme="light"] .route-updated b{color:#5c6472}
 html[data-theme="light"] .table-wrap{border-color:#dfe3e9;scrollbar-color:#aab2be transparent}
