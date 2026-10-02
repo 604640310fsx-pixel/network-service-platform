@@ -23,6 +23,7 @@ import {
   type EncryptedServiceDeliveryItem,
 } from "./delivery-crypto.js";
 import { CATALOG_VERSION } from "./pricing.js";
+import { planOverrideLabel } from "./admin-services.js";
 
 export type OrderStatus = "pending" | "paid" | "closed";
 export type ServiceStatus = "pending_open" | "open";
@@ -858,12 +859,17 @@ export function claimAlipayQuery(
 }
 
 export interface MyServiceItem {
+  readonly source: "purchase";
   readonly orderRef: string;
   readonly amountFen: number;
   readonly currency: "CNY";
   readonly orderStatus: OrderStatus;
   readonly serviceStatus: ServiceStatus;
   readonly createdAt: string;
+  /** Admin-set expiry (Migration 022); null = long-term. */
+  readonly endsAt: string | null;
+  /** Admin plan-name override; null = show the order snapshot. */
+  readonly planLabel: string | null;
 }
 
 export function listMyServices(
@@ -874,7 +880,7 @@ export function listMyServices(
     .prepare(
       `SELECT orders.order_ref, orders.amount_fen, orders.currency,
               orders.status AS order_status, services.status AS service_status,
-              services.created_at
+              services.created_at, services.ends_at, services.plan_override
        FROM services
        JOIN payments ON payments.id = services.payment_id
        JOIN orders ON orders.id = payments.order_id
@@ -896,12 +902,15 @@ export function listMyServices(
       throw new Error("Service database invariant failed");
     }
     return {
+      source: "purchase" as const,
       orderRef: rowString(value, "order_ref"),
       amountFen: rowNumber(value, "amount_fen"),
       currency: "CNY" as const,
       orderStatus,
       serviceStatus,
       createdAt: rowString(value, "created_at"),
+      endsAt: rowNullableString(value, "ends_at"),
+      planLabel: planOverrideLabel(value.plan_override),
     };
   });
 }

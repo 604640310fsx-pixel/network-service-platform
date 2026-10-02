@@ -114,6 +114,23 @@ export type MyServiceItem = {
   readonly orderStatus: PaymentOrderStatus;
   readonly serviceStatus: ServiceStatus;
   readonly createdAt: string;
+  /** Admin-set expiry; null = long-term. */
+  readonly endsAt: string | null;
+  /** Admin plan-name override; null = no override. */
+  readonly planLabel: string | null;
+};
+
+/** An admin gift (no order or payment behind it). */
+export type MyGrantItem = {
+  readonly grantId: number;
+  readonly label: string;
+  readonly startsAt: string;
+  readonly endsAt: string | null;
+};
+
+export type MyServiceListing = {
+  readonly services: readonly MyServiceItem[];
+  readonly grants: readonly MyGrantItem[];
 };
 
 export type MyDeliveryLineItem = {
@@ -393,31 +410,63 @@ function parseOrderSnapshot(value: unknown): PaymentOrderSnapshot {
   };
 }
 
-function parseMyServices(value: unknown): MyServiceItem[] {
+function isNullableIsoInstant(value: unknown): value is string | null {
+  return value === null || isIsoInstant(value);
+}
+
+function parseMyServiceListing(value: unknown): MyServiceListing {
   const body = requireRecord(value);
   if (!Array.isArray(body.items)) throw new PaymentApiError("invalid_response");
-
-  return body.items.map((rawItem) => {
+  const services: MyServiceItem[] = [];
+  const grants: MyGrantItem[] = [];
+  for (const rawItem of body.items) {
     const item = requireRecord(rawItem);
-    if (
-      !isNonEmptyString(item.orderRef) ||
-      !isPositiveInteger(item.amountFen) ||
-      item.currency !== "CNY" ||
-      !isPaymentOrderStatus(item.orderStatus) ||
-      !isServiceStatus(item.serviceStatus) ||
-      !isNonEmptyString(item.createdAt)
-    ) {
-      throw new PaymentApiError("invalid_response");
+    if (item.source === "grant") {
+      if (
+        typeof item.grantId !== "number" ||
+        !Number.isSafeInteger(item.grantId) ||
+        !isNonEmptyString(item.label) ||
+        !isIsoInstant(item.startsAt) ||
+        !isNullableIsoInstant(item.endsAt) ||
+        item.status !== "active"
+      ) {
+        throw new PaymentApiError("invalid_response");
+      }
+      grants.push({ grantId: item.grantId, label: item.label, startsAt: item.startsAt, endsAt: item.endsAt });
+      continue;
     }
-    return {
-      orderRef: item.orderRef,
-      amountFen: item.amountFen,
-      currency: item.currency,
-      orderStatus: item.orderStatus,
-      serviceStatus: item.serviceStatus,
-      createdAt: item.createdAt,
-    };
-  });
+    // Purchases; servers before Migration 022 send no source / endsAt / planLabel.
+    if (item.source !== undefined && item.source !== "purchase") throw new PaymentApiError("invalid_response");
+    services.push(parseMyServiceItem(item));
+  }
+  return { services, grants };
+}
+
+function parseMyServiceItem(item: Record<string, unknown>): MyServiceItem {
+  const endsAt = item.endsAt === undefined ? null : item.endsAt;
+  const planLabel = item.planLabel === undefined ? null : item.planLabel;
+  if (
+    !isNullableIsoInstant(endsAt) ||
+    (planLabel !== null && !isNonEmptyString(planLabel)) ||
+    !isNonEmptyString(item.orderRef) ||
+    !isPositiveInteger(item.amountFen) ||
+    item.currency !== "CNY" ||
+    !isPaymentOrderStatus(item.orderStatus) ||
+    !isServiceStatus(item.serviceStatus) ||
+    !isNonEmptyString(item.createdAt)
+  ) {
+    throw new PaymentApiError("invalid_response");
+  }
+  return {
+    orderRef: item.orderRef,
+    amountFen: item.amountFen,
+    currency: item.currency,
+    orderStatus: item.orderStatus,
+    serviceStatus: item.serviceStatus,
+    createdAt: item.createdAt,
+    endsAt,
+    planLabel: planLabel as string | null,
+  };
 }
 
 function parseMyDeliveryLines(value: unknown): MyDeliveryLineItem[] {
@@ -764,13 +813,19 @@ export async function getPaymentOrder(
   return parseOrderSnapshot(response);
 }
 
+/** Purchased services only (dashboard and network pages). */
 export async function getMyServices(signal?: AbortSignal): Promise<MyServiceItem[]> {
+  return [...(await getMyServiceListing(signal)).services];
+}
+
+/** Purchased services plus active admin gifts (the "My plans" page). */
+export async function getMyServiceListing(signal?: AbortSignal): Promise<MyServiceListing> {
   const response = await requestJson("/api/me/services", {
     method: "GET",
     headers: { Accept: "application/json" },
     signal,
   });
-  return parseMyServices(response);
+  return parseMyServiceListing(response);
 }
 
 export async function getMyDeliveryLines(signal?: AbortSignal): Promise<MyDeliveryLineItem[]> {

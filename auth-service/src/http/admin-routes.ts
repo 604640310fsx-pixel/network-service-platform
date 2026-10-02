@@ -58,7 +58,7 @@ function parseOpenItems(body: unknown): ParsedOpenItems {
   return { ok: true, items };
 }
 
-type EnabledDependencies = Extract<PaymentHttpDependencies, { readonly enabled: true }>;
+export type EnabledDependencies = Extract<PaymentHttpDependencies, { readonly enabled: true }>;
 
 interface AdminIdentity {
   readonly userId: number;
@@ -73,7 +73,7 @@ type AdminAuthOutcome =
 /* 六个新路由共用的会话 + role 校验（GET/POST/PATCH 一致）；写操作额外调用
    verifyAdminCsrf。与既有 /api/admin/services* 两个路由完全同一套判定，
    只是抽成函数避免六处重复内联。 */
-function authorizeAdminSession(
+export function authorizeAdminSession(
   request: FastifyRequest,
   dependencies: EnabledDependencies,
 ): AdminAuthOutcome {
@@ -99,7 +99,7 @@ function authorizeAdminSession(
   };
 }
 
-function verifyAdminCsrf(
+export function verifyAdminCsrf(
   request: FastifyRequest,
   dependencies: EnabledDependencies,
   sessionTokenHash: string,

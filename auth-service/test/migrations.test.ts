@@ -290,6 +290,38 @@ test("creates every frozen table and named index", async () => {
   });
 });
 
+test("Migration 022 adds nullable service columns and admin_grants on a 021 database", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "auth-admin-services-"));
+  const database = openAndVerifyDatabase(join(directory, "auth.sqlite"));
+  try {
+    applyMigrationPrefix(database, 21);
+    const { userId } = createBootstrapUser(database);
+    const servicesBefore = columnNames(database, "services");
+    assert.equal(objectNames(database, "table").includes("admin_grants"), false);
+
+    runMigrations(database);
+    runMigrations(database);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 22);
+    assert.deepEqual(columnNames(database, "services"), [...servicesBefore, "ends_at", "plan_override", "admin_note"]);
+    assert.deepEqual(columnNames(database, "admin_grants"), [
+      "id", "user_id", "granted_by_admin_id", "label", "starts_at", "ends_at",
+      "status", "reason", "created_at", "updated_at",
+    ]);
+    assert.equal(objectNames(database, "index").includes("idx_admin_grants_user"), true);
+    const insertGrant = database.prepare(
+      `INSERT INTO admin_grants (user_id, granted_by_admin_id, label, starts_at, ends_at, status, reason, created_at, updated_at)
+       VALUES (?, ?, 'Gift', ?, NULL, ?, NULL, ?, ?)`,
+    );
+    insertGrant.run(userId, userId, NOW, "active", NOW, NOW);
+    assert.throws(() => insertGrant.run(userId, userId, NOW, "expired", NOW, NOW), /CHECK constraint failed/);
+    assert.throws(() => insertGrant.run(999_999, userId, NOW, "active", NOW, NOW), /FOREIGN KEY constraint failed/);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM admin_grants"), 1);
+  } finally {
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("payments gains a nullable reserved_until column", async () => {
   await withTemporaryDatabase((database) => {
     assert.ok(columnNames(database, "payments").includes("reserved_until"));

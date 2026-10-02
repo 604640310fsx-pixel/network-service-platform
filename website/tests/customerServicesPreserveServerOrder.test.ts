@@ -18,7 +18,9 @@ test("CustomerServicesPage preserves the GET /api/me/services response order", (
     responseItems.map((item) => item.orderRef),
     ["ORDER-OLDER-FIRST", "ORDER-NEWER-SECOND"],
   );
-  assert.match(componentSource, /setState\(\{ kind: "ready", items \}\);/);
+  // Purchases and gifts are both stored exactly as the server listed them.
+  assert.match(componentSource, /setState\(\{ kind: "ready", items: services, grants \}\);/);
+  assert.match(componentSource, /\{grants\.map\(\(grant\) => \(/);
   assert.match(componentSource, /\{items\.map\(\(item\) => \{/);
   assert.doesNotMatch(componentSource, /\.sort\(/);
   assert.doesNotMatch(componentSource, /\.reverse\(/);

@@ -208,6 +208,28 @@
   color: var(--cc-accent);
   font-weight: 600;
 }
+.cc-svc-badges {
+  margin-left: auto;
+  align-self: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.cc-svc-badges .cc-svc-badge { margin-left: 0; }
+.cc-svc-badge.is-expired {
+  border-color: rgba(224, 87, 91, 0.45);
+  background: rgba(224, 87, 91, 0.08);
+  color: #e0575b;
+  font-weight: 600;
+}
+.cc-svc-badge.is-gift {
+  border-color: var(--cc-accent-line);
+  background: var(--cc-accent-tint);
+  color: var(--cc-accent);
+  font-weight: 600;
+}
+.cc-svc-gifts { margin-top: 10px; }
 .cc-svc-item-foot {
   display: flex;
   align-items: center;

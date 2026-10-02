@@ -7,6 +7,7 @@ import { AdminInviteCodesPanel } from "./AdminInviteCodesPanel";
 import { AdminPendingServices } from "./AdminPendingServices";
 import { AdminPlansPanel } from "./AdminPlansPanel";
 import { AdminTicketsPanel } from "./AdminTicketsPanel";
+import { AdminUserServicesPanel } from "./AdminUserServicesPanel";
 import { BuyerDashboardOverview } from "./BuyerDashboardOverview";
 import "./dashboard.css";
 
@@ -36,6 +37,7 @@ export function DashboardPage() {
         {principal?.role === "admin" && <AdminDiagnosisPanel csrfToken={csrfToken} />}
         {principal?.role === "admin" && <AdminInviteCodesPanel csrfToken={csrfToken} />}
         {principal?.role === "admin" && <AdminPendingServices csrfToken={csrfToken} />}
+        {principal?.role === "admin" && <AdminUserServicesPanel csrfToken={csrfToken} />}
         {principal?.role === "admin" && <AdminPlansPanel csrfToken={csrfToken} />}
         {principal?.role === "admin" && <AdminCouponsPanel csrfToken={csrfToken} />}
         {principal?.role === "admin" && <AdminTicketsPanel csrfToken={csrfToken} />}
