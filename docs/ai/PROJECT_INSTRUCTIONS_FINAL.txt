@@ -106,4 +106,3 @@ Devin 是多模型执行宿主，不限于机械任务或审计。宿主、模�
 共享协议见 docs/team/TEAM-COLLAB-V1.md；根 AGENTS.md 约束 Codex／Devin 作者；CLAUDE.md 约束 Claude 作者；项目知识仅作可追溯背景。
 
 docs/ai/PROJECT_INSTRUCTIONS_FINAL.txt 保存本指令粘贴源。项目 UI 由用户手动替换，不改 sources/ 镜像。仓库已写、已 push、已合并、设置已粘贴和会话已加载分别报告，不互相推导。
-
