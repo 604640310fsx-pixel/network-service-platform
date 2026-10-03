@@ -142,12 +142,13 @@ const PERIOD_DURATION_ID: Readonly<Record<BillingPeriod, string>> = {
 /** Server-side renewal quote. Derives everything from the owned paid service's order
     tuple + the live sellable_plans row — caller/browser-supplied price, key or expiry
     is never consulted. Any missing/inactive/ambiguous source fails QUOTE_UNAVAILABLE. */
-export function produceRenewalQuote(db: DatabaseConnection, serviceId: number, period: BillingPeriod): AuthoritativeQuote {
+export function produceRenewalQuote(db: DatabaseConnection, serviceId: number, period: BillingPeriod, actorUserId: number): AuthoritativeQuote {
   const row = one(db, `SELECT s.ends_at,o.user_id,o.type_id,o.region_id,o.isp_id,o.spec_id
     FROM services s JOIN payments p ON p.id=s.payment_id
     JOIN orders o ON o.id=p.order_id
     WHERE s.id=? AND p.status='paid' AND o.status='paid'`, serviceId);
   if (!row || row.user_id === null) throw new WalletError("QUOTE_UNAVAILABLE");
+  if (integer(row.user_id) !== actorUserId) throw new WalletError("FORBIDDEN");
   const endsAt = parseEndsAt(row.ends_at);
   if (!endsAt.ok || endsAt.value === null) throw new WalletError("QUOTE_UNAVAILABLE");
   const field = (value: unknown): string => {
@@ -204,13 +205,16 @@ export function setRenewalConsent(db: DatabaseConnection, service: ServiceEligib
     const revision = old ? integer(old.revision) : 0;
     if (revision !== expectedRevision) throw new WalletError("REVISION_CONFLICT");
     if (enabled && !validQuote(quote, service, period)) throw new WalletError("QUOTE_UNAVAILABLE");
+    /* Consent binds the server-produced quote inside this same transaction — the
+       caller object is only a shape check, its price/key/duration are never stored. */
+    const fresh = enabled ? produceRenewalQuote(db, service.serviceId, period, actorUserId) : null;
     const next = revision + 1;
     db.prepare(`INSERT INTO wallet_consents (service_id,user_id,state,revision,quote_key,price_fen,duration_id,next_billing_period,updated_at)
       VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(service_id) DO UPDATE SET
       state=excluded.state,revision=excluded.revision,quote_key=excluded.quote_key,price_fen=excluded.price_fen,
       duration_id=excluded.duration_id,next_billing_period=excluded.next_billing_period,updated_at=excluded.updated_at`)
       .run(service.serviceId, actorUserId, enabled ? "ENABLED" : "DISABLED", next,
-        enabled ? quote!.key : null, enabled ? quote!.priceFen : null, enabled ? quote!.durationId : null, period, timestamp(at));
+        fresh ? fresh.key : null, fresh ? fresh.priceFen : null, fresh ? fresh.durationId : null, period, timestamp(at));
     recordConsentHistory(db, service.serviceId, at);
     return next;
   });
@@ -251,18 +255,20 @@ export function runRenewalFixture(db: DatabaseConnection, mode: "TEST_ONLY", ser
     if (!consent || consent.revision !== expectedRevision) throw new WalletError("REVISION_CONFLICT");
     const cycle = one(db, "SELECT id FROM wallet_renewal_cycles WHERE service_id=? AND previous_ends_at=?", service.serviceId, service.endsAt);
     if (cycle) return "DUPLICATE";
-    /* Re-derive the authoritative quote inside the deduction transaction: a re-priced
-       or deactivated plan, moved expiry or tuple change since consent invalidates the
-       bound key — fail closed instead of charging the stale snapshot. */
-    let freshKey: string | null = null;
+    /* Re-derive the authoritative quote inside the deduction transaction and consume
+       its fields for the debit/cycle/extension: a re-priced or deactivated plan,
+       moved expiry or tuple change since consent invalidates the bound key, and a
+       caller object carrying a genuine key but hostile amounts/expiry is never
+       consumed — only the produced fields reach the ledger. */
+    let fresh: AuthoritativeQuote | null = null;
     try {
-      freshKey = produceRenewalQuote(db, service.serviceId, consent.next_billing_period as BillingPeriod).key;
+      fresh = produceRenewalQuote(db, service.serviceId, consent.next_billing_period as BillingPeriod, service.ownerId!);
     } catch (error) {
       if (!(error instanceof WalletError && error.code === "QUOTE_UNAVAILABLE")) throw error;
     }
     let state = renewalDryRun(db, service, quote);
-    if (state === "READY" && (freshKey === null || !quote || freshKey !== quote.key)) {
-      state = freshKey === null ? "QUOTE_UNAVAILABLE" : "RECONSENT_REQUIRED";
+    if (state === "READY" && (fresh === null || !quote || fresh.key !== quote.key)) {
+      state = fresh === null ? "QUOTE_UNAVAILABLE" : "RECONSENT_REQUIRED";
     }
     if (state === "RECONSENT_REQUIRED") {
       if (consent.state === "ENABLED") {
@@ -272,17 +278,17 @@ export function runRenewalFixture(db: DatabaseConnection, mode: "TEST_ONLY", ser
       }
       return "RECONSENT_REQUIRED";
     }
-    if (state !== "READY" || !quote) throw new WalletError(state);
+    if (state !== "READY" || !quote || !fresh) throw new WalletError(state);
     const account = one(db, "SELECT balance_fen FROM wallet_accounts WHERE user_id=?", service.ownerId);
-    if (!account || integer(account.balance_fen) < quote.priceFen) throw new WalletError("INSUFFICIENT_FUNDS");
+    if (!account || integer(account.balance_fen) < fresh.priceFen) throw new WalletError("INSUFFICIENT_FUNDS");
     db.prepare("UPDATE wallet_accounts SET balance_fen=balance_fen-? WHERE user_id=? AND balance_fen>=?")
-      .run(quote.priceFen, service.ownerId, quote.priceFen);
+      .run(fresh.priceFen, service.ownerId, fresh.priceFen);
     db.prepare(`INSERT INTO wallet_renewal_cycles (service_id,previous_ends_at,new_ends_at,user_id,amount_fen,quote_key,created_at)
-      VALUES (?,?,?,?,?,?,?)`).run(service.serviceId, timestamp(quote.previousEndsAt), timestamp(quote.newEndsAt),
-      service.ownerId, quote.priceFen, quote.key, timestamp(at));
-    ledger(db, service.ownerId!, "RENEWAL_DEBIT", -quote.priceFen, `cycle:${service.serviceId}:${service.endsAt}`, at);
+      VALUES (?,?,?,?,?,?,?)`).run(service.serviceId, timestamp(fresh.previousEndsAt), timestamp(fresh.newEndsAt),
+      service.ownerId, fresh.priceFen, fresh.key, timestamp(at));
+    ledger(db, service.ownerId!, "RENEWAL_DEBIT", -fresh.priceFen, `cycle:${service.serviceId}:${service.endsAt}`, at);
     db.prepare(`INSERT INTO wallet_service_extensions(service_id,modeled_ends_at) VALUES (?,?)
-      ON CONFLICT(service_id) DO UPDATE SET modeled_ends_at=excluded.modeled_ends_at`).run(service.serviceId, quote.newEndsAt);
+      ON CONFLICT(service_id) DO UPDATE SET modeled_ends_at=excluded.modeled_ends_at`).run(service.serviceId, fresh.newEndsAt);
     return "COMMITTED";
   });
 }
