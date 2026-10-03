@@ -1,6 +1,7 @@
 import type { DatabaseConnection } from "../db.js";
 import { findSellablePlan } from "../payment/commerce.js";
 import { addUtcMonths, parseEndsAt } from "../payment/admin-services.js";
+import { CATALOG_VERSION } from "../payment/pricing.js";
 
 /** Internal candidate only: callers must supply authenticated Session/CSRF/admin facts. */
 export class WalletError extends Error {
@@ -120,8 +121,12 @@ export function purchasedService(db: DatabaseConnection, serviceId: number): Ser
     JOIN orders o ON o.id=p.order_id
     WHERE s.id=? AND p.status='paid' AND o.status='paid'`, serviceId);
   if (!row) return { serviceId, ownerId: null, purchased: false, endsAt: null };
+  // Normalize through the same strict-instant helper the quote uses, so a stored
+  // `ends_at` in any accepted ISO shape equals the quote's previousEndsAt.
+  const ends = row.ends_at === null ? null : parseEndsAt(row.ends_at);
+  const endsAt = ends === null || !ends.ok ? null : ends.value;
   return { serviceId: integer(row.service_id), ownerId: row.user_id === null ? null : integer(row.user_id),
-    purchased: true, endsAt: row.ends_at === null ? null : text(row.ends_at) };
+    purchased: true, endsAt };
 }
 function assertLiveService(db: DatabaseConnection, supplied: ServiceEligibility): void {
   const live = purchasedService(db, supplied.serviceId);
@@ -138,7 +143,7 @@ const PERIOD_DURATION_ID: Readonly<Record<BillingPeriod, string>> = {
     tuple + the live sellable_plans row — caller/browser-supplied price, key or expiry
     is never consulted. Any missing/inactive/ambiguous source fails QUOTE_UNAVAILABLE. */
 export function produceRenewalQuote(db: DatabaseConnection, serviceId: number, period: BillingPeriod): AuthoritativeQuote {
-  const row = one(db, `SELECT s.ends_at,o.user_id,o.type_id,o.region_id,o.isp_id,o.spec_id,o.catalog_version
+  const row = one(db, `SELECT s.ends_at,o.user_id,o.type_id,o.region_id,o.isp_id,o.spec_id
     FROM services s JOIN payments p ON p.id=s.payment_id
     JOIN orders o ON o.id=p.order_id
     WHERE s.id=? AND p.status='paid' AND o.status='paid'`, serviceId);
@@ -151,7 +156,10 @@ export function produceRenewalQuote(db: DatabaseConnection, serviceId: number, p
   };
   const typeId = field(row.type_id), regionId = field(row.region_id), ispId = field(row.isp_id);
   const specId = row.spec_id === null ? null : field(row.spec_id);
-  const catalogVersion = field(row.catalog_version);
+  /* Current catalog version only — the old order's catalog_version stamp is
+     purchase-time history, never the live source. Binds the same constant the
+     order path stamps today; an unavailable version fails closed. */
+  const catalogVersion = field(CATALOG_VERSION);
   const durationId = PERIOD_DURATION_ID[period];
   const months = /^month-(\d+)$/.exec(durationId);
   if (months === null) throw new WalletError("QUOTE_UNAVAILABLE");

@@ -32,7 +32,7 @@ function state(db: DatabaseConnection, serviceId: number): string {
   return (db.prepare("SELECT state FROM wallet_consents WHERE service_id=?").all(serviceId)[0] as { state: string }).state;
 }
 const service: ServiceEligibility = { serviceId: 11, ownerId: 7, purchased: true, endsAt: "2026-11-01T00:00:00.000Z" };
-const quote: AuthoritativeQuote = { key: "renewal-quote:CATV1:local-isp:us:us-verizon::month-1:900:2026-11-01T00:00:00.000Z",
+const quote: AuthoritativeQuote = { key: "renewal-quote:SUBSCRIBE-CATALOG-V1:local-isp:us:us-verizon::month-1:900:2026-11-01T00:00:00.000Z",
   serviceId: 11, ownerId: 7,
   priceFen: 900, durationId: "month-1", period: "MONTHLY",
   previousEndsAt: service.endsAt!, newEndsAt: "2026-12-01T00:00:00.000Z" };
@@ -211,9 +211,16 @@ test("renewal quote is server-derived from the paid order tuple and live plan; e
   assert.equal(produced.period, "MONTHLY");
   assert.equal(produced.previousEndsAt, "2026-11-01T00:00:00.000Z");
   assert.equal(produced.newEndsAt, "2026-12-01T00:00:00.000Z");
-  assert.ok(produced.key.includes("CATV1") && produced.key.includes("month-1:900:2026-11-01T00:00:00.000Z"));
+  assert.ok(produced.key.includes("SUBSCRIBE-CATALOG-V1") && produced.key.includes("month-1:900:2026-11-01T00:00:00.000Z"));
+  assert.ok(!produced.key.includes("CATV1:")); // old order stamp is never bound as current
   // Derived quote is exactly what consent/dry-run accept.
   assert.equal(renewalDryRun(db, service, produced), "DISABLED");
+  // Same instant in a non-canonical stored form must not conflict with the quote.
+  db.prepare("UPDATE services SET ends_at='2026-11-01T00:00:00Z' WHERE id=11").run();
+  const normalized = produceRenewalQuote(db, 11, "MONTHLY");
+  assert.equal(normalized.previousEndsAt, "2026-11-01T00:00:00.000Z");
+  assert.equal(renewalDryRun(db, service, normalized), "DISABLED");
+  db.prepare("UPDATE services SET ends_at='2026-11-01T00:00:00.000Z' WHERE id=11").run();
   // Missing catalog duration for the tuple.
   assert.throws(() => produceRenewalQuote(db, 11, "SEMIANNUAL"), /QUOTE_UNAVAILABLE/);
   // Inactive plan row.
