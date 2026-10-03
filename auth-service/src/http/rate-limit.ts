@@ -75,6 +75,8 @@ export const REGISTRATION_VERIFY_IP_LIMIT = 30;
 export const REGISTRATION_COMPLETE_IP_LIMIT = 20;
 export const DIAGNOSIS_SUBMIT_IP_LIMIT = 5;
 export const MONITOR_STATUS_USER_LIMIT = 120;
+// Traffic panel: one request per delivered line (≤20) per page load; upstream reads are cached 60s.
+export const SUBSCRIPTION_INFO_USER_LIMIT = 240;
 export const ACCOUNT_PASSWORD_CHANGE_USER_LIMIT = 10;
 export const ACCOUNT_EMAIL_CHANGE_START_USER_LIMIT = 5;
 export const ACCOUNT_EMAIL_CHANGE_START_TARGET_LIMIT = 5;
@@ -360,6 +362,23 @@ export function consumeMonitorStatusRateLimit(
         MONITOR_STATUS_USER_LIMIT,
       ),
     ],
+    times,
+  );
+}
+
+export function consumeSubscriptionInfoRateLimit(
+  database: DatabaseConnection,
+  keyring: RateLimitKeyring,
+  userId: number,
+  dependencies: { readonly now?: () => Date } = {},
+): void {
+  if (!Number.isSafeInteger(userId) || userId < 1) {
+    throw new Error("Subscription info rate-limit principal is invalid");
+  }
+  const times = rateLimitTimes(dependencies.now ?? (() => new Date()));
+  consumeDimensions(
+    database,
+    [dimension(keyring, "subscription:info:user", [String(userId)], SUBSCRIPTION_INFO_USER_LIMIT)],
     times,
   );
 }

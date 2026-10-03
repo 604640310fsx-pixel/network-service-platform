@@ -16,9 +16,12 @@ import {
 import { groupGiftLines, type GiftLineGroup } from "./giftLines";
 import {
   buyerLineStatusHref,
+  lineSelector,
   resolveBuyerStatusHref,
   type BuyerLineRef,
 } from "../../lib/buyerStatusLink";
+import { getSubscriptionInfo, type SubscriptionInfo } from "../../lib/subscription-info-api";
+import { aggregateUsage, formatBytes, usageFacts, type UsageFacts } from "./trafficUsage";
 import { resolveSelection } from "../../lib/resolveSelection";
 import {
   getMyNodeStatus,
@@ -697,19 +700,112 @@ function NodesPanel({
 
 const TRAFFIC_FACTS = ["used", "remaining", "reset"] as const;
 
+/** One delivered line whose subscription usage the traffic panel reads (names only, no URL). */
+type UsageLine = { readonly selector: string; readonly label: string; readonly owner: string };
+
+type UsageState = { readonly kind: "loading" } | { readonly kind: "ready"; readonly info: SubscriptionInfo } | { readonly kind: "failed" };
+
+/* 每条交付线路独立读取订阅用量（服务端代取 subscription-userinfo，订阅地址不出服务端）：
+   单行失败只影响该行并可单独重试；不支持用量的订阅如实显示「不提供用量」。 */
+function useLineUsage(lines: readonly UsageLine[], reloadToken: number) {
+  const [states, setStates] = useState<Readonly<Record<string, UsageState>>>({});
+  const key = lines.map((line) => line.selector).join("|");
+
+  function load(selector: string, signal?: AbortSignal) {
+    setStates((current) => ({ ...current, [selector]: { kind: "loading" } }));
+    void getSubscriptionInfo(selector, signal)
+      .then((info) => {
+        if (!signal?.aborted) setStates((current) => ({ ...current, [selector]: { kind: "ready", info } }));
+      })
+      .catch(() => {
+        if (!signal?.aborted) setStates((current) => ({ ...current, [selector]: { kind: "failed" } }));
+      });
+  }
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setStates({});
+    for (const line of lines) load(line.selector, controller.signal);
+    return () => controller.abort();
+    // Lines are identified by their selectors; reloadToken forces a refresh.
+  }, [key, reloadToken]);
+
+  return { states, retry: (selector: string) => load(selector) };
+}
+
+function LineUsageRow({ line, state, onRetry }: { line: UsageLine; state: UsageState | undefined; onRetry: () => void }) {
+  const t = useT();
+  const copy = t.network.usage;
+  const facts = state?.kind === "ready" && state.info.kind === "usage" ? usageFacts(state.info.usage) : null;
+  return (
+    <li className="cc-net-usage-row" aria-label={copy.lineAria(line.label)}>
+      <span className="cc-net-traffic-ref">
+        <strong>{line.label}</strong>
+        <small>{line.owner}</small>
+      </span>
+      {facts !== null ? (
+        <div className="cc-net-usage-facts">
+          <span>
+            <i className="cc-net-usage-label">{copy.used}</i>
+            {facts.used === null ? UNKNOWN : formatBytes(facts.used)}
+            {facts.total !== null && <small>{copy.total(formatBytes(facts.total))}</small>}
+          </span>
+          <span>
+            <i className="cc-net-usage-label">{copy.remaining}</i>
+            {facts.remaining === null ? UNKNOWN : formatBytes(facts.remaining)}
+          </span>
+          <span>
+            <i className="cc-net-usage-label">{copy.expire}</i>
+            {facts.expireAt === null ? copy.expireNone : formatDate(facts.expireAt.toISOString(), t.account.dateLocale)}
+          </span>
+          {facts.ratio !== null && (
+            <div className="cc-net-usage-bar" role="img" aria-label={`${Math.round(facts.ratio * 100)}%`}>
+              <span style={{ width: `${Math.max(facts.ratio * 100, facts.ratio > 0 ? 2 : 0)}%` }} />
+            </div>
+          )}
+        </div>
+      ) : state === undefined || state.kind === "loading" ? (
+        <span className="cc-net-usage-note">{copy.loading}</span>
+      ) : state.kind === "ready" && state.info.kind === "no_userinfo" ? (
+        <span className="cc-net-usage-note">{copy.noUserinfo}</span>
+      ) : (
+        <span className="cc-net-usage-note is-failed">
+          {copy.unreachable}
+          <button type="button" className="cc-net-ghost" onClick={onRetry}>{copy.retry}</button>
+        </span>
+      )}
+    </li>
+  );
+}
+
 function TrafficPanel({
   servicesState,
   ordersState,
   accountServices,
+  usageLines,
+  reloadToken,
 }: {
   servicesState: Resource<readonly MyServiceItem[]>;
   ordersState: Resource<readonly MyOrderItem[]>;
   accountServices: readonly AccountServiceView[];
+  usageLines: readonly UsageLine[];
+  reloadToken: number;
 }) {
   const t = useT();
   const ct = useCatalogText();
   const ready = servicesState.kind === "ready";
   const statusHref = resolveBuyerStatusHref();
+  const usage = useLineUsage(usageLines, reloadToken);
+  const reported: UsageFacts[] = usageLines.flatMap((line) => {
+    const state = usage.states[line.selector];
+    return state?.kind === "ready" && state.info.kind === "usage" ? [usageFacts(state.info.usage)] : [];
+  });
+  const totals = aggregateUsage(reported);
+  const summary = {
+    used: totals.used === null ? null : formatBytes(totals.used),
+    remaining: totals.remaining === null ? null : formatBytes(totals.remaining),
+    reset: null,
+  } as const;
 
   return (
     <section className="cc-net-panel" aria-labelledby="cc-net-traffic-title">
@@ -718,25 +814,46 @@ function TrafficPanel({
         title={t.network.trafficTitle}
         titleId="cc-net-traffic-title"
         subline={t.network.trafficSubline}
-        tag={t.network.trafficTag}
+        tag={totals.lines > 0 ? t.network.usage.tagLive : t.network.trafficTag}
         icon={<TrafficIcon />}
       />
 
+      {/* 汇总只累加有订阅商数据的线路，并在提示里写明条数；重置周期订阅头不提供，如实显示 —。 */}
       <div className="cc-net-traffic-summary" aria-label={t.network.trafficLabel}>
         {TRAFFIC_FACTS.map((fact) => (
-          <div key={fact}>
+          <div key={fact} className={summary[fact] === null ? "" : "is-known"}>
             <span>{t.network.trafficFacts[fact].label}</span>
-            <strong>{UNKNOWN}</strong>
-            <small>{t.network.trafficFacts[fact].hint}</small>
+            <strong>{summary[fact] ?? UNKNOWN}</strong>
+            <small>
+              {fact === "reset"
+                ? (usageLines.length > 0 ? t.network.usage.resetHint : t.network.trafficFacts.reset.hint)
+                : summary[fact] !== null
+                  ? t.network.usage.aggregateHint(totals.lines)
+                  : t.network.trafficFacts[fact].hint}
+            </small>
           </div>
         ))}
       </div>
 
-      {/* 未知态用斜纹轨道表达，不用任何会被误读为 0% 或健康值的实心进度条。 */}
-      <div className="cc-net-meter">
-        <div className="cc-net-meter-track" aria-hidden="true" />
-        <small>{t.network.meterNote}</small>
-      </div>
+      {usageLines.length > 0 ? (
+        <div className="cc-net-usage">
+          <div className="cc-net-subhead">
+            <strong>{t.network.usage.title}</strong>
+            <span>{t.network.usage.note}</span>
+          </div>
+          <ul className="cc-net-usage-rows">
+            {usageLines.map((line) => (
+              <LineUsageRow key={line.selector} line={line} state={usage.states[line.selector]} onRetry={() => usage.retry(line.selector)} />
+            ))}
+          </ul>
+        </div>
+      ) : (
+        /* 未知态用斜纹轨道表达，不用任何会被误读为 0% 或健康值的实心进度条。 */
+        <div className="cc-net-meter">
+          <div className="cc-net-meter-track" aria-hidden="true" />
+          <small>{t.network.meterNote}</small>
+        </div>
+      )}
 
       {servicesState.kind === "loading" && <Skeleton rows={2} label={t.network.loadingServices} />}
 
@@ -749,7 +866,7 @@ function TrafficPanel({
         />
       )}
 
-      {ready && accountServices.length === 0 && (
+      {ready && accountServices.length === 0 && usageLines.length === 0 && (
         <StateBlock
           tone="empty"
           icon={<TrafficIcon />}
@@ -934,6 +1051,18 @@ export function BuyerNetworkPage() {
     services === null ? [] : collectOrphanLineGroups(linesByOrder, services);
   const giftGroups: readonly GiftLineGroup[] = services === null ? [] : groupGiftLines(grants, giftDeliveryLines);
   const giftOpenCount = grants.filter((grant) => grant.deliveryStatus === "open").length;
+  const usageLines: readonly UsageLine[] = [
+    ...(deliveryLines ?? []).map((line) => ({
+      selector: lineSelector({ kind: "service", ref: line.orderRef, position: line.position }),
+      label: line.label,
+      owner: line.orderRef,
+    })),
+    ...(giftDeliveryLines ?? []).map((line) => ({
+      selector: lineSelector({ kind: "grant", ref: line.grantId, position: line.position }),
+      label: line.label,
+      owner: grants.find((grant) => grant.grantId === line.grantId)?.label ?? t.network.giftRef(line.grantId),
+    })),
+  ];
   const isLoading =
     servicesState.kind === "loading" ||
     ordersState.kind === "loading" ||
@@ -976,6 +1105,8 @@ export function BuyerNetworkPage() {
             servicesState={servicesState}
             ordersState={ordersState}
             accountServices={accountServices}
+            usageLines={usageLines}
+            reloadToken={reloadToken}
           />
         </div>
       </div>

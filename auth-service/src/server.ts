@@ -345,6 +345,15 @@ async function start(): Promise<void> {
           rateLimitKeyring: credentials.rateLimitKeyring,
           privateClient: monitorPrivateClient,
         },
+        subscriptionInfo:
+          delivery === null
+            ? undefined
+            : {
+                database,
+                tokenHmacKeyring: credentials.tokenHmacKeyring,
+                rateLimitKeyring: credentials.rateLimitKeyring,
+                deliveryEncKeyring: delivery.deliveryEncKeyring,
+              },
         payment,
         readiness,
       });
