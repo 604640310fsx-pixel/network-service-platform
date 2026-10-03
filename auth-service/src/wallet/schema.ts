@@ -1,8 +1,10 @@
 /** Isolated candidate schema. Only tests may apply this DDL; migration 025 is owned elsewhere. */
 export const WALLET_CANDIDATE_TEST_SCHEMA = `
-CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER, status TEXT NOT NULL);
-CREATE TABLE payments (id INTEGER PRIMARY KEY, order_id INTEGER NOT NULL, status TEXT NOT NULL,
-  amount_fen INTEGER NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT 'CNY');
+CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER,
+  status TEXT NOT NULL CHECK(status IN ('pending','paid','closed')));
+CREATE TABLE payments (id INTEGER PRIMARY KEY, order_id INTEGER NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK(status IN ('pending','paid','closed')),
+  amount_fen INTEGER NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT 'CNY', trade_no TEXT);
 CREATE TABLE services (id INTEGER PRIMARY KEY, payment_id INTEGER NOT NULL, ends_at TEXT);
 CREATE TABLE wallet_accounts (user_id INTEGER PRIMARY KEY, balance_fen INTEGER NOT NULL DEFAULT 0 CHECK(balance_fen >= 0));
 CREATE TABLE wallet_ledger (

@@ -268,7 +268,8 @@ export function recordVerifiedOrderPayment(db: DatabaseConnection, expectedMerch
     positive(amountFen);
     if (event.signatureVerified !== true || event.finalStatus !== "SUCCESS" || event.currency !== "CNY" ||
       event.merchantId !== expectedMerchantId || !tradeNo) throw new WalletError("VERIFICATION_REQUIRED");
-    const payment = one(db, "SELECT amount_fen,currency FROM payments WHERE order_id=?", orderId);
+    const payment = one(db, `SELECT p.amount_fen,p.currency,p.status AS payment_status,p.trade_no,
+      o.status AS order_status FROM payments p JOIN orders o ON o.id=p.order_id WHERE p.order_id=?`, orderId);
     if (!payment || payment.amount_fen !== amountFen || payment.currency !== event.currency) throw new WalletError("PAYMENT_MISMATCH");
     const existing = one(db, "SELECT provider_trade_no,amount_fen FROM wallet_order_settlements WHERE order_id=?", orderId);
     if (existing) {
@@ -276,10 +277,24 @@ export function recordVerifiedOrderPayment(db: DatabaseConnection, expectedMerch
       return "REPLAY";
     }
     const closed = one(db, "SELECT order_id FROM wallet_order_closures WHERE order_id=?", orderId) !== null;
-    const state = closed ? "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING" : "PAID";
+    const orderStatus = payment.order_status;
+    const paymentStatus = payment.payment_status;
+    if ((orderStatus !== "pending" && orderStatus !== "paid" && orderStatus !== "closed") ||
+      (paymentStatus !== "pending" && paymentStatus !== "paid" && paymentStatus !== "closed")) {
+      throw new WalletError("INVARIANT_FAILED");
+    }
+    if (orderStatus === "paid" && paymentStatus === "paid") {
+      if (payment.trade_no !== tradeNo) throw new WalletError("PAYMENT_STATE_CONFLICT");
+      db.prepare("INSERT INTO wallet_order_settlements(order_id,provider_trade_no,amount_fen,state,recorded_at) VALUES (?,?,?,?,?)")
+        .run(orderId, tradeNo, amountFen, closed ? "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING" : "PAID", timestamp(at));
+      return closed ? "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING" : "REPLAY";
+    }
+    const locallyClosed = closed || orderStatus === "closed" || paymentStatus === "closed";
+    if (!locallyClosed && (orderStatus !== "pending" || paymentStatus !== "pending")) throw new WalletError("PAYMENT_STATE_CONFLICT");
+    const state = locallyClosed ? "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING" : "PAID";
     db.prepare("INSERT INTO wallet_order_settlements(order_id,provider_trade_no,amount_fen,state,recorded_at) VALUES (?,?,?,?,?)")
       .run(orderId, tradeNo, amountFen, state, timestamp(at));
-    if (!closed) fulfill(db, orderId);
+    if (!locallyClosed) fulfill(db, orderId);
     return state;
   });
 }
@@ -299,14 +314,20 @@ export function requestPaidServiceTermination(db: DatabaseConnection, actor: Int
       if (!cycle) throw new WalletError("SOURCE_UNAVAILABLE");
     }
     const prior = one(db, "SELECT service_id FROM wallet_termination_cases WHERE service_id=?", serviceId);
-    if (prior) return;
-    db.prepare(`INSERT INTO wallet_termination_cases(service_id,requested_at,requested_by,stop_state)
-      VALUES (?,?,?,'REQUESTED')`).run(serviceId, timestamp(at), actor.userId);
+    if (!prior) {
+      db.prepare(`INSERT INTO wallet_termination_cases(service_id,requested_at,requested_by,stop_state)
+        VALUES (?,?,?,'REQUESTED')`).run(serviceId, timestamp(at), actor.userId);
+      db.prepare("UPDATE wallet_consents SET state='DISABLED',revision=revision+1,updated_at=? WHERE service_id=?")
+        .run(at, serviceId);
+      if (one(db, "SELECT revision FROM wallet_consents WHERE service_id=?", serviceId)) recordConsentHistory(db, serviceId, at);
+    }
+    const refundCase = one(db, "SELECT service_id FROM wallet_refund_cases WHERE source_kind=? AND source_id=?", sourceKind, sourceId);
+    if (refundCase) {
+      if (refundCase.service_id !== serviceId) throw new WalletError("SOURCE_CONFLICT");
+      return;
+    }
     db.prepare(`INSERT INTO wallet_refund_cases(service_id,refund_state,source_kind,source_id)
       VALUES (?,'AWAITING_POLICY',?,?)`).run(serviceId, sourceKind, sourceId);
-    db.prepare("UPDATE wallet_consents SET state='DISABLED',revision=revision+1,updated_at=? WHERE service_id=?")
-      .run(at, serviceId);
-    if (one(db, "SELECT revision FROM wallet_consents WHERE service_id=?", serviceId)) recordConsentHistory(db, serviceId, at);
   });
 }
 /** Isolated accounting fixture. No policy decision or real funds transfer is inferred. */

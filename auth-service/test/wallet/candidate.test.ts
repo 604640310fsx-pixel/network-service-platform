@@ -141,18 +141,55 @@ test("cancel boundary: owner/admin, CSRF, release once, paid-first and late paid
   assert.equal(count(db, "wallet_order_settlements"), 2);
 }));
 
+test("real closed rows without management closure retain late-paid fact; existing paid rows never fulfill twice", () => fixture((db) => {
+  db.prepare("INSERT INTO orders(id,user_id,status) VALUES (41,7,'closed'),(42,7,'pending'),(43,7,'paid'),(44,7,'paid'),(45,7,'closed'),(46,7,'paid')").run();
+  db.prepare(`INSERT INTO payments(id,order_id,status,amount_fen,currency,trade_no) VALUES
+    (41,41,'closed',800,'CNY',NULL),(42,42,'closed',800,'CNY',NULL),
+    (43,43,'paid',800,'CNY','trade-43'),(44,44,'paid',800,'CNY','trade-44'),
+    (45,45,'paid',800,'CNY','trade-45'),(46,46,'pending',800,'CNY',NULL)`).run();
+  db.prepare("INSERT INTO wallet_order_closures(order_id,closed_by_user_id,closed_at) VALUES (44,7,?)").run(AT);
+  db.exec("CREATE TABLE fulfillments (order_id INTEGER NOT NULL)");
+  const fulfill = (database: DatabaseConnection, id: number) => { database.prepare("INSERT INTO fulfillments(order_id) VALUES (?)").run(id); };
+  const event = (id: number) => ({ orderId: id, providerTradeNo: `trade-${id}`, amountFen: 800,
+    merchantId: "merchant-1", currency: "CNY" as const, finalStatus: "SUCCESS" as const, signatureVerified: true as const });
+  assert.equal(recordVerifiedOrderPayment(db, "merchant-1", event(41), AT, fulfill), "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING");
+  assert.equal(recordVerifiedOrderPayment(db, "merchant-1", event(42), AT, fulfill), "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING");
+  assert.equal(recordVerifiedOrderPayment(db, "merchant-1", event(43), AT, fulfill), "REPLAY");
+  assert.throws(() => recordVerifiedOrderPayment(db, "merchant-1", { ...event(43), providerTradeNo: "other-trade" }, AT, fulfill), /TRADE_CONFLICT/);
+  assert.equal(recordVerifiedOrderPayment(db, "merchant-1", event(44), AT, fulfill), "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING");
+  assert.equal(recordVerifiedOrderPayment(db, "merchant-1", event(45), AT, fulfill), "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING");
+  assert.throws(() => recordVerifiedOrderPayment(db, "merchant-1", event(46), AT, fulfill), /PAYMENT_STATE_CONFLICT/);
+  assert.equal(count(db, "fulfillments"), 0);
+  assert.deepEqual(db.prepare("SELECT state FROM wallet_order_settlements ORDER BY order_id").all(), [
+    { state: "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING" }, { state: "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING" },
+    { state: "PAID" }, { state: "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING" },
+    { state: "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING" },
+  ]);
+  assert.equal(recordVerifiedOrderPayment(db, "merchant-1", event(41), AT, fulfill), "REPLAY");
+  assert.equal(count(db, "wallet_order_settlements"), 5);
+}));
+
 test("refund case separates actual stop from policy; wallet reversal is bounded and idempotent", () => fixture((db) => {
   topup(db); credit(db); consent(db); runRenewalFixture(db, "TEST_ONLY", service, quote, 1, AT);
   const admin = { userId: 99, sessionValid: true, csrfValid: true, isAdmin: true };
   assert.throws(() => requestPaidServiceTermination(db, { ...admin, isAdmin: false }, 11, "WALLET_RENEWAL", 1, AT), /FORBIDDEN/);
   assert.throws(() => requestPaidServiceTermination(db, admin, 11, "ORIGINAL_PAYMENT", 999, AT), /SOURCE_UNAVAILABLE/);
   requestPaidServiceTermination(db, admin, 11, "WALLET_RENEWAL", 1, AT);
+  db.prepare(`INSERT INTO wallet_renewal_cycles(service_id,previous_ends_at,new_ends_at,user_id,amount_fen,quote_key,created_at)
+    VALUES (11,'2026-12-01T00:00:00.000Z','2027-01-01T00:00:00.000Z',7,900,'server-snapshot-2',?)`).run(AT);
+  requestPaidServiceTermination(db, admin, 11, "ORIGINAL_PAYMENT", 1, AT);
+  requestPaidServiceTermination(db, admin, 11, "WALLET_RENEWAL", 2, AT);
+  requestPaidServiceTermination(db, admin, 11, "WALLET_RENEWAL", 2, AT);
+  assert.equal(count(db, "wallet_termination_cases"), 1);
+  assert.equal(count(db, "wallet_refund_cases"), 3);
+  assert.equal(count(db, "wallet_consent_history"), 2); // initial consent and one disable only
   assert.equal(state(db, 11), "DISABLED");
   const termination = db.prepare(`SELECT t.stop_state,r.refund_state,r.source_kind FROM wallet_termination_cases t
-    JOIN wallet_refund_cases r ON r.service_id=t.service_id WHERE t.service_id=11`).all()[0];
+    JOIN wallet_refund_cases r ON r.service_id=t.service_id
+    WHERE t.service_id=11 AND r.source_kind='WALLET_RENEWAL' AND r.source_id=1`).all()[0];
   assert.deepEqual(termination, { stop_state: "REQUESTED", refund_state: "AWAITING_POLICY", source_kind: "WALLET_RENEWAL" });
   assert.throws(() => recordWalletReversalFixture(db, "TEST_ONLY", admin, 1, "r-1", 500, 900, AT), /REFUND_NOT_PROCESSING/);
-  db.prepare("UPDATE wallet_refund_cases SET refund_state='PROCESSING' WHERE service_id=11").run(); // isolated approved-policy fixture only
+  db.prepare("UPDATE wallet_refund_cases SET refund_state='PROCESSING' WHERE source_kind='WALLET_RENEWAL' AND source_id=1").run(); // isolated approved-policy fixture only
   assert.throws(() => recordWalletReversalFixture(db, "TEST_ONLY", admin, 1, "r-1", 500, 0, AT), /POLICY_REQUIRED/);
   assert.equal(recordWalletReversalFixture(db, "TEST_ONLY", admin, 1, "r-1", 500, 900, AT), "RECORDED");
   assert.equal(recordWalletReversalFixture(db, "TEST_ONLY", admin, 1, "r-1", 500, 900, AT), "REPLAY");
