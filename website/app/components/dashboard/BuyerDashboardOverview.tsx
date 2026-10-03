@@ -11,6 +11,8 @@ import {
 } from "../../lib/payment-api";
 import { useT, type Messages } from "../../lib/i18n";
 import { buyerPlanCounts, combineBuyerPlans, type BuyerPlan } from "./buyerPlans";
+import { getMyDeliveryLineListing } from "../../lib/payment-api";
+import { primaryLineStatusHref, type BuyerLineRef } from "../../lib/buyerStatusLink";
 
 type ResourceState<T> =
   | { readonly kind: "loading" }
@@ -277,6 +279,22 @@ export function BuyerDashboardOverview() {
   const [servicesState, setServicesState] = useState<ResourceState<readonly BuyerPlan[]>>({ kind: "loading" });
   const [ordersState, setOrdersState] = useState<ResourceState<readonly MyOrderItem[]>>({ kind: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
+  // 「服务器状态」入口：账户第一条已交付线路 → /status 预选其服务器；读不到线路时为 /status。
+  const [statusHref, setStatusHref] = useState("/status");
+  useEffect(() => {
+    const controller = new AbortController();
+    void getMyDeliveryLineListing(controller.signal)
+      .then(({ services, grants }) => {
+        if (controller.signal.aborted) return;
+        const lines: BuyerLineRef[] = [
+          ...services.map((line): BuyerLineRef => ({ kind: "service", ref: line.orderRef, position: line.position })),
+          ...grants.map((line): BuyerLineRef => ({ kind: "grant", ref: line.grantId, position: line.position })),
+        ];
+        setStatusHref(primaryLineStatusHref(lines));
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [reloadToken]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -442,7 +460,7 @@ export function BuyerDashboardOverview() {
               <p>{t.dashboard.monitorBody}</p>
               <small>{t.dashboard.monitorNoLogin}</small>
             </div>
-            <Link className="dash-secondary-link" to="/monitor">{t.dashboard.monitorLink}</Link>
+            <Link className="dash-secondary-link" to={statusHref}>{t.dashboard.monitorLink}</Link>
           </article>
         </div>
       </section>
