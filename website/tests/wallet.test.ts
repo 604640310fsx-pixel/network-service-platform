@@ -120,7 +120,12 @@ test("profile and dashboard never show a counterfeit zero while loading or after
   assert.match(profile, /state\.kind === "ready" && <span className="cc-profile-wallet-amount">\{formatWalletFen\(state\.wallet\.balanceFen\)\}<\/span>/);
   assert.match(profile, /state\.kind === "loading" && <span className="cc-profile-wallet-muted">\{copy\.loading\}<\/span>/);
   assert.match(dashboard, /value: wallet\.state\.kind === "ready" \? formatWalletFen\(wallet\.state\.wallet\.balanceFen\) : "—",/);
-  for (const file of [profile, dashboard, hook]) {
+  const shell = source("../app/components/customer/CustomerCenterShell.tsx");
+  // Header: only signed-in sessions read the wallet; non-ready states show "—", never ¥0.00.
+  assert.match(shell, /\{authStatus === "authenticated" && <HeaderWalletChip \/>\}/);
+  assert.match(shell, /<b>\{ready \? formatWalletFen\(state\.wallet\.balanceFen\) : "—"\}<\/b>/);
+  assert.doesNotMatch(shell, /balancePending/);
+  for (const file of [profile, dashboard, hook, shell]) {
     assert.doesNotMatch(file, /balanceFen \?\? 0|balanceFen: 0|formatWalletFen\(0\)/);
   }
 });
