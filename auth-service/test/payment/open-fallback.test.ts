@@ -209,7 +209,8 @@ test("binding a delivered line later validates the target, the line and CSRF, an
       assert.equal(bound.statusCode, 200, bound.body);
       assert.deepEqual(bound.json().deliveryLines, [
         { position: 1, label: "A", monitorTargetKey: null },
-        { position: 2, label: "B", monitorTargetKey: "Tokyo Transit A" },
+        // NSP-LINE-NAME-10: binding renames the line to the VPS display name.
+        { position: 2, label: "日本东京 VPS 中转 A", monitorTargetKey: "Tokyo Transit A" },
       ]);
       assert.deepEqual(
         allRows(database, "SELECT actor, action, target_ref FROM audit_log WHERE action = 'admin.service.delivery_bind'"),

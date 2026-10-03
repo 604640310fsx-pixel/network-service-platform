@@ -333,14 +333,15 @@ export function registerPaymentAdminHttpRoutes(
       }
       /* VPS 绑定按可用性必选：目录可用 → 每行必须绑定在用 VPS（allowUnbound 不放宽）；
          目录不可用（未配置 / 读取失败）→ 只有显式 allowUnbound=true 才允许全部不绑定开通，
-         且此时不能带任何 VPS（无法校验）。 */
-      let allowedMonitorTargets: ReadonlySet<string> | null = null;
+         且此时不能带任何 VPS（无法校验）。
+         NSP-LINE-NAME-10：绑定 VPS 的行，买家可见线路名一律取该 VPS 的展示名（请求里的 label 被覆盖）。 */
+      let allowedMonitorTargets: ReadonlyMap<string, string> | null = null;
       if (dependencies.monitorTargetCatalog !== null) {
         try {
-          allowedMonitorTargets = new Set(
+          allowedMonitorTargets = new Map(
             (await dependencies.monitorTargetCatalog.list())
               .filter((item) => item.state === "active")
-              .map((item) => item.key),
+              .map((item) => [item.key, item.label] as const),
           );
         } catch {
           allowedMonitorTargets = null;
@@ -363,7 +364,13 @@ export function registerPaymentAdminHttpRoutes(
       try {
         const encryptedItems = parsedItems.items.map((item, index) =>
           encryptServiceDeliveryItem(
-            { serviceId, position: index + 1, item },
+            {
+              serviceId,
+              position: index + 1,
+              item: item.monitorTargetKey === null
+                ? item
+                : { ...item, label: allowedMonitorTargets?.get(item.monitorTargetKey) ?? item.label },
+            },
             dependencies.deliveryEncKeyring,
           ),
         );

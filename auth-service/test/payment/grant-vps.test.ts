@@ -110,7 +110,8 @@ test("opening a gift stores optional VPS bindings validated like service opening
     ]);
     assert.equal(opened.statusCode, 200, opened.body);
     assert.deepEqual(opened.json().deliveryLines, [
-      { position: 1, label: "Tokyo line", monitorTargetKey: "Tokyo Transit A" },
+      // NSP-LINE-NAME-10: the request label is overridden by the VPS display name.
+      { position: 1, label: "日本东京 VPS 中转 A", monitorTargetKey: "Tokyo Transit A" },
       { position: 2, label: "Plain line", monitorTargetKey: null },
     ]);
     assert.deepEqual(allRows(database, "SELECT position, monitor_target FROM admin_grant_delivery_items ORDER BY position"), [

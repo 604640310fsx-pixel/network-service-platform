@@ -179,6 +179,18 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
     });
   }
 
+  /* NSP-LINE-NAME-10：选了 VPS 的线路，买家可见名即 VPS 名（只读）；未选 VPS 时名称可自由填写。 */
+  function chooseDeliveryTarget(serviceId: number, index: number, key: string) {
+    const target = monitorTargets.find((candidate) => candidate.key === key);
+    setDrafts((current) => {
+      const nextItems = [...(current[serviceId] ?? defaultDeliveryItems())];
+      const previous = nextItems[index];
+      if (previous === undefined) return current;
+      nextItems[index] = { ...previous, monitorTargetKey: key, label: target === undefined ? previous.label : target.label };
+      return { ...current, [serviceId]: nextItems };
+    });
+  }
+
   function addDeliveryItem(serviceId: number) {
     setDrafts((current) => {
       const nextItems = [...(current[serviceId] ?? defaultDeliveryItems())];
@@ -250,22 +262,22 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
                         type="text"
                         maxLength={200}
                         value={deliveryItem.label}
+                        readOnly={deliveryItem.monitorTargetKey !== ""}
+                        aria-describedby={deliveryItem.monitorTargetKey !== "" ? `dash-name-follows-${item.serviceId}-${index}` : undefined}
                         onChange={(event) => updateDeliveryItem(item.serviceId, index, "label", event.target.value)}
                         placeholder="例如：日本中转 A"
                         autoComplete="off"
                       />
+                      {deliveryItem.monitorTargetKey !== "" && (
+                        <small className="dash-delivery-name-hint" id={`dash-name-follows-${item.serviceId}-${index}`}>{copy.nameFollowsVps}</small>
+                      )}
                     </label>
                     <label className="dash-delivery-field dash-delivery-target-field">
                       <span>对应 VPS 线路服务器</span>
                       <select
                         value={deliveryItem.monitorTargetKey}
                         disabled={monitorTargetsLoading || monitorUnavailable || activeMonitorTargets.length === 0}
-                        onChange={(event) => updateDeliveryItem(
-                          item.serviceId,
-                          index,
-                          "monitorTargetKey",
-                          event.target.value,
-                        )}
+                        onChange={(event) => chooseDeliveryTarget(item.serviceId, index, event.target.value)}
                       >
                         <option value="">
                           {monitorTargetsLoading

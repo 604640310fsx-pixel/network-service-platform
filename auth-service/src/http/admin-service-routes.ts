@@ -240,23 +240,27 @@ export function registerAdminServiceHttpRoutes(
   }
 
   /* Every non-null target must be active in the live catalog (same rule as service opening):
-     catalog missing or failing -> 503 monitor_unavailable, unknown/inactive -> 400. */
-  async function targetsRejected(
+     catalog missing or failing -> 503 monitor_unavailable, unknown/inactive -> 400. On success the
+     display names of the wanted targets are returned: a bound line's buyer-visible label is always
+     its VPS name (NSP-LINE-NAME-10), whatever label the request carried. */
+  async function resolveTargets(
     catalog: PaymentEnabledDependencies["monitorTargetCatalog"],
     keys: ReadonlyArray<string | null>,
-  ): Promise<{ status: number; code: string } | null> {
+  ): Promise<{ readonly ok: true; readonly labels: ReadonlyMap<string, string> } | { readonly ok: false; readonly status: number; readonly code: string }> {
     const wanted = keys.filter((key): key is string => key !== null);
-    if (wanted.length === 0) return null;
-    if (catalog === null) return { status: 503, code: "monitor_unavailable" };
-    let active: Set<string>;
+    if (wanted.length === 0) return { ok: true, labels: new Map() };
+    if (catalog === null) return { ok: false, status: 503, code: "monitor_unavailable" };
+    let active: Map<string, string>;
     try {
-      active = new Set(
-        (await catalog.list()).filter((target) => target.state === "active").map((target) => target.key),
+      active = new Map(
+        (await catalog.list()).filter((target) => target.state === "active").map((target) => [target.key, target.label] as const),
       );
     } catch {
-      return { status: 503, code: "monitor_unavailable" };
+      return { ok: false, status: 503, code: "monitor_unavailable" };
     }
-    return wanted.every((key) => active.has(key)) ? null : { status: 400, code: "invalid_monitor_target" };
+    return wanted.every((key) => active.has(key))
+      ? { ok: true, labels: active }
+      : { ok: false, status: 400, code: "invalid_monitor_target" };
   }
 
   app.get<{ Querystring: { q?: string } }>("/api/admin/users", async (request, reply) => {
@@ -375,13 +379,17 @@ export function registerAdminServiceHttpRoutes(
     if (grantId === null) return reply.code(404).send(errorResponse("not_found"));
     const items = parseGrantOpenItems(request.body);
     if (items === null) return reply.code(400).send(errorResponse("invalid_item"));
-    const rejected = await targetsRejected(dependencies.monitorTargetCatalog, items.map((entry) => entry.monitorTargetKey));
-    if (rejected !== null) return reply.code(rejected.status).send(errorResponse(rejected.code));
+    const resolved = await resolveTargets(dependencies.monitorTargetCatalog, items.map((entry) => entry.monitorTargetKey));
+    if (!resolved.ok) return reply.code(resolved.status).send(errorResponse(resolved.code));
     try {
-      const encrypted = items.map((entry, index) => ({
-        ...encryptGrantDeliveryItem({ grantId, position: index + 1, item: entry.item }, dependencies.deliveryEncKeyring),
-        monitorTarget: entry.monitorTargetKey,
-      }));
+      const encrypted = items.map((entry, index) => {
+        const vpsLabel = entry.monitorTargetKey === null ? undefined : resolved.labels.get(entry.monitorTargetKey);
+        const item = vpsLabel === undefined ? entry.item : { ...entry.item, label: vpsLabel };
+        return {
+          ...encryptGrantDeliveryItem({ grantId, position: index + 1, item }, dependencies.deliveryEncKeyring),
+          monitorTarget: entry.monitorTargetKey,
+        };
+      });
       return reply.code(200).send(
         openGrantForAdmin(dependencies.database, { grantId, items: encrypted, adminEmail: auth.admin.email, now: dependencies.now }),
       );
@@ -407,14 +415,16 @@ export function registerAdminServiceHttpRoutes(
       if (serviceId === null || position === null) return reply.code(404).send(errorResponse("not_found"));
       const binding = parseDeliveryBinding(request.body);
       if (binding === null) return reply.code(400).send(errorResponse("invalid_monitor_target"));
-      const rejected = await targetsRejected(dependencies.monitorTargetCatalog, [binding.monitorTargetKey]);
-      if (rejected !== null) return reply.code(rejected.status).send(errorResponse(rejected.code));
+      const resolved = await resolveTargets(dependencies.monitorTargetCatalog, [binding.monitorTargetKey]);
+      if (!resolved.ok) return reply.code(resolved.status).send(errorResponse(resolved.code));
+      const label = binding.monitorTargetKey === null ? null : (resolved.labels.get(binding.monitorTargetKey) ?? null);
       try {
         return reply.code(200).send(
           bindServiceDeliveryForAdmin(dependencies.database, {
             serviceId,
             position,
             monitorTargetKey: binding.monitorTargetKey,
+            label,
             adminEmail: auth.admin.email,
             now: dependencies.now,
           }),
@@ -440,14 +450,16 @@ export function registerAdminServiceHttpRoutes(
       if (grantId === null || position === null) return reply.code(404).send(errorResponse("not_found"));
       const binding = parseDeliveryBinding(request.body);
       if (binding === null) return reply.code(400).send(errorResponse("invalid_monitor_target"));
-      const rejected = await targetsRejected(dependencies.monitorTargetCatalog, [binding.monitorTargetKey]);
-      if (rejected !== null) return reply.code(rejected.status).send(errorResponse(rejected.code));
+      const resolved = await resolveTargets(dependencies.monitorTargetCatalog, [binding.monitorTargetKey]);
+      if (!resolved.ok) return reply.code(resolved.status).send(errorResponse(resolved.code));
+      const label = binding.monitorTargetKey === null ? null : (resolved.labels.get(binding.monitorTargetKey) ?? null);
       try {
         return reply.code(200).send(
           bindGrantDeliveryForAdmin(dependencies.database, {
             grantId,
             position,
             monitorTargetKey: binding.monitorTargetKey,
+            label,
             adminEmail: auth.admin.email,
             now: dependencies.now,
           }),
