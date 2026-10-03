@@ -18,11 +18,13 @@ CANDIDATE_SCHEMA_BOUNDARY: 17
 ```
 
 The block above records the historical hardening packet. The current repository
-inventory includes migration 023 (admin grant delivery), and its local
-candidate manifest requires schema boundary 23 through the `standard16-23`,
-`direct14-23`, or `standard19-23` route; neither value authorizes a release
-candidate. The `standard16-22`, `direct14-22`, and `standard19-22` routes remain
-recognized only for already-built 001-022 bundles, the `standard16-21`,
+inventory includes migration 024 (gift delivery VPS binding), and its local
+candidate manifest requires schema boundary 24 through the `standard16-24`,
+`direct14-24`, or `standard19-24` route; neither value authorizes a release
+candidate. The `standard16-23`, `direct14-23`, and `standard19-23` routes remain
+recognized only for already-built 001-023 bundles, the `standard16-22`,
+`direct14-22`, and `standard19-22` routes only for already-built 001-022
+bundles, the `standard16-21`,
 `direct14-21`, and `standard19-21` routes only for already-built 001-021
 bundles, the `standard16-20`,
 `direct14-20`, and `standard19-20` routes only for already-built 001-020
@@ -106,11 +108,11 @@ candidate artifact. That job checks `GITHUB_SHA === expectedSha`, builds auth
 and website first, assembles twice, compares the manifests, validates both
 inventories, and uploads only the first bundle under the exact name
 `consolidated-release-<RELEASE_CANDIDATE_SHA>`; it passes
-`--schema-route standard16-23` explicitly.
+`--schema-route standard16-24` explicitly.
 The same job also independently assembles and validates an explicit
-`direct14-23` bundle twice, then retains its first bundle as
+`direct14-24` bundle twice, then retains its first bundle as
 `consolidated-release-direct14-<RELEASE_CANDIDATE_SHA>`. It likewise assembles
-and validates an explicit `standard19-23` bundle twice and retains its first
+and validates an explicit `standard19-24` bundle twice and retains its first
 bundle as `consolidated-release-standard19-<RELEASE_CANDIDATE_SHA>`. Pull-request
 runs only test these routes; nothing is retained outside a successful
 integration push. The artifact names and manifest schema boundaries are
@@ -155,7 +157,7 @@ in a separate decision. Before requesting a release window:
    unavailable metadata, altered archive, PR merge ref, failed run, or
    environment-only provenance fails closed.
 4. The bundle retains the repository-relative auth runtime layout, including
-   compiled `auth-service/dist/src`, package manifests, migrations 001-023, and
+   compiled `auth-service/dist/src`, package manifests, migrations 001-024, and
    `website/dist`. It excludes dependency directories, environment files,
    credentials, private keys, databases, and files outside the explicit release
    inputs. Bind its verified manifest and auth/website inventory hashes.
@@ -445,8 +447,8 @@ is still running.
    MONITOR_API_ORIGIN: OMITTED_IN_QUIESCENT_MODE
    ```
 
-   Startup may apply migrations 017, 018, 019, 020, 021, 022 and 023. Validate exact candidate identity, loopback
-   health, migration prefix 001-023, database integrity, static website files,
+   Startup may apply migrations 017, 018, 019, 020, 021, 022, 023 and 024. Validate exact candidate identity, loopback
+   health, migration prefix 001-024, database integrity, static website files,
    the manifest inventory, and the still-closed ingress. The loopback
    `GET /health` liveness response is exactly `200 {"status":"ok"}`; do not treat
    it as traffic readiness or send a payment, email, order, registration,
@@ -479,7 +481,7 @@ is still running.
    ```
 
 10. While ingress remains closed, validate `GET /health` exact
-    `200 {"status":"ok"}` as liveness, schema 001-023, database integrity, and
+    `200 {"status":"ok"}` as liveness, schema 001-024, database integrity, and
     auth and website artifact hashes. Then require loopback `GET /ready` to
     return exact `200 {"status":"ready"}` with `Cache-Control: no-store` as the
     normal aggregate readiness proof for the serving phase, database migration
@@ -517,7 +519,7 @@ Rollback is a matched database-and-artifact operation:
    boundary 001-016. Reprove that no post-snapshot write occurred and the
    restore deadline has not passed.
 3. Restore the verified pre-017 snapshot using the separately authorized bound
-   command. Never open the old binary on a database containing migration 017, 018, 019, 020, 021, 022 or 023.
+   command. Never open the old binary on a database containing migration 017, 018, 019, 020, 021, 022, 023 or 024.
 4. Atomically switch the single consolidated pointer to the matched rollback
    bundle containing both old auth and old website artifacts. Prove their hashes
    and old source SHA.
@@ -798,7 +800,8 @@ pointer switch, traffic change, deployment, or release by itself.
 
 ## Explicit DIRECT14 to 23 route
 
-Current-source counterpart of the DIRECT14 to 22 route above, for candidates
+Historical route for already-built 001-023 bundles only; a current-source
+candidate uses the DIRECT14 to 24 route below. Counterpart of the DIRECT14 to 22 route above, for candidates
 whose inventory ends at migration 023. Every requirement, proof, substitution,
 and stop line of the DIRECT14 routes applies unchanged, with the candidate
 boundary 001-023. The standard counterpart is `--schema-route standard16-23`
@@ -813,7 +816,8 @@ Migration 021 table rebuild proof, and the Migration 022 and 023 forward-only pr
 
 ## Explicit STANDARD19 to 23 route
 
-Current-source counterpart of the STANDARD19 to 22 route above. The manifest
+Historical route for already-built 001-023 bundles only; a current-source
+candidate uses the STANDARD19 to 24 route below. Counterpart of the STANDARD19 to 22 route above. The manifest
 states `"schemaRoute":"standard19-23"` and `rollback: 19, candidate: 23`, and
 lists exactly migrations 001-023; the existing loader applies every listed
 migration the live database does not yet record (only 023 on a database
@@ -836,6 +840,53 @@ no existing value and runs on the normal transactional path.
 It is forward-only for the Auth binary: an Auth binary whose inventory ends at
 022 refuses a database that records migration 023
 (`database contains unknown migration version 23`), so after 023 applies there
+is no code-only rollback. Before any post-snapshot write, only the verified
+pre-candidate snapshot under the existing restore-eligibility rules may be
+restored together with the matched old Auth and website; after any write, only
+a separately approved forward fix is eligible.
+
+No step here authorizes production access, a database write, backup, restore,
+pointer switch, traffic change, deployment, or release by itself.
+
+## Explicit DIRECT14 to 24 route
+
+Current-source counterpart of the DIRECT14 to 23 route above, for candidates
+whose inventory ends at migration 024. Every requirement, proof, substitution,
+and stop line of the DIRECT14 routes applies unchanged, with the candidate
+boundary 001-024. The standard counterpart is `--schema-route standard16-24`
+(`rollback: 16, candidate: 24`).
+
+Validate the retained artifact `consolidated-release-direct14-<RELEASE_CANDIDATE_SHA>`
+with the candidate command above plus `--schema-route direct14-24`. The
+manifest must state `"schemaRoute":"direct14-24"` and
+`rollback: 14, candidate: 24`, and list exactly migrations 001-024. Quiescent
+startup may apply migrations **015 through 024**; verify schema 001-024, the
+Migration 021 table rebuild proof, and the Migration 022, 023 and 024 forward-only proofs.
+
+## Explicit STANDARD19 to 24 route
+
+Current-source counterpart of the STANDARD19 to 23 route above. The manifest
+states `"schemaRoute":"standard19-24"` and `rollback: 19, candidate: 24`, and
+lists exactly migrations 001-024; the existing loader applies every listed
+migration the live database does not yet record (only 024 on a database
+already at 023). Validate the retained artifact
+`consolidated-release-standard19-<RELEASE_CANDIDATE_SHA>` with the candidate
+command above plus `--schema-route standard19-24`. Every `STANDARD19_*` proof,
+the pre-open restore rule, and the after-write rule apply unchanged. After any
+new write, never overwrite or restore the database and never start an Auth
+binary whose inventory ends before 024 on a database containing migration 024;
+there is no rollback artifact for a database at 024, and none may be assumed.
+
+## Migration 024 forward-only gift delivery VPS binding
+
+Migration 024 (gift delivery VPS binding) adds one nullable `monitor_target`
+column to `admin_grant_delivery_items`; every existing gift delivery line keeps
+all prior values and is unbound (NULL). It rewrites no existing value and runs
+on the normal transactional path.
+
+It is forward-only for the Auth binary: an Auth binary whose inventory ends at
+023 refuses a database that records migration 024
+(`database contains unknown migration version 24`), so after 024 applies there
 is no code-only rollback. Before any post-snapshot write, only the verified
 pre-candidate snapshot under the existing restore-eligibility rules may be
 restored together with the matched old Auth and website; after any write, only

@@ -42,6 +42,10 @@ import {
   STANDARD19_22_RELEASE_SCHEMA_ROUTE,
   STANDARD16_23_RELEASE_SCHEMA_ROUTE,
   STANDARD19_23_RELEASE_SCHEMA_ROUTE,
+  DIRECT14_23_RELEASE_SCHEMA_ROUTE,
+  RELEASE_MIGRATIONS_001_023,
+  STANDARD16_24_RELEASE_SCHEMA_ROUTE,
+  STANDARD19_24_RELEASE_SCHEMA_ROUTE,
 } from "./assemble-consolidated-release.mjs";
 import {
   validateBundle,
@@ -302,10 +306,13 @@ function allFiles(root, relative = "") {
   return entries.sort();
 }
 
-test("release migrations independently pin the exact continuous 001-023 sequence", () => {
-  assert.equal(RELEASE_MIGRATIONS.length, 23);
-  assert.equal(RELEASE_MIGRATIONS.at(-1), "023_admin_grant_delivery.sql");
-  // The historical 001-019 through 001-022 sequences stay frozen as exact prefixes.
+test("release migrations independently pin the exact continuous 001-024 sequence", () => {
+  assert.equal(RELEASE_MIGRATIONS.length, 24);
+  assert.equal(RELEASE_MIGRATIONS.at(-1), "024_grant_delivery_monitor_target.sql");
+  // The historical 001-019 through 001-023 sequences stay frozen as exact prefixes.
+  assert.equal(RELEASE_MIGRATIONS_001_023.length, 23);
+  assert.equal(RELEASE_MIGRATIONS_001_023.at(-1), "023_admin_grant_delivery.sql");
+  assert.deepEqual(RELEASE_MIGRATIONS.slice(0, 23), [...RELEASE_MIGRATIONS_001_023]);
   assert.equal(RELEASE_MIGRATIONS_001_022.length, 22);
   assert.equal(RELEASE_MIGRATIONS_001_022.at(-1), "022_admin_service_management.sql");
   assert.deepEqual(RELEASE_MIGRATIONS.slice(0, 22), [...RELEASE_MIGRATIONS_001_022]);
@@ -330,7 +337,7 @@ test("release migrations independently pin the exact continuous 001-023 sequence
       );
       return version;
     }),
-    Array.from({ length: 23 }, (_, index) => index + 1),
+    Array.from({ length: 24 }, (_, index) => index + 1),
   );
 });
 
@@ -1329,10 +1336,10 @@ test("two independent assemblies produce one deterministic, complete manifest", 
       readFileSync(join(first, "release-manifest.json"), "utf8"),
     );
     assert.deepEqual(manifest.migrations, RELEASE_MIGRATIONS);
-    assert.equal(manifest.schemaRoute, STANDARD16_23_RELEASE_SCHEMA_ROUTE);
+    assert.equal(manifest.schemaRoute, STANDARD16_24_RELEASE_SCHEMA_ROUTE);
     assert.deepEqual(manifest.schemaBoundary, {
       rollback: 16,
-      candidate: 23,
+      candidate: 24,
     });
     for (const relativePath of RELEASE_HTTP_CONTRACT_PATHS) {
       const entry = manifest.inventory.find(
@@ -1391,7 +1398,7 @@ test("direct14 bundle requires an explicit matching route and distinct artifact 
     });
     const manifest = JSON.parse(readFileSync(join(direct, "release-manifest.json"), "utf8"));
     assert.equal(manifest.schemaRoute, DIRECT14_RELEASE_SCHEMA_ROUTE);
-    assert.deepEqual(manifest.schemaBoundary, { rollback: 14, candidate: 23 });
+    assert.deepEqual(manifest.schemaBoundary, { rollback: 14, candidate: 24 });
     assert.equal(
       validateBundle({
         bundle: direct,
@@ -1490,7 +1497,7 @@ test("historical 001-019 routes still assemble and validate only 019 bundles", (
       assert.equal(validateBundle({ bundle, expectedSha: historical.sha, validationMode: "local-dry-run", schemaRoute }).status, "ok");
     }
     // A 019 bundle never passes as a 020, 021 or 022 candidate, with or without an explicit route.
-    for (const [bundle, schemaRoute] of [[standard19, undefined], [standard19, STANDARD16_20_RELEASE_SCHEMA_ROUTE], [standard19, STANDARD16_21_RELEASE_SCHEMA_ROUTE], [standard19, STANDARD16_22_RELEASE_SCHEMA_ROUTE], [standard19, STANDARD16_23_RELEASE_SCHEMA_ROUTE], [direct19, DIRECT14_20_RELEASE_SCHEMA_ROUTE], [direct19, DIRECT14_21_RELEASE_SCHEMA_ROUTE], [direct19, DIRECT14_22_RELEASE_SCHEMA_ROUTE], [direct19, DIRECT14_RELEASE_SCHEMA_ROUTE]]) {
+    for (const [bundle, schemaRoute] of [[standard19, undefined], [standard19, STANDARD16_20_RELEASE_SCHEMA_ROUTE], [standard19, STANDARD16_21_RELEASE_SCHEMA_ROUTE], [standard19, STANDARD16_22_RELEASE_SCHEMA_ROUTE], [standard19, STANDARD16_24_RELEASE_SCHEMA_ROUTE], [direct19, DIRECT14_20_RELEASE_SCHEMA_ROUTE], [direct19, DIRECT14_21_RELEASE_SCHEMA_ROUTE], [direct19, DIRECT14_22_RELEASE_SCHEMA_ROUTE], [direct19, DIRECT14_RELEASE_SCHEMA_ROUTE]]) {
       assert.throws(
         () => validateBundle({ bundle, expectedSha: historical.sha, validationMode: "local-dry-run", schemaRoute }),
         (error) => error?.code === "BUNDLE_INTEGRITY_FAILED",
@@ -1507,7 +1514,9 @@ test("historical 001-019 routes still assemble and validate only 019 bundles", (
       [historical, STANDARD16_22_RELEASE_SCHEMA_ROUTE, "historical-as-standard22"],
       [historical, DIRECT14_22_RELEASE_SCHEMA_ROUTE, "historical-as-direct22"],
       [historical, STANDARD16_23_RELEASE_SCHEMA_ROUTE, "historical-as-standard23"],
-      [historical, DIRECT14_RELEASE_SCHEMA_ROUTE, "historical-as-direct23"],
+      [historical, DIRECT14_23_RELEASE_SCHEMA_ROUTE, "historical-as-direct23"],
+      [historical, STANDARD16_24_RELEASE_SCHEMA_ROUTE, "historical-as-standard24"],
+      [historical, DIRECT14_RELEASE_SCHEMA_ROUTE, "historical-as-direct24"],
     ]) {
       const destination = join(parent, name);
       assert.throws(
@@ -1525,7 +1534,7 @@ test("historical 001-019 routes still assemble and validate only 019 bundles", (
       (error) => error?.code === "BUNDLE_INTEGRITY_FAILED",
     );
     assert.throws(
-      () => assembleReleaseBundle({ source: current.root, destination: join(parent, "bad-route"), expectedSha: current.sha, provenanceMode: LOCAL_PROVENANCE_MODE, schemaRoute: "standard16-24" }),
+      () => assembleReleaseBundle({ source: current.root, destination: join(parent, "bad-route"), expectedSha: current.sha, provenanceMode: LOCAL_PROVENANCE_MODE, schemaRoute: "standard16-25" }),
       (error) => error?.code === "ARGUMENT_ERROR",
     );
   } finally {
@@ -1533,7 +1542,7 @@ test("historical 001-019 routes still assemble and validate only 019 bundles", (
   }
 });
 
-test("standard19-23 assembles exact 001-023 with its own boundary and rejects cross-route bundles", () => {
+test("standard19-24 assembles exact 001-024 with its own boundary and rejects cross-route bundles", () => {
   const parent = mkdtempSync(join(tmpdir(), "consolidated-release-standard19-"));
   try {
     mkdirSync(join(parent, "c"));
@@ -1541,54 +1550,54 @@ test("standard19-23 assembles exact 001-023 with its own boundary and rejects cr
     const current = createFixtureRepository(join(parent, "c"));
     const historical = createFixtureRepository(join(parent, "h"), RELEASE_MIGRATIONS_001_019);
     const bundles = {};
-    for (const route of [STANDARD19_23_RELEASE_SCHEMA_ROUTE, STANDARD16_23_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE]) {
+    for (const route of [STANDARD19_24_RELEASE_SCHEMA_ROUTE, STANDARD16_24_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE]) {
       bundles[route] = join(parent, route);
       assembleReleaseBundle({ source: current.root, destination: bundles[route], expectedSha: current.sha, provenanceMode: LOCAL_PROVENANCE_MODE, schemaRoute: route });
     }
-    const manifestPath = join(bundles[STANDARD19_23_RELEASE_SCHEMA_ROUTE], "release-manifest.json");
+    const manifestPath = join(bundles[STANDARD19_24_RELEASE_SCHEMA_ROUTE], "release-manifest.json");
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-    assert.equal(manifest.schemaRoute, STANDARD19_23_RELEASE_SCHEMA_ROUTE);
-    assert.deepEqual(manifest.schemaBoundary, { rollback: 19, candidate: 23 });
+    assert.equal(manifest.schemaRoute, STANDARD19_24_RELEASE_SCHEMA_ROUTE);
+    assert.deepEqual(manifest.schemaBoundary, { rollback: 19, candidate: 24 });
     assert.deepEqual(manifest.migrations, [...RELEASE_MIGRATIONS]);
     assert.equal(
-      validateBundle({ bundle: bundles[STANDARD19_23_RELEASE_SCHEMA_ROUTE], expectedSha: current.sha, validationMode: "local-dry-run", schemaRoute: STANDARD19_23_RELEASE_SCHEMA_ROUTE }).status,
+      validateBundle({ bundle: bundles[STANDARD19_24_RELEASE_SCHEMA_ROUTE], expectedSha: current.sha, validationMode: "local-dry-run", schemaRoute: STANDARD19_24_RELEASE_SCHEMA_ROUTE }).status,
       "ok",
     );
     const integrityFailure = (error) => error?.code === "BUNDLE_INTEGRITY_FAILED";
-    for (const route of [STANDARD16_23_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE, STANDARD16_19_RELEASE_SCHEMA_ROUTE, undefined]) {
+    for (const route of [STANDARD16_24_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE, STANDARD16_19_RELEASE_SCHEMA_ROUTE, undefined]) {
       assert.throws(
-        () => validateBundle({ bundle: bundles[STANDARD19_23_RELEASE_SCHEMA_ROUTE], expectedSha: current.sha, validationMode: "local-dry-run", schemaRoute: route }),
+        () => validateBundle({ bundle: bundles[STANDARD19_24_RELEASE_SCHEMA_ROUTE], expectedSha: current.sha, validationMode: "local-dry-run", schemaRoute: route }),
         integrityFailure,
         `standard19 bundle as ${route}`,
       );
     }
-    for (const route of [STANDARD16_23_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE]) {
+    for (const route of [STANDARD16_24_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE]) {
       assert.throws(
-        () => validateBundle({ bundle: bundles[route], expectedSha: current.sha, validationMode: "local-dry-run", schemaRoute: STANDARD19_23_RELEASE_SCHEMA_ROUTE }),
+        () => validateBundle({ bundle: bundles[route], expectedSha: current.sha, validationMode: "local-dry-run", schemaRoute: STANDARD19_24_RELEASE_SCHEMA_ROUTE }),
         integrityFailure,
         `${route} bundle as standard19-23`,
       );
     }
     for (const [name, mutate] of [
       ["rollback-16", (m) => { m.schemaBoundary.rollback = 16; }],
-      ["route-relabel", (m) => { m.schemaRoute = STANDARD16_23_RELEASE_SCHEMA_ROUTE; }],
+      ["route-relabel", (m) => { m.schemaRoute = STANDARD16_24_RELEASE_SCHEMA_ROUTE; }],
       ["candidate-22", (m) => { m.schemaBoundary.candidate = 22; }],
       ["migrations-022", (m) => { m.migrations = [...RELEASE_MIGRATIONS_001_022]; }],
     ]) {
       const bundle = join(parent, `tampered-${name}`);
-      cpSync(bundles[STANDARD19_23_RELEASE_SCHEMA_ROUTE], bundle, { recursive: true });
+      cpSync(bundles[STANDARD19_24_RELEASE_SCHEMA_ROUTE], bundle, { recursive: true });
       const tampered = JSON.parse(readFileSync(join(bundle, "release-manifest.json"), "utf8"));
       mutate(tampered);
       writeFileSync(join(bundle, "release-manifest.json"), `${JSON.stringify(tampered, null, 2)}\n`);
       assert.throws(
-        () => validateBundle({ bundle, expectedSha: current.sha, validationMode: "local-dry-run", schemaRoute: STANDARD19_23_RELEASE_SCHEMA_ROUTE }),
+        () => validateBundle({ bundle, expectedSha: current.sha, validationMode: "local-dry-run", schemaRoute: STANDARD19_24_RELEASE_SCHEMA_ROUTE }),
         integrityFailure,
         name,
       );
     }
     const refused = join(parent, "historical-as-standard19");
     assert.throws(
-      () => assembleReleaseBundle({ source: historical.root, destination: refused, expectedSha: historical.sha, provenanceMode: LOCAL_PROVENANCE_MODE, schemaRoute: STANDARD19_23_RELEASE_SCHEMA_ROUTE }),
+      () => assembleReleaseBundle({ source: historical.root, destination: refused, expectedSha: historical.sha, provenanceMode: LOCAL_PROVENANCE_MODE, schemaRoute: STANDARD19_24_RELEASE_SCHEMA_ROUTE }),
       (error) => error?.code === "SCHEMA_BOUNDARY_MISMATCH",
     );
     assert.equal(existsSync(refused), false);
@@ -1597,18 +1606,18 @@ test("standard19-23 assembles exact 001-023 with its own boundary and rejects cr
   }
 });
 
-test("standard19-23 CI provenance binds its distinct artifact and PR builds stay test-only", () => {
+test("standard19-24 CI provenance binds its distinct artifact and PR builds stay test-only", () => {
   const parent = mkdtempSync(join(tmpdir(), "consolidated-release-standard19-ci-"));
   try {
     const fixture = createFixtureRepository(parent);
     const environment = githubEnvironment({ sha: fixture.sha, candidate: true });
     assert.equal(
-      createReleaseProvenance({ mode: "github-actions", expectedSha: fixture.sha, environment, schemaRoute: STANDARD19_23_RELEASE_SCHEMA_ROUTE }).artifactName,
+      createReleaseProvenance({ mode: "github-actions", expectedSha: fixture.sha, environment, schemaRoute: STANDARD19_24_RELEASE_SCHEMA_ROUTE }).artifactName,
       `consolidated-release-standard19-${fixture.sha}`,
     );
     const bundle = join(parent, "candidate");
-    assembleReleaseBundle({ source: fixture.root, destination: bundle, expectedSha: fixture.sha, provenanceMode: "github-actions", schemaRoute: STANDARD19_23_RELEASE_SCHEMA_ROUTE, environment });
-    const validated = validateBundle({ bundle, expectedSha: fixture.sha, validationMode: "ci-build", schemaRoute: STANDARD19_23_RELEASE_SCHEMA_ROUTE, environment });
+    assembleReleaseBundle({ source: fixture.root, destination: bundle, expectedSha: fixture.sha, provenanceMode: "github-actions", schemaRoute: STANDARD19_24_RELEASE_SCHEMA_ROUTE, environment });
+    const validated = validateBundle({ bundle, expectedSha: fixture.sha, validationMode: "ci-build", schemaRoute: STANDARD19_24_RELEASE_SCHEMA_ROUTE, environment });
     assert.equal(validated.artifactName, `consolidated-release-standard19-${fixture.sha}`);
     assert.equal(validated.releaseUse, "requires-github-artifact-verification");
     for (const other of [`consolidated-release-${fixture.sha}`, `consolidated-release-direct14-${fixture.sha}`]) {
@@ -1618,7 +1627,7 @@ test("standard19-23 CI provenance binds its distinct artifact and PR builds stay
       manifest.provenance.artifactName = other;
       writeFileSync(join(renamed, "release-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
       assert.throws(
-        () => validateBundle({ bundle: renamed, expectedSha: fixture.sha, validationMode: "ci-build", schemaRoute: STANDARD19_23_RELEASE_SCHEMA_ROUTE, environment }),
+        () => validateBundle({ bundle: renamed, expectedSha: fixture.sha, validationMode: "ci-build", schemaRoute: STANDARD19_24_RELEASE_SCHEMA_ROUTE, environment }),
         (error) => error?.code === "PROVENANCE_REQUIRED",
       );
     }
@@ -1626,15 +1635,15 @@ test("standard19-23 CI provenance binds its distinct artifact and PR builds stay
     // test build is forbidden for release use and never validates as a candidate.
     const prEnvironment = githubEnvironment({ sha: fixture.sha, candidate: false });
     assert.throws(
-      () => assembleReleaseBundle({ source: fixture.root, destination: join(parent, "pr-claim"), expectedSha: fixture.sha, provenanceMode: "github-actions", schemaRoute: STANDARD19_23_RELEASE_SCHEMA_ROUTE, environment: prEnvironment }),
+      () => assembleReleaseBundle({ source: fixture.root, destination: join(parent, "pr-claim"), expectedSha: fixture.sha, provenanceMode: "github-actions", schemaRoute: STANDARD19_24_RELEASE_SCHEMA_ROUTE, environment: prEnvironment }),
       (error) => error?.code === "PROVENANCE_REQUIRED",
     );
     const prBundle = join(parent, "pr-test");
-    assembleReleaseBundle({ source: fixture.root, destination: prBundle, expectedSha: fixture.sha, provenanceMode: "github-actions-test", schemaRoute: STANDARD19_23_RELEASE_SCHEMA_ROUTE, environment: prEnvironment });
+    assembleReleaseBundle({ source: fixture.root, destination: prBundle, expectedSha: fixture.sha, provenanceMode: "github-actions-test", schemaRoute: STANDARD19_24_RELEASE_SCHEMA_ROUTE, environment: prEnvironment });
     const prManifest = JSON.parse(readFileSync(join(prBundle, "release-manifest.json"), "utf8"));
     assert.equal(prManifest.provenance.releaseUse, "forbidden");
     assert.throws(
-      () => validateBundle({ bundle: prBundle, expectedSha: fixture.sha, validationMode: "ci-build", schemaRoute: STANDARD19_23_RELEASE_SCHEMA_ROUTE, environment: prEnvironment }),
+      () => validateBundle({ bundle: prBundle, expectedSha: fixture.sha, validationMode: "ci-build", schemaRoute: STANDARD19_24_RELEASE_SCHEMA_ROUTE, environment: prEnvironment }),
       (error) => error?.code === "PROVENANCE_REQUIRED",
     );
   } finally {
@@ -1662,7 +1671,7 @@ test("historical 001-020 routes still assemble and validate only 020 bundles", (
       assert.deepEqual(manifest.migrations, [...RELEASE_MIGRATIONS_001_020]);
       assert.equal(validateBundle({ bundle, expectedSha: historical.sha, validationMode: "local-dry-run", schemaRoute: route }).status, "ok");
       // A 020 bundle never passes as a later candidate.
-      for (const currentRoute of [undefined, STANDARD16_21_RELEASE_SCHEMA_ROUTE, DIRECT14_21_RELEASE_SCHEMA_ROUTE, STANDARD19_21_RELEASE_SCHEMA_ROUTE, STANDARD16_22_RELEASE_SCHEMA_ROUTE, DIRECT14_22_RELEASE_SCHEMA_ROUTE, STANDARD19_22_RELEASE_SCHEMA_ROUTE, STANDARD16_23_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE, STANDARD19_23_RELEASE_SCHEMA_ROUTE]) {
+      for (const currentRoute of [undefined, STANDARD16_21_RELEASE_SCHEMA_ROUTE, DIRECT14_21_RELEASE_SCHEMA_ROUTE, STANDARD19_21_RELEASE_SCHEMA_ROUTE, STANDARD16_22_RELEASE_SCHEMA_ROUTE, DIRECT14_22_RELEASE_SCHEMA_ROUTE, STANDARD19_22_RELEASE_SCHEMA_ROUTE, STANDARD16_24_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE, STANDARD19_24_RELEASE_SCHEMA_ROUTE]) {
         assert.throws(
           () => validateBundle({ bundle, expectedSha: historical.sha, validationMode: "local-dry-run", schemaRoute: currentRoute }),
           (error) => error?.code === "BUNDLE_INTEGRITY_FAILED",
@@ -1715,7 +1724,7 @@ test("historical 001-021 routes still assemble and validate only 021 bundles", (
       assert.deepEqual(manifest.migrations, [...RELEASE_MIGRATIONS_001_021]);
       assert.equal(validateBundle({ bundle, expectedSha: historical.sha, validationMode: "local-dry-run", schemaRoute: route }).status, "ok");
       // A 021 bundle never passes as a 022 or 023 candidate.
-      for (const currentRoute of [undefined, STANDARD16_22_RELEASE_SCHEMA_ROUTE, DIRECT14_22_RELEASE_SCHEMA_ROUTE, STANDARD19_22_RELEASE_SCHEMA_ROUTE, STANDARD16_23_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE, STANDARD19_23_RELEASE_SCHEMA_ROUTE]) {
+      for (const currentRoute of [undefined, STANDARD16_22_RELEASE_SCHEMA_ROUTE, DIRECT14_22_RELEASE_SCHEMA_ROUTE, STANDARD19_22_RELEASE_SCHEMA_ROUTE, STANDARD16_24_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE, STANDARD19_24_RELEASE_SCHEMA_ROUTE]) {
         assert.throws(
           () => validateBundle({ bundle, expectedSha: historical.sha, validationMode: "local-dry-run", schemaRoute: currentRoute }),
           (error) => error?.code === "BUNDLE_INTEGRITY_FAILED",
@@ -1732,8 +1741,11 @@ test("historical 001-021 routes still assemble and validate only 021 bundles", (
       [historical, DIRECT14_22_RELEASE_SCHEMA_ROUTE, "historical-as-direct22"],
       [historical, STANDARD19_22_RELEASE_SCHEMA_ROUTE, "historical-as-standard19-22"],
       [historical, STANDARD16_23_RELEASE_SCHEMA_ROUTE, "historical-as-standard23"],
-      [historical, DIRECT14_RELEASE_SCHEMA_ROUTE, "historical-as-direct23"],
+      [historical, DIRECT14_23_RELEASE_SCHEMA_ROUTE, "historical-as-direct23"],
       [historical, STANDARD19_23_RELEASE_SCHEMA_ROUTE, "historical-as-standard19-23"],
+      [historical, STANDARD16_24_RELEASE_SCHEMA_ROUTE, "historical-as-standard24"],
+      [historical, DIRECT14_RELEASE_SCHEMA_ROUTE, "historical-as-direct24"],
+      [historical, STANDARD19_24_RELEASE_SCHEMA_ROUTE, "historical-as-standard19-24"],
     ]) {
       const destination = join(parent, name);
       assert.throws(
@@ -1767,8 +1779,8 @@ test("historical 001-022 routes still assemble and validate only 022 bundles", (
       assert.deepEqual(manifest.schemaBoundary, { rollback, candidate: 22 });
       assert.deepEqual(manifest.migrations, [...RELEASE_MIGRATIONS_001_022]);
       assert.equal(validateBundle({ bundle, expectedSha: historical.sha, validationMode: "local-dry-run", schemaRoute: route }).status, "ok");
-      // A 022 bundle never passes as a 023 candidate.
-      for (const currentRoute of [undefined, STANDARD16_23_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE, STANDARD19_23_RELEASE_SCHEMA_ROUTE]) {
+      // A 022 bundle never passes as a later candidate.
+      for (const currentRoute of [undefined, STANDARD16_23_RELEASE_SCHEMA_ROUTE, DIRECT14_23_RELEASE_SCHEMA_ROUTE, STANDARD19_23_RELEASE_SCHEMA_ROUTE, STANDARD16_24_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE, STANDARD19_24_RELEASE_SCHEMA_ROUTE]) {
         assert.throws(
           () => validateBundle({ bundle, expectedSha: historical.sha, validationMode: "local-dry-run", schemaRoute: currentRoute }),
           (error) => error?.code === "BUNDLE_INTEGRITY_FAILED",
@@ -1782,8 +1794,61 @@ test("historical 001-022 routes still assemble and validate only 022 bundles", (
       [current, DIRECT14_22_RELEASE_SCHEMA_ROUTE, "current-as-direct22"],
       [current, STANDARD19_22_RELEASE_SCHEMA_ROUTE, "current-as-standard19-22"],
       [historical, STANDARD16_23_RELEASE_SCHEMA_ROUTE, "historical-as-standard23"],
-      [historical, DIRECT14_RELEASE_SCHEMA_ROUTE, "historical-as-direct23"],
+      [historical, DIRECT14_23_RELEASE_SCHEMA_ROUTE, "historical-as-direct23"],
       [historical, STANDARD19_23_RELEASE_SCHEMA_ROUTE, "historical-as-standard19-23"],
+      [historical, STANDARD16_24_RELEASE_SCHEMA_ROUTE, "historical-as-standard24"],
+      [historical, DIRECT14_RELEASE_SCHEMA_ROUTE, "historical-as-direct24"],
+      [historical, STANDARD19_24_RELEASE_SCHEMA_ROUTE, "historical-as-standard19-24"],
+    ]) {
+      const destination = join(parent, name);
+      assert.throws(
+        () => assembleReleaseBundle({ source: fixture.root, destination, expectedSha: fixture.sha, provenanceMode: LOCAL_PROVENANCE_MODE, schemaRoute }),
+        (error) => error?.code === "SCHEMA_BOUNDARY_MISMATCH",
+        name,
+      );
+      assert.equal(existsSync(destination), false, name);
+    }
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("historical 001-023 routes still assemble and validate only 023 bundles", () => {
+  const parent = mkdtempSync(join(tmpdir(), "consolidated-release-historical-023-"));
+  try {
+    mkdirSync(join(parent, "h"));
+    mkdirSync(join(parent, "c"));
+    const historical = createFixtureRepository(join(parent, "h"), RELEASE_MIGRATIONS_001_023);
+    const current = createFixtureRepository(join(parent, "c"));
+    for (const [route, rollback] of [
+      [STANDARD16_23_RELEASE_SCHEMA_ROUTE, 16],
+      [DIRECT14_23_RELEASE_SCHEMA_ROUTE, 14],
+      [STANDARD19_23_RELEASE_SCHEMA_ROUTE, 19],
+    ]) {
+      const bundle = join(parent, `historical-${route}`);
+      assembleReleaseBundle({ source: historical.root, destination: bundle, expectedSha: historical.sha, provenanceMode: LOCAL_PROVENANCE_MODE, schemaRoute: route });
+      const manifest = JSON.parse(readFileSync(join(bundle, "release-manifest.json"), "utf8"));
+      assert.equal(manifest.schemaRoute, route);
+      assert.deepEqual(manifest.schemaBoundary, { rollback, candidate: 23 });
+      assert.deepEqual(manifest.migrations, [...RELEASE_MIGRATIONS_001_023]);
+      assert.equal(validateBundle({ bundle, expectedSha: historical.sha, validationMode: "local-dry-run", schemaRoute: route }).status, "ok");
+      // A 023 bundle never passes as a 024 candidate.
+      for (const currentRoute of [undefined, STANDARD16_24_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE, STANDARD19_24_RELEASE_SCHEMA_ROUTE]) {
+        assert.throws(
+          () => validateBundle({ bundle, expectedSha: historical.sha, validationMode: "local-dry-run", schemaRoute: currentRoute }),
+          (error) => error?.code === "BUNDLE_INTEGRITY_FAILED",
+          `${route} bundle as ${currentRoute}`,
+        );
+      }
+    }
+    // Routes never cross generations at assembly time.
+    for (const [fixture, schemaRoute, name] of [
+      [current, STANDARD16_23_RELEASE_SCHEMA_ROUTE, "current-as-standard23"],
+      [current, DIRECT14_23_RELEASE_SCHEMA_ROUTE, "current-as-direct23"],
+      [current, STANDARD19_23_RELEASE_SCHEMA_ROUTE, "current-as-standard19-23"],
+      [historical, STANDARD16_24_RELEASE_SCHEMA_ROUTE, "historical-as-standard24"],
+      [historical, DIRECT14_RELEASE_SCHEMA_ROUTE, "historical-as-direct24"],
+      [historical, STANDARD19_24_RELEASE_SCHEMA_ROUTE, "historical-as-standard19-24"],
     ]) {
       const destination = join(parent, name);
       assert.throws(
@@ -2087,17 +2152,17 @@ test("bundle validation rejects Migration 020 drift and old schema boundaries", 
   }
 });
 
-test("runbook and bindings describe rollback 016 and candidate 023 consistently", () => {
+test("runbook and bindings describe rollback 016 and candidate 024 consistently", () => {
   const runbook = readFileSync(RUNBOOK_PATH, "utf8");
   for (const fragment of [
     "PRE_RELEASE_SCHEMA_BOUNDARY: 16",
     "CANDIDATE_SCHEMA_BOUNDARY: 17",
-    "migrations 001-023",
+    "migrations 001-024",
     "continuous prefix 001-016",
     "continuous migrations through 016",
-    "Startup may apply migrations 017, 018, 019, 020, 021, 022 and 023",
-    "migration prefix 001-023",
-    "Never open the old binary on a database containing migration 017, 018, 019, 020, 021, 022 or 023",
+    "Startup may apply migrations 017, 018, 019, 020, 021, 022, 023 and 024",
+    "migration prefix 001-024",
+    "Never open the old binary on a database containing migration 017, 018, 019, 020, 021, 022, 023 or 024",
     "## Explicit DIRECT14 to 20 route",
     "Never start a 001-019 binary against\na database containing migration 020",
     "## Explicit STANDARD19 to 20 route",
@@ -2129,18 +2194,25 @@ test("runbook and bindings describe rollback 016 and candidate 023 consistently"
     "`rollback: 19, candidate: 23`",
     "## Migration 023 forward-only grant delivery",
     "(`database contains unknown migration version 23`), so after 023 applies there\nis no code-only rollback",
+    "## Explicit DIRECT14 to 24 route",
+    "`rollback: 14, candidate: 24`, and list exactly migrations 001-024",
+    "## Explicit STANDARD19 to 24 route",
+    "`rollback: 19, candidate: 24`",
+    "## Migration 024 forward-only gift delivery VPS binding",
+    "(`database contains unknown migration version 24`), so after 024 applies there\nis no code-only rollback",
   ]) {
     assert.equal(runbook.includes(fragment), true, fragment);
   }
 
   const bindings = readFileSync(BINDINGS_PATH, "utf8");
   for (const fragment of [
-    "migrations 001-023 match inventory",
+    "migrations 001-024 match inventory",
     "compatible with continuous migrations 001-016",
-    "loopback health, schema 001-023",
+    "loopback health, schema 001-024",
     "MIGRATION_021_REBUILD_PROOF",
     "MIGRATION_022_FORWARD_ONLY_PROOF",
     "MIGRATION_023_FORWARD_ONLY_PROOF",
+    "MIGRATION_024_FORWARD_ONLY_PROOF",
     "STANDARD19_ROUTE_AUTHORIZATION",
     "STANDARD19_CANDIDATE_ARTIFACT_PROOF",
     "STANDARD19_OLD_RELEASE_UNIT_PROOF",
@@ -2482,7 +2554,7 @@ test("PR and task contexts cannot claim release-candidate provenance", () => {
 // A realistic source for the repository gate: this repository's committed tree
 // plus ignored build placeholders. `historical` rewrites it into a 001-019 source
 // (no migration 020, no 020 runbook section, 019 CI route), like a real 019 commit.
-function createArchiveSource(parent, name, { generation = 23 } = {}) {
+function createArchiveSource(parent, name, { generation = 24 } = {}) {
   const root = join(parent, name);
   mkdirSync(root);
   const archive = spawnSync("git", ["-C", REPOSITORY_ROOT, "archive", "--format=tar", "HEAD"], {
@@ -2500,10 +2572,10 @@ function createArchiveSource(parent, name, { generation = 23 } = {}) {
     '<!doctype html><script type="module" src="/assets/referral-12345678.js"></script>\n',
   );
   writeFixtureFile(root, "website/dist/assets/referral-12345678.js", "export {};\n");
-  if (generation < 23) {
+  if (generation < 24) {
     // Strip the source back to an exact historical generation: its migrations,
     // runner entries, later runbook sections, and later CI route flags.
-    const later = ["020_tickets.sql", "021_personal_invites.sql", "022_admin_service_management.sql", "023_admin_grant_delivery.sql"];
+    const later = ["020_tickets.sql", "021_personal_invites.sql", "022_admin_service_management.sql", "023_admin_grant_delivery.sql", "024_grant_delivery_monitor_target.sql"];
     const dropped = later.slice(generation - 19);
     const dbPath = join(root, "auth-service/src/db.ts");
     let db = readFileSync(dbPath, "utf8");
@@ -2520,16 +2592,16 @@ function createArchiveSource(parent, name, { generation = 23 } = {}) {
     assert.ok(start > 0 && end > start);
     writeFileSync(
       runbookPath,
-      (runbook.slice(0, start) + runbook.slice(end)).replaceAll("--schema-route standard16-23", `--schema-route standard16-${generation}`),
+      (runbook.slice(0, start) + runbook.slice(end)).replaceAll("--schema-route standard16-24", `--schema-route standard16-${generation}`),
     );
     const workflowPath = join(root, ".github/workflows/ci.yml");
     const standard19Route = generation === 19 ? "standard16-19" : `standard19-${generation}`;
     writeFileSync(
       workflowPath,
       readFileSync(workflowPath, "utf8")
-        .replaceAll("--schema-route direct14-23", `--schema-route direct14-${generation}`)
-        .replaceAll("--schema-route standard16-23", `--schema-route standard16-${generation}`)
-        .replaceAll("--schema-route standard19-23", `--schema-route ${standard19Route}`),
+        .replaceAll("--schema-route direct14-24", `--schema-route direct14-${generation}`)
+        .replaceAll("--schema-route standard16-24", `--schema-route standard16-${generation}`)
+        .replaceAll("--schema-route standard19-24", `--schema-route ${standard19Route}`),
     );
   }
   runGit(root, "init", "--initial-branch=main");
@@ -2569,7 +2641,7 @@ test("validator CLI validates a historical 019 bundle against its own 019 source
       // The same 019 source and bundle never pass under a later route.
       const laterRoutes = schemaRoute === DIRECT14_19_RELEASE_SCHEMA_ROUTE
         ? [DIRECT14_20_RELEASE_SCHEMA_ROUTE, DIRECT14_21_RELEASE_SCHEMA_ROUTE, DIRECT14_22_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE]
-        : [STANDARD16_20_RELEASE_SCHEMA_ROUTE, STANDARD16_21_RELEASE_SCHEMA_ROUTE, STANDARD16_22_RELEASE_SCHEMA_ROUTE, STANDARD16_23_RELEASE_SCHEMA_ROUTE];
+        : [STANDARD16_20_RELEASE_SCHEMA_ROUTE, STANDARD16_21_RELEASE_SCHEMA_ROUTE, STANDARD16_22_RELEASE_SCHEMA_ROUTE, STANDARD16_24_RELEASE_SCHEMA_ROUTE];
       for (const laterRoute of laterRoutes) {
         const asLater = cli(VALIDATOR_PATH, [
           "--source", source.root, "--expected-sha", source.sha, "--bundle", bundle,
@@ -2579,7 +2651,7 @@ test("validator CLI validates a historical 019 bundle against its own 019 source
         assert.equal(asLater.json.code, "SCHEMA_BOUNDARY_MISMATCH");
       }
     }
-    for (const standard19Route of [STANDARD19_20_RELEASE_SCHEMA_ROUTE, STANDARD19_21_RELEASE_SCHEMA_ROUTE, STANDARD19_22_RELEASE_SCHEMA_ROUTE, STANDARD19_23_RELEASE_SCHEMA_ROUTE]) {
+    for (const standard19Route of [STANDARD19_20_RELEASE_SCHEMA_ROUTE, STANDARD19_21_RELEASE_SCHEMA_ROUTE, STANDARD19_22_RELEASE_SCHEMA_ROUTE, STANDARD19_24_RELEASE_SCHEMA_ROUTE]) {
       const standard19OnHistorical = cli(ASSEMBLER_PATH, [
         "--source", source.root, "--destination", join(parent, `${standard19Route}-on-019`), "--expected-sha", source.sha,
         "--provenance-mode", LOCAL_PROVENANCE_MODE, "--schema-route", standard19Route,
@@ -2601,9 +2673,9 @@ test("validator CLI validates a historical 020 bundle against its own 020 source
   try {
     const source = createArchiveSource(parent, "source-020", { generation: 20 });
     for (const [schemaRoute, currentRoute] of [
-      [STANDARD16_20_RELEASE_SCHEMA_ROUTE, STANDARD16_23_RELEASE_SCHEMA_ROUTE],
+      [STANDARD16_20_RELEASE_SCHEMA_ROUTE, STANDARD16_24_RELEASE_SCHEMA_ROUTE],
       [DIRECT14_20_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE],
-      [STANDARD19_20_RELEASE_SCHEMA_ROUTE, STANDARD19_23_RELEASE_SCHEMA_ROUTE],
+      [STANDARD19_20_RELEASE_SCHEMA_ROUTE, STANDARD19_24_RELEASE_SCHEMA_ROUTE],
     ]) {
       const bundle = join(parent, `bundle-${schemaRoute}`);
       const assembled = cli(ASSEMBLER_PATH, [
@@ -2637,9 +2709,9 @@ test("validator CLI validates a historical 021 bundle against its own 021 source
   try {
     const source = createArchiveSource(parent, "source-021", { generation: 21 });
     for (const [schemaRoute, currentRoute] of [
-      [STANDARD16_21_RELEASE_SCHEMA_ROUTE, STANDARD16_23_RELEASE_SCHEMA_ROUTE],
+      [STANDARD16_21_RELEASE_SCHEMA_ROUTE, STANDARD16_24_RELEASE_SCHEMA_ROUTE],
       [DIRECT14_21_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE],
-      [STANDARD19_21_RELEASE_SCHEMA_ROUTE, STANDARD19_23_RELEASE_SCHEMA_ROUTE],
+      [STANDARD19_21_RELEASE_SCHEMA_ROUTE, STANDARD19_24_RELEASE_SCHEMA_ROUTE],
     ]) {
       const bundle = join(parent, `bundle-${schemaRoute}`);
       const assembled = cli(ASSEMBLER_PATH, [
@@ -2673,9 +2745,9 @@ test("validator CLI validates a historical 022 bundle against its own 022 source
   try {
     const source = createArchiveSource(parent, "source-022", { generation: 22 });
     for (const [schemaRoute, currentRoute] of [
-      [STANDARD16_22_RELEASE_SCHEMA_ROUTE, STANDARD16_23_RELEASE_SCHEMA_ROUTE],
+      [STANDARD16_22_RELEASE_SCHEMA_ROUTE, STANDARD16_24_RELEASE_SCHEMA_ROUTE],
       [DIRECT14_22_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE],
-      [STANDARD19_22_RELEASE_SCHEMA_ROUTE, STANDARD19_23_RELEASE_SCHEMA_ROUTE],
+      [STANDARD19_22_RELEASE_SCHEMA_ROUTE, STANDARD19_24_RELEASE_SCHEMA_ROUTE],
     ]) {
       const bundle = join(parent, `bundle-${schemaRoute}`);
       const assembled = cli(ASSEMBLER_PATH, [
@@ -2704,13 +2776,49 @@ test("validator CLI validates a historical 022 bundle against its own 022 source
   }
 });
 
-test("validator CLI keeps the current 001-023 source strict", () => {
+test("validator CLI validates a historical 023 bundle against its own 023 source", () => {
   const parent = mkdtempSync(join(tmpdir(), "consolidated-release-cli-023-"));
   try {
-    const source = createArchiveSource(parent, "source-023");
+    const source = createArchiveSource(parent, "source-023", { generation: 23 });
+    for (const [schemaRoute, currentRoute] of [
+      [STANDARD16_23_RELEASE_SCHEMA_ROUTE, STANDARD16_24_RELEASE_SCHEMA_ROUTE],
+      [DIRECT14_23_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE],
+      [STANDARD19_23_RELEASE_SCHEMA_ROUTE, STANDARD19_24_RELEASE_SCHEMA_ROUTE],
+    ]) {
+      const bundle = join(parent, `bundle-${schemaRoute}`);
+      const assembled = cli(ASSEMBLER_PATH, [
+        "--source", source.root, "--destination", bundle, "--expected-sha", source.sha,
+        "--provenance-mode", LOCAL_PROVENANCE_MODE, "--schema-route", schemaRoute,
+      ]);
+      assert.equal(assembled.status, 0, JSON.stringify(assembled.json));
+      const validated = cli(VALIDATOR_PATH, [
+        "--source", source.root, "--expected-sha", source.sha, "--bundle", bundle,
+        "--validation-mode", LOCAL_PROVENANCE_MODE, "--schema-route", schemaRoute,
+      ]);
+      assert.equal(validated.status, 0, `${schemaRoute}: ${JSON.stringify(validated.json)}`);
+      // The same 023 source and bundle never pass under a current route.
+      const asCurrent = cli(VALIDATOR_PATH, [
+        "--source", source.root, "--expected-sha", source.sha, "--bundle", bundle,
+        "--validation-mode", LOCAL_PROVENANCE_MODE, "--schema-route", currentRoute,
+      ]);
+      assert.equal(asCurrent.status, 1);
+      assert.equal(asCurrent.json.code, "SCHEMA_BOUNDARY_MISMATCH");
+    }
+    const repositoryOnly = cli(VALIDATOR_PATH, ["--source", source.root, "--expected-sha", source.sha]);
+    assert.equal(repositoryOnly.status, 1);
+    assert.equal(repositoryOnly.json.code, "SCHEMA_BOUNDARY_MISMATCH");
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("validator CLI keeps the current 001-024 source strict", () => {
+  const parent = mkdtempSync(join(tmpdir(), "consolidated-release-cli-024-"));
+  try {
+    const source = createArchiveSource(parent, "source-024");
     const repositoryOnly = cli(VALIDATOR_PATH, ["--source", source.root, "--expected-sha", source.sha]);
     assert.equal(repositoryOnly.status, 0, JSON.stringify(repositoryOnly.json));
-    for (const schemaRoute of [STANDARD16_23_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE, STANDARD19_23_RELEASE_SCHEMA_ROUTE]) {
+    for (const schemaRoute of [STANDARD16_24_RELEASE_SCHEMA_ROUTE, DIRECT14_RELEASE_SCHEMA_ROUTE, STANDARD19_24_RELEASE_SCHEMA_ROUTE]) {
       const bundle = join(parent, `bundle-${schemaRoute}`);
       const assembled = cli(ASSEMBLER_PATH, [
         "--source", source.root, "--destination", bundle, "--expected-sha", source.sha,
@@ -2723,8 +2831,8 @@ test("validator CLI keeps the current 001-023 source strict", () => {
       ]);
       assert.equal(validated.status, 0, `${schemaRoute}: ${JSON.stringify(validated.json)}`);
     }
-    // A 023 source cannot be validated as a historical 019-022 release.
-    const bundle = join(parent, `bundle-${STANDARD16_23_RELEASE_SCHEMA_ROUTE}`);
+    // A 024 source cannot be validated as a historical 019-023 release.
+    const bundle = join(parent, `bundle-${STANDARD16_24_RELEASE_SCHEMA_ROUTE}`);
     for (const schemaRoute of [
       STANDARD16_19_RELEASE_SCHEMA_ROUTE,
       DIRECT14_19_RELEASE_SCHEMA_ROUTE,
@@ -2737,6 +2845,9 @@ test("validator CLI keeps the current 001-023 source strict", () => {
       STANDARD16_22_RELEASE_SCHEMA_ROUTE,
       DIRECT14_22_RELEASE_SCHEMA_ROUTE,
       STANDARD19_22_RELEASE_SCHEMA_ROUTE,
+      STANDARD16_23_RELEASE_SCHEMA_ROUTE,
+      DIRECT14_23_RELEASE_SCHEMA_ROUTE,
+      STANDARD19_23_RELEASE_SCHEMA_ROUTE,
     ]) {
       const asHistorical = cli(VALIDATOR_PATH, [
         "--source", source.root, "--expected-sha", source.sha, "--bundle", bundle,
@@ -2747,7 +2858,7 @@ test("validator CLI keeps the current 001-023 source strict", () => {
     }
     const unknownRoute = cli(VALIDATOR_PATH, [
       "--source", source.root, "--expected-sha", source.sha, "--bundle", bundle,
-      "--validation-mode", LOCAL_PROVENANCE_MODE, "--schema-route", "standard16-24",
+      "--validation-mode", LOCAL_PROVENANCE_MODE, "--schema-route", "standard16-25",
     ]);
     assert.equal(unknownRoute.status, 1);
     assert.equal(unknownRoute.json.code, "ARGUMENT_ERROR");

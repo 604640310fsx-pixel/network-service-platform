@@ -183,8 +183,14 @@ export interface AdminGrantView {
   readonly valueFen: number | null;
   readonly deliveryStatus: "pending_open" | "open";
   readonly openedAt: string | null;
-  /** Public line names only; subscription URLs are never returned to the admin list. */
-  readonly deliveryLines: ReadonlyArray<{ readonly position: number; readonly label: string }>;
+  /** Public line names and VPS binding (Migration 024; null = unbound); subscription URLs are never returned to the admin list. */
+  readonly deliveryLines: ReadonlyArray<AdminDeliveryLine>;
+}
+
+export interface AdminDeliveryLine {
+  readonly position: number;
+  readonly label: string;
+  readonly monitorTargetKey: string | null;
 }
 
 function nullableInteger(row: Record<string, unknown>, name: string): number | null {
@@ -235,10 +241,7 @@ function adminServiceView(value: unknown, database?: DatabaseConnection): AdminS
   };
 }
 
-function adminGrantView(
-  value: unknown,
-  deliveryLines: ReadonlyArray<{ readonly position: number; readonly label: string }> = [],
-): AdminGrantView {
+function adminGrantView(value: unknown, deliveryLines: ReadonlyArray<AdminDeliveryLine> = []): AdminGrantView {
   const row = asRow(value, "Admin grant");
   const status = text(row, "status");
   const deliveryStatus = text(row, "delivery_status");
@@ -268,13 +271,13 @@ function adminGrantView(
   };
 }
 
-function grantDeliveryLines(database: DatabaseConnection, grantId: number): Array<{ position: number; label: string }> {
+function grantDeliveryLines(database: DatabaseConnection, grantId: number): AdminDeliveryLine[] {
   return database
-    .prepare("SELECT position, label FROM admin_grant_delivery_items WHERE grant_id = ? ORDER BY position ASC")
+    .prepare("SELECT position, label, monitor_target FROM admin_grant_delivery_items WHERE grant_id = ? ORDER BY position ASC")
     .all(grantId)
     .map((value) => {
       const row = asRow(value, "Grant delivery");
-      return { position: integer(row, "position"), label: text(row, "label") };
+      return { position: integer(row, "position"), label: text(row, "label"), monitorTargetKey: nullableText(row, "monitor_target") };
     });
 }
 
@@ -511,7 +514,8 @@ export function openGrantForAdmin(
   database: DatabaseConnection,
   input: {
     readonly grantId: number;
-    readonly items: readonly EncryptedGrantDeliveryItem[];
+    /** monitorTarget is validated against the live catalog by the route; null = not bound. */
+    readonly items: ReadonlyArray<EncryptedGrantDeliveryItem & { readonly monitorTarget: string | null }>;
     readonly adminEmail: string;
     readonly now?: () => Date;
   },
@@ -534,11 +538,11 @@ export function openGrantForAdmin(
     if (updated.changes !== 1) throw new PaymentDomainError(409, "invalid_transition");
     const insert = database.prepare(
       `INSERT INTO admin_grant_delivery_items (
-         grant_id, position, label, key_version, nonce, ciphertext, tag, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         grant_id, position, label, key_version, nonce, ciphertext, tag, monitor_target, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const item of input.items) {
-      insert.run(input.grantId, item.position, item.label, item.keyVersion, item.nonce, item.ciphertext, item.tag, at, at);
+      insert.run(input.grantId, item.position, item.label, item.keyVersion, item.nonce, item.ciphertext, item.tag, item.monitorTarget, at, at);
     }
     audit(database, input.adminEmail, "admin.grant.open", `grant:${input.grantId}`, at);
     const grant = readAdminGrant(database, input.grantId);
@@ -668,31 +672,73 @@ export function auditGrantDeliveryDecryptFailure(database: DatabaseConnection, g
   audit(database, "system", "grant.delivery_decrypt_failed", `grant:${grantId}`, nowIso(now));
 }
 
-/** Bind (or rebind) one delivered line to a monitor target after opening. The route checks the
-    target against the live catalog; this only enforces ownership of the line and the open state. */
+/** bind = unbound -> target, rebind = target -> other target, unbind = target -> none. */
+export type DeliveryBindingChange = "bind" | "rebind" | "unbind";
+
+export function deliveryBindingChange(current: string | null, next: string | null): DeliveryBindingChange | null {
+  if (current === next) return null;
+  if (next === null) return "unbind";
+  return current === null ? "bind" : "rebind";
+}
+
+/** Bind, rebind or unbind one delivered service line. The route checks a new target against the
+    live catalog; this only enforces ownership of the line and the open state. Each actual change
+    is audited as admin.service.delivery_<bind|rebind|unbind>; an unchanged value is a no-op. */
 export function bindServiceDeliveryForAdmin(
   database: DatabaseConnection,
   input: {
     readonly serviceId: number;
     readonly position: number;
-    readonly monitorTargetKey: string;
+    readonly monitorTargetKey: string | null;
     readonly adminEmail: string;
     readonly now?: () => Date;
   },
 ): AdminServiceView {
   const operation = database.transaction(() => {
     const service = readAdminService(database, input.serviceId);
-    if (service === null || !service.deliveryLines.some((line) => line.position === input.position)) {
-      throw new PaymentDomainError(404, "not_found");
-    }
+    const line = service?.deliveryLines.find((candidate) => candidate.position === input.position);
+    if (service === null || line === undefined) throw new PaymentDomainError(404, "not_found");
     if (service.serviceStatus !== "open") throw new PaymentDomainError(409, "invalid_transition");
+    const change = deliveryBindingChange(line.monitorTargetKey, input.monitorTargetKey);
+    if (change === null) return service;
     const at = nowIso(input.now);
     database
       .prepare("UPDATE service_delivery_items SET monitor_target_key = ?, updated_at = ? WHERE service_id = ? AND position = ?")
       .run(input.monitorTargetKey, at, input.serviceId, input.position);
-    audit(database, input.adminEmail, "admin.service.delivery_bind", `service:${input.serviceId}#${input.position}`, at);
+    audit(database, input.adminEmail, `admin.service.delivery_${change}`, `service:${input.serviceId}#${input.position}`, at);
     const updated = readAdminService(database, input.serviceId);
     if (updated === null) throw new Error("Admin service database invariant failed");
+    return updated;
+  });
+  return operation.immediate();
+}
+
+/** Same as bindServiceDeliveryForAdmin for an active, opened gift (Migration 024). */
+export function bindGrantDeliveryForAdmin(
+  database: DatabaseConnection,
+  input: {
+    readonly grantId: number;
+    readonly position: number;
+    readonly monitorTargetKey: string | null;
+    readonly adminEmail: string;
+    readonly now?: () => Date;
+  },
+): AdminGrantView {
+  const operation = database.transaction(() => {
+    const grant = readAdminGrant(database, input.grantId);
+    const line = grant?.deliveryLines.find((candidate) => candidate.position === input.position);
+    if (grant === null || line === undefined) throw new PaymentDomainError(404, "not_found");
+    if (grant.status === "revoked") throw new PaymentDomainError(409, "grant_revoked");
+    if (grant.deliveryStatus !== "open") throw new PaymentDomainError(409, "invalid_transition");
+    const change = deliveryBindingChange(line.monitorTargetKey, input.monitorTargetKey);
+    if (change === null) return grant;
+    const at = nowIso(input.now);
+    database
+      .prepare("UPDATE admin_grant_delivery_items SET monitor_target = ?, updated_at = ? WHERE grant_id = ? AND position = ?")
+      .run(input.monitorTargetKey, at, input.grantId, input.position);
+    audit(database, input.adminEmail, `admin.grant.delivery_${change}`, `grant:${input.grantId}#${input.position}`, at);
+    const updated = readAdminGrant(database, input.grantId);
+    if (updated === null) throw new Error("Admin grant database invariant failed");
     return updated;
   });
   return operation.immediate();

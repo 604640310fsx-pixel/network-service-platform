@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 
 import { authorizeAdminSession, verifyAdminCsrf } from "./admin-routes.js";
-import type { PaymentHttpDependencies } from "./payment-routes.js";
+import type { PaymentEnabledDependencies, PaymentHttpDependencies } from "./payment-routes.js";
 import { PaymentDomainError } from "../payment/commerce.js";
 import {
   DELIVERY_MAX_ITEMS,
@@ -11,6 +11,7 @@ import {
 } from "../payment/delivery-crypto.js";
 import { normalizeMonitorTargetKey } from "../monitor/target-catalog.js";
 import {
+  bindGrantDeliveryForAdmin,
   bindServiceDeliveryForAdmin,
   createGrantForAdmin,
   listUserServicesForAdmin,
@@ -185,20 +186,46 @@ export function parseGrantPatch(body: unknown): GrantPatch | null {
   return patch;
 }
 
-export function parseGrantOpenItems(body: unknown): readonly GrantDeliveryInput[] | null {
+export interface GrantOpenItem {
+  readonly item: GrantDeliveryInput;
+  /** Optional VPS binding (Migration 024): absent, null or "" = not bound. */
+  readonly monitorTargetKey: string | null;
+}
+
+export function parseGrantOpenItems(body: unknown): readonly GrantOpenItem[] | null {
   const value = plainObject(body);
   if (value === null || !onlyKeys(value, new Set(["items"]))) return null;
   const raw = value.items;
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > DELIVERY_MAX_ITEMS) return null;
-  const items: GrantDeliveryInput[] = [];
+  const items: GrantOpenItem[] = [];
   for (const entry of raw) {
     const entryObject = plainObject(entry);
-    if (entryObject === null || !Object.keys(entryObject).every((key) => key === "label" || key === "subscriptionUrl")) return null;
-    const item = normalizeGrantDeliveryInput(entryObject);
+    if (
+      entryObject === null ||
+      !Object.keys(entryObject).every((key) => key === "label" || key === "subscriptionUrl" || key === "monitorTargetKey")
+    ) {
+      return null;
+    }
+    const { monitorTargetKey: rawKey, ...delivery } = entryObject;
+    const item = normalizeGrantDeliveryInput(delivery);
     if (item === null) return null;
-    items.push(item);
+    let monitorTargetKey: string | null = null;
+    if (rawKey !== undefined && rawKey !== null && rawKey !== "") {
+      monitorTargetKey = normalizeMonitorTargetKey(rawKey);
+      if (monitorTargetKey === null) return null;
+    }
+    items.push({ item, monitorTargetKey });
   }
   return items;
+}
+
+/** Body of a delivery-line binding change: exactly {monitorTargetKey}, a key or null (= unbind). */
+export function parseDeliveryBinding(body: unknown): { readonly monitorTargetKey: string | null } | null {
+  const value = plainObject(body);
+  if (value === null || !onlyKeys(value, new Set(["monitorTargetKey"]))) return null;
+  if (value.monitorTargetKey === null) return { monitorTargetKey: null };
+  const key = normalizeMonitorTargetKey(value.monitorTargetKey);
+  return key === null ? null : { monitorTargetKey: key };
 }
 
 export function registerAdminServiceHttpRoutes(
@@ -210,6 +237,26 @@ export function registerAdminServiceHttpRoutes(
       return reply.code(error.statusCode).send(errorResponse(error.code));
     }
     return reply.code(503).send(errorResponse("payment_unavailable"));
+  }
+
+  /* Every non-null target must be active in the live catalog (same rule as service opening):
+     catalog missing or failing -> 503 monitor_unavailable, unknown/inactive -> 400. */
+  async function targetsRejected(
+    catalog: PaymentEnabledDependencies["monitorTargetCatalog"],
+    keys: ReadonlyArray<string | null>,
+  ): Promise<{ status: number; code: string } | null> {
+    const wanted = keys.filter((key): key is string => key !== null);
+    if (wanted.length === 0) return null;
+    if (catalog === null) return { status: 503, code: "monitor_unavailable" };
+    let active: Set<string>;
+    try {
+      active = new Set(
+        (await catalog.list()).filter((target) => target.state === "active").map((target) => target.key),
+      );
+    } catch {
+      return { status: 503, code: "monitor_unavailable" };
+    }
+    return wanted.every((key) => active.has(key)) ? null : { status: 400, code: "invalid_monitor_target" };
   }
 
   app.get<{ Querystring: { q?: string } }>("/api/admin/users", async (request, reply) => {
@@ -328,10 +375,13 @@ export function registerAdminServiceHttpRoutes(
     if (grantId === null) return reply.code(404).send(errorResponse("not_found"));
     const items = parseGrantOpenItems(request.body);
     if (items === null) return reply.code(400).send(errorResponse("invalid_item"));
+    const rejected = await targetsRejected(dependencies.monitorTargetCatalog, items.map((entry) => entry.monitorTargetKey));
+    if (rejected !== null) return reply.code(rejected.status).send(errorResponse(rejected.code));
     try {
-      const encrypted = items.map((item, index) =>
-        encryptGrantDeliveryItem({ grantId, position: index + 1, item }, dependencies.deliveryEncKeyring),
-      );
+      const encrypted = items.map((entry, index) => ({
+        ...encryptGrantDeliveryItem({ grantId, position: index + 1, item: entry.item }, dependencies.deliveryEncKeyring),
+        monitorTarget: entry.monitorTargetKey,
+      }));
       return reply.code(200).send(
         openGrantForAdmin(dependencies.database, { grantId, items: encrypted, adminEmail: auth.admin.email, now: dependencies.now }),
       );
@@ -340,7 +390,8 @@ export function registerAdminServiceHttpRoutes(
     }
   });
 
-  /* 事后补绑：监控目录必须可用且目标在用（与开通同一判定），否则 503 / 400。 */
+  /* 交付线路绑定 / 换绑 / 解绑（服务与赠送两种）：新目标必须在监控目录中在用（与开通同一判定，
+     目录不可用 503、非在用 400）；解绑（null）不需要监控目录。 */
   app.patch<{ Params: { id: string; position: string }; Body: unknown }>(
     "/api/admin/services/:id/delivery/:position",
     async (request, reply) => {
@@ -354,27 +405,49 @@ export function registerAdminServiceHttpRoutes(
       const serviceId = positiveId(request.params.id);
       const position = positiveId(request.params.position);
       if (serviceId === null || position === null) return reply.code(404).send(errorResponse("not_found"));
-      const body = plainObject(request.body);
-      const monitorTargetKey = body !== null && onlyKeys(body, new Set(["monitorTargetKey"]))
-        ? normalizeMonitorTargetKey(body.monitorTargetKey)
-        : null;
-      if (monitorTargetKey === null) return reply.code(400).send(errorResponse("invalid_monitor_target"));
-      if (dependencies.monitorTargetCatalog === null) return reply.code(503).send(errorResponse("monitor_unavailable"));
-      let active: boolean;
-      try {
-        active = (await dependencies.monitorTargetCatalog.list()).some(
-          (target) => target.key === monitorTargetKey && target.state === "active",
-        );
-      } catch {
-        return reply.code(503).send(errorResponse("monitor_unavailable"));
-      }
-      if (!active) return reply.code(400).send(errorResponse("invalid_monitor_target"));
+      const binding = parseDeliveryBinding(request.body);
+      if (binding === null) return reply.code(400).send(errorResponse("invalid_monitor_target"));
+      const rejected = await targetsRejected(dependencies.monitorTargetCatalog, [binding.monitorTargetKey]);
+      if (rejected !== null) return reply.code(rejected.status).send(errorResponse(rejected.code));
       try {
         return reply.code(200).send(
           bindServiceDeliveryForAdmin(dependencies.database, {
             serviceId,
             position,
-            monitorTargetKey,
+            monitorTargetKey: binding.monitorTargetKey,
+            adminEmail: auth.admin.email,
+            now: dependencies.now,
+          }),
+        );
+      } catch (error) {
+        return sendDomainError(reply, error);
+      }
+    },
+  );
+
+  app.patch<{ Params: { id: string; position: string }; Body: unknown }>(
+    "/api/admin/grants/:id/delivery/:position",
+    async (request, reply) => {
+      setNoStore(reply);
+      if (!dependencies.enabled) return reply.code(503).send(errorResponse("payment_unavailable"));
+      const auth = authorizeAdminSession(request, dependencies);
+      if (!auth.ok) return reply.code(auth.statusCode).send(errorResponse(auth.code));
+      if (!verifyAdminCsrf(request, dependencies, auth.admin.sessionTokenHash)) {
+        return reply.code(403).send(errorResponse("csrf_invalid"));
+      }
+      const grantId = positiveId(request.params.id);
+      const position = positiveId(request.params.position);
+      if (grantId === null || position === null) return reply.code(404).send(errorResponse("not_found"));
+      const binding = parseDeliveryBinding(request.body);
+      if (binding === null) return reply.code(400).send(errorResponse("invalid_monitor_target"));
+      const rejected = await targetsRejected(dependencies.monitorTargetCatalog, [binding.monitorTargetKey]);
+      if (rejected !== null) return reply.code(rejected.status).send(errorResponse(rejected.code));
+      try {
+        return reply.code(200).send(
+          bindGrantDeliveryForAdmin(dependencies.database, {
+            grantId,
+            position,
+            monitorTargetKey: binding.monitorTargetKey,
             adminEmail: auth.admin.email,
             now: dependencies.now,
           }),

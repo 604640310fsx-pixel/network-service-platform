@@ -34,7 +34,7 @@ previous release record or dashboard observation is not current proof.
 | Binding name | Required proof |
 | --- | --- |
 | `CANDIDATE_BUNDLE_MANIFEST_SHA256` | Two independent assemblies have identical manifests; the retained manifest hash and inventory validate. |
-| `CANDIDATE_AUTH_BUNDLE_SHA256` | Compiled auth entrypoint, runtime files, package manifests, and migrations 001-023 match inventory (001-022 only for a historical `standard16-22`/`direct14-22`/`standard19-22` bundle; 001-021 only for a historical `standard16-21`/`direct14-21`/`standard19-21` bundle; 001-020 only for a historical `standard16-20`/`direct14-20`/`standard19-20` bundle; 001-019 only for a historical `standard16-19`/`direct14-19` bundle). |
+| `CANDIDATE_AUTH_BUNDLE_SHA256` | Compiled auth entrypoint, runtime files, package manifests, and migrations 001-024 match inventory (001-023 only for a historical `standard16-23`/`direct14-23`/`standard19-23` bundle; 001-022 only for a historical `standard16-22`/`direct14-22`/`standard19-22` bundle; 001-021 only for a historical `standard16-21`/`direct14-21`/`standard19-21` bundle; 001-020 only for a historical `standard16-20`/`direct14-20`/`standard19-20` bundle; 001-019 only for a historical `standard16-19`/`direct14-19` bundle). |
 | `CANDIDATE_WEBSITE_BUNDLE_SHA256` | Website `dist` and entrypoint match the same candidate inventory. |
 | `AUTH_RUNTIME_DEPENDENCY_PROOF` | Prebuilt dependency layer matches the candidate lockfile, Node version, OS/architecture/libc, and native-module ABI; it is ready before the window and is not stored in the bundle. |
 | `ROLLBACK_AUTH_BUNDLE_SHA256` | Old auth artifact hash matches the old source SHA and accepts the rollback schema boundary. |
@@ -59,11 +59,12 @@ previous release record or dashboard observation is not current proof.
 | `MIGRATION_021_REBUILD_PROOF` | For a candidate that applies migration 021: the startup record shows the dedicated path ran on the exclusive startup connection before listening, preserved `users` and `pending_registrations` row counts, an empty `foreign_key_check`, `integrity_check` ok, schema_migrations advanced to 21 in the same commit, and `foreign_keys` back ON before readiness. |
 | `MIGRATION_022_FORWARD_ONLY_PROOF` | For a candidate that applies migration 022: schema_migrations advances to 22 on the normal transactional path, existing `services` rows keep every prior value with `ends_at`, `plan_override` and `admin_note` NULL, `admin_grants` exists empty with `idx_admin_grants_user`, and the owner records that no Auth binary ending at 021 may start on the database afterwards; rollback is only the pre-candidate snapshot under restore eligibility, otherwise a forward fix. |
 | `MIGRATION_023_FORWARD_ONLY_PROOF` | For a candidate that applies migration 023: schema_migrations advances to 23 on the normal transactional path, existing `admin_grants` rows keep every prior value with the new catalog/months/value/opened_at columns NULL and `delivery_status` `pending_open`, `admin_grant_delivery_items` exists empty, and the owner records that no Auth binary ending at 022 may start on the database afterwards; rollback is only the pre-candidate snapshot under restore eligibility, otherwise a forward fix. |
+| `MIGRATION_024_FORWARD_ONLY_PROOF` | For a candidate that applies migration 024: schema_migrations advances to 24 on the normal transactional path, every existing `admin_grant_delivery_items` row keeps all prior values with the new `monitor_target` column NULL, and the owner records that no Auth binary ending at 023 may start on the database afterwards; rollback is only the pre-candidate snapshot under restore eligibility, otherwise a forward fix. |
 
-### Additional bindings for the explicit DIRECT14 routes (19, 20, 21 and 22 historical, 23 current)
+### Additional bindings for the explicit DIRECT14 routes (19, 20, 21, 22 and 23 historical, 24 current)
 
 These proofs are required only when a separately authorized execution packet
-selects `direct14-19` (historical 001-019 bundles), `direct14-20` (historical 001-020 bundles), `direct14-21` (historical 001-021 bundles), `direct14-22` (historical 001-022 bundles) or `direct14-23` (current 001-023 source). They do not replace or weaken the default 001-016
+selects `direct14-19` (historical 001-019 bundles), `direct14-20` (historical 001-020 bundles), `direct14-21` (historical 001-021 bundles), `direct14-22` (historical 001-022 bundles), `direct14-23` (historical 001-023 bundles) or `direct14-24` (current 001-024 source). They do not replace or weaken the default 001-016
 route's proofs above. For this route, the captured old-unit identity and
 integrity proof below replaces only the historical-source-SHA requirement in
 the generic rollback artifact rows; artifact hashes, matched Auth/website
@@ -78,21 +79,22 @@ identity, schema compatibility, and restore proof remain mandatory.
 | `DIRECT14_SQLITE_SNAPSHOT_PROOF` | After closed ingress and zero writers, a new owner-only snapshot independently verifies mode, bytes, SHA-256, quick check, foreign keys, and continuous boundary 001-014; restore procedure and old release compatibility are proven. |
 | `DIRECT14_RESTORE_ELIGIBILITY_PROOF` | Closed-ingress continuity, zero writers, no post-snapshot business or background write, valid snapshot, and restore deadline are all proven before restoring old Auth, website, runtime bindings, and database together. Otherwise only a separately approved forward fix is eligible. |
 
-### Additional bindings for the explicit STANDARD19 routes (20, 21 and 22 historical, 23 current)
+### Additional bindings for the explicit STANDARD19 routes (20, 21, 22 and 23 historical, 24 current)
 
 Required only when a separately authorized execution packet selects
 `standard19-20` (manifest `rollback: 19, candidate: 20`, exact migrations
 001-020; historical bundles only), `standard19-21` (`rollback: 19,
 candidate: 21`, exact migrations 001-021; historical bundles only) or
 `standard19-22` (`rollback: 19, candidate: 22`, exact migrations 001-022;
-historical bundles only) or `standard19-23` (`rollback: 19, candidate: 23`,
-exact migrations 001-023). They do not replace or weaken any other route's proofs. None of these
+historical bundles only), `standard19-23` (`rollback: 19, candidate: 23`,
+exact migrations 001-023; historical bundles only) or `standard19-24`
+(`rollback: 19, candidate: 24`, exact migrations 001-024). They do not replace or weaken any other route's proofs. None of these
 facts is proven by the repository; each needs fresh site evidence.
 
 | Binding name | Required proof |
 | --- | --- |
-| `STANDARD19_ROUTE_AUTHORIZATION` | Approved execution packet explicitly selects `standard19-20`, `standard19-21`, `standard19-22` or `standard19-23`, its operator, window, rollback owner, restore deadline, and evidence destination. |
-| `STANDARD19_CANDIDATE_ARTIFACT_PROOF` | Exact successful integration-push SHA, live workflow run, retained artifact ID/name `consolidated-release-standard19-<RELEASE_CANDIDATE_SHA>`, GitHub digest, archive bytes, and manifest `schemaRoute` plus the selected route's boundary (19→20 for `standard19-20`, 19→21 for `standard19-21`, 19→22 for `standard19-22`, 19→23 for `standard19-23`) all agree. |
+| `STANDARD19_ROUTE_AUTHORIZATION` | Approved execution packet explicitly selects `standard19-20`, `standard19-21`, `standard19-22`, `standard19-23` or `standard19-24`, its operator, window, rollback owner, restore deadline, and evidence destination. |
+| `STANDARD19_CANDIDATE_ARTIFACT_PROOF` | Exact successful integration-push SHA, live workflow run, retained artifact ID/name `consolidated-release-standard19-<RELEASE_CANDIDATE_SHA>`, GitHub digest, archive bytes, and manifest `schemaRoute` plus the selected route's boundary (19→20 for `standard19-20`, 19→21 for `standard19-21`, 19→22 for `standard19-22`, 19→23 for `standard19-23`, 19→24 for `standard19-24`) all agree. |
 | `STANDARD19_OLD_RELEASE_UNIT_PROOF` | The matching old 019 Auth and old website artifacts currently serving the site are identified from their running paths with identity and integrity hashes; each root is recorded separately because they may differ. |
 | `STANDARD19_SCHEMA_PROOF` | Read-only evidence that the live database is exactly the continuous 001-019 prefix, so the candidate applies only the migrations after 019. |
 | `STANDARD19_SQLITE_SNAPSHOT_PROOF` | With every ingress closed, the old Auth PID absent, and writers zero, an owner-only 001-019 snapshot verifies hash, size, integrity, foreign keys, and continuous migrations 001-019, and an isolated restore test proves the matched old 019 Auth starts on it, all before any quiescent 020 start. |
@@ -103,9 +105,9 @@ facts is proven by the repository; each needs fresh site evidence.
 | Binding name | Required proof |
 | --- | --- |
 | `QUIESCENT_FEATURE_FLAG_PROOF` | Candidate starts with payment, mail dispatch, and registration disabled and monitor origin absent; values are checked without printing them. |
-| `QUIESCENT_HEALTH_PROOF` | Exact candidate, loopback health, schema 001-023, database integrity, static website, manifest, and closed ingress pass without business requests; loopback health is the exact `GET /health` liveness response `200 {"status":"ok"}` and is not traffic readiness. |
+| `QUIESCENT_HEALTH_PROOF` | Exact candidate, loopback health, schema 001-024, database integrity, static website, manifest, and closed ingress pass without business requests; loopback health is the exact `GET /health` liveness response `200 {"status":"ok"}` and is not traffic readiness. |
 | `NORMAL_FEATURE_FLAG_PROOF` | Included/excluded registration, payment, mail, public monitor, and monitor-linked fulfillment capabilities have separate acceptance. |
-| `NORMAL_WORKER_READINESS_PROOF` | Loopback `GET /ready` is the normal aggregate readiness proof: exact `200 {"status":"ready"}` with `Cache-Control: no-store` proves the serving lifecycle phase, the schema 001-023 database probe, and every enabled local payment-expiry or mail-dispatch handle. It performs no provider reachability probe. |
+| `NORMAL_WORKER_READINESS_PROOF` | Loopback `GET /ready` is the normal aggregate readiness proof: exact `200 {"status":"ready"}` with `Cache-Control: no-store` proves the serving lifecycle phase, the schema 001-024 database probe, and every enabled local payment-expiry or mail-dispatch handle. It performs no provider reachability probe. |
 | `HEALTH_OBSERVATION_PROOF` | Exact loopback `GET /health` URL/body, candidate PID, observation interval, and failure threshold are frozen as liveness evidence. |
 | `CREDENTIAL_INJECTION_PROOF` | Credential source, ownership, readability, rotation owner, and non-logging behavior are validated without recording values. |
 

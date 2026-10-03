@@ -68,7 +68,7 @@ export function listMyNodeLines(database: DatabaseConnection, userId: number): N
     });
   const grants = database
     .prepare(
-      `SELECT items.grant_id, items.position, items.label
+      `SELECT items.grant_id, items.position, items.label, items.monitor_target
        FROM admin_grant_delivery_items AS items
        JOIN admin_grants AS grants ON grants.id = items.grant_id
        WHERE grants.user_id = ? AND grants.status = 'active' AND grants.delivery_status = 'open'
@@ -77,7 +77,14 @@ export function listMyNodeLines(database: DatabaseConnection, userId: number): N
     .all(userId)
     .map((value): NodeLine => {
       const row = record(value);
-      return { kind: "grant", ref: integer(row, "grant_id"), position: integer(row, "position"), label: text(row, "label"), targetKey: null };
+      const key = row.monitor_target;
+      return {
+        kind: "grant",
+        ref: integer(row, "grant_id"),
+        position: integer(row, "position"),
+        label: text(row, "label"),
+        targetKey: typeof key === "string" && key !== "" ? key : null,
+      };
     });
   return [...services, ...grants];
 }
