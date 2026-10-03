@@ -5,7 +5,7 @@ import type { DatabaseConnection } from "../../src/db.js";
 import { WALLET_CANDIDATE_TEST_SCHEMA } from "../../src/wallet/schema.js";
 import {
   assertOrderOpenForAction, cancelPendingOrder, changeNextBillingPeriod, createTopupIntent, creditVerifiedTopup,
-  recordWalletReversalFixture, recordVerifiedOrderPayment, renewalDryRun, requestPaidServiceTermination,
+  produceRenewalQuote, recordWalletReversalFixture, recordVerifiedOrderPayment, renewalDryRun, requestPaidServiceTermination,
   runRenewalFixture, setRenewalConsent, walletBalance, type AuthoritativeQuote, type ManagedOrder, type ServiceEligibility,
 } from "../../src/wallet/candidate.js";
 
@@ -16,9 +16,12 @@ function fixture(fn: (db: DatabaseConnection) => void): void {
   const db = new Sqlite(":memory:");
   try {
     db.exec(WALLET_CANDIDATE_TEST_SCHEMA);
-    db.prepare("INSERT INTO orders(id,user_id,status) VALUES (1,7,'paid')").run();
+    db.prepare(`INSERT INTO orders(id,user_id,status,type_id,region_id,isp_id,spec_id,duration_id,catalog_version)
+      VALUES (1,7,'paid','local-isp','us','us-verizon',NULL,'month-1','CATV1')`).run();
     db.prepare("INSERT INTO payments(id,order_id,status) VALUES (1,1,'paid')").run();
     db.prepare("INSERT INTO services(id,payment_id,ends_at) VALUES (11,1,?)").run("2026-11-01T00:00:00.000Z");
+    db.prepare(`INSERT INTO sellable_plans(id,type_id,region_id,isp_id,spec_id,duration_id,price_fen,is_active,created_at,updated_at)
+      VALUES (1,'local-isp','us','us-verizon',NULL,'month-1',900,1,?,?)`).run(AT, AT);
     fn(db);
   } finally { db.close(); }
 }
@@ -29,8 +32,9 @@ function state(db: DatabaseConnection, serviceId: number): string {
   return (db.prepare("SELECT state FROM wallet_consents WHERE service_id=?").all(serviceId)[0] as { state: string }).state;
 }
 const service: ServiceEligibility = { serviceId: 11, ownerId: 7, purchased: true, endsAt: "2026-11-01T00:00:00.000Z" };
-const quote: AuthoritativeQuote = { key: "server-snapshot-1", serviceId: 11, ownerId: 7,
-  priceFen: 900, durationId: "authoritative-month", period: "MONTHLY",
+const quote: AuthoritativeQuote = { key: "renewal-quote:CATV1:local-isp:us:us-verizon::month-1:900:2026-11-01T00:00:00.000Z",
+  serviceId: 11, ownerId: 7,
+  priceFen: 900, durationId: "month-1", period: "MONTHLY",
   previousEndsAt: service.endsAt!, newEndsAt: "2026-12-01T00:00:00.000Z" };
 function topup(db: DatabaseConnection, orderRef = "t-1", amountFen = 1000): void {
   db.prepare("INSERT INTO wallet_topups(user_id,order_ref,amount_fen,currency) VALUES (7,?,?,'CNY')").run(orderRef, amountFen);
@@ -196,4 +200,55 @@ test("refund case separates actual stop from policy; wallet reversal is bounded 
   assert.throws(() => recordWalletReversalFixture(db, "TEST_ONLY", admin, 1, "r-2", 500, 900, AT), /REFUND_EXCEEDS_PAID/);
   assert.equal(walletBalance(db, 7), 600);
   assert.equal(count(db, "wallet_refund_reversals"), 1);
+}));
+
+test("renewal quote is server-derived from the paid order tuple and live plan; every gap fails closed", () => fixture((db) => {
+  const produced = produceRenewalQuote(db, 11, "MONTHLY");
+  assert.equal(produced.serviceId, 11);
+  assert.equal(produced.ownerId, 7);
+  assert.equal(produced.priceFen, 900);
+  assert.equal(produced.durationId, "month-1");
+  assert.equal(produced.period, "MONTHLY");
+  assert.equal(produced.previousEndsAt, "2026-11-01T00:00:00.000Z");
+  assert.equal(produced.newEndsAt, "2026-12-01T00:00:00.000Z");
+  assert.ok(produced.key.includes("CATV1") && produced.key.includes("month-1:900:2026-11-01T00:00:00.000Z"));
+  // Derived quote is exactly what consent/dry-run accept.
+  assert.equal(renewalDryRun(db, service, produced), "DISABLED");
+  // Missing catalog duration for the tuple.
+  assert.throws(() => produceRenewalQuote(db, 11, "SEMIANNUAL"), /QUOTE_UNAVAILABLE/);
+  // Inactive plan row.
+  db.prepare("UPDATE sellable_plans SET is_active=0 WHERE id=1").run();
+  assert.throws(() => produceRenewalQuote(db, 11, "MONTHLY"), /QUOTE_UNAVAILABLE/);
+  db.prepare("UPDATE sellable_plans SET is_active=1 WHERE id=1").run();
+  // Ambiguous SKU (duplicate 5-tuple row) fails closed, not a guess.
+  db.prepare(`INSERT INTO sellable_plans(id,type_id,region_id,isp_id,spec_id,duration_id,price_fen,is_active,created_at,updated_at)
+    VALUES (2,'local-isp','us','us-verizon',NULL,'month-1',901,1,?,?)`).run(AT, AT);
+  assert.throws(() => produceRenewalQuote(db, 11, "MONTHLY"), /QUOTE_UNAVAILABLE/);
+  db.prepare("DELETE FROM sellable_plans WHERE id=2").run();
+  // No paid source (gift-style service) has no order join.
+  db.prepare("INSERT INTO services(id,payment_id,ends_at) VALUES (12,99,?)").run("2026-12-01T00:00:00.000Z");
+  assert.throws(() => produceRenewalQuote(db, 12, "MONTHLY"), /QUOTE_UNAVAILABLE/);
+  // Null / malformed expiry.
+  db.prepare("UPDATE services SET ends_at=NULL WHERE id=11").run();
+  assert.throws(() => produceRenewalQuote(db, 11, "MONTHLY"), /QUOTE_UNAVAILABLE/);
+  db.prepare("UPDATE services SET ends_at='not-a-date' WHERE id=11").run();
+  assert.throws(() => produceRenewalQuote(db, 11, "MONTHLY"), /QUOTE_UNAVAILABLE/);
+}));
+
+test("reprice after consent fails closed inside the deduction transaction: no debit, reconsent marked", () => fixture((db) => {
+  topup(db); credit(db); consent(db);
+  db.prepare("UPDATE sellable_plans SET price_fen=950 WHERE id=1").run();
+  assert.equal(runRenewalFixture(db, "TEST_ONLY", service, quote, 1, AT), "RECONSENT_REQUIRED");
+  assert.equal(state(db, 11), "RECONSENT_REQUIRED");
+  assert.equal(walletBalance(db, 7), 1000);
+  assert.equal(count(db, "wallet_renewal_cycles"), 0);
+  assert.equal(count(db, "wallet_service_extensions"), 0);
+}));
+
+test("deactivated plan after consent fails closed inside the deduction transaction", () => fixture((db) => {
+  topup(db); credit(db); consent(db);
+  db.prepare("UPDATE sellable_plans SET is_active=0 WHERE id=1").run();
+  assert.throws(() => runRenewalFixture(db, "TEST_ONLY", service, quote, 1, AT), /QUOTE_UNAVAILABLE/);
+  assert.equal(walletBalance(db, 7), 1000);
+  assert.equal(count(db, "wallet_renewal_cycles"), 0);
 }));

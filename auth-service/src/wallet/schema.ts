@@ -1,7 +1,13 @@
 /** Isolated candidate schema. Only tests may apply this DDL; migration 025 is owned elsewhere. */
 export const WALLET_CANDIDATE_TEST_SCHEMA = `
 CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER,
-  status TEXT NOT NULL CHECK(status IN ('pending','paid','closed')));
+  status TEXT NOT NULL CHECK(status IN ('pending','paid','closed')),
+  type_id TEXT, region_id TEXT, isp_id TEXT, spec_id TEXT, duration_id TEXT, catalog_version TEXT);
+CREATE TABLE sellable_plans (id INTEGER PRIMARY KEY,
+  type_id TEXT NOT NULL, region_id TEXT NOT NULL, isp_id TEXT NOT NULL,
+  spec_id TEXT, duration_id TEXT NOT NULL, price_fen INTEGER NOT NULL CHECK(price_fen > 0),
+  is_active INTEGER NOT NULL DEFAULT 1, total_slots INTEGER, occupied_slots INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE payments (id INTEGER PRIMARY KEY, order_id INTEGER NOT NULL UNIQUE,
   status TEXT NOT NULL CHECK(status IN ('pending','paid','closed')),
   amount_fen INTEGER NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT 'CNY', trade_no TEXT);

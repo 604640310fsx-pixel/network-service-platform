@@ -1,4 +1,6 @@
 import type { DatabaseConnection } from "../db.js";
+import { findSellablePlan } from "../payment/commerce.js";
+import { addUtcMonths, parseEndsAt } from "../payment/admin-services.js";
 
 /** Internal candidate only: callers must supply authenticated Session/CSRF/admin facts. */
 export class WalletError extends Error {
@@ -127,6 +129,47 @@ function assertLiveService(db: DatabaseConnection, supplied: ServiceEligibility)
     throw new WalletError("QUOTE_UNAVAILABLE");
   }
 }
+/** Billing period → catalog duration_id. Same `month-N` convention the admin panel
+    already parses; an id that is absent/inactive in sellable_plans still fails closed. */
+const PERIOD_DURATION_ID: Readonly<Record<BillingPeriod, string>> = {
+  MONTHLY: "month-1", QUARTERLY: "month-3", SEMIANNUAL: "month-6", ANNUAL: "month-12",
+};
+/** Server-side renewal quote. Derives everything from the owned paid service's order
+    tuple + the live sellable_plans row — caller/browser-supplied price, key or expiry
+    is never consulted. Any missing/inactive/ambiguous source fails QUOTE_UNAVAILABLE. */
+export function produceRenewalQuote(db: DatabaseConnection, serviceId: number, period: BillingPeriod): AuthoritativeQuote {
+  const row = one(db, `SELECT s.ends_at,o.user_id,o.type_id,o.region_id,o.isp_id,o.spec_id,o.catalog_version
+    FROM services s JOIN payments p ON p.id=s.payment_id
+    JOIN orders o ON o.id=p.order_id
+    WHERE s.id=? AND p.status='paid' AND o.status='paid'`, serviceId);
+  if (!row || row.user_id === null) throw new WalletError("QUOTE_UNAVAILABLE");
+  const endsAt = parseEndsAt(row.ends_at);
+  if (!endsAt.ok || endsAt.value === null) throw new WalletError("QUOTE_UNAVAILABLE");
+  const field = (value: unknown): string => {
+    if (typeof value !== "string" || value.length === 0) throw new WalletError("QUOTE_UNAVAILABLE");
+    return value;
+  };
+  const typeId = field(row.type_id), regionId = field(row.region_id), ispId = field(row.isp_id);
+  const specId = row.spec_id === null ? null : field(row.spec_id);
+  const catalogVersion = field(row.catalog_version);
+  const durationId = PERIOD_DURATION_ID[period];
+  const months = /^month-(\d+)$/.exec(durationId);
+  if (months === null) throw new WalletError("QUOTE_UNAVAILABLE");
+  let plan;
+  try {
+    plan = findSellablePlan(db, { typeId, regionId, ispId, specId, durationId });
+  } catch {
+    throw new WalletError("QUOTE_UNAVAILABLE");
+  }
+  if (plan === null || !plan.isActive) throw new WalletError("QUOTE_UNAVAILABLE");
+  const previousEndsAt = endsAt.value;
+  const newEndsAt = addUtcMonths(previousEndsAt, Number(months[1]));
+  return {
+    key: `renewal-quote:${catalogVersion}:${typeId}:${regionId}:${ispId}:${specId ?? ""}:${durationId}:${plan.priceFen}:${previousEndsAt}`,
+    serviceId, ownerId: integer(row.user_id), priceFen: plan.priceFen, durationId, period,
+    previousEndsAt, newEndsAt,
+  };
+}
 function validQuote(quote: AuthoritativeQuote | null, service: ServiceEligibility, period: BillingPeriod): quote is AuthoritativeQuote {
   return !!quote && !!quote.key && !!quote.durationId && quote.serviceId === service.serviceId &&
     quote.ownerId === service.ownerId && quote.period === period && quote.priceFen > 0 &&
@@ -196,11 +239,23 @@ export function runRenewalFixture(db: DatabaseConnection, mode: "TEST_ONLY", ser
     if (mode !== "TEST_ONLY") throw new WalletError("EXECUTION_DISABLED");
     assertLiveService(db, service);
     eligible(service);
-    const consent = one(db, "SELECT revision,state FROM wallet_consents WHERE service_id=?", service.serviceId);
+    const consent = one(db, "SELECT revision,state,next_billing_period FROM wallet_consents WHERE service_id=?", service.serviceId);
     if (!consent || consent.revision !== expectedRevision) throw new WalletError("REVISION_CONFLICT");
     const cycle = one(db, "SELECT id FROM wallet_renewal_cycles WHERE service_id=? AND previous_ends_at=?", service.serviceId, service.endsAt);
     if (cycle) return "DUPLICATE";
-    const state = renewalDryRun(db, service, quote);
+    /* Re-derive the authoritative quote inside the deduction transaction: a re-priced
+       or deactivated plan, moved expiry or tuple change since consent invalidates the
+       bound key — fail closed instead of charging the stale snapshot. */
+    let freshKey: string | null = null;
+    try {
+      freshKey = produceRenewalQuote(db, service.serviceId, consent.next_billing_period as BillingPeriod).key;
+    } catch (error) {
+      if (!(error instanceof WalletError && error.code === "QUOTE_UNAVAILABLE")) throw error;
+    }
+    let state = renewalDryRun(db, service, quote);
+    if (state === "READY" && (freshKey === null || !quote || freshKey !== quote.key)) {
+      state = freshKey === null ? "QUOTE_UNAVAILABLE" : "RECONSENT_REQUIRED";
+    }
     if (state === "RECONSENT_REQUIRED") {
       if (consent.state === "ENABLED") {
         db.prepare("UPDATE wallet_consents SET state='RECONSENT_REQUIRED',revision=revision+1,updated_at=? WHERE service_id=?")
