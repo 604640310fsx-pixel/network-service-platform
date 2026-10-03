@@ -444,6 +444,38 @@ test("admin order close: unpaid closes through provider path; paid+pending_open 
       (database.prepare("SELECT COUNT(*) AS n FROM wallet_order_closures WHERE order_id=?").all(noService.orderId)[0] as { n: number }).n,
       0,
     );
+    // 管理关闭后的 OPEN 服务：OPEN+paid 旧检查仍会通过，但每个可执行的续期
+    // 面都必须命中真实关闭态——报价/启用/改期一律 409 service_closed，仅 OFF 放行。
+    res = await get(app, `/api/me/services/${open.serviceId}/renewal-quote?period=MONTHLY`, owner.session);
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.json().error.code, "service_closed");
+    res = await get(app, `/api/me/services/${open.serviceId}/renewal-quote?period=MONTHLY`, nonAdmin.session);
+    assert.equal(res.statusCode, 404);
+    const closedConsent = database
+      .prepare("SELECT revision,state FROM wallet_consents WHERE service_id=?").all(open.serviceId)[0] as { revision: number; state: string };
+    assert.equal(closedConsent.state, "DISABLED");
+    res = await put(app, `/api/me/services/${open.serviceId}/renewal-consent`, owner.session, {
+      period: "MONTHLY", expectedRevision: closedConsent.revision, enabled: true,
+    });
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.json().error.code, "service_closed");
+    res = await put(app, `/api/me/services/${open.serviceId}/renewal-consent`, owner.session, {
+      period: "MONTHLY", expectedRevision: closedConsent.revision, enabled: false,
+    });
+    assert.equal(res.statusCode, 200);
+    res = await get(app, `/api/me/services/${open.serviceId}/renewal-consent`, owner.session);
+    assert.equal(res.statusCode, 200);
+    assert.equal((res.json() as { consent: { state: string } }).consent.state, "DISABLED");
+    res = await put(app, `/api/me/services/${open.serviceId}/next-billing-period`, owner.session, {
+      period: "SEMIANNUAL", expectedRevision: closedConsent.revision + 1,
+    });
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.json().error.code, "service_closed");
+    res = await put(app, `/api/admin/services/${open.serviceId}/next-billing-period`, admin.session, {
+      period: "SEMIANNUAL", expectedRevision: closedConsent.revision + 1,
+    });
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.json().error.code, "service_closed");
     await app.close();
   });
 });

@@ -339,3 +339,39 @@ test("terms change forces reconsent or unavailability: price, owner, open status
   db.prepare("UPDATE services SET status='pending_open' WHERE id=11").run();
   assert.throws(() => produceRenewalQuote(db, 11, "MONTHLY", 7), /QUOTE_UNAVAILABLE/);
 }));
+
+test("management-closed service: every actionable renewal surface blocked, OFF still allowed", () => fixture((db) => {
+  const actor = { userId: 7, sessionValid: true, csrfValid: true, isAdmin: false };
+  topup(db); credit(db); consent(db);
+  const admin = { userId: 2, sessionValid: true, csrfValid: true, isAdmin: true };
+  assert.equal(state(db, 11), "ENABLED");
+  // Order-level management close only (OPEN status still passes purchasedService).
+  db.prepare("INSERT INTO wallet_order_closures(order_id,closed_by_user_id,closed_at,inventory_released,coupon_released) VALUES (1,2,?,0,0)").run(AT);
+  assert.throws(() => produceRenewalQuote(db, 11, "MONTHLY", 7), /SERVICE_CLOSED/);
+  assert.throws(() => setRenewalConsent(db, 11, 7, "MONTHLY", 1, true, AT), /SERVICE_CLOSED/);
+  // OFF remains permitted with the real owner and revision even after close.
+  assert.equal(setRenewalConsent(db, 11, 7, "MONTHLY", 1, false, AT), 2);
+  assert.equal(state(db, 11), "DISABLED");
+  db.prepare("UPDATE wallet_consents SET state='ENABLED' WHERE service_id=11").run();
+  // An old ENABLED consent row and an old quote object cannot reach the runner.
+  assert.equal(renewalDryRun(db, service, quote), "QUOTE_UNAVAILABLE");
+  assert.throws(() => runRenewalFixture(db, "TEST_ONLY", service, quote, 2, AT), /SERVICE_CLOSED/);
+  assert.equal(count(db, "wallet_renewal_cycles"), 0);
+  assert.equal(count(db, "wallet_ledger"), 1);
+  assert.equal(walletBalance(db, 7), 1000);
+  // Period change surfaces the same closed code for owner and admin.
+  assert.throws(() => setNextBillingPeriod(db, actor, 11, "SEMIANNUAL", 2, AT), /SERVICE_CLOSED/);
+  assert.throws(() => setNextBillingPeriod(db, admin, 11, "SEMIANNUAL", 2, AT), /SERVICE_CLOSED/);
+}));
+
+test("termination-case marker alone closes renewal surfaces without an order closure", () => fixture((db) => {
+  const actor = { userId: 7, sessionValid: true, csrfValid: true, isAdmin: true };
+  topup(db); credit(db); consent(db);
+  db.prepare("INSERT INTO wallet_termination_cases(service_id,requested_at,requested_by,stop_state) VALUES (11,?,'2','REQUESTED')").run(AT);
+  assert.throws(() => produceRenewalQuote(db, 11, "MONTHLY", 7), /SERVICE_CLOSED/);
+  assert.throws(() => setRenewalConsent(db, 11, 7, "MONTHLY", 1, true, AT), /SERVICE_CLOSED/);
+  assert.throws(() => runRenewalFixture(db, "TEST_ONLY", service, quote, 1, AT), /SERVICE_CLOSED/);
+  assert.throws(() => setNextBillingPeriod(db, actor, 11, "ANNUAL", 1, AT), /SERVICE_CLOSED/);
+  assert.equal(setRenewalConsent(db, 11, 7, "MONTHLY", 1, false, AT), 2);
+  assert.equal(count(db, "wallet_renewal_cycles"), 0);
+}));

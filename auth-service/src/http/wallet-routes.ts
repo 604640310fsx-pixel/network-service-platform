@@ -79,6 +79,7 @@ function sendFailure(reply: FastifyReply, error: unknown): FastifyReply {
     if (error.code === "FORBIDDEN") return reply.code(404).send(errorBody("not_found"));
     if (error.code === "ORDER_UNAVAILABLE") return reply.code(404).send(errorBody("not_found"));
     if (error.code === "QUOTE_UNAVAILABLE") return reply.code(409).send(errorBody("quote_unavailable"));
+    if (error.code === "SERVICE_CLOSED") return reply.code(409).send(errorBody("service_closed"));
     if (error.code === "REVISION_CONFLICT") return reply.code(409).send(errorBody("revision_conflict"));
     if (
       error.code === "NOT_CANCELLABLE" ||

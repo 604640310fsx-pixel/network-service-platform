@@ -134,6 +134,20 @@ export function purchasedService(db: DatabaseConnection, serviceId: number): Ser
   return { serviceId: integer(row.service_id), ownerId: row.user_id === null ? null : integer(row.user_id),
     purchased: true, endsAt };
 }
+/* Management-closed guard (frozen invariant): a REAL closure/termination record —
+   wallet_order_closures on the service's order or wallet_termination_cases on the
+   service — permanently blocks every actionable renewal surface for that service.
+   services.status alone is never trusted (OPEN+paid checks still pass on a closed
+   service), consent DISABLED once is not enough, and nothing here is undoable. */
+function serviceManagementClosed(db: DatabaseConnection, serviceId: number): boolean {
+  if (one(db, "SELECT service_id FROM wallet_termination_cases WHERE service_id=?", serviceId) !== null) {
+    return true;
+  }
+  return one(db, `SELECT oc.order_id FROM wallet_order_closures oc
+    JOIN payments p ON p.order_id=oc.order_id
+    JOIN services s ON s.payment_id=p.id
+    WHERE s.id=?`, serviceId) !== null;
+}
 function assertLiveService(db: DatabaseConnection, supplied: ServiceEligibility): void {
   const live = purchasedService(db, supplied.serviceId);
   if (!live.purchased || live.ownerId !== supplied.ownerId || live.endsAt !== supplied.endsAt || supplied.purchased !== true) {
@@ -155,6 +169,7 @@ export function produceRenewalQuote(db: DatabaseConnection, serviceId: number, p
     WHERE s.id=? AND s.status='open' AND p.status='paid' AND o.status='paid'`, serviceId);
   if (!row || row.user_id === null) throw new WalletError("QUOTE_UNAVAILABLE");
   if (integer(row.user_id) !== actorUserId) throw new WalletError("FORBIDDEN");
+  if (serviceManagementClosed(db, serviceId)) throw new WalletError("SERVICE_CLOSED");
   const endsAt = parseEndsAt(row.ends_at);
   if (!endsAt.ok || endsAt.value === null) throw new WalletError("QUOTE_UNAVAILABLE");
   const field = (value: unknown): string => {
@@ -273,6 +288,7 @@ export function setNextBillingPeriod(db: DatabaseConnection, actor: InternalActo
   });
 }
 export function renewalDryRun(db: DatabaseConnection, service: ServiceEligibility, quote: AuthoritativeQuote | null): "READY" | "DISABLED" | "RECONSENT_REQUIRED" | "QUOTE_UNAVAILABLE" {
+  if (serviceManagementClosed(db, service.serviceId)) return "QUOTE_UNAVAILABLE";
   try { assertLiveService(db, service); eligible(service); }
   catch (error) {
     if (error instanceof WalletError && error.code === "QUOTE_UNAVAILABLE") return "QUOTE_UNAVAILABLE";
@@ -292,6 +308,9 @@ export function runRenewalFixture(db: DatabaseConnection, mode: "TEST_ONLY", ser
     if (mode !== "TEST_ONLY") throw new WalletError("EXECUTION_DISABLED");
     assertLiveService(db, service);
     eligible(service);
+    // A closed service can never execute a cycle, whatever an old ENABLED consent
+    // or an old quote still carries — the debit is refused before any state read.
+    if (serviceManagementClosed(db, service.serviceId)) throw new WalletError("SERVICE_CLOSED");
     const consent = one(db, "SELECT revision,state,next_billing_period FROM wallet_consents WHERE service_id=?", service.serviceId);
     if (!consent || consent.revision !== expectedRevision) throw new WalletError("REVISION_CONFLICT");
     const cycle = one(db, "SELECT id FROM wallet_renewal_cycles WHERE service_id=? AND previous_ends_at=?", service.serviceId, service.endsAt);
