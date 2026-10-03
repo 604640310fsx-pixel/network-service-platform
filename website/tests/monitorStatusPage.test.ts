@@ -30,7 +30,8 @@ test("buyer status page covers the full projection and error lifecycle", () => {
   }
   assert.match(page, /new AbortController\(\)/);
   assert.match(page, /controller\.abort\(\)/);
-  assert.match(page, /\[attempt\]/);
+  // Refetch only on a manual retry or a different line (navigation), never on a timer.
+  assert.match(page, /\[attempt, lineParam\]/);
   assert.doesNotMatch(page, /setInterval|monitorTargetKey|[?&](?:vps|target)=/);
 });
 

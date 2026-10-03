@@ -1,4 +1,8 @@
 import { useEffect, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
+import { readStatusLineParam } from "../../lib/buyerStatusLink";
+import { useT, type Messages } from "../../lib/i18n";
+import { getMyDeliveryLineListing } from "../../lib/payment-api";
 import {
   getMonitorStatus,
   MonitorStatusAbortError,
@@ -17,7 +21,18 @@ type PageState =
       readonly detail: string;
     };
 
-export function monitorStatusErrorView(error: unknown): Extract<PageState, { kind: "error" }> {
+export function monitorStatusErrorView(
+  error: unknown,
+  copy?: Messages["serverStatus"],
+): Extract<PageState, { kind: "error" }> {
+  if (copy !== undefined && error instanceof MonitorStatusApiError) {
+    if (error.status === 404 && error.code === "line_not_found") {
+      return { kind: "error", tone: "empty", title: copy.lineNotFoundTitle, detail: copy.lineNotFoundDetail };
+    }
+    if (error.status === 409 && error.code === "line_unbound") {
+      return { kind: "error", tone: "warning", title: copy.lineUnboundTitle, detail: copy.lineUnboundDetail };
+    }
+  }
   if (!(error instanceof MonitorStatusApiError)) {
     return {
       kind: "error",
@@ -126,9 +141,33 @@ function formattedUpdate(value: string): string {
 /* This page makes one same-origin request per mount or manual retry. The target
    never enters browser state, URL parameters, headers, storage, or a public
    monitor origin; Auth derives it from the authenticated account. */
+/* 线路名称只来自买家本人的 delivery-lines（只含名称）；读不到时显示通用「所选线路」，不影响状态查询。 */
+function useLineLabel(line: string | null): string | null {
+  const [label, setLabel] = useState<string | null>(null);
+  useEffect(() => {
+    setLabel(null);
+    if (line === null) return;
+    const controller = new AbortController();
+    const [kind, ref, position] = line.split(":");
+    void getMyDeliveryLineListing(controller.signal)
+      .then((listing) => {
+        const match = kind === "service"
+          ? listing.services.find((item) => item.orderRef === ref && String(item.position) === position)
+          : listing.grants.find((item) => String(item.grantId) === ref && String(item.position) === position);
+        if (match !== undefined) setLabel(match.label);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [line]);
+  return label;
+}
+
 export function BuyerServerStatusPage() {
+  const copy = useT().serverStatus;
+  const lineParam = readStatusLineParam(useLocation().search);
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<PageState>({ kind: "loading" });
+  const lineLabel = useLineLabel(lineParam === "invalid" ? null : lineParam);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -140,11 +179,14 @@ export function BuyerServerStatusPage() {
     void Promise.resolve().then(async () => {
       if (!active) return;
       try {
-        const projection = await getMonitorStatus(controller.signal);
+        if (lineParam === "invalid") throw new MonitorStatusApiError("line_not_found", 404);
+        const projection = lineParam === null
+          ? await getMonitorStatus(controller.signal)
+          : await getMonitorStatus(controller.signal, undefined, lineParam);
         if (active) setState({ kind: "ready", projection });
       } catch (error) {
         if (!active || error instanceof MonitorStatusAbortError) return;
-        setState(monitorStatusErrorView(error));
+        setState(monitorStatusErrorView(error, copy));
       }
     });
 
@@ -152,14 +194,20 @@ export function BuyerServerStatusPage() {
       active = false;
       controller.abort();
     };
-  }, [attempt]);
+  }, [attempt, lineParam]);
 
   const retry = () => {
     if (state.kind !== "loading") setAttempt((value) => value + 1);
   };
 
   return (
-    <main className="cc-status-page">
+    <main className={`cc-status-page${lineParam !== null ? " has-line" : ""}`}>
+      {lineParam !== null && (
+        <nav className="cc-status-line" aria-label={copy.allServers}>
+          <span>{lineLabel === null ? copy.viewingLineUnknown : copy.viewingLine(lineLabel)}</span>
+          <Link to="/network">{copy.allServers}</Link>
+        </nav>
+      )}
       {state.kind === "loading" && (
         <section className="cc-status-state is-loading" role="status" aria-live="polite" aria-busy="true">
           <span className="cc-status-spinner" aria-hidden="true" />

@@ -4,7 +4,7 @@ import type { MonitorPrivateStatus } from "./private-client.js";
 /* 买家节点在线状态（NSP-NODE-STATUS-05）。
    - 只读买家本人 open 服务的交付行与 active+open 赠送的交付行；
    - monitor_target_key 只在服务端用于查询私有监控，不进入任何响应；
-   - 赠送交付行（Migration 023）没有监控目标列，统一为 unbound；
+   - 赠送交付行的监控目标来自 Migration 024 的 monitor_target 列（未绑定为 unbound）；
    - 每个目标单独降级：私有接口失败 / 超时 / 超出并发上限 → unknown，不让整页失败。 */
 
 export const NODE_STATUS_MAX_TARGETS = 20;
@@ -15,7 +15,7 @@ export type NodeStatusItem =
   | { readonly kind: "service"; readonly ref: string; readonly position: number; readonly label: string; readonly status: NodeLineStatus }
   | { readonly kind: "grant"; readonly ref: number; readonly position: number; readonly label: string; readonly status: NodeLineStatus };
 
-interface NodeLine {
+export interface NodeLine {
   readonly kind: "service" | "grant";
   readonly ref: string | number;
   readonly position: number;

@@ -293,3 +293,10 @@
     transform: rotate(360deg);
   }
 }
+
+/* 从「节点与流量」点进某条线路时的上下文条（NSP-LINE-STATUS-08）。 */
+.cc-shell .cc-status-page.has-line { flex-direction: column; justify-content: flex-start; }
+.cc-status-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; width: 100%; max-width: 620px; margin: 0 auto 12px; padding: 9px 12px; border: 1px solid var(--cc-line); border-radius: 9px; background: var(--cc-inset); color: var(--cc-text-2); font-size: 12.5px; overflow-wrap: anywhere; }
+.cc-status-line span { min-width: 0; font-weight: 600; }
+.cc-status-line a { color: var(--cc-accent); font-weight: 600; text-decoration: none; white-space: nowrap; }
+.cc-status-line a:hover { text-decoration: underline; }

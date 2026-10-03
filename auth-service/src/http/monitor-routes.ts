@@ -12,6 +12,7 @@ import {
 } from "../monitor/private-client.js";
 import { readPaymentSession } from "../payment/http-auth.js";
 import { listMyNodeLines, resolveNodeStatuses } from "../monitor/node-status.js";
+import { findOwnedLine, parseLineQuery } from "../monitor/line-selector.js";
 import type { TokenHmacKeyring } from "../session/session-token.js";
 import {
   consumeMonitorStatusRateLimit,
@@ -89,9 +90,10 @@ export function registerMonitorHttpRoutes(
         return reply.code(405).send(errorResponse("method_not_allowed"));
       }
       // Reject framed bodies before Fastify's content-type parser can replace
-      // the frozen 400 envelope with its generic 415 response.
+      // the frozen 400 envelope with its generic 415 response. The only accepted
+      // query is a single `line` selector (NSP-LINE-STATUS-08).
       if (
-        hasQueryString(request) ||
+        !parseLineQuery(request.raw.url).ok ||
         request.headers["transfer-encoding"] !== undefined ||
         (request.headers["content-length"] !== undefined &&
           request.headers["content-length"] !== "0")
@@ -105,7 +107,8 @@ export function registerMonitorHttpRoutes(
         void reply.header("Allow", "GET");
         return reply.code(405).send(errorResponse("method_not_allowed"));
       }
-      if (hasQueryString(request) || hasNonEmptyBody(request)) {
+      const query = parseLineQuery(request.raw.url);
+      if (!query.ok || hasNonEmptyBody(request)) {
         return reply.code(400).send(errorResponse("invalid_request"));
       }
       if (dependencies === null) {
@@ -145,16 +148,26 @@ export function registerMonitorHttpRoutes(
       }
 
       try {
-        const selection = selectAccountMonitorTarget(
-          dependencies.database,
-          session.principal.userId,
-        );
+        /* With ?line= the target is the one bound to that line of the buyer's own delivery
+           (open service / active+open gift); a malformed, foreign or missing line is the same
+           404 and an unbound line is 409. Without it the first owned binding is used, unchanged. */
+        let selectedKey: string;
+        if (query.line === null) {
+          selectedKey = selectAccountMonitorTarget(dependencies.database, session.principal.userId).key;
+        } else {
+          const owned = query.line === "invalid"
+            ? null
+            : findOwnedLine(dependencies.database, session.principal.userId, query.line);
+          if (owned === null) return reply.code(404).send(errorResponse("line_not_found"));
+          if (owned.targetKey === null) return reply.code(409).send(errorResponse("line_unbound"));
+          selectedKey = owned.targetKey;
+        }
         const catalog = await dependencies.privateClient.list(signal);
-        const target = catalog.find((item) => item.key === selection.key);
+        const target = catalog.find((item) => item.key === selectedKey);
         if (target === undefined || target.state !== "active") {
           return reply.code(409).send(errorResponse("monitor_unbound"));
         }
-        const status = await dependencies.privateClient.status(selection.key, signal);
+        const status = await dependencies.privateClient.status(selectedKey, signal);
         const response = {
           label: target.label,
           status: status.status,

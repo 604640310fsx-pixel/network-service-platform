@@ -15,8 +15,9 @@ import {
 } from "../../lib/payment-api";
 import { groupGiftLines, type GiftLineGroup } from "./giftLines";
 import {
-  buyerStatusHref,
+  buyerLineStatusHref,
   resolveBuyerStatusHref,
+  type BuyerLineRef,
 } from "../../lib/buyerStatusLink";
 import { resolveSelection } from "../../lib/resolveSelection";
 import {
@@ -295,6 +296,44 @@ function StateBlock({
 
 /* 每条买家可见线路名称只指向同源 /status，不携带目标、订单或线路参数。
    Auth 依据当前 Session 和所有权在服务端选择目标。长名称仍完整换行显示。 */
+/* 每条交付线路进入它自己绑定的服务器状态页（/status?line=…，由 Auth 校验所有权并解析绑定）。
+   已确知未绑定监控的线路（在线状态为 unbound）不是链接，直接标注「未绑定监控」；
+   状态未知时仍可点击，由状态页给出明确结果。 */
+function LineStatusLink({
+  line,
+  label,
+  ariaLabel,
+  status,
+}: {
+  line: BuyerLineRef;
+  label: string;
+  ariaLabel: string;
+  status: NodeLineStatus | null;
+}) {
+  const t = useT();
+  const body = (
+    <>
+      <span className="cc-net-line-label-index" aria-hidden="true">{line.position}</span>
+      <span className="cc-net-line-label-text">{label}</span>
+      {status !== null && <NodeStatusBadge status={status} />}
+    </>
+  );
+  if (status === "unbound") {
+    return (
+      <div className="cc-net-line-label is-static">
+        {body}
+        <span className="cc-net-line-label-go">{t.network.lineUnmonitored}</span>
+      </div>
+    );
+  }
+  return (
+    <Link className="cc-net-line-label" to={buyerLineStatusHref(line)} aria-label={ariaLabel}>
+      {body}
+      <span className="cc-net-line-label-go" aria-hidden="true">{t.network.lineGo}</span>
+    </Link>
+  );
+}
+
 function DeliveryLineLinks({
   lines,
   orderRef,
@@ -309,19 +348,12 @@ function DeliveryLineLinks({
     <ul className="cc-net-line-labels">
       {lines.map((line) => (
         <li key={line.position}>
-          <Link
-            className="cc-net-line-label"
-            to={buyerStatusHref()}
-            aria-label={t.network.lineAria(line.position, line.label, orderRef)}
-          >
-            <span className="cc-net-line-label-index" aria-hidden="true">{line.position}</span>
-            <span className="cc-net-line-label-text">{line.label}</span>
-            {(() => {
-              const status = statusFor?.(orderRef, line.position) ?? null;
-              return status === null ? null : <NodeStatusBadge status={status} />;
-            })()}
-            <span className="cc-net-line-label-go" aria-hidden="true">{t.network.lineGo}</span>
-          </Link>
+          <LineStatusLink
+            line={{ kind: "service", ref: orderRef, position: line.position }}
+            label={line.label}
+            ariaLabel={t.network.lineAria(line.position, line.label, orderRef)}
+            status={statusFor?.(orderRef, line.position) ?? null}
+          />
         </li>
       ))}
     </ul>
@@ -635,11 +667,12 @@ function NodesPanel({
                           const status = live ? giftStatusByLine.get(`${group.grantId}#${line.position}`) ?? null : null;
                           return (
                             <li key={`${group.grantId}-${line.position}`}>
-                              <div className="cc-net-line-label is-static">
-                                <span className="cc-net-line-label-index" aria-hidden="true">{line.position}</span>
-                                <span className="cc-net-line-label-text">{line.label}</span>
-                                {status !== null && <NodeStatusBadge status={status} />}
-                              </div>
+                              <LineStatusLink
+                                line={{ kind: "grant", ref: group.grantId, position: line.position }}
+                                label={line.label}
+                                ariaLabel={t.network.giftLineAria(line.position, line.label)}
+                                status={status}
+                              />
                             </li>
                           );
                         })}

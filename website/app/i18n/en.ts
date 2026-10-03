@@ -985,6 +985,8 @@ export const en: Messages = {
   network: {
     resources: { services: "service", orders: "order", lines: "delivered route" },
     lineAria: (position: number, label: string, ref: string) => `Route ${position}: ${label} (order ${ref}), open the server status page`,
+    lineUnmonitored: "No monitoring linked",
+    giftLineAria: (position: number, label: string) => `Gift line ${position}: ${label}, open its server status`,
     lineGo: "Server status",
     awaitingDelivery: "Awaiting manual delivery: buyer-visible route names are created once the service is activated, so no routes are shown yet.",
     linesLoading: "Loading route names for this service…",
@@ -1224,6 +1226,15 @@ export const en: Messages = {
     submitting: "Submitting…",
     submit: "Submit diagnosis request",
     footnote: "This form only accepts requests for a manual initial assessment; submitting does not complete a diagnosis, and the scope and cost of a formal diagnosis are confirmed separately.",
+  },
+  serverStatus: {
+    viewingLine: (label: string) => `Viewing: ${label}`,
+    viewingLineUnknown: "Viewing: the selected line",
+    allServers: "See all my servers",
+    lineNotFoundTitle: "This line can't be found",
+    lineNotFoundDetail: "It doesn't belong to this account, isn't delivered yet, or is no longer active. Pick it again from Nodes & traffic.",
+    lineUnboundTitle: "This line has no monitoring linked yet",
+    lineUnboundDetail: "Once an admin links a server to this line, its status appears here.",
   },
   monitor: {
     title: "Live network monitor",
