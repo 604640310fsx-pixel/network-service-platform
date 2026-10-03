@@ -1,4 +1,4 @@
-import { useParams } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 import { useT } from "../lib/i18n";
 import { CustomerCenterShell } from "./customer/CustomerCenterShell";
 import { CustomerOrdersPage } from "./customer/CustomerOrdersPage";
@@ -11,6 +11,7 @@ import { SUBSCRIPTION_IMPORT_ARTICLES } from "./docs/docsModel";
 import { CustomerShellMonitor, PublicMonitorPage } from "./monitor/PublicMonitorPage";
 import { BuyerNetworkPage } from "./network/BuyerNetworkPage";
 import { NotFoundPage } from "./not-found/NotFoundPage";
+import { BuyerServerStatusPage } from "./status/BuyerServerStatusPage";
 import { ProfilePage } from "./profile/ProfilePage";
 import { ReferralCenterAdapter } from "./referrals/ReferralCenterAdapter";
 import { SubscribePage } from "./subscribe/SubscribePage";
@@ -20,6 +21,7 @@ import { sectionKeys } from "../lib/sections";
 export function DashboardShell() {
   const { section: requestedSection = "dashboard" } = useParams();
   const pages = useT().center.pages;
+  const { search } = useLocation();
 
   if (!sectionKeys.includes(requestedSection as SectionKey)) {
     return <NotFoundPage />;
@@ -27,6 +29,15 @@ export function DashboardShell() {
 
   const section = requestedSection as SectionKey;
   // /status 显示同一公开 3002 监控，始终在客户中心壳层内；无需登录，也不跳到官网公开页。
+  // 例外（NSP-LINE-STATUS-08）：从「节点与流量」点某条交付线路进入 /status?line=… 时，显示该线路
+  // 绑定服务器的账户状态投影（需登录，由 Auth 校验线路所有权）；不带 line 的行为不变。
+  if (section === "status" && new URLSearchParams(search).has("line")) {
+    return (
+      <CustomerCenterShell title={pages.status.title} description={pages.status.description}>
+        <BuyerServerStatusPage />
+      </CustomerCenterShell>
+    );
+  }
   if (section === "status") {
     return (
       <CustomerCenterShell fill title={pages.status.title} description={pages.status.description}>

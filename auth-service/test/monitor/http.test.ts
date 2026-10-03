@@ -448,3 +448,94 @@ test("monitor endpoint enforces the 120 per hour user rate after authentication"
     assert.deepEqual(client.listSignals, []);
   });
 });
+
+function insertOpenGrantLine(
+  database: DatabaseConnection,
+  userId: number,
+  adminId: number,
+  target: string | null,
+): number {
+  const now = TEST_NOW.toISOString();
+  database.prepare(
+    `INSERT INTO admin_grants (
+       user_id, granted_by_admin_id, label, starts_at, ends_at, status, reason,
+       created_at, updated_at, delivery_status, opened_at
+     ) VALUES (?, ?, 'Gift', ?, NULL, 'active', NULL, ?, ?, 'open', ?)`,
+  ).run(userId, adminId, now, now, now, now);
+  const grantId = firstId(database, "SELECT MAX(id) AS id FROM admin_grants WHERE user_id = ?", userId);
+  database.prepare(
+    `INSERT INTO admin_grant_delivery_items (
+       grant_id, position, label, key_version, nonce, ciphertext, tag, monitor_target, created_at, updated_at
+     ) VALUES (?, 1, '赠送线路', 1, X'00', X'00', X'00', ?, ?, ?)`,
+  ).run(grantId, target, now, now);
+  return grantId;
+}
+
+test("?line= selects the target bound to that owned line (service or gift) with the same projection", async (context) => {
+  await withAuthenticationDatabase(async (database) => {
+    const ownerId = insertAuthenticationUser(database, { email: "line-owner@example.com", passwordHash: "hash", status: "active" });
+    const otherId = insertAuthenticationUser(database, { email: "line-other@example.com", passwordHash: "hash", status: "active" });
+    const adminId = insertAuthenticationUser(database, { email: "line-admin@example.com", passwordHash: "hash", status: "active", role: "admin" });
+    const owner = insertWebSession(database, ownerId);
+    insertOpenService(database, 31, ownerId, adminId, ["target-a", "target-b", null]);
+    insertOpenService(database, 32, otherId, adminId, ["target-b"]);
+    const grantId = insertOpenGrantLine(database, ownerId, adminId, "target-b");
+    const unboundGrantId = insertOpenGrantLine(database, ownerId, adminId, null);
+    const client = new FakePrivateClient();
+    const app = buildApp({ monitor: dependencies(database, client) });
+    context.after(async () => app.close());
+    const get = (query: string) => app.inject({ method: "GET", url: `/api/me/monitor-status${query}`, headers: { cookie: owner.cookie } });
+
+    const second = await get("?line=service:DLHTTPMONITOR31:2");
+    assert.equal(second.statusCode, 200, second.body);
+    assert.deepEqual(second.json(), { label: "账户服务器 B", status: "online", updatedAt: "2030-01-01T00:01:00Z", stale: false });
+    const gift = await get(`?line=grant:${grantId}:1`);
+    assert.equal(gift.statusCode, 200, gift.body);
+    assert.equal(gift.json().label, "账户服务器 B");
+    const encoded = await get(`?line=${encodeURIComponent("service:DLHTTPMONITOR31:1")}`);
+    assert.equal(encoded.json().label, "账户服务器 A");
+    const plain = await get("");
+    assert.equal(plain.json().label, "账户服务器 A", "no line keeps the first owned binding");
+    assert.deepEqual(client.statusCalls.map((call) => call.target), ["target-b", "target-b", "target-a", "target-a"]);
+    for (const body of [second.body, gift.body]) assert.equal(body.includes("target-"), false);
+
+    for (const [query, status, code] of [
+      ["?line=service:DLHTTPMONITOR32:1", 404, "line_not_found"], // another buyer's line
+      ["?line=service:DLHTTPMONITOR31:9", 404, "line_not_found"],
+      [`?line=grant:${grantId + 99}:1`, 404, "line_not_found"],
+      ["?line=service:DLHTTPMONITOR31:x", 404, "line_not_found"],
+      ["?line=service:DLHTTPMONITOR31:0", 404, "line_not_found"],
+      ["?line=other:1:1", 404, "line_not_found"],
+      ["?line=", 404, "line_not_found"],
+      ["?line=service:DLHTTPMONITOR31:3", 409, "line_unbound"],
+      [`?line=grant:${unboundGrantId}:1`, 409, "line_unbound"],
+      ["?target=target-a", 400, "invalid_request"],
+      ["?line=service:DLHTTPMONITOR31:1&line=service:DLHTTPMONITOR31:2", 400, "invalid_request"],
+      ["?line=service:DLHTTPMONITOR31:1&target=target-b", 400, "invalid_request"],
+    ] as const) {
+      const response = await get(query);
+      assert.equal(response.statusCode, status, query);
+      assert.equal(response.json().error.code, code, query);
+    }
+    assert.equal(client.statusCalls.length, 4, "no private status call for rejected lines");
+
+    // A bound but no longer active target is unbound, like the default selection.
+    client.catalog = [{ key: "target-a", label: "账户服务器 A", state: "active" }, { key: "target-b", label: "账户服务器 B", state: "disabled" }];
+    const inactive = await get("?line=service:DLHTTPMONITOR31:2");
+    assert.equal(inactive.statusCode, 409);
+    assert.equal(inactive.json().error.code, "monitor_unbound");
+  });
+});
+
+test("line selector parsing is strict", async () => {
+  const { parseLineSelector, parseLineQuery, formatLineSelector } = await import("../../src/monitor/line-selector.js");
+  assert.deepEqual(parseLineSelector("service:DL12345678:3"), { kind: "service", ref: "DL12345678", position: 3 });
+  assert.deepEqual(parseLineSelector("grant:7:1"), { kind: "grant", ref: 7, position: 1 });
+  for (const value of ["service:DL1:1", "grant:07:1", "grant:7:01", "grant:7", "grant:7:1:2", "grant:-1:1", "service:XX12345678:1", 5, null]) {
+    assert.equal(parseLineSelector(value), null, String(value));
+  }
+  assert.equal(formatLineSelector({ kind: "grant", ref: 7, position: 2 }), "grant:7:2");
+  assert.deepEqual(parseLineQuery("/x"), { ok: true, line: null });
+  assert.deepEqual(parseLineQuery("/x?line=bad"), { ok: true, line: "invalid" });
+  assert.deepEqual(parseLineQuery("/x?other=1"), { ok: false });
+});

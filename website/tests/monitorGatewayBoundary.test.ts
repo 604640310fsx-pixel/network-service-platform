@@ -48,7 +48,9 @@ test("sidebar mini is identity-free and status navigation carries no fixed targe
 
 test("buyer status uses only the authenticated same-origin projection", () => {
   const page = source("../app/components/status/BuyerServerStatusPage.tsx");
-  assert.match(page, /getMonitorStatus\(controller\.signal\)/);
+  // NSP-LINE-STATUS-08: the only forwarded parameter is the validated buyer line selector.
+  assert.match(page, /getMonitorStatus\(controller\.signal, undefined, lineParam \?\? undefined\)/);
+  assert.match(page, /readStatusLineParam\(/);
   assert.match(page, /状态由账户授权投影返回/);
   assert.doesNotMatch(page, /<iframe|import\.meta\.env|buildMonitorEmbedUrl\(|useSearchParams\(/);
   assert.doesNotMatch(page, /monitorTargetKey|[?&](?:target|vps)=/);

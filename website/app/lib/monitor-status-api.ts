@@ -16,7 +16,9 @@ export type MonitorStatusCode =
   | "rate_limited"
   | "monitor_invalid_response"
   | "monitor_unconfigured"
-  | "monitor_unavailable";
+  | "monitor_unavailable"
+  | "line_not_found"
+  | "line_unbound";
 
 export interface MonitorStatusProjection {
   readonly label: string;
@@ -153,9 +155,9 @@ const ERROR_CODES_BY_STATUS: Readonly<Record<number, readonly MonitorStatusCode[
   400: ["invalid_request"],
   401: ["unauthorized"],
   403: ["forbidden"],
-  404: ["no_eligible_service"],
+  404: ["no_eligible_service", "line_not_found"],
   405: ["method_not_allowed"],
-  409: ["monitor_unbound"],
+  409: ["monitor_unbound", "line_unbound"],
   429: ["rate_limited"],
   502: ["monitor_invalid_response"],
   503: ["monitor_unconfigured", "monitor_unavailable"],
@@ -173,9 +175,12 @@ export function parseMonitorStatusError(status: number, value: unknown): Monitor
   return new MonitorStatusApiError(code as MonitorStatusCode, status);
 }
 
+/** `line` (optional) is a `kind:ref:position` selector of one of the buyer's own delivered
+    lines; Auth resolves its bound server. Without it Auth picks the first owned binding. */
 export async function getMonitorStatus(
   signal?: AbortSignal,
   fetchImpl: FetchLike = fetch,
+  line?: string,
 ): Promise<MonitorStatusProjection> {
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(
@@ -191,7 +196,8 @@ export async function getMonitorStatus(
   try {
     let response: Response;
     try {
-      response = await fetchImpl("/api/me/monitor-status", {
+      const url = line === undefined ? "/api/me/monitor-status" : `/api/me/monitor-status?line=${encodeURIComponent(line)}`;
+      response = await fetchImpl(url, {
         method: "GET",
         credentials: "same-origin",
         headers: { Accept: "application/json" },

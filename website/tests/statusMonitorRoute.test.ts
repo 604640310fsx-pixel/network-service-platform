@@ -15,7 +15,11 @@ test("/status stays public without a login redirect; /monitor unchanged", () => 
 
 test("/status always renders the monitor inside the customer shell, signed in or not", () => {
   const shell = source("../app/components/DashboardShell.tsx");
-  const status = shell.slice(shell.indexOf('if (section === "status")'), shell.indexOf('if (section === "subscribe")'));
+  // NSP-LINE-STATUS-08: only /status?line=… (a buyer line) renders the account status projection.
+  const lineBranch = shell.slice(shell.indexOf('if (section === "status" && '), shell.indexOf('if (section === "status") {'));
+  assert.match(lineBranch, /new URLSearchParams\(search\)\.has\("line"\)/);
+  assert.match(lineBranch, /<BuyerServerStatusPage \/>/);
+  const status = shell.slice(shell.indexOf('if (section === "status") {'), shell.indexOf('if (section === "subscribe")'));
   assert.match(
     status,
     /return \(\s*<CustomerCenterShell fill[^>]*>\s*<CustomerShellMonitor \/>\s*<\/CustomerCenterShell>\s*\);\s*\}\s*$/,
