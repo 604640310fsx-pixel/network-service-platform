@@ -113,6 +113,11 @@ function DeliveryBindings({
 
   if (lines.length === 0) return null;
   const label = (key: string) => targets?.find((target) => target.key === key)?.label ?? key;
+  /* 绑定早于 NSP-LINE-NAME-10 的线路可能仍是旧名：选同一台 VPS 时允许「同步为 VPS 名称」（服务端改名并记为 rebind）。 */
+  const nameDiffers = (line: AdminDeliveryLine, key: string) => {
+    const vpsName = targets?.find((target) => target.key === key)?.label;
+    return vpsName !== undefined && vpsName !== line.label;
+  };
   return (
     <div className="dash-usvc-open">
       <p className="dash-usvc-meta">{delivery.deliveryLines}</p>
@@ -140,11 +145,11 @@ function DeliveryBindings({
                   <button
                     type="button"
                     className="dash-primary-link"
-                    disabled={lineBusy || choice === "" || choice === line.monitorTargetKey || csrfToken === null}
+                    disabled={lineBusy || choice === "" || csrfToken === null || (choice === line.monitorTargetKey && !nameDiffers(line, choice))}
                     aria-busy={lineBusy}
                     onClick={() => void apply(line.position, choice)}
                   >
-                    {lineBusy ? delivery.binding : delivery.saveBinding}
+                    {lineBusy ? delivery.binding : choice === line.monitorTargetKey ? delivery.syncName : delivery.saveBinding}
                   </button>
                 </>
               )

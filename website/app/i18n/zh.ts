@@ -1304,6 +1304,7 @@ export const zh = {
     bindUnavailable: "监控暂不可用，暂时无法绑定 VPS。",
     loadingTargets: "正在读取 VPS 列表…",
     nameFollowsVps: "线路名与所选 VPS 保持一致；绑定或换绑时自动更新。",
+    syncName: "同步为 VPS 名称",
     rebindVps: "换绑 VPS",
     unbindVps: "解除绑定",
     unbinding: "解除中…",
