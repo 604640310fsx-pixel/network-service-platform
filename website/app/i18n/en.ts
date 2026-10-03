@@ -694,6 +694,14 @@ export const en: Messages = {
       network: "Network error. Please try again later.",
     },
   },
+  wallet: {
+    balanceLabel: "Wallet balance",
+    balanceHint: "Current account wallet balance",
+    loading: "Loading…",
+    unavailable: "Balance unavailable right now",
+    signedOut: "Signed out; balance unavailable",
+    retry: "Retry",
+  },
   profile: {
     roles: { user: "Customer", admin: "Administrator" },
     title: "Account details",

@@ -693,6 +693,14 @@ export const zh = {
       network: "网络连接失败，请稍后重试。",
     },
   },
+  wallet: {
+    balanceLabel: "钱包余额",
+    balanceHint: "当前账户钱包余额",
+    loading: "正在读取…",
+    unavailable: "暂时无法读取余额",
+    signedOut: "登录失效，无法读取余额",
+    retry: "重试",
+  },
   profile: {
     roles: { user: "普通用户", admin: "管理员" },
     title: "账号资料",

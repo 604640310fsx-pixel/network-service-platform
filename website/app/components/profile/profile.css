@@ -98,6 +98,34 @@
   line-height: 1.55;
   overflow-wrap: anywhere;
 }
+/* 钱包余额：真实金额等宽数字；加载 / 失败只显示说明文字，不显示 0。 */
+.cc-profile-wallet {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.cc-profile-wallet-amount { font-variant-numeric: tabular-nums; }
+.cc-profile-wallet-muted {
+  color: var(--cc-text-3);
+  font-size: 13px;
+  font-weight: 500;
+}
+.cc-profile-wallet-retry {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cc-accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cc-profile-wallet-retry:focus-visible {
+  outline: 2px solid var(--cc-accent-line);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
 
 .cc-profile-notice {
   padding: 18px 16px 4px;
