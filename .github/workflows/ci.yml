@@ -167,13 +167,13 @@ jobs:
             --destination "$BUNDLE_PARENT/first" \
             --expected-sha "$EXPECTED_SHA" \
             --provenance-mode "$PROVENANCE_MODE" \
-            --schema-route standard16-23
+            --schema-route standard16-24
           node scripts/ops/assemble-consolidated-release.mjs \
             --source "$GITHUB_WORKSPACE" \
             --destination "$BUNDLE_PARENT/second" \
             --expected-sha "$EXPECTED_SHA" \
             --provenance-mode "$PROVENANCE_MODE" \
-            --schema-route standard16-23
+            --schema-route standard16-24
           cmp "$BUNDLE_PARENT/first/release-manifest.json" \
             "$BUNDLE_PARENT/second/release-manifest.json"
           node scripts/ops/validate-release-open-http-contract.mjs \
@@ -185,25 +185,25 @@ jobs:
             --expected-sha "$EXPECTED_SHA" \
             --bundle "$BUNDLE_PARENT/first" \
             --validation-mode "$VALIDATION_MODE" \
-            --schema-route standard16-23
+            --schema-route standard16-24
           node scripts/ops/validate-consolidated-release-packet.mjs \
             --source "$GITHUB_WORKSPACE" \
             --expected-sha "$EXPECTED_SHA" \
             --bundle "$BUNDLE_PARENT/second" \
             --validation-mode "$VALIDATION_MODE" \
-            --schema-route standard16-23
+            --schema-route standard16-24
           node scripts/ops/assemble-consolidated-release.mjs \
             --source "$GITHUB_WORKSPACE" \
             --destination "$BUNDLE_PARENT/direct14-first" \
             --expected-sha "$EXPECTED_SHA" \
             --provenance-mode "$PROVENANCE_MODE" \
-            --schema-route direct14-23
+            --schema-route direct14-24
           node scripts/ops/assemble-consolidated-release.mjs \
             --source "$GITHUB_WORKSPACE" \
             --destination "$BUNDLE_PARENT/direct14-second" \
             --expected-sha "$EXPECTED_SHA" \
             --provenance-mode "$PROVENANCE_MODE" \
-            --schema-route direct14-23
+            --schema-route direct14-24
           cmp "$BUNDLE_PARENT/direct14-first/release-manifest.json" \
             "$BUNDLE_PARENT/direct14-second/release-manifest.json"
           node scripts/ops/validate-release-open-http-contract.mjs \
@@ -213,13 +213,13 @@ jobs:
             --expected-sha "$EXPECTED_SHA" \
             --bundle "$BUNDLE_PARENT/direct14-first" \
             --validation-mode "$VALIDATION_MODE" \
-            --schema-route direct14-23
+            --schema-route direct14-24
           node scripts/ops/validate-consolidated-release-packet.mjs \
             --source "$GITHUB_WORKSPACE" \
             --expected-sha "$EXPECTED_SHA" \
             --bundle "$BUNDLE_PARENT/direct14-second" \
             --validation-mode "$VALIDATION_MODE" \
-            --schema-route direct14-23
+            --schema-route direct14-24
           if find "$BUNDLE_PARENT/first" \
             \( -type l -o -name node_modules -o -name '.env*' \
                -o -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
@@ -241,13 +241,13 @@ jobs:
             --destination "$BUNDLE_PARENT/standard19-first" \
             --expected-sha "$EXPECTED_SHA" \
             --provenance-mode "$PROVENANCE_MODE" \
-            --schema-route standard19-23
+            --schema-route standard19-24
           node scripts/ops/assemble-consolidated-release.mjs \
             --source "$GITHUB_WORKSPACE" \
             --destination "$BUNDLE_PARENT/standard19-second" \
             --expected-sha "$EXPECTED_SHA" \
             --provenance-mode "$PROVENANCE_MODE" \
-            --schema-route standard19-23
+            --schema-route standard19-24
           cmp "$BUNDLE_PARENT/standard19-first/release-manifest.json" \
             "$BUNDLE_PARENT/standard19-second/release-manifest.json"
           node scripts/ops/validate-release-open-http-contract.mjs \
@@ -257,13 +257,13 @@ jobs:
             --expected-sha "$EXPECTED_SHA" \
             --bundle "$BUNDLE_PARENT/standard19-first" \
             --validation-mode "$VALIDATION_MODE" \
-            --schema-route standard19-23
+            --schema-route standard19-24
           node scripts/ops/validate-consolidated-release-packet.mjs \
             --source "$GITHUB_WORKSPACE" \
             --expected-sha "$EXPECTED_SHA" \
             --bundle "$BUNDLE_PARENT/standard19-second" \
             --validation-mode "$VALIDATION_MODE" \
-            --schema-route standard19-23
+            --schema-route standard19-24
           if find "$BUNDLE_PARENT/standard19-first" \
             \( -type l -o -name node_modules -o -name '.env*' \
                -o -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \

@@ -127,7 +127,10 @@ test("opening a gift stores encrypted lines; the buyer sees names in delivery-li
     assert.equal(opened.statusCode, 200, opened.body);
     assert.equal(opened.json().deliveryStatus, "open");
     assert.equal(opened.json().openedAt, "2026-08-21T00:00:00.000Z");
-    assert.deepEqual(opened.json().deliveryLines, [{ position: 1, label: "Line A" }, { position: 2, label: "Line B" }]);
+    assert.deepEqual(opened.json().deliveryLines, [
+      { position: 1, label: "Line A", monitorTargetKey: null },
+      { position: 2, label: "Line B", monitorTargetKey: null },
+    ]);
     assert.equal(opened.body.includes(URL_A), false, "the admin response never echoes subscription URLs");
 
     const stored = allRows(database, "SELECT position, label, ciphertext FROM admin_grant_delivery_items ORDER BY position");

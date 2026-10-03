@@ -650,7 +650,18 @@ export function validateRepository({
             "--schema-route standard16-23",
             "## Explicit STANDARD19 to 23 route",
             "--schema-route standard19-23",
-            "## Migration 023 forward-only grant delivery",
+          ]
+        : []),
+      // Later sources still carry migration 023, so its section stays required.
+      ...(candidate >= 23 ? ["## Migration 023 forward-only grant delivery"] : []),
+      ...(candidate === 24
+        ? [
+            "## Explicit DIRECT14 to 24 route",
+            "--schema-route direct14-24",
+            "--schema-route standard16-24",
+            "## Explicit STANDARD19 to 24 route",
+            "--schema-route standard19-24",
+            "## Migration 024 forward-only gift delivery VPS binding",
           ]
         : []),
       "consolidated-release-direct14-<RELEASE_CANDIDATE_SHA>",
@@ -688,7 +699,8 @@ export function validateRepository({
         : []),
       ...(candidate >= 21 ? ["MIGRATION_021_REBUILD_PROOF"] : []),
       ...(candidate >= 22 ? ["MIGRATION_022_FORWARD_ONLY_PROOF"] : []),
-      ...(candidate === 23 ? ["MIGRATION_023_FORWARD_ONLY_PROOF"] : []),
+      ...(candidate >= 23 ? ["MIGRATION_023_FORWARD_ONLY_PROOF"] : []),
+      ...(candidate === 24 ? ["MIGRATION_024_FORWARD_ONLY_PROOF"] : []),
     ],
     "release bindings",
   );
@@ -738,7 +750,14 @@ export function validateRepository({
       "actions/upload-artifact@v4",
       "consolidated-release-${{ env.EXPECTED_SHA }}",
       "consolidated-release-direct14-${{ env.EXPECTED_SHA }}",
-      ...(candidate === 23
+      ...(candidate === 24
+        ? [
+            "--schema-route direct14-24",
+            "--schema-route standard16-24",
+            "--schema-route standard19-24",
+            "consolidated-release-standard19-${{ env.EXPECTED_SHA }}",
+          ]
+        : candidate === 23
         ? [
             "--schema-route direct14-23",
             "--schema-route standard16-23",

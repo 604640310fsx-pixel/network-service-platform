@@ -1,4 +1,6 @@
-import { PaymentApiError } from "./payment-api";
+// Node's strip-types test runner needs the extension; Vite resolves the same module during build.
+// @ts-ignore TS5097: the website tsconfig does not enable allowImportingTsExtensions.
+import { PaymentApiError } from "./payment-api.ts";
 
 /* 管理员管理买家服务（/api/admin/users*、/api/admin/services/:id、/api/admin/grants*）。
    响应逐字段校验，不合约定即 invalid_response；写请求带 CSRF。 */
@@ -49,8 +51,11 @@ export type AdminGrant = {
   readonly valueFen: number | null;
   readonly deliveryStatus: "pending_open" | "open";
   readonly openedAt: string | null;
-  readonly deliveryLines: ReadonlyArray<{ readonly position: number; readonly label: string }>;
+  readonly deliveryLines: ReadonlyArray<AdminDeliveryLine>;
 };
+
+/** A delivered line as admins see it: public name plus VPS binding (null = not bound). */
+export type AdminDeliveryLine = { readonly position: number; readonly label: string; readonly monitorTargetKey: string | null };
 
 export type AdminServicePatch = {
   readonly endsAt?: string | null;
@@ -84,7 +89,8 @@ export type AdminGrantPatch = Partial<GrantSelection> & {
   readonly valueFen?: number;
 };
 
-export type AdminGrantDeliveryInput = { readonly label: string; readonly subscriptionUrl: string };
+/** monitorTargetKey omitted or null = deliver without a VPS binding. */
+export type AdminGrantDeliveryInput = { readonly label: string; readonly subscriptionUrl: string; readonly monitorTargetKey?: string | null };
 
 type JsonRecord = Record<string, unknown>;
 
@@ -183,7 +189,7 @@ function parseGrant(value: unknown): AdminGrant {
     openedAt: nullableStr(row.openedAt),
     deliveryLines: row.deliveryLines.map((line) => {
       const item = record(line);
-      return { position: int(item.position), label: str(item.label) };
+      return { position: int(item.position), label: str(item.label), monitorTargetKey: nullableStr(item.monitorTargetKey) };
     }),
   };
 }
@@ -251,10 +257,18 @@ export async function updateAdminGrant(grantId: number, patch: AdminGrantPatch, 
 }
 
 export async function openAdminGrant(grantId: number, items: readonly AdminGrantDeliveryInput[], csrfToken: string): Promise<AdminGrant> {
-  return parseGrant(await requestJson(`/api/admin/grants/${grantId}/open`, writeInit("POST", csrfToken, { items })));
+  const payload = items.map(({ label, subscriptionUrl, monitorTargetKey }) =>
+    monitorTargetKey ? { label, subscriptionUrl, monitorTargetKey } : { label, subscriptionUrl },
+  );
+  return parseGrant(await requestJson(`/api/admin/grants/${grantId}/open`, writeInit("POST", csrfToken, { items: payload })));
 }
 
-/** Bind (or rebind) a delivered line to an active VPS after an unbound open. */
-export async function bindAdminServiceDelivery(serviceId: number, position: number, monitorTargetKey: string, csrfToken: string): Promise<AdminUserService> {
+/** Bind, rebind (another active VPS) or unbind (null) a delivered service line. */
+export async function bindAdminServiceDelivery(serviceId: number, position: number, monitorTargetKey: string | null, csrfToken: string): Promise<AdminUserService> {
   return parseService(await requestJson(`/api/admin/services/${serviceId}/delivery/${position}`, writeInit("PATCH", csrfToken, { monitorTargetKey })));
+}
+
+/** Same for a delivered line of an opened gift. */
+export async function bindAdminGrantDelivery(grantId: number, position: number, monitorTargetKey: string | null, csrfToken: string): Promise<AdminGrant> {
+  return parseGrant(await requestJson(`/api/admin/grants/${grantId}/delivery/${position}`, writeInit("PATCH", csrfToken, { monitorTargetKey })));
 }

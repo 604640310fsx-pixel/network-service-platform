@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { getAdminPlans, type AdminPlanItem } from "../../lib/admin-commerce-api";
 import {
+  bindAdminGrantDelivery,
   bindAdminServiceDelivery,
   createAdminGrant,
   getAdminUserServices,
@@ -8,6 +9,7 @@ import {
   searchAdminUsers,
   updateAdminGrant,
   updateAdminService,
+  type AdminDeliveryLine,
   type AdminGrant,
   type AdminUserService,
   type AdminUserSummary,
@@ -48,32 +50,40 @@ function snapshotLabel(service: AdminUserService): string {
   return [summary.type, summary.region, summary.isp, summary.spec, summary.duration].filter((part) => part && part !== "—").join(" · ");
 }
 
-/* 交付线路的 VPS 绑定：未绑定（监控不可用时开通）的线路可事后补绑；VPS 列表按需读取，
-   读取失败即显示「监控暂不可用」，不提交。 */
+/* 交付线路的 VPS 绑定（服务与赠送共用）：未绑定的线路可「绑定 VPS」，已绑定的可「换绑 VPS」或
+   「解除绑定」。VPS 列表按需读取，读取失败即显示「监控暂不可用」，不提交；解绑不需要 VPS 列表。 */
 function DeliveryBindings({
-  service,
+  lines,
   csrfToken,
   copy,
-  onSaved,
+  onBind,
 }: {
-  service: AdminUserService;
+  lines: ReadonlyArray<AdminDeliveryLine>;
   csrfToken: string | null;
   copy: Copy;
-  onSaved: (service: AdminUserService) => void;
+  onBind: (position: number, monitorTargetKey: string | null) => Promise<void>;
 }) {
   const delivery = useT().adminDelivery;
   const [editing, setEditing] = useState<number | null>(null);
   const [targets, setTargets] = useState<AdminMonitorTarget[] | null>(null);
   const [targetsError, setTargetsError] = useState(false);
   const [choice, setChoice] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Names for already-bound lines; a failure only falls back to showing the key.
+    const controller = new AbortController();
+    if (lines.some((line) => line.monitorTargetKey !== null)) {
+      getAdminMonitorTargets(controller.signal).then(setTargets, () => undefined);
+    }
+    return () => controller.abort();
+  }, [lines]);
 
   async function startBinding(position: number, current: string | null) {
     setEditing(position);
     setChoice(current ?? "");
     setError(null);
-    setTargets(null);
     setTargetsError(false);
     try {
       setTargets(await getAdminMonitorTargets());
@@ -82,59 +92,80 @@ function DeliveryBindings({
     }
   }
 
-  async function save(position: number) {
-    if (csrfToken === null || choice === "") return;
-    setBusy(true);
+  async function apply(position: number, key: string | null) {
+    if (csrfToken === null) return;
+    setBusy(position);
     setError(null);
     try {
-      onSaved(await bindAdminServiceDelivery(service.id, position, choice, csrfToken));
+      await onBind(position, key);
       setEditing(null);
     } catch (caught) {
       setError(errorMessage(caught, copy));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
-  if (service.deliveryLines.length === 0) return null;
+  function unbind(line: AdminDeliveryLine) {
+    if (!window.confirm(delivery.unbindConfirm(line.label))) return;
+    void apply(line.position, null);
+  }
+
+  if (lines.length === 0) return null;
   const label = (key: string) => targets?.find((target) => target.key === key)?.label ?? key;
   return (
     <div className="dash-usvc-open">
       <p className="dash-usvc-meta">{delivery.deliveryLines}</p>
-      {service.deliveryLines.map((line) => (
-        <div className="dash-usvc-line" key={line.position}>
-          <span>{line.position}. {line.label}</span>
-          <span className={`dash-tag${line.monitorTargetKey === null ? " is-warn" : " is-accent"}`}>
-            {line.monitorTargetKey === null ? delivery.unbound : delivery.bound(label(line.monitorTargetKey))}
-          </span>
-          {editing === line.position ? (
-            targetsError ? (
-              <span className="dash-usvc-meta">{delivery.bindUnavailable}</span>
-            ) : targets === null ? (
-              <span className="dash-usvc-meta">{delivery.loadingTargets}</span>
+      {lines.map((line) => {
+        const lineBusy = busy === line.position;
+        return (
+          <div className="dash-usvc-line" key={line.position}>
+            <span>{line.position}. {line.label}</span>
+            <span className={`dash-tag${line.monitorTargetKey === null ? " is-warn" : " is-accent"}`}>
+              {line.monitorTargetKey === null ? delivery.unbound : delivery.bound(label(line.monitorTargetKey))}
+            </span>
+            {editing === line.position ? (
+              targetsError ? (
+                <span className="dash-usvc-meta">{delivery.bindUnavailable}</span>
+              ) : targets === null ? (
+                <span className="dash-usvc-meta">{delivery.loadingTargets}</span>
+              ) : (
+                <>
+                  <select value={choice} onChange={(event) => setChoice(event.target.value)} disabled={lineBusy} aria-label={delivery.vpsServer}>
+                    <option value="">{delivery.chooseVps}</option>
+                    {targets.filter((target) => target.state === "active").map((target) => (
+                      <option key={target.key} value={target.key}>{target.label}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="dash-primary-link"
+                    disabled={lineBusy || choice === "" || choice === line.monitorTargetKey || csrfToken === null}
+                    aria-busy={lineBusy}
+                    onClick={() => void apply(line.position, choice)}
+                  >
+                    {lineBusy ? delivery.binding : delivery.saveBinding}
+                  </button>
+                </>
+              )
             ) : (
               <>
-                <select value={choice} onChange={(event) => setChoice(event.target.value)} disabled={busy}>
-                  <option value="">{delivery.chooseVps}</option>
-                  {targets.filter((target) => target.state === "active").map((target) => (
-                    <option key={target.key} value={target.key}>{target.label}</option>
-                  ))}
-                </select>
-                <button type="button" className="dash-primary-link" disabled={busy || choice === "" || csrfToken === null} aria-busy={busy} onClick={() => void save(line.position)}>
-                  {busy ? delivery.binding : delivery.saveBinding}
+                <button type="button" className="dash-usvc-ghost" disabled={busy !== null || csrfToken === null} onClick={() => void startBinding(line.position, line.monitorTargetKey)}>
+                  {line.monitorTargetKey === null ? delivery.bindVps : delivery.rebindVps}
                 </button>
+                {line.monitorTargetKey !== null && (
+                  <button type="button" className="dash-usvc-ghost" disabled={busy !== null || csrfToken === null} aria-busy={lineBusy} onClick={() => unbind(line)}>
+                    {lineBusy ? delivery.unbinding : delivery.unbindVps}
+                  </button>
+                )}
               </>
-            )
-          ) : (
-            <button type="button" className="dash-usvc-ghost" disabled={csrfToken === null} onClick={() => void startBinding(line.position, line.monitorTargetKey)}>
-              {delivery.bindVps}
-            </button>
-          )}
-          {editing === line.position && (
-            <button type="button" className="dash-usvc-ghost" onClick={() => setEditing(null)} disabled={busy}>{delivery.cancel}</button>
-          )}
-        </div>
-      ))}
+            )}
+            {editing === line.position && (
+              <button type="button" className="dash-usvc-ghost" onClick={() => setEditing(null)} disabled={lineBusy}>{delivery.cancel}</button>
+            )}
+          </div>
+        );
+      })}
       {error && <p className="dash-inline-error" role="alert">{error}</p>}
     </div>
   );
@@ -222,7 +253,14 @@ function ServiceRow({
           {error && <p className="dash-inline-error" role="alert">{error}</p>}
         </div>
       </form>
-      <DeliveryBindings service={service} csrfToken={csrfToken} copy={copy} onSaved={onSaved} />
+      <DeliveryBindings
+        lines={service.deliveryLines}
+        csrfToken={csrfToken}
+        copy={copy}
+        onBind={async (position, key) => {
+          if (csrfToken !== null) onSaved(await bindAdminServiceDelivery(service.id, position, key, csrfToken));
+        }}
+      />
     </li>
   );
 }
@@ -253,6 +291,15 @@ function selectionOf(grant: AdminGrant): GrantSelection | null {
     : null;
 }
 
+/* 选择值："" = 尚未选择；NO_VPS = 明确不绑定；其它 = VPS key。选 VPS 时，名称为空或仍是上次自动带出的
+   名称则自动带出 VPS 名称，可再修改。VPS 列表读取失败时与「待开通服务」一致：提示不可用，勾选
+   「暂不绑定 VPS 开通」后才能提交（全部线路不绑定）。 */
+const NO_VPS = "__none__";
+
+type GrantLineDraft = { readonly label: string; readonly subscriptionUrl: string; readonly target: string; readonly autoLabel: string | null };
+
+const EMPTY_GRANT_LINE: GrantLineDraft = { label: "", subscriptionUrl: "", target: "", autoLabel: null };
+
 function OpenGrantForm({
   grant,
   csrfToken,
@@ -266,10 +313,40 @@ function OpenGrantForm({
   onDone: (grant: AdminGrant) => void;
   onCancel: () => void;
 }) {
-  const [lines, setLines] = useState([{ label: "", subscriptionUrl: "" }]);
+  const delivery = useT().adminDelivery;
+  const [lines, setLines] = useState<GrantLineDraft[]>([EMPTY_GRANT_LINE]);
+  const [targets, setTargets] = useState<AdminMonitorTarget[] | null>(null);
+  const [targetsFailed, setTargetsFailed] = useState(false);
+  const [allowUnbound, setAllowUnbound] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const ready = lines.every((line) => line.label.trim() !== "" && line.subscriptionUrl.trim() !== "");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getAdminMonitorTargets(controller.signal).then(setTargets, () => {
+      if (!controller.signal.aborted) setTargetsFailed(true);
+    });
+    return () => controller.abort();
+  }, []);
+
+  const activeTargets = (targets ?? []).filter((target) => target.state === "active");
+  const loading = targets === null && !targetsFailed;
+  const filled = lines.every((line) => line.label.trim() !== "" && line.subscriptionUrl.trim() !== "");
+  const ready = filled && (targetsFailed ? allowUnbound : !loading && lines.every((line) => line.target !== ""));
+
+  function update(index: number, patch: Partial<GrantLineDraft>) {
+    setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
+  }
+
+  function chooseTarget(index: number, value: string) {
+    const line = lines[index];
+    if (line === undefined) return;
+    const target = activeTargets.find((candidate) => candidate.key === value);
+    const keepsAuto = line.label.trim() === "" || line.label === line.autoLabel;
+    update(index, target !== undefined && keepsAuto
+      ? { target: value, label: target.label, autoLabel: target.label }
+      : { target: value });
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -277,7 +354,15 @@ function OpenGrantForm({
     setBusy(true);
     setError(null);
     try {
-      onDone(await openAdminGrant(grant.id, lines.map((line) => ({ label: line.label.trim(), subscriptionUrl: line.subscriptionUrl.trim() })), csrfToken));
+      onDone(await openAdminGrant(
+        grant.id,
+        lines.map((line) => ({
+          label: line.label.trim(),
+          subscriptionUrl: line.subscriptionUrl.trim(),
+          monitorTargetKey: targetsFailed || line.target === NO_VPS ? null : line.target,
+        })),
+        csrfToken,
+      ));
     } catch (caught) {
       setError(errorMessage(caught, copy));
     } finally {
@@ -291,14 +376,30 @@ function OpenGrantForm({
       {lines.map((line, index) => (
         <div className="dash-usvc-grid" key={index}>
           <label>
+            {delivery.vpsServer}
+            <select
+              value={targetsFailed ? "" : line.target}
+              disabled={busy || loading || targetsFailed}
+              onChange={(event) => chooseTarget(index, event.target.value)}
+            >
+              <option value="">
+                {loading ? delivery.loadingTargets : targetsFailed ? delivery.monitorUnavailableOption : activeTargets.length === 0 ? delivery.noActiveVps : delivery.chooseVps}
+              </option>
+              {!targetsFailed && !loading && <option value={NO_VPS}>{delivery.noVpsOption}</option>}
+              {activeTargets.map((target) => (
+                <option key={target.key} value={target.key}>{target.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
             {copy.lineLabel} {index + 1}
             <input type="text" maxLength={200} value={line.label} disabled={busy}
-              onChange={(event) => setLines(lines.map((item, i) => (i === index ? { ...item, label: event.target.value } : item)))} />
+              onChange={(event) => update(index, { label: event.target.value })} />
           </label>
           <label>
             {copy.lineUrl}
             <input type="url" inputMode="url" value={line.subscriptionUrl} disabled={busy} autoComplete="off"
-              onChange={(event) => setLines(lines.map((item, i) => (i === index ? { ...item, subscriptionUrl: event.target.value } : item)))} />
+              onChange={(event) => update(index, { subscriptionUrl: event.target.value })} />
           </label>
           {lines.length > 1 && (
             <button type="button" className="dash-usvc-ghost dash-usvc-line-remove" disabled={busy}
@@ -308,9 +409,18 @@ function OpenGrantForm({
           )}
         </div>
       ))}
+      {targetsFailed && (
+        <label className="dash-delivery-unbound">
+          <input type="checkbox" checked={allowUnbound} disabled={busy} onChange={(event) => setAllowUnbound(event.target.checked)} />
+          <span>
+            <strong>{delivery.allowUnbound}</strong>
+            <small>{delivery.giftUnavailableHint}</small>
+          </span>
+        </label>
+      )}
       <div className="dash-usvc-foot">
         <button type="button" className="dash-usvc-ghost" disabled={busy || lines.length >= 20}
-          onClick={() => setLines([...lines, { label: "", subscriptionUrl: "" }])}>
+          onClick={() => setLines([...lines, EMPTY_GRANT_LINE])}>
           {copy.addLine}
         </button>
         <button type="submit" className="dash-primary-link" disabled={busy || !ready || csrfToken === null} aria-busy={busy}>
@@ -443,8 +553,18 @@ function GrantRow({
             grant.months === null ? null : copy.monthsValue(grant.months),
             grant.valueFen === null ? null : copy.valueAmount(yuan(grant.valueFen))].filter(Boolean).join(" · ")}
       </p>
-      {grant.deliveryLines.length > 0 && (
+      {grant.deliveryLines.length > 0 && !(active && grant.deliveryStatus === "open") && (
         <p className="dash-usvc-meta">{copy.deliveredLines(grant.deliveryLines.length)}: {grant.deliveryLines.map((line) => line.label).join(" / ")}</p>
+      )}
+      {active && grant.deliveryStatus === "open" && (
+        <DeliveryBindings
+          lines={grant.deliveryLines}
+          csrfToken={csrfToken}
+          copy={copy}
+          onBind={async (position, key) => {
+            if (csrfToken !== null) onChanged(await bindAdminGrantDelivery(grant.id, position, key, csrfToken));
+          }}
+        />
       )}
       {grant.reason && <p className="dash-usvc-meta">{copy.grantReason}: {grant.reason}</p>}
       {active && mode === "open" && <OpenGrantForm grant={grant} csrfToken={csrfToken} copy={copy} onDone={done} onCancel={() => setMode("view")} />}
