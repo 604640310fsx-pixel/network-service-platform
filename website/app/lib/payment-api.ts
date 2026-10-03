@@ -197,7 +197,8 @@ export type OpenServiceResult = {
   readonly items: ReadonlyArray<{
     readonly position: number;
     readonly label: string;
-    readonly monitorTargetKey: string;
+    /** null when opened unbound while monitoring was unavailable. */
+    readonly monitorTargetKey: string | null;
   }>;
 };
 
@@ -314,6 +315,11 @@ function normalizeDeliveryPayload(
     return null;
   }
   return { label: normalizedLabel, subscriptionUrl };
+}
+
+/** Unbound line (monitoring unavailable + explicit confirmation): label and https URL only. */
+export function normalizeUnboundDeliveryItemInput(value: unknown): { label: string; subscriptionUrl: string } | null {
+  return normalizeDeliveryPayload(value);
 }
 
 export function normalizeDeliveryItemInput(value: unknown): DeliveryItemInput | null {
@@ -688,14 +694,14 @@ function parseOpenService(value: unknown): OpenServiceResult {
   }
   const items = body.items.map((rawItem, index) => {
     const item = requireRecord(rawItem);
-    const monitorTargetKey = normalizeMonitorTargetKey(item.monitorTargetKey);
+    const monitorTargetKey = item.monitorTargetKey === null ? null : normalizeMonitorTargetKey(item.monitorTargetKey);
     if (
       item.position !== index + 1 ||
       typeof item.label !== "string" ||
       item.label.length === 0 ||
       item.label !== item.label.trim() ||
       item.label.length > DELIVERY_MAX_LABEL_LENGTH ||
-      monitorTargetKey === null
+      (item.monitorTargetKey !== null && monitorTargetKey === null)
     ) {
       throw new PaymentApiError("invalid_response");
     }
@@ -940,22 +946,23 @@ export async function getAdminMonitorTargets(signal?: AbortSignal): Promise<Admi
   return parseAdminMonitorTargets(response);
 }
 
+/* allowUnbound: only when the VPS list cannot be read and the admin explicitly confirmed opening
+   without a VPS; lines are then sent without monitorTargetKey (bind later). */
 export async function openAdminService(
   serviceId: number,
   csrfToken: string,
   items: readonly DeliveryItemInput[],
+  options: { readonly allowUnbound?: boolean } = {},
 ): Promise<OpenServiceResult> {
-  if (
-    items.length < 1 ||
-    items.length > DELIVERY_MAX_ITEMS ||
-    items.some((item) => normalizeDeliveryItemInput(item) === null)
-  ) {
+  const allowUnbound = options.allowUnbound === true;
+  const normalized = items.map((item) => (allowUnbound ? normalizeUnboundDeliveryItemInput(item) : normalizeDeliveryItemInput(item)));
+  if (items.length < 1 || items.length > DELIVERY_MAX_ITEMS || normalized.some((item) => item === null)) {
     throw new PaymentApiError("invalid_item", 400);
   }
   const response = await requestJson(`/api/admin/services/${serviceId}/open`, {
     method: "POST",
     headers: mutationHeaders({ "X-CSRF-Token": csrfToken }),
-    body: JSON.stringify({ items: items.map((item) => normalizeDeliveryItemInput(item)) }),
+    body: JSON.stringify(allowUnbound ? { allowUnbound: true, items: normalized } : { items: normalized }),
   });
   return parseOpenService(response);
 }

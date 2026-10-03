@@ -8,6 +8,7 @@ import {
   type AdminPendingServiceItem,
   type DeliveryItemInput,
 } from "../../lib/payment-api";
+import { useT } from "../../lib/i18n";
 import { resolveSelection } from "../../lib/resolveSelection";
 
 const SCENARIO_LABELS: Record<string, string> = {
@@ -51,14 +52,17 @@ function adminErrorMessage(error: unknown) {
     case "items_required": return "请至少填写一条订阅链接。";
     case "invalid_item": return "请检查买家可见线路名称与 HTTPS 订阅链接。";
     case "invalid_monitor_target": return "选择的 VPS 已不可用，请刷新目标列表后重试。";
-    case "monitor_unavailable": return "暂时无法读取 3002 VPS 列表，当前不能开通服务。";
+    case "monitor_unavailable": return "暂时无法读取 3002 VPS 列表。";
     case "invalid_response": return "待开通服务数据返回异常。";
     default: return "暂时无法处理待开通服务，请稍后重试。";
   }
 }
 
 export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }) {
+  const copy = useT().adminDelivery;
   const [items, setItems] = useState<AdminPendingServiceItem[]>([]);
+  // Per-service explicit confirmation to open without a VPS while the VPS list is unavailable.
+  const [allowUnbound, setAllowUnbound] = useState<Record<number, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [openingId, setOpeningId] = useState<number | null>(null);
@@ -135,7 +139,9 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
     setOpeningId(serviceId);
     setError(null);
     try {
-      await openAdminService(serviceId, csrfToken, drafts[serviceId] ?? defaultDeliveryItems());
+      await openAdminService(serviceId, csrfToken, drafts[serviceId] ?? defaultDeliveryItems(), {
+        allowUnbound: monitorUnavailable && allowUnbound[serviceId] === true,
+      });
       setItems((current) => current.filter((item) => item.serviceId !== serviceId));
       setDrafts((current) => {
         const next = { ...current };
@@ -192,6 +198,8 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
   }
 
   const activeMonitorTargets = monitorTargets.filter((target) => target.state === "active");
+  /* VPS 列表读取失败（监控私有通道不可用）：下拉禁用，改为需要逐单勾选「暂不绑定 VPS 开通」。 */
+  const monitorUnavailable = !monitorTargetsLoading && monitorTargetsError !== null;
 
   return (
     <section className="dash-panel" aria-labelledby="dash-admin-services-title">
@@ -251,7 +259,7 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
                       <span>对应 VPS 线路服务器</span>
                       <select
                         value={deliveryItem.monitorTargetKey}
-                        disabled={monitorTargetsLoading || activeMonitorTargets.length === 0}
+                        disabled={monitorTargetsLoading || monitorUnavailable || activeMonitorTargets.length === 0}
                         onChange={(event) => updateDeliveryItem(
                           item.serviceId,
                           index,
@@ -262,7 +270,9 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
                         <option value="">
                           {monitorTargetsLoading
                             ? "正在读取 3002 VPS…"
-                            : activeMonitorTargets.length === 0
+                            : monitorUnavailable
+                              ? copy.monitorUnavailableOption
+                              : activeMonitorTargets.length === 0
                               ? "暂无可用 VPS"
                               : "请选择 VPS"}
                         </option>
@@ -330,6 +340,23 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
                   <small>每 15 秒从 3002 自动同步；停用或退役目标不能新分配，提交时服务端会再次校验 · {serviceDeliveryItems.length}/20</small>
                 </div>
               </fieldset>
+              {monitorUnavailable && (
+                <label className="dash-delivery-unbound">
+                  <input
+                    type="checkbox"
+                    checked={allowUnbound[item.serviceId] === true}
+                    onChange={(event) => {
+                      const checked = event.currentTarget.checked;
+                      setAllowUnbound((current) => ({ ...current, [item.serviceId]: checked }));
+                    }}
+                    disabled={openingId !== null}
+                  />
+                  <span>
+                    <strong>{copy.allowUnbound}</strong>
+                    <small>{copy.allowUnboundHint}</small>
+                  </span>
+                </label>
+              )}
               <div className="dash-service-foot">
                 <p>填写买家可见的脱敏线路名称并核对订阅链接后，再保存并开通服务。</p>
                 <button
@@ -338,7 +365,7 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
                   disabled={
                     openingId !== null ||
                     monitorTargetsLoading ||
-                    activeMonitorTargets.length === 0
+                    (monitorUnavailable ? allowUnbound[item.serviceId] !== true : activeMonitorTargets.length === 0)
                   }
                   aria-busy={openingId === item.serviceId}
                   onClick={() => void markOpen(item.serviceId)}

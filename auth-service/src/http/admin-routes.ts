@@ -33,14 +33,21 @@ function stringHeader(value: string | string[] | undefined): string | null {
 }
 
 type ParsedOpenItems =
-  | { readonly ok: true; readonly items: readonly ServiceDeliveryInput[] }
+  | { readonly ok: true; readonly items: readonly ServiceDeliveryInput[]; readonly allowUnbound: boolean }
   | { readonly ok: false; readonly code: "items_required" | "invalid_item" };
 
+/* allowUnbound 是显式确认：只有监控目录不可用时才允许交付行不绑 VPS（由路由判定）。
+   这里只做形状校验；allowUnbound=true 时 monitorTargetKey 可省略 / null / ""。 */
 function parseOpenItems(body: unknown): ParsedOpenItems {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return { ok: false, code: "items_required" };
   }
-  const rawItems = (body as Record<string, unknown>).items;
+  const record = body as Record<string, unknown>;
+  const rawItems = record.items;
+  if (record.allowUnbound !== undefined && typeof record.allowUnbound !== "boolean") {
+    return { ok: false, code: "invalid_item" };
+  }
+  const allowUnbound = record.allowUnbound === true;
   if (!Array.isArray(rawItems) || rawItems.length === 0) {
     return { ok: false, code: "items_required" };
   }
@@ -49,16 +56,16 @@ function parseOpenItems(body: unknown): ParsedOpenItems {
   }
   const items: ServiceDeliveryInput[] = [];
   for (const rawItem of rawItems) {
-    const item = normalizeServiceDeliveryInput(rawItem);
+    const item = normalizeServiceDeliveryInput(rawItem, { allowUnbound });
     if (item === null) {
       return { ok: false, code: "invalid_item" };
     }
     items.push(item);
   }
-  return { ok: true, items };
+  return { ok: true, items, allowUnbound };
 }
 
-export type EnabledDependencies = Extract<PaymentHttpDependencies, { readonly enabled: true }>;
+type EnabledDependencies = Extract<PaymentHttpDependencies, { readonly enabled: true }>;
 
 interface AdminIdentity {
   readonly userId: number;
@@ -324,22 +331,31 @@ export function registerPaymentAdminHttpRoutes(
       if (!parsedItems.ok) {
         return reply.code(400).send(errorResponse(parsedItems.code));
       }
-      if (dependencies.monitorTargetCatalog === null) {
-        return reply.code(503).send(errorResponse("monitor_unavailable"));
+      /* VPS 绑定按可用性必选：目录可用 → 每行必须绑定在用 VPS（allowUnbound 不放宽）；
+         目录不可用（未配置 / 读取失败）→ 只有显式 allowUnbound=true 才允许全部不绑定开通，
+         且此时不能带任何 VPS（无法校验）。 */
+      let allowedMonitorTargets: ReadonlySet<string> | null = null;
+      if (dependencies.monitorTargetCatalog !== null) {
+        try {
+          allowedMonitorTargets = new Set(
+            (await dependencies.monitorTargetCatalog.list())
+              .filter((item) => item.state === "active")
+              .map((item) => item.key),
+          );
+        } catch {
+          allowedMonitorTargets = null;
+        }
       }
-      let allowedMonitorTargets: ReadonlySet<string>;
-      try {
-        allowedMonitorTargets = new Set(
-          (await dependencies.monitorTargetCatalog.list())
-            .filter((item) => item.state === "active")
-            .map((item) => item.key),
-        );
-      } catch {
-        return reply.code(503).send(errorResponse("monitor_unavailable"));
-      }
-      if (
+      if (allowedMonitorTargets === null) {
+        if (!parsedItems.allowUnbound) {
+          return reply.code(503).send(errorResponse("monitor_unavailable"));
+        }
+        if (parsedItems.items.some((item) => item.monitorTargetKey !== null)) {
+          return reply.code(400).send(errorResponse("invalid_monitor_target"));
+        }
+      } else if (
         parsedItems.items.some(
-          (item) => !allowedMonitorTargets.has(item.monitorTargetKey),
+          (item) => item.monitorTargetKey === null || !allowedMonitorTargets.has(item.monitorTargetKey),
         )
       ) {
         return reply.code(400).send(errorResponse("invalid_monitor_target"));

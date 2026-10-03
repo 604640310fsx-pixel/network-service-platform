@@ -159,6 +159,8 @@ export interface AdminServiceView {
   readonly endsAt: string | null;
   readonly planLabel: string | null;
   readonly adminNote: string | null;
+  /** Delivered lines with their VPS binding (null = opened while monitoring was unavailable). */
+  readonly deliveryLines: ReadonlyArray<{ readonly position: number; readonly label: string; readonly monitorTargetKey: string | null }>;
 }
 
 export interface AdminGrantView {
@@ -194,7 +196,20 @@ const ADMIN_SERVICE_COLUMNS = `services.id AS service_id, orders.order_ref, orde
   orders.type_id, orders.region_id, orders.isp_id, orders.spec_id, orders.duration_id,
   services.created_at, services.opened_at, services.ends_at, services.plan_override, services.admin_note`;
 
-function adminServiceView(value: unknown): AdminServiceView {
+function serviceDeliveryLines(
+  database: DatabaseConnection,
+  serviceId: number,
+): Array<{ position: number; label: string; monitorTargetKey: string | null }> {
+  return database
+    .prepare("SELECT position, label, monitor_target_key FROM service_delivery_items WHERE service_id = ? ORDER BY position ASC")
+    .all(serviceId)
+    .map((value) => {
+      const row = asRow(value, "Service delivery");
+      return { position: integer(row, "position"), label: text(row, "label"), monitorTargetKey: nullableText(row, "monitor_target_key") };
+    });
+}
+
+function adminServiceView(value: unknown, database?: DatabaseConnection): AdminServiceView {
   const row = asRow(value, "Admin service");
   const serviceStatus = text(row, "service_status");
   if (serviceStatus !== "pending_open" && serviceStatus !== "open") {
@@ -216,6 +231,7 @@ function adminServiceView(value: unknown): AdminServiceView {
     endsAt: nullableText(row, "ends_at"),
     planLabel: planOverrideLabel(row.plan_override),
     adminNote: nullableText(row, "admin_note"),
+    deliveryLines: database === undefined ? [] : serviceDeliveryLines(database, integer(row, "service_id")),
   };
 }
 
@@ -272,7 +288,7 @@ function readAdminService(database: DatabaseConnection, serviceId: number): Admi
        WHERE services.id = ?`,
     )
     .all(serviceId);
-  return rows.length === 1 ? adminServiceView(rows[0]) : null;
+  return rows.length === 1 ? adminServiceView(rows[0], database) : null;
 }
 
 function readAdminGrant(database: DatabaseConnection, grantId: number): AdminGrantView | null {
@@ -299,7 +315,7 @@ export function listUserServicesForAdmin(
        ORDER BY services.id DESC`,
     )
     .all(userId)
-    .map(adminServiceView);
+    .map((value) => adminServiceView(value, database));
   const grants = database
     .prepare("SELECT * FROM admin_grants WHERE user_id = ? ORDER BY id DESC")
     .all(userId)
@@ -650,4 +666,34 @@ export function readMyGrantDelivery(
 
 export function auditGrantDeliveryDecryptFailure(database: DatabaseConnection, grantId: number, now?: () => Date): void {
   audit(database, "system", "grant.delivery_decrypt_failed", `grant:${grantId}`, nowIso(now));
+}
+
+/** Bind (or rebind) one delivered line to a monitor target after opening. The route checks the
+    target against the live catalog; this only enforces ownership of the line and the open state. */
+export function bindServiceDeliveryForAdmin(
+  database: DatabaseConnection,
+  input: {
+    readonly serviceId: number;
+    readonly position: number;
+    readonly monitorTargetKey: string;
+    readonly adminEmail: string;
+    readonly now?: () => Date;
+  },
+): AdminServiceView {
+  const operation = database.transaction(() => {
+    const service = readAdminService(database, input.serviceId);
+    if (service === null || !service.deliveryLines.some((line) => line.position === input.position)) {
+      throw new PaymentDomainError(404, "not_found");
+    }
+    if (service.serviceStatus !== "open") throw new PaymentDomainError(409, "invalid_transition");
+    const at = nowIso(input.now);
+    database
+      .prepare("UPDATE service_delivery_items SET monitor_target_key = ?, updated_at = ? WHERE service_id = ? AND position = ?")
+      .run(input.monitorTargetKey, at, input.serviceId, input.position);
+    audit(database, input.adminEmail, "admin.service.delivery_bind", `service:${input.serviceId}#${input.position}`, at);
+    const updated = readAdminService(database, input.serviceId);
+    if (updated === null) throw new Error("Admin service database invariant failed");
+    return updated;
+  });
+  return operation.immediate();
 }
