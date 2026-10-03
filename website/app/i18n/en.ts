@@ -357,7 +357,7 @@ export const en: Messages = {
       },
     },
     regions: {
-      title: "Available regions",
+      title: "Recommended Regions",
       aside: "Carriers and specs are listed on the Plans page",
       tags: {
         sg: ["AI top pick", "Social", "Low latency", "Fast", "Stable"],

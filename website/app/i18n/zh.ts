@@ -356,7 +356,7 @@ export const zh = {
       } as Record<string, { role: string; scene: string }>,
     },
     regions: {
-      title: "可选地区",
+      title: "推荐地区",
       aside: "具体运营商与规格以网络方案页为准",
       tags: {
         sg: ["AI 首选", "社媒", "低延迟", "高速", "稳定"],
