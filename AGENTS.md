@@ -9,6 +9,7 @@ Codex/Devin 按当前委派执行已冻结的实施或聚焦审查，完成范�
 - 管理角色和当前模型路由：[`docs/ai/GPT-CONTROL-V2.md`](docs/ai/GPT-CONTROL-V2.md)
 - 任务状态、单写者、验证、Git、checkpoint、handoff 和报告：[`docs/team/TEAM-COLLAB-V1.md`](docs/team/TEAM-COLLAB-V1.md)
 - 项目事实入口：[`docs/ai/NSP-PROJECT-KNOWLEDGE.md`](docs/ai/NSP-PROJECT-KNOWLEDGE.md)
+- 项目 UI 常驻指令粘贴源：[`docs/ai/PROJECT_INSTRUCTIONS_FINAL.txt`](docs/ai/PROJECT_INSTRUCTIONS_FINAL.txt)；仓库写入不等于项目 UI 已替换或会话已加载
 
 优先级：用户当前最新明确指令 > 当前 Task Packet > 已冻结事实 > `TEAM-COLLAB-V1` > 本文件 > 仓库惯例 > 一般最佳实践。Task Packet 不得扩大未授权动作。
 
