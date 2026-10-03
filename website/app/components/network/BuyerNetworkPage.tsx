@@ -3,14 +3,17 @@ import { Link } from "react-router-dom";
 import { useCatalogText, useT, type Messages } from "../../lib/i18n";
 import {
   PaymentApiError,
-  getMyDeliveryLines,
+  getMyDeliveryLineListing,
   getMyOrders,
-  getMyServices,
+  getMyServiceListing,
   type MyDeliveryLineItem,
+  type MyGrantDeliveryLineItem,
+  type MyGrantItem,
   type MyOrderItem,
   type MyServiceItem,
   type ServiceStatus,
 } from "../../lib/payment-api";
+import { groupGiftLines, type GiftLineGroup } from "./giftLines";
 import {
   buyerStatusHref,
   resolveBuyerStatusHref,
@@ -27,6 +30,8 @@ import "./buyer-network.css";
 
 /* /network 买家「节点与流量」页。
    真实数据只来自既有 GET /api/me/services、GET /api/me/orders 与 GET /api/me/delivery-lines；
+   赠送套餐（services 中 source=grant）与其交付线路（delivery-lines 中 source=grant）按赠送 id
+   单独成组，计入「关联服务」，同样只显示线路名称；
    服务属性名称来自已冻结的 SUBSCRIBE-CATALOG-V1（目录标称，非实测值）。节点在线 / 超时 /
    离线、实际用量、配额与重置周期没有公共契约，一律显示「待接入」的未知态：参考稿里的
    0 在本页一律写成 —，绝不渲染伪造的 0 值或 Mock 生产数据。
@@ -371,6 +376,9 @@ function NodesPanel({
   ordersState,
   deliveryState,
   orphanLineGroups,
+  giftGroups,
+  giftOpenCount,
+  giftLineCount,
   nodeStatus,
   onRetry,
   onRetryDeliveryLines,
@@ -378,6 +386,10 @@ function NodesPanel({
 }: {
   servicesState: Resource<readonly MyServiceItem[]>;
   accountServices: readonly AccountServiceView[];
+  /** One group per active gift (plus any gift line whose gift is not listed). */
+  giftGroups: readonly GiftLineGroup[];
+  giftOpenCount: number;
+  giftLineCount: number;
   ordersState: Resource<readonly MyOrderItem[]>;
   deliveryState: Resource<readonly MyDeliveryLineItem[]>;
   orphanLineGroups: readonly OrphanLineGroup[];
@@ -393,9 +405,9 @@ function NodesPanel({
   /* 线路条数只作为「名称记录数」出现在说明文字里，并且始终与「不代表节点数量」同句，
      绝不进入四格统计，也绝不被读成在线节点数。 */
   const lineCountText =
-    deliveryState.kind === "ready" ? t.network.lineCount(deliveryState.items.length) : "";
+    deliveryState.kind === "ready" ? t.network.lineCount(deliveryState.items.length + giftLineCount) : "";
   const subline = ready
-    ? t.network.nodesSubline(accountServices.length, openCount, lineCountText)
+    ? t.network.nodesSubline(accountServices.length + giftGroups.length, openCount + giftOpenCount, lineCountText)
     : servicesState.kind === "loading"
       ? t.network.servicesLoading
       : t.network.servicesUnavailable;
@@ -413,7 +425,9 @@ function NodesPanel({
     statusItems.filter((item) => item.kind === "service").map((item) => [`${item.ref}#${item.position}`, item.status] as const),
   );
   const statusFor: StatusLookup | undefined = live ? (ref, position) => statusByLine.get(`${ref}#${position}`) ?? null : undefined;
-  const giftLines = statusItems.filter((item): item is Extract<NodeStatusItem, { kind: "grant" }> => item.kind === "grant");
+  const giftStatusByLine = new Map(
+    statusItems.filter((item) => item.kind === "grant").map((item) => [`${item.ref}#${item.position}`, item.status] as const),
+  );
 
   /* 四格：全部 / 在线 / 超时 / 离线。只有私有监控可用时显示真实计数；全部 = 全部交付线路，
      未绑定与未知只计入「全部」并在其提示里单列（待接入组）。监控不可用 / 读取中保持 — 未知态。 */
@@ -493,7 +507,7 @@ function NodesPanel({
         />
       )}
 
-      {ready && accountServices.length === 0 && (
+      {ready && accountServices.length === 0 && giftGroups.length === 0 && (
         <StateBlock
           tone="empty"
           icon={<NodesIcon />}
@@ -503,7 +517,7 @@ function NodesPanel({
         />
       )}
 
-      {ready && accountServices.length > 0 && (
+      {ready && (accountServices.length > 0 || giftGroups.length > 0) && (
         <>
           {(ordersState.kind === "error" || ordersState.kind === "unauthorized") && (
             <p className="cc-net-inline-note" role="status">
@@ -536,7 +550,7 @@ function NodesPanel({
             </div>
           )}
 
-          <ul className="cc-net-lines">
+          {accountServices.length > 0 && <ul className="cc-net-lines">
             {accountServices.map((service) => {
               const isOpen = service.serviceStatus === "open";
               const attributes = [service.region, service.isp, service.type]
@@ -586,7 +600,7 @@ function NodesPanel({
                 </li>
               );
             })}
-          </ul>
+          </ul>}
 
           {orphanLineGroups.length > 0 && (
             <div className="cc-net-orphan">
@@ -601,20 +615,41 @@ function NodesPanel({
             </div>
           )}
 
-          {giftLines.length > 0 && (
+          {giftGroups.length > 0 && (
             <div className="cc-net-gift-lines">
               <strong>{t.network.giftLinesTitle}</strong>
-              <ul className="cc-net-line-labels">
-                {giftLines.map((line) => (
-                  <li key={`${line.ref}-${line.position}`}>
-                    <div className="cc-net-line-label is-static">
-                      <span className="cc-net-line-label-index" aria-hidden="true">{line.position}</span>
-                      <span className="cc-net-line-label-text">{line.label}<small>{t.network.giftRef(line.ref)}</small></span>
-                      <NodeStatusBadge status={line.status} />
+              {giftGroups.map((group) => {
+                const delivered = group.deliveryStatus === "open";
+                return (
+                  <div className="cc-net-gift-group" key={group.grantId}>
+                    <div className="cc-net-gift-head">
+                      <span className="cc-net-gift-name">{group.label ?? t.network.giftRef(group.grantId)}</span>
+                      <span className="cc-net-badge is-open">{t.services.gift}</span>
+                      <span className={`cc-net-badge ${delivered ? "is-open" : "is-waiting"}`}>
+                        {delivered ? t.dashboard.giftDelivered : t.dashboard.giftAwaitingDelivery}
+                      </span>
                     </div>
-                  </li>
-                ))}
-              </ul>
+                    {group.lines.length > 0 ? (
+                      <ul className="cc-net-line-labels">
+                        {group.lines.map((line) => {
+                          const status = live ? giftStatusByLine.get(`${group.grantId}#${line.position}`) ?? null : null;
+                          return (
+                            <li key={`${group.grantId}-${line.position}`}>
+                              <div className="cc-net-line-label is-static">
+                                <span className="cc-net-line-label-index" aria-hidden="true">{line.position}</span>
+                                <span className="cc-net-line-label-text">{line.label}</span>
+                                {status !== null && <NodeStatusBadge status={status} />}
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : !delivered ? (
+                      <p className="cc-net-line-note">{t.network.giftAwaitingLines}</p>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -760,6 +795,8 @@ export function BuyerNetworkPage() {
   const [servicesState, setServicesState] = useState<Resource<readonly MyServiceItem[]>>({ kind: "loading" });
   const [ordersState, setOrdersState] = useState<Resource<readonly MyOrderItem[]>>({ kind: "loading" });
   const [deliveryState, setDeliveryState] = useState<Resource<readonly MyDeliveryLineItem[]>>({ kind: "loading" });
+  const [grants, setGrants] = useState<readonly MyGrantItem[]>([]);
+  const [giftDeliveryLines, setGiftDeliveryLines] = useState<readonly MyGrantDeliveryLineItem[] | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
   const [deliveryToken, setDeliveryToken] = useState(0);
   const [nodeStatus, setNodeStatus] = useState<NodeStatusState>({ kind: "loading" });
@@ -771,12 +808,15 @@ export function BuyerNetworkPage() {
     setServicesState({ kind: "loading" });
     setOrdersState({ kind: "loading" });
 
-    void getMyServices(controller.signal)
-      .then((items) => {
-        if (!stopped) setServicesState({ kind: "ready", items });
+    void getMyServiceListing(controller.signal)
+      .then((listing) => {
+        if (stopped) return;
+        setServicesState({ kind: "ready", items: listing.services });
+        setGrants(listing.grants);
       })
       .catch((error: unknown) => {
         if (stopped) return;
+        setGrants([]);
         if (error instanceof PaymentApiError && error.code === "unauthorized") {
           setServicesState({ kind: "unauthorized" });
           return;
@@ -811,9 +851,12 @@ export function BuyerNetworkPage() {
     let stopped = false;
     setDeliveryState({ kind: "loading" });
 
-    void getMyDeliveryLines(controller.signal)
-      .then((items) => {
-        if (!stopped) setDeliveryState({ kind: "ready", items });
+    setGiftDeliveryLines(null);
+    void getMyDeliveryLineListing(controller.signal)
+      .then((listing) => {
+        if (stopped) return;
+        setDeliveryState({ kind: "ready", items: listing.services });
+        setGiftDeliveryLines(listing.grants);
       })
       .catch((error: unknown) => {
         if (stopped) return;
@@ -856,6 +899,8 @@ export function BuyerNetworkPage() {
     services === null ? [] : buildAccountServices(services, orders, linesByOrder);
   const orphanLineGroups: readonly OrphanLineGroup[] =
     services === null ? [] : collectOrphanLineGroups(linesByOrder, services);
+  const giftGroups: readonly GiftLineGroup[] = services === null ? [] : groupGiftLines(grants, giftDeliveryLines);
+  const giftOpenCount = grants.filter((grant) => grant.deliveryStatus === "open").length;
   const isLoading =
     servicesState.kind === "loading" ||
     ordersState.kind === "loading" ||
@@ -886,6 +931,9 @@ export function BuyerNetworkPage() {
             ordersState={ordersState}
             deliveryState={deliveryState}
             orphanLineGroups={orphanLineGroups}
+            giftGroups={giftGroups}
+            giftOpenCount={giftOpenCount}
+            giftLineCount={giftDeliveryLines?.length ?? 0}
             nodeStatus={nodeStatus}
             onRetry={reload}
             onRetryDeliveryLines={reloadDeliveryLines}

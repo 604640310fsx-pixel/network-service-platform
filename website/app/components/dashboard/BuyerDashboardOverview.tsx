@@ -3,13 +3,14 @@ import { Link } from "react-router-dom";
 import {
   PaymentApiError,
   getMyOrders,
-  getMyServices,
+  getMyServiceListing,
+  type MyGrantItem,
   type MyOrderItem,
-  type MyServiceItem,
   type PaymentOrderStatus,
   type ServiceStatus,
 } from "../../lib/payment-api";
 import { useT, type Messages } from "../../lib/i18n";
+import { buyerPlanCounts, combineBuyerPlans, type BuyerPlan } from "./buyerPlans";
 
 type ResourceState<T> =
   | { readonly kind: "loading" }
@@ -95,11 +96,37 @@ function ErrorCard({ message, onRetry }: { message: string; onRetry: () => void 
   );
 }
 
+function GiftPlanCard({ grant }: { grant: MyGrantItem }) {
+  const t = useT();
+  const delivered = grant.deliveryStatus === "open";
+  return (
+    <div className="dash-service dash-buyer-card">
+      <div className="dash-service-head">
+        <div><strong>{grant.label}</strong><small>{t.dashboard.latestGift}</small></div>
+        <span className="dash-tag is-accent">{t.services.gift}</span>
+        <span className={`dash-tag ${delivered ? "is-accent" : ""}`}>
+          {delivered ? t.dashboard.giftDelivered : t.dashboard.giftAwaitingDelivery}
+        </span>
+      </div>
+      <dl className="dash-service-facts">
+        <div><dt>{t.dashboard.giftValue}</dt><dd>{grant.valueFen === null ? "—" : formatFen(grant.valueFen)}</dd></div>
+        <div><dt>{t.dashboard.giftStarted}</dt><dd>{formatDate(grant.startsAt, t.account.dateLocale)}</dd></div>
+        <div><dt>{t.dashboard.giftEnds}</dt><dd>{grant.endsAt === null ? t.dashboard.giftLongTerm : formatDate(grant.endsAt, t.account.dateLocale)}</dd></div>
+        <div><dt>{t.dashboard.deliveryStatus}</dt><dd>{delivered ? t.dashboard.giftDelivered : t.dashboard.giftAwaitingDelivery}</dd></div>
+      </dl>
+      <div className="dash-service-foot">
+        <p>{delivered ? t.dashboard.giftOpenHint : t.dashboard.giftPendingHint}</p>
+        <Link className="dash-secondary-link" to="/services">{t.dashboard.allServices}</Link>
+      </div>
+    </div>
+  );
+}
+
 function CurrentServiceCard({
   state,
   onRetry,
 }: {
-  state: ResourceState<readonly MyServiceItem[]>;
+  state: ResourceState<readonly BuyerPlan[]>;
   onRetry: () => void;
 }) {
   const t = useT();
@@ -107,8 +134,9 @@ function CurrentServiceCard({
   if (state.kind === "unauthorized") return <UnauthorizedCard label={t.dashboard.resources.serviceProgress} />;
   if (state.kind === "error") return <ErrorCard message={state.message} onRetry={onRetry} />;
 
-  const current = [...state.items].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ?? null;
-  if (current === null) {
+  // Plans arrive newest first (combineBuyerPlans); the featured card is the first one.
+  const plan = state.items[0] ?? null;
+  if (plan === null) {
     return (
       <div className="dash-service">
         <div className="dash-service-head">
@@ -121,7 +149,9 @@ function CurrentServiceCard({
       </div>
     );
   }
+  if (plan.kind === "grant") return <GiftPlanCard grant={plan.grant} />;
 
+  const current = plan.service;
   const isOpen = current.serviceStatus === "open";
   return (
     <div className="dash-service dash-buyer-card">
@@ -202,10 +232,12 @@ function MoreList({
   title: string;
   items: readonly {
     readonly key: string;
-    readonly orderRef: string;
+    readonly title: string;
     readonly meta: string;
     readonly badge: string;
     readonly accent: boolean;
+    /** Text of a gift tag shown before the status badge; absent for purchases and orders. */
+    readonly gift?: string;
   }[];
   to: string;
   linkLabel: string;
@@ -220,9 +252,10 @@ function MoreList({
         {items.map((item) => (
           <li key={item.key}>
             <div>
-              <strong>{item.orderRef}</strong>
+              <strong>{item.title}</strong>
               <small>{item.meta}</small>
             </div>
+            {item.gift !== undefined && <span className="dash-tag is-accent dash-more-gift">{item.gift}</span>}
             <span className={`dash-tag ${item.accent ? "is-accent" : ""}`}>{item.badge}</span>
           </li>
         ))}
@@ -241,7 +274,7 @@ function NetworkIcon({ kind }: { kind: "nodes" | "monitor" }) {
 
 export function BuyerDashboardOverview() {
   const t = useT();
-  const [servicesState, setServicesState] = useState<ResourceState<readonly MyServiceItem[]>>({ kind: "loading" });
+  const [servicesState, setServicesState] = useState<ResourceState<readonly BuyerPlan[]>>({ kind: "loading" });
   const [ordersState, setOrdersState] = useState<ResourceState<readonly MyOrderItem[]>>({ kind: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -251,9 +284,9 @@ export function BuyerDashboardOverview() {
     setServicesState({ kind: "loading" });
     setOrdersState({ kind: "loading" });
 
-    void getMyServices(controller.signal)
-      .then((items) => {
-        if (!stopped) setServicesState({ kind: "ready", items });
+    void getMyServiceListing(controller.signal)
+      .then(({ services, grants }) => {
+        if (!stopped) setServicesState({ kind: "ready", items: combineBuyerPlans(services, grants) });
       })
       .catch((error: unknown) => {
         if (stopped) return;
@@ -283,29 +316,41 @@ export function BuyerDashboardOverview() {
     };
   }, [reloadToken]);
 
-  const services = servicesState.kind === "ready" ? servicesState.items : null;
+  const plans = servicesState.kind === "ready" ? servicesState.items : null;
   const orders = ordersState.kind === "ready" ? ordersState.items : null;
-  const openCount = services?.filter((item) => item.serviceStatus === "open").length ?? null;
-  const pendingCount = services === null || openCount === null ? null : services.length - openCount;
+  const planCounts = plans === null ? null : buyerPlanCounts(plans);
+  const openCount = planCounts?.open ?? null;
+  const pendingCount = planCounts?.pending ?? null;
   const unpaidCount = orders?.filter((item) => item.status === "pending").length ?? null;
   const reload = () => setReloadToken((token) => token + 1);
 
   // 特写卡展示最近一项，其余最多三项进入「更多」列表，形成概览 → 特写 → 列表的层级。
-  // 与 CurrentServiceCard 同一比较器，保证特写项与列表项不重复。
-  const sortedServices: readonly MyServiceItem[] =
-    services === null ? [] : [...services].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-  const extraServices = sortedServices.slice(1, 4).map((item) => ({
-    key: item.orderRef,
-    orderRef: item.orderRef,
-    meta: `${formatDate(item.createdAt, t.account.dateLocale)} · ${formatFen(item.amountFen)}`,
-    badge: serviceStatusLabel(item.serviceStatus, t.account),
-    accent: item.serviceStatus === "open",
-  }));
+  // 与 CurrentServiceCard 共用 combineBuyerPlans 的顺序，保证特写项与列表项不重复。
+  const extraServices = (plans ?? []).slice(1, 4).map((plan) =>
+    plan.kind === "purchase"
+      ? {
+          key: plan.key,
+          title: plan.service.orderRef,
+          meta: `${formatDate(plan.service.createdAt, t.account.dateLocale)} · ${formatFen(plan.service.amountFen)}`,
+          badge: serviceStatusLabel(plan.service.serviceStatus, t.account),
+          accent: plan.open,
+        }
+      : {
+          key: plan.key,
+          title: plan.grant.label,
+          meta: plan.grant.valueFen === null
+            ? formatDate(plan.grant.startsAt, t.account.dateLocale)
+            : `${formatDate(plan.grant.startsAt, t.account.dateLocale)} · ${formatFen(plan.grant.valueFen)}`,
+          badge: plan.open ? t.dashboard.giftDelivered : t.dashboard.giftAwaitingDelivery,
+          accent: plan.open,
+          gift: t.services.gift,
+        },
+  );
   // 订单不在前端重排：后端已按 createdAt DESC 排序。
   const recentOrders: readonly MyOrderItem[] = orders ?? [];
   const extraOrders = recentOrders.slice(1, 4).map((item) => ({
     key: item.orderRef,
-    orderRef: item.orderRef,
+    title: item.orderRef,
     meta: `${formatDate(item.createdAt, t.account.dateLocale)} · ${formatFen(item.amountFen)}`,
     badge: t.account.orderStatus[item.status],
     accent: item.status === "paid",
@@ -314,7 +359,7 @@ export function BuyerDashboardOverview() {
   const overviewStats = [
     {
       label: t.dashboard.stats.services.label,
-      value: services === null ? "—" : String(services.length),
+      value: planCounts === null ? "—" : String(planCounts.total),
       hint: stateHint(servicesState, t.dashboard.stats.services.hint, t.dashboard),
     },
     {
@@ -358,7 +403,7 @@ export function BuyerDashboardOverview() {
         <section className="dash-panel" aria-labelledby="dash-service-title">
           <h2 id="dash-service-title">
             <em>SERVICE</em>{t.dashboard.currentService}
-            {services !== null && <span>{t.account.itemCount(services.length)}</span>}
+            {plans !== null && <span>{t.account.itemCount(plans.length)}</span>}
           </h2>
           <CurrentServiceCard state={servicesState} onRetry={reload} />
           {extraServices.length > 0 && (

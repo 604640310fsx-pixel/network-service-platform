@@ -153,6 +153,18 @@ export type MyDeliveryLineItem = {
   readonly label: string;
 };
 
+/** A delivered line name of an opened gift (no order behind it; grouped by grantId). */
+export type MyGrantDeliveryLineItem = {
+  readonly grantId: number;
+  readonly position: number;
+  readonly label: string;
+};
+
+export type MyDeliveryLineListing = {
+  readonly services: readonly MyDeliveryLineItem[];
+  readonly grants: readonly MyGrantDeliveryLineItem[];
+};
+
 export type AdminMonitorTarget = {
   readonly key: string;
   readonly label: string;
@@ -520,16 +532,16 @@ function parseMyServiceItem(item: Record<string, unknown>): MyServiceItem {
   };
 }
 
-function parseMyDeliveryLines(value: unknown): MyDeliveryLineItem[] {
+function parseMyDeliveryLineListing(value: unknown): MyDeliveryLineListing {
   const body = requireRecord(value);
   if (!Array.isArray(body.items)) throw new PaymentApiError("invalid_response");
 
   const lines: MyDeliveryLineItem[] = [];
+  const grantLines: MyGrantDeliveryLineItem[] = [];
   for (const rawItem of body.items) {
     const item = requireRecord(rawItem);
     if (item.source === "grant") {
-      // Gift line names are validated but belong to the gift card (see getMyGrantDelivery),
-      // not to the order-grouped network view.
+      // Gift line names (names only, like service lines); grouped by grantId, never by order.
       if (
         !hasExactKeys(item, ["source", "grantId", "position", "label"]) ||
         !isPositiveInteger(item.grantId) ||
@@ -540,6 +552,7 @@ function parseMyDeliveryLines(value: unknown): MyDeliveryLineItem[] {
       ) {
         throw new PaymentApiError("invalid_response");
       }
+      grantLines.push({ grantId: item.grantId, position: item.position, label: item.label });
       continue;
     }
     if (
@@ -558,7 +571,7 @@ function parseMyDeliveryLines(value: unknown): MyDeliveryLineItem[] {
       label: item.label,
     });
   }
-  return lines;
+  return { services: lines, grants: grantLines };
 }
 
 /* 严格解析 GET /api/me/orders：每个字段的类型与枚举都必须精确匹配冻结契约。
@@ -911,12 +924,17 @@ export async function getMyGrantDelivery(grantId: number, signal?: AbortSignal):
 }
 
 export async function getMyDeliveryLines(signal?: AbortSignal): Promise<MyDeliveryLineItem[]> {
+  return [...(await getMyDeliveryLineListing(signal)).services];
+}
+
+/** Delivered line names of purchased services (by orderRef) and of opened gifts (by grantId). */
+export async function getMyDeliveryLineListing(signal?: AbortSignal): Promise<MyDeliveryLineListing> {
   const response = await requestJson("/api/me/delivery-lines", {
     method: "GET",
     headers: { Accept: "application/json" },
     signal,
   });
-  return parseMyDeliveryLines(response);
+  return parseMyDeliveryLineListing(response);
 }
 
 export async function getMyOrders(signal?: AbortSignal): Promise<MyOrderItem[]> {
