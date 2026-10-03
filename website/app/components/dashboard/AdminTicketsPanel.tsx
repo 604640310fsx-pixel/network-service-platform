@@ -14,7 +14,9 @@ import {
 import "../customer/customer-tickets.css";
 
 /* 管理员工单处理：列表、详情、文字回复与关闭。只调用 /api/admin/tickets*，
-   所有写操作携带 CSRF；正文按纯文本渲染。关闭后不可回复或重开（MVP）。 */
+   所有写操作携带 CSRF；正文按纯文本渲染。关闭后不可回复或重开（MVP）。
+   客户上传的图片只读显示：地址已由 tickets-api 校验为同源 /api/admin/tickets/:ref/attachments/:ref；
+   管理端不提供上传。 */
 
 type Filter = TicketStatus | "all";
 
@@ -34,6 +36,13 @@ function formatDate(value: string): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+// 关联已购服务显示订单号，关联赠送套餐沿用客户端同一文案（zh tickets.giftRef）。
+export function linkedServiceLabel(item: Pick<AdminTicketSummary, "serviceOrderRef" | "serviceGrantId">): string {
+  if (item.serviceOrderRef !== null) return item.serviceOrderRef;
+  if (item.serviceGrantId != null) return `赠送套餐 #${item.serviceGrantId}`;
+  return "未关联";
 }
 
 function TicketDetailView({
@@ -111,6 +120,17 @@ function TicketDetailView({
               <small>{formatDate(message.createdAt)}</small>
             </div>
             <p className="cc-tk-body">{message.body}</p>
+            {message.attachments.length > 0 && (
+              <ul className="cc-tk-attachments">
+                {message.attachments.map((attachment, imageIndex) => (
+                  <li key={attachment.ref}>
+                    <a href={attachment.url} target="_blank" rel="noopener noreferrer" aria-label={`查看客户图片 ${imageIndex + 1} 原图`}>
+                      <img src={attachment.url} alt={`客户图片 ${imageIndex + 1}`} loading="lazy" />
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
           </li>
         ))}
       </ol>
@@ -178,6 +198,7 @@ export function AdminTicketsPanel({ csrfToken }: { csrfToken: string | null }) {
               subject: updated.subject,
               status: updated.status,
               serviceOrderRef: updated.serviceOrderRef,
+              serviceGrantId: updated.serviceGrantId ?? null,
               createdAt: updated.createdAt,
               updatedAt: updated.updatedAt,
               closedAt: updated.closedAt,
@@ -241,7 +262,7 @@ export function AdminTicketsPanel({ csrfToken }: { csrfToken: string | null }) {
             <dl className="dash-service-facts">
               <div><dt>消息</dt><dd>{item.messageCount} 条</dd></div>
               <div><dt>最近发言</dt><dd>{item.lastMessageRole === "admin" ? "客服" : "客户"}</dd></div>
-              <div><dt>关联服务</dt><dd>{item.serviceOrderRef ?? "未关联"}</dd></div>
+              <div><dt>关联服务</dt><dd>{linkedServiceLabel(item)}</dd></div>
             </dl>
             <div className="dash-coupon-controls">
               <button
