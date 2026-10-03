@@ -3,6 +3,10 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { registerPaymentAdminHttpRoutes } from "./http/admin-routes.js";
 import { registerAdminServiceHttpRoutes } from "./http/admin-service-routes.js";
 import {
+  registerSubscriptionInfoHttpRoutes,
+  type SubscriptionInfoHttpDependencies,
+} from "./http/subscription-info-routes.js";
+import {
   registerAuthHttpRoutes,
   type AuthHttpDependencies,
 } from "./http/auth-routes.js";
@@ -97,6 +101,7 @@ export interface BuildAppOptions {
   readonly passwordReset?: PasswordResetHttpDependencies;
   readonly payment?: PaymentHttpDependencies;
   readonly monitor?: MonitorHttpDependencies;
+  readonly subscriptionInfo?: SubscriptionInfoHttpDependencies;
   readonly referral?: ReferralHttpDependencies;
   readonly readiness?: ReadinessDependencies;
 }
@@ -172,6 +177,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     registerPasswordResetHttpRoutes(app, options.passwordReset);
   }
   registerMonitorHttpRoutes(app, options.monitor ?? null);
+  registerSubscriptionInfoHttpRoutes(app, options.subscriptionInfo ?? null);
   const payment = options.payment ?? { enabled: false };
   registerPaymentHttpRoutes(app, payment);
   registerPaymentAdminHttpRoutes(app, payment);
