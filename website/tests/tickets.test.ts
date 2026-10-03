@@ -57,7 +57,7 @@ test("customer writes send the session CSRF token and only allowed fields", asyn
     status: 200,
     body: { ticket: call.url.startsWith("/api/admin/") ? { ...detail, customerEmail: "customer@example.test" } : detail },
   }), async (calls) => {
-    const created = await createMyTicket("c".repeat(43), { subject: "Latency", body: "hello", serviceOrderRef: null });
+    const created = await createMyTicket("c".repeat(43), { subject: "Latency", body: "hello", link: null });
     // Message bodies stay raw strings; the page renders them as text, never HTML.
     assert.equal(created.messages[0]?.body, "<img src=x onerror=alert(1)>");
     await replyToMyTicket("c".repeat(43), REF, "more");
@@ -79,10 +79,84 @@ test("customer writes send the session CSRF token and only allowed fields", asyn
 
 test("the service link is sent only when chosen and never an owner or role field", async () => {
   await withFetch(() => ({ status: 200, body: { ticket: detail } }), async (calls) => {
-    await createMyTicket("c".repeat(43), { subject: "s", body: "b", serviceOrderRef: "DL00000001ABCDEF" });
-    const payload = JSON.parse(String(calls[0]?.init.body));
-    assert.deepEqual(Object.keys(payload).sort(), ["body", "serviceOrderRef", "subject"]);
+    await createMyTicket("c".repeat(43), { subject: "s", body: "b", link: { kind: "purchase", orderRef: "DL00000001ABCDEF" } });
+    await createMyTicket("c".repeat(43), { subject: "s", body: "b", link: { kind: "grant", grantId: 7 } });
+    const purchase = JSON.parse(String(calls[0]?.init.body));
+    const grant = JSON.parse(String(calls[1]?.init.body));
+    assert.deepEqual(Object.keys(purchase).sort(), ["body", "serviceOrderRef", "subject"]);
+    // Purchase and gift links are mutually exclusive, as the server requires.
+    assert.deepEqual(grant, { subject: "s", body: "b", serviceGrantId: 7 });
   });
+});
+
+const IMAGE = { contentType: "image/png" as const, dataBase64: "iVBORw0KGgo=" };
+
+test("images are sent only when chosen, as exact {contentType, dataBase64} entries, at most three", async () => {
+  await withFetch(() => ({ status: 200, body: { ticket: detail } }), async (calls) => {
+    await createMyTicket("c".repeat(43), { subject: "s", body: "b", link: null, attachments: [] });
+    await createMyTicket("c".repeat(43), { subject: "s", body: "b", link: null, attachments: [IMAGE] });
+    await replyToMyTicket("c".repeat(43), REF, "more", [IMAGE, IMAGE]);
+    await replyToMyTicket("c".repeat(43), REF, "plain");
+    const bodies = calls.map((call) => JSON.parse(String(call.init.body)));
+    assert.deepEqual(bodies[0], { subject: "s", body: "b" });
+    assert.deepEqual(bodies[1], { subject: "s", body: "b", attachments: [IMAGE] });
+    assert.deepEqual(bodies[2], { body: "more", attachments: [IMAGE, IMAGE] });
+    assert.deepEqual(bodies[3], { body: "plain" });
+    await assert.rejects(
+      replyToMyTicket("c".repeat(43), REF, "x", [IMAGE, IMAGE, IMAGE, IMAGE]),
+      (error: unknown) => error instanceof TicketApiError && error.code === "invalid_attachments",
+    );
+    assert.equal(calls.length, 4);
+  });
+});
+
+test("attachment URLs must be the same-origin ticket endpoint the client rebuilds", async () => {
+  const ATTACHMENT = "TA0123456789ABCDEF";
+  const withImage = (url: string, extra: Record<string, unknown> = {}) => ({
+    ...detail,
+    serviceGrantId: 7,
+    messages: [{ ...detail.messages[0], attachments: [{ ref: ATTACHMENT, contentType: "image/webp", byteSize: 42, url }] }],
+    ...extra,
+  });
+  await withFetch(() => ({ status: 200, body: { ticket: withImage(`/api/me/tickets/${REF}/attachments/${ATTACHMENT}`) } }), async () => {
+    const ticket = await getMyTicket(REF);
+    assert.equal(ticket.serviceGrantId, 7);
+    assert.deepEqual(ticket.messages[0]?.attachments, [
+      { ref: ATTACHMENT, contentType: "image/webp", byteSize: 42, url: `/api/me/tickets/${REF}/attachments/${ATTACHMENT}` },
+    ]);
+  });
+  for (const bad of [
+    "https://evil.example/x.png",
+    `/api/admin/tickets/${REF}/attachments/${ATTACHMENT}`,
+    `/api/me/tickets/TK0000000000000000/attachments/${ATTACHMENT}`,
+  ]) {
+    await withFetch(() => ({ status: 200, body: { ticket: withImage(bad) } }), async () => {
+      await assert.rejects(getMyTicket(REF), (error: unknown) => error instanceof TicketApiError && error.code === "invalid_response");
+    });
+  }
+  // A ticket cannot link both a purchase and a gift.
+  await withFetch(() => ({ status: 200, body: { ticket: withImage(`/api/me/tickets/${REF}/attachments/${ATTACHMENT}`, { serviceOrderRef: "DL00000001ABCDEF" }) } }), async () => {
+    await assert.rejects(getMyTicket(REF), (error: unknown) => error instanceof TicketApiError && error.code === "invalid_response");
+  });
+  // Older servers without the new fields still parse: no gift link, no images.
+  await withFetch(() => ({ status: 200, body: { ticket: detail } }), async () => {
+    const ticket = await getMyTicket(REF);
+    assert.equal(ticket.serviceGrantId, null);
+    assert.deepEqual(ticket.messages[0]?.attachments, []);
+  });
+});
+
+test("image and gift errors map to their own messages", () => {
+  assert.equal(ticketErrorMessage(new TicketApiError("image_too_large", 400)), "单张图片不能超过 5MB。");
+  for (const code of ["unsupported_image_type", "invalid_image", "image_type_mismatch"]) {
+    assert.equal(ticketErrorMessage(new TicketApiError(code, 400)), "图片无法识别，请上传 JPEG、PNG 或 WebP 图片。");
+  }
+  assert.equal(ticketErrorMessage(new TicketApiError("invalid_attachments", 400)), "每条消息最多附 3 张图片。");
+  for (const code of ["ticket_storage_exceeded", "account_storage_exceeded", "storage_limit_exceeded"]) {
+    assert.equal(ticketErrorMessage(new TicketApiError(code, 409)), "图片存储空间已满，请减少图片后重试。");
+  }
+  assert.equal(ticketErrorMessage(new TicketApiError("invalid_grant", 400)), "所选赠送套餐无效或已失效，请重新选择或不关联服务。");
+  assert.equal(ticketErrorMessage(new TicketApiError("rate_limited", 429)), "图片发送过于频繁，请稍后重试。");
 });
 
 test("malformed refs never reach the network and server errors keep their codes", async () => {
@@ -109,7 +183,7 @@ test("unexpected response shapes fail closed", async () => {
   }
 });
 
-test("ticket pages render plain text only and promise no SLA, notifications, or attachments", () => {
+test("ticket pages render plain text only and promise no SLA or notifications; only the customer page takes images", () => {
   const page = source("../app/components/customer/CustomerTicketsPage.tsx");
   const admin = source("../app/components/dashboard/AdminTicketsPanel.tsx");
   const css = source("../app/components/customer/customer-tickets.css");
@@ -117,8 +191,13 @@ test("ticket pages render plain text only and promise no SLA, notifications, or 
   for (const file of [page, admin]) {
     assert.doesNotMatch(file, /dangerouslySetInnerHTML|innerHTML/);
     assert.match(file, /<p className="cc-tk-body">\{message\.body\}<\/p>/);
-    assert.doesNotMatch(withoutComments(file), /小时内|分钟内|工作日内|满意度|附件|上传|邮件通知|短信/);
+    assert.doesNotMatch(withoutComments(file), /小时内|分钟内|工作日内|满意度|邮件通知|短信/);
   }
+  // The admin panel still has no attachment UI; the customer page renders images only from parsed same-origin URLs.
+  assert.doesNotMatch(withoutComments(admin), /附件|上传|attachments/);
+  assert.match(page, /<MessageImages attachments=\{message\.attachments\} copy=\{copy\} \/>/);
+  assert.match(page, /<img src=\{attachment\.url\} alt=\{copy\.imageAlt\(index \+ 1\)\} loading="lazy" \/>/);
+  assert.match(page, /rel="noopener noreferrer"/);
   assert.match(css, /\.cc-tk-body \{[^}]*white-space: pre-wrap;/);
   // Signed-out recovery is a full-page navigation, as on the orders page.
   assert.match(page, /<a className="cc-ord-primary" href="\/login">\{copy\.signInAgain\}<\/a>/);
