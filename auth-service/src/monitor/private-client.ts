@@ -17,6 +17,8 @@ const JSON_CONTENT_TYPE_PATTERN = /^application\/json(?:\s*;\s*charset=utf-8)?$/
 const UTC_SECOND_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 const PRIVATE_IPV4_RANGES = [
   [0x0a000000, 0x0affffff],
+  // 100.64.0.0/10 (RFC 6598 shared space): Tailscale/overlay private-link addresses.
+  [0x64400000, 0x647fffff],
   [0x7f000000, 0x7fffffff],
   [0xa9fe0000, 0xa9feffff],
   [0xac100000, 0xac1fffff],
