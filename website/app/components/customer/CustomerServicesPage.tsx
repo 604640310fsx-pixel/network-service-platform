@@ -114,11 +114,11 @@ function RenewalConsentControl({ serviceId }: { serviceId: number }) {
     setError(null);
   }
 
-  async function fetchQuote() {
+  async function fetchQuote(keepNotice = false) {
     setQuote({ kind: "loading" });
     setConfirmed(false);
     setError(null);
-    setNotice(null);
+    if (!keepNotice) setNotice(null);
     try {
       const value = await getRenewalQuote(serviceId, period);
       setQuote({ kind: "ready", quote: value });
@@ -130,20 +130,31 @@ function RenewalConsentControl({ serviceId }: { serviceId: number }) {
 
   async function save(enabled: boolean) {
     if (load.kind !== "ready" || csrfToken === null || saving) return;
+    // 开启只能提交买家看到并勾选确认的那次报价 key；关闭不带 key。
+    const confirmedQuote = quote.kind === "ready" && quote.quote.period === period ? quote.quote : null;
+    if (enabled && (confirmedQuote === null || !confirmed)) return;
     setSaving(true);
     setError(null);
     setNotice(null);
     try {
-      await putRenewalConsent(csrfToken, serviceId, {
-        period: enabled ? period : load.consent.period ?? period,
-        expectedRevision: load.consent.revision,
-        enabled,
-      });
+      await putRenewalConsent(
+        csrfToken,
+        serviceId,
+        enabled && confirmedQuote !== null
+          ? { period, expectedRevision: load.consent.revision, enabled: true, expectedQuoteKey: confirmedQuote.key }
+          : { period: load.consent.period ?? period, expectedRevision: load.consent.revision, enabled: false },
+      );
       resetDecision();
       setNotice(enabled ? copy.saved : copy.disabledSaved);
       setReloadToken((token) => token + 1);
     } catch (saveError) {
-      if (saveError instanceof WalletApiError && saveError.code === "revision_conflict") {
+      if (saveError instanceof WalletApiError && saveError.code === "quote_changed") {
+        // 报价已变：服务端未写入。重新读取授权与同周期报价，清除勾选，展示新价格，等待买家重新手动确认；不自动重试。
+        setConfirmed(false);
+        setNotice(copy.quoteChanged);
+        setReloadToken((token) => token + 1);
+        void fetchQuote(true);
+      } else if (saveError instanceof WalletApiError && saveError.code === "revision_conflict") {
         resetDecision();
         setNotice(copy.conflict);
         setReloadToken((token) => token + 1);

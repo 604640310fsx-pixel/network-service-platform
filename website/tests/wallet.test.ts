@@ -81,19 +81,35 @@ test("renewal quote and consent parse the frozen DTOs, including the never-set c
   }
 });
 
-test("consent PUT sends only {period, expectedRevision, enabled} with the session CSRF token", async () => {
+test("consent PUT: enabling sends the confirmed quote key; disabling sends three fields only", async () => {
   await withFetch(() => ({ status: 200, body: { revision: 4 } }), async (calls) => {
-    const revision = await putRenewalConsent("c".repeat(43), 7, { period: "QUARTERLY", expectedRevision: 3, enabled: true });
+    const revision = await putRenewalConsent("c".repeat(43), 7, { period: "QUARTERLY", expectedRevision: 3, enabled: true, expectedQuoteKey: "renewal-quote:v1:month-3:15900" });
     assert.equal(revision, 4);
     assert.equal(calls[0]?.url, "/api/me/services/7/renewal-consent");
     assert.equal(calls[0]?.init.method, "PUT");
     assert.equal((calls[0]?.init.headers as Record<string, string>)["X-CSRF-Token"], "c".repeat(43));
-    // No price, quote key or expiry ever leaves the browser.
-    assert.deepEqual(JSON.parse(String(calls[0]?.init.body)), { period: "QUARTERLY", expectedRevision: 3, enabled: true });
+    // Only the confirmed quote's key travels; no price or expiry ever leaves the browser.
+    assert.deepEqual(JSON.parse(String(calls[0]?.init.body)), { period: "QUARTERLY", expectedRevision: 3, enabled: true, expectedQuoteKey: "renewal-quote:v1:month-3:15900" });
+    await putRenewalConsent("c".repeat(43), 7, { period: "QUARTERLY", expectedRevision: 4, enabled: false });
+    assert.deepEqual(JSON.parse(String(calls[1]?.init.body)), { period: "QUARTERLY", expectedRevision: 4, enabled: false });
+  });
+  // Enabling without a key never reaches the network.
+  await withFetch(() => ({ status: 200, body: { revision: 1 } }), async (calls) => {
+    await assert.rejects(
+      putRenewalConsent("c".repeat(43), 7, { period: "MONTHLY", expectedRevision: 0, enabled: true, expectedQuoteKey: "" }),
+      (error: unknown) => error instanceof WalletApiError && error.code === "invalid_request",
+    );
+    assert.equal(calls.length, 0);
+  });
+  await withFetch(() => ({ status: 409, body: { error: { code: "quote_changed" } } }), async () => {
+    await assert.rejects(
+      putRenewalConsent("c".repeat(43), 7, { period: "MONTHLY", expectedRevision: 0, enabled: true, expectedQuoteKey: "k" }),
+      (error: unknown) => error instanceof WalletApiError && error.code === "quote_changed" && error.status === 409,
+    );
   });
   await withFetch(() => ({ status: 409, body: { error: { code: "revision_conflict" } } }), async () => {
     await assert.rejects(
-      putRenewalConsent("c".repeat(43), 7, { period: "MONTHLY", expectedRevision: 0, enabled: false }),
+      putRenewalConsent("c".repeat(43), 7, { period: "MONTHLY", expectedRevision: 0, enabled: false } as const),
       (error: unknown) => error instanceof WalletApiError && error.code === "revision_conflict" && error.status === 409,
     );
   });
@@ -143,6 +159,11 @@ test("the consent control is off by default and enables only after a fresh quote
   // A stale revision refetches and asks again; an unavailable quote blocks enabling.
   assert.match(page, /saveError\.code === "revision_conflict"\) \{\s*resetDecision\(\);\s*setNotice\(copy\.conflict\);\s*setReloadToken/);
   assert.match(page, /quoteError\.code === "quote_unavailable"\) setQuote\(\{ kind: "unavailable" \}\)/);
+  // Enabling submits the key of the quote that was shown and confirmed.
+  assert.match(page, /enabled: true, expectedQuoteKey: confirmedQuote\.key \}/);
+  // quote_changed: no write happened; refetch consent and the same-period quote, clear the tick, no auto-retry.
+  assert.match(page, /saveError\.code === "quote_changed"\) \{\s*(\/\/[^\n]*\n\s*)?setConfirmed\(false\);\s*setNotice\(copy\.quoteChanged\);\s*setReloadToken\(\(token\) => token \+ 1\);\s*void fetchQuote\(true\);\s*\}/);
+  assert.doesNotMatch(page, /quote_changed[\s\S]{0,400}save\(true\)/);
   // Only owned OPEN purchases with a real serviceId get the control; pending, legacy and gifts are unavailable.
   assert.match(page, /\{isOpen && item\.serviceId !== null\s*\? <RenewalConsentControl serviceId=\{item\.serviceId\} \/>/);
   assert.match(page, /<RenewalUnavailable message=\{t\.wallet\.renewal\.unavailableGift\} \/>/);

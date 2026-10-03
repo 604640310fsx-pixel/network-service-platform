@@ -3,7 +3,9 @@
    - GET  /api/me/wallet                                   -> { balanceFen, currency: "CNY" }
    - GET  /api/me/services/:id/renewal-quote?period=…      -> { quote: {...} }
    - GET  /api/me/services/:id/renewal-consent             -> { consent: {...} }
-   - PUT  /api/me/services/:id/renewal-consent             body 仅 { period, expectedRevision, enabled } -> { revision }
+   - PUT  /api/me/services/:id/renewal-consent             开启 { period, expectedRevision, enabled, expectedQuoteKey }；
+                                                            关闭 { period, expectedRevision, enabled } -> { revision }
+     （expectedQuoteKey 按经理批准的契约更新：取自已确认报价；409 quote_changed 表示报价已变）
    错误统一 { error: { code } }。所有请求同源携带 Session Cookie；写操作携带 Session 绑定的 CSRF。
    价格、报价 key、到期时间只由服务端给出，浏览器从不提交。:id 是服务端 services.id；
    买家服务列表目前不返回该字段，调用方不得用 orderRef 或其他字段推算。 */
@@ -170,15 +172,23 @@ export async function getRenewalConsent(serviceId: number, signal?: AbortSignal)
   return parseConsent(await requestJson(url, { method: "GET", headers: { Accept: "application/json" } }, signal));
 }
 
-/** 只提交 { period, expectedRevision, enabled }；返回服务端新的 revision。 */
-export async function putRenewalConsent(
-  csrfToken: string,
-  serviceId: number,
-  input: { readonly period: BillingPeriod; readonly expectedRevision: number; readonly enabled: boolean },
-): Promise<number> {
+/** 开启：{ period, expectedRevision, enabled: true, expectedQuoteKey }，key 必须是买家看到并确认的那次
+    GET 报价的 quote.key（服务端比对最新报价，不一致返回 409 quote_changed 且不写入）。
+    关闭：只提交 { period, expectedRevision, enabled: false }，不带 key。返回服务端新的 revision。 */
+export type RenewalConsentChange =
+  | { readonly period: BillingPeriod; readonly expectedRevision: number; readonly enabled: true; readonly expectedQuoteKey: string }
+  | { readonly period: BillingPeriod; readonly expectedRevision: number; readonly enabled: false };
+
+export async function putRenewalConsent(csrfToken: string, serviceId: number, input: RenewalConsentChange): Promise<number> {
   if (!isPeriod(input.period) || !isNonNegativeInteger(input.expectedRevision) || typeof input.enabled !== "boolean") {
     throw new WalletApiError("invalid_request", 400);
   }
+  if (input.enabled && (typeof input.expectedQuoteKey !== "string" || input.expectedQuoteKey.length === 0)) {
+    throw new WalletApiError("invalid_request", 400);
+  }
+  const body = input.enabled
+    ? { period: input.period, expectedRevision: input.expectedRevision, enabled: true, expectedQuoteKey: input.expectedQuoteKey }
+    : { period: input.period, expectedRevision: input.expectedRevision, enabled: false };
   const value = await requestJson(`${servicePath(serviceId)}/renewal-consent`, {
     method: "PUT",
     headers: {
@@ -187,7 +197,7 @@ export async function putRenewalConsent(
       "X-Requested-With": "XMLHttpRequest",
       "X-CSRF-Token": csrfToken,
     },
-    body: JSON.stringify({ period: input.period, expectedRevision: input.expectedRevision, enabled: input.enabled }),
+    body: JSON.stringify(body),
   });
   if (!isRecord(value) || !isNonNegativeInteger(value.revision)) invalid();
   return value.revision;

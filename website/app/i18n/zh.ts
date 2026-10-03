@@ -720,6 +720,7 @@ export const zh = {
       saved: "续费授权已保存。",
       disabledSaved: "已关闭自动续费。",
       conflict: "授权状态已在别处变化，已刷新，请重新确认。",
+      quoteChanged: "报价已变化，未开启自动续费。已显示最新报价，请核对后重新勾选确认。",
       unavailablePending: "服务开通后才能设置自动续费。",
       unavailableGift: "赠送套餐不支持自动续费。",
       unavailableNoId: "当前无法设置自动续费。",

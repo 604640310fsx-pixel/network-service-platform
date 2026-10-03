@@ -721,6 +721,7 @@ export const en: Messages = {
       saved: "Auto-renewal authorization saved.",
       disabledSaved: "Auto-renewal turned off.",
       conflict: "The authorization changed elsewhere and was refreshed. Please confirm again.",
+      quoteChanged: "The quote changed, so auto-renewal was not turned on. The latest quote is shown; check it and confirm again.",
       unavailablePending: "Auto-renewal can be set once the service is active.",
       unavailableGift: "Gifted plans don't support auto-renewal.",
       unavailableNoId: "Auto-renewal can't be set right now.",
