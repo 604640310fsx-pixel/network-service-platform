@@ -4,9 +4,9 @@ import test from "node:test";
 import type { DatabaseConnection } from "../../src/db.js";
 import { WALLET_CANDIDATE_TEST_SCHEMA } from "../../src/wallet/schema.js";
 import {
-  assertOrderOpenForAction, cancelPendingOrder, changeNextBillingPeriod, createTopupIntent, creditVerifiedTopup,
+  assertOrderOpenForAction, cancelPendingOrder, createTopupIntent, creditVerifiedTopup,
   produceRenewalQuote, recordWalletReversalFixture, recordVerifiedOrderPayment, renewalDryRun, requestPaidServiceTermination,
-  runRenewalFixture, setRenewalConsent, walletBalance, type AuthoritativeQuote, type ManagedOrder, type ServiceEligibility,
+  runRenewalFixture, setNextBillingPeriod, setRenewalConsent, walletBalance, type AuthoritativeQuote, type ManagedOrder, type ServiceEligibility,
 } from "../../src/wallet/candidate.js";
 
 const require = createRequire(import.meta.url);
@@ -21,7 +21,9 @@ function fixture(fn: (db: DatabaseConnection) => void): void {
     db.prepare("INSERT INTO payments(id,order_id,status) VALUES (1,1,'paid')").run();
     db.prepare("INSERT INTO services(id,payment_id,ends_at) VALUES (11,1,?)").run("2026-11-01T00:00:00.000Z");
     db.prepare(`INSERT INTO sellable_plans(id,type_id,region_id,isp_id,spec_id,duration_id,price_fen,is_active,created_at,updated_at)
-      VALUES (1,'local-isp','us','us-verizon',NULL,'month-1',900,1,?,?)`).run(AT, AT);
+      VALUES (1,'local-isp','us','us-verizon',NULL,'month-1',900,1,?,?),
+             (2,'local-isp','us','us-verizon',NULL,'month-6',5000,1,?,?),
+             (3,'local-isp','us','us-verizon',NULL,'month-12',9000,1,?,?)`).run(AT, AT, AT, AT, AT, AT);
     fn(db);
   } finally { db.close(); }
 }
@@ -72,7 +74,7 @@ test("quote and owner are required; gift, missing end, missing plan and changed 
   assert.throws(() => setRenewalConsent(db, 11, 7, "MONTHLY", 0, true, AT), /QUOTE_UNAVAILABLE/);
   db.prepare("UPDATE services SET ends_at='2026-11-01T00:00:00.000Z' WHERE id=11").run();
   assert.throws(() => setRenewalConsent(db, 11, 8, "MONTHLY", 0, true, AT), /FORBIDDEN/);
-  assert.throws(() => setRenewalConsent(db, 11, 7, "SEMIANNUAL", 0, true, AT), /QUOTE_UNAVAILABLE/);
+  assert.throws(() => setRenewalConsent(db, 11, 7, "QUARTERLY", 0, true, AT), /QUOTE_UNAVAILABLE/);
   consent(db);
   assert.equal(renewalDryRun(db, service, { ...quote, priceFen: 901 }), "RECONSENT_REQUIRED");
   assert.equal(runRenewalFixture(db, "TEST_ONLY", service, { ...quote, priceFen: 901 }, 1, AT), "RECONSENT_REQUIRED");
@@ -98,15 +100,21 @@ test("debit, ledger, cycle and modeled extension commit together or roll back to
 }));
 
 test("period change serializes with runner and forces renewed consent; disabling stays off", () => fixture((db) => {
+  const actor = { userId: 7, sessionValid: true, csrfValid: true, isAdmin: false };
   topup(db); credit(db); consent(db);
-  assert.equal(changeNextBillingPeriod(db, 11, 7, "QUARTERLY", 1, AT), 2);
+  // QUARTERLY has no month-3 SKU for this tuple: the current sellable quote check rejects it.
+  assert.throws(() => setNextBillingPeriod(db, actor, 11, "QUARTERLY", 1, AT), /QUOTE_UNAVAILABLE/);
+  assert.equal(setNextBillingPeriod(db, actor, 11, "SEMIANNUAL", 1, AT), 2);
   assert.equal(state(db, 11), "RECONSENT_REQUIRED");
   assert.throws(() => runRenewalFixture(db, "TEST_ONLY", service, quote, 1, AT), /REVISION_CONFLICT/);
   assert.equal(runRenewalFixture(db, "TEST_ONLY", service, quote, 2, AT), "RECONSENT_REQUIRED");
   assert.equal(walletBalance(db, 7), 1000);
   db.prepare("UPDATE services SET ends_at=NULL WHERE id=11").run();
   setRenewalConsent(db, 11, 7, "MONTHLY", 2, false, AT);
-  changeNextBillingPeriod(db, 11, 7, "ANNUAL", 3, AT);
+  // Null expiry makes the quote unavailable even for a DISABLED row (frozen: unavailable quote → reject).
+  assert.throws(() => setNextBillingPeriod(db, actor, 11, "ANNUAL", 3, AT), /QUOTE_UNAVAILABLE/);
+  db.prepare("UPDATE services SET ends_at='2026-11-01T00:00:00.000Z' WHERE id=11").run();
+  setNextBillingPeriod(db, actor, 11, "ANNUAL", 3, AT);
   assert.equal(state(db, 11), "DISABLED");
   assert.equal(count(db, "wallet_consent_history"), 4);
 }));
@@ -225,16 +233,16 @@ test("renewal quote is server-derived from the paid order tuple and live plan; e
   assert.equal(renewalDryRun(db, service, normalized), "DISABLED");
   db.prepare("UPDATE services SET ends_at='2026-11-01T00:00:00.000Z' WHERE id=11").run();
   // Missing catalog duration for the tuple.
-  assert.throws(() => produceRenewalQuote(db, 11, "SEMIANNUAL", 7), /QUOTE_UNAVAILABLE/);
+  assert.throws(() => produceRenewalQuote(db, 11, "QUARTERLY", 7), /QUOTE_UNAVAILABLE/);
   // Inactive plan row.
   db.prepare("UPDATE sellable_plans SET is_active=0 WHERE id=1").run();
   assert.throws(() => produceRenewalQuote(db, 11, "MONTHLY", 7), /QUOTE_UNAVAILABLE/);
   db.prepare("UPDATE sellable_plans SET is_active=1 WHERE id=1").run();
   // Ambiguous SKU (duplicate 5-tuple row) fails closed, not a guess.
   db.prepare(`INSERT INTO sellable_plans(id,type_id,region_id,isp_id,spec_id,duration_id,price_fen,is_active,created_at,updated_at)
-    VALUES (2,'local-isp','us','us-verizon',NULL,'month-1',901,1,?,?)`).run(AT, AT);
+    VALUES (92,'local-isp','us','us-verizon',NULL,'month-1',901,1,?,?)`).run(AT, AT);
   assert.throws(() => produceRenewalQuote(db, 11, "MONTHLY", 7), /QUOTE_UNAVAILABLE/);
-  db.prepare("DELETE FROM sellable_plans WHERE id=2").run();
+  db.prepare("DELETE FROM sellable_plans WHERE id=92").run();
   // No paid source (gift-style service) has no order join.
   db.prepare("INSERT INTO services(id,payment_id,ends_at) VALUES (12,99,?)").run("2026-12-01T00:00:00.000Z");
   assert.throws(() => produceRenewalQuote(db, 12, "MONTHLY", 7), /QUOTE_UNAVAILABLE/);

@@ -102,7 +102,9 @@ export class FakeAlipaySdk implements AlipaySdkLike {
     }
     this.queryCalls.push(outTradeNo);
     this.queryOptions.push(options);
-    return this.queryResponse;
+    return typeof this.queryResponse === "function"
+      ? (this.queryResponse as (ref: unknown) => unknown)(outTradeNo)
+      : this.queryResponse;
   }
 }
 

@@ -6,7 +6,8 @@ import type { FastifyInstance } from "fastify";
 import type { DatabaseConnection } from "../src/db.js";
 import { buildApp } from "../src/app.js";
 import { insertAuthenticationUser, withAuthenticationDatabase } from "./auth/helpers.js";
-import { CSRF_KEY, TEST_NOW, TOKEN_KEYRING, insertWebSession } from "./payment/helpers.js";
+import { CSRF_KEY, FakeAlipaySdk, TEST_NOW, TOKEN_KEYRING, insertWebSession, paymentDependencies, queryResult, tradeNotExistResult } from "./payment/helpers.js";
+import { applyAdminOrderClose } from "../src/wallet/candidate.js";
 
 const NOW = "2026-08-21T00:00:00.000Z";
 const ENDS = "2026-09-01T00:00:00.000Z";
@@ -14,13 +15,17 @@ const ENDS = "2026-09-01T00:00:00.000Z";
 type Session = ReturnType<typeof insertWebSession>;
 type App = FastifyInstance;
 
-function walletApp(database: DatabaseConnection): App {
+function walletApp(database: DatabaseConnection, sdk?: FakeAlipaySdk): App {
   return buildApp({
+    // payment 关闭时全局钩子对 /api/admin/services/* 返回 503（既有语义），
+    // 需要 admin 路由覆盖的用例必须同时注入启用态 payment。
+    ...(sdk === undefined ? {} : { payment: paymentDependencies(database, sdk) }),
     wallet: {
       database,
       tokenHmacKeyring: TOKEN_KEYRING,
       csrfSigningKey: CSRF_KEY,
       now: () => new Date(TEST_NOW),
+      ...(sdk === undefined ? {} : { payment: { appId: "app-123", sellerId: "seller-456", sdk } }),
     },
   });
 }
@@ -67,6 +72,63 @@ function seedService(database: DatabaseConnection, ownerId: number, adminId: num
   );
 }
 
+/** Order/payment/(optional service) row set on the real payment schema; the seeded
+    payment appId matches the walletApp provider wiring. */
+function seedOrder(
+  database: DatabaseConnection,
+  ownerId: number,
+  input: {
+    readonly ref?: string;
+    readonly orderStatus?: "pending" | "paid" | "closed";
+    readonly paymentStatus?: "pending" | "paid" | "closed";
+    readonly serviceStatus?: "pending_open" | "open" | null;
+    readonly adminId?: number;
+    readonly amountFen?: number;
+    readonly tradeNo?: string | null;
+  } = {},
+): { readonly orderId: number; readonly orderRef: string; readonly paymentId: number; readonly serviceId: number | null } {
+  const ref = input.ref ?? `WO${ownerId}-${input.orderStatus ?? "pending"}-${input.serviceStatus ?? "ns"}`;
+  const amountFen = input.amountFen ?? 7900;
+  database
+    .prepare(
+      `INSERT INTO orders (
+         order_ref, idempotency_key, request_fingerprint, user_id,
+         type_id, region_id, isp_id, spec_id, duration_id, catalog_version,
+         amount_fen, currency, contact, scenarios, notes, status, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, 'local-isp', 'us', 'us-verizon', NULL, 'month-1', 'SUBSCRIBE-CATALOG-V1',
+         ?, 'CNY', 'w@example.test', '[]', NULL, ?, ?, ?)`,
+    )
+    .run(ref, `i-${ref}`, `f-${ref}`, ownerId, amountFen, input.orderStatus ?? "pending", NOW, NOW);
+  const orderId = Number((database.prepare("SELECT id FROM orders WHERE order_ref = ?").all(ref)[0] as { id: number }).id);
+  database
+    .prepare(
+      `INSERT INTO payments (
+         order_id, out_trade_no, channel, app_id, amount_fen, currency, status,
+         trade_no, alipay_trade_status, paid_at, created_at, updated_at, reserved_until
+       ) VALUES (?, ?, 'alipay_page', 'app-123', ?, 'CNY', ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      orderId, `out-${ref}`, amountFen, input.paymentStatus ?? "pending",
+      input.tradeNo ?? null, input.paymentStatus === "paid" ? "TRADE_SUCCESS" : null,
+      input.paymentStatus === "paid" ? NOW : null, NOW, NOW, "2026-09-15T00:00:00.000Z",
+    );
+  const paymentId = Number((database.prepare("SELECT id FROM payments WHERE order_id = ?").all(orderId)[0] as { id: number }).id);
+  let serviceId: number | null = null;
+  if (input.serviceStatus !== undefined && input.serviceStatus !== null) {
+    database
+      .prepare(
+        `INSERT INTO services (payment_id, status, opened_by_admin_id, opened_at, ends_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        paymentId, input.serviceStatus, input.serviceStatus === "open" ? (input.adminId ?? ownerId) : null,
+        input.serviceStatus === "open" ? NOW : null, ENDS, NOW, NOW,
+      );
+    serviceId = Number((database.prepare("SELECT id FROM services WHERE payment_id = ?").all(paymentId)[0] as { id: number }).id);
+  }
+  return { orderId, orderRef: ref, paymentId, serviceId };
+}
+
 const get = (app: App, url: string, session: Session | null) =>
   app.inject({ method: "GET", url, headers: session ? { cookie: session.cookie } : {} });
 const put = (app: App, url: string, session: Session | null, payload: unknown, csrf?: string | null) =>
@@ -78,6 +140,14 @@ const put = (app: App, url: string, session: Session | null, payload: unknown, c
       ...(csrf !== null && (csrf ?? session?.csrfToken) ? { "x-csrf-token": (csrf ?? session?.csrfToken) as string } : {}),
     },
     payload: payload as Record<string, unknown>,
+  });
+const post = (app: App, url: string, session: Session | null, csrf?: string | null) =>
+  app.inject({
+    method: "POST", url,
+    headers: {
+      ...(session ? { cookie: session.cookie } : {}),
+      ...(csrf !== null && (csrf ?? session?.csrfToken) ? { "x-csrf-token": (csrf ?? session?.csrfToken) as string } : {}),
+    },
   });
 
 test("wallet balance: authenticated CNY fen, zero without account, unauthorized without session", async () => {
@@ -172,6 +242,385 @@ test("renewal-consent: GET snapshot, PUT enable/disable with owner+CSRF+revision
     res = await get(app, url, owner.session);
     assert.equal(res.json().consent.state, "DISABLED");
     assert.equal(res.json().consent.priceFen, null);
+    await app.close();
+  });
+});
+
+test("buyer order cancel: provider-observed unpaid close is atomic; paid/foreign/missing/CSRF boundaries hold", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const sdk = new FakeAlipaySdk();
+    const app = walletApp(database, sdk);
+    const owner = user(database, "c1@example.test");
+    const other = user(database, "c2@example.test");
+    const unpaid = seedOrder(database, owner.id, { ref: "CANCEL-1", orderStatus: "pending", paymentStatus: "pending" });
+    const paid = seedOrder(database, owner.id, {
+      ref: "CANCEL-2", orderStatus: "paid", paymentStatus: "paid", tradeNo: "t-paid", serviceStatus: "pending_open",
+    });
+    const foreign = seedOrder(database, other.id, { ref: "CANCEL-3", orderStatus: "pending", paymentStatus: "pending" });
+    sdk.queryResponse = (ref: string) =>
+      queryResult({
+        tradeStatus: sdk.closeCalls.includes(ref) ? "TRADE_CLOSED" : "WAIT_BUYER_PAY",
+        outTradeNo: ref,
+        totalAmount: "79.00",
+      });
+    let res = await post(app, `/api/me/orders/${unpaid.orderRef}/cancel`, null);
+    assert.equal(res.statusCode, 401);
+    res = await post(app, `/api/me/orders/${unpaid.orderRef}/cancel`, owner.session, null);
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.json().error.code, "csrf_invalid");
+    res = await post(app, `/api/me/orders/${foreign.orderRef}/cancel`, owner.session);
+    assert.equal(res.statusCode, 404);
+    res = await post(app, "/api/me/orders/MISSING/cancel", owner.session);
+    assert.equal(res.statusCode, 404);
+    // 已付款订单不可按未付款取消。
+    res = await post(app, `/api/me/orders/${paid.orderRef}/cancel`, owner.session);
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.json().error.code, "not_cancellable");
+    // WAIT_BUYER_PAY → trade.close → 权威复查 TRADE_CLOSED → 原子关闭。
+    res = await post(app, `/api/me/orders/${unpaid.orderRef}/cancel`, owner.session);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), { result: "CANCELLED" });
+    assert.equal(sdk.closeCalls.length, 1);
+    assert.equal(sdk.closeCalls[0], `out-${unpaid.orderRef}`);
+    const orderRow = database.prepare("SELECT status FROM orders WHERE id=?").all(unpaid.orderId)[0] as { status: string };
+    const paymentRow = database.prepare("SELECT status FROM payments WHERE order_id=?").all(unpaid.orderId)[0] as { status: string };
+    assert.equal(orderRow.status, "closed");
+    assert.equal(paymentRow.status, "closed");
+    const closure = database
+      .prepare("SELECT closed_by_user_id, inventory_released, coupon_released FROM wallet_order_closures WHERE order_id=?")
+      .all(unpaid.orderId)[0] as { closed_by_user_id: number; inventory_released: number; coupon_released: number };
+    assert.equal(closure.closed_by_user_id, owner.id);
+    assert.equal(closure.inventory_released, 1);
+    assert.equal(closure.coupon_released, 1);
+    res = await post(app, `/api/me/orders/${unpaid.orderRef}/cancel`, owner.session);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), { result: "ALREADY_CANCELLED" });
+    await app.close();
+  });
+});
+
+test("buyer order cancel: provider failure announces nothing; late paid wins and is settled, never cancelled", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const sdk = new FakeAlipaySdk();
+    const app = walletApp(database, sdk);
+    const owner = user(database, "c5@example.test");
+    const pending = seedOrder(database, owner.id, { ref: "CANCEL-9", orderStatus: "pending", paymentStatus: "pending" });
+    sdk.queryResponse = (ref: string) =>
+      queryResult({ tradeStatus: "WAIT_BUYER_PAY", outTradeNo: ref, totalAmount: "79.00" });
+    sdk.closeResponse = new Error("provider close unavailable");
+    let res = await post(app, `/api/me/orders/${pending.orderRef}/cancel`, owner.session);
+    assert.equal(res.statusCode, 503);
+    assert.equal(res.json().error.code, "wallet_unavailable");
+    assert.equal(
+      (database.prepare("SELECT status FROM orders WHERE id=?").all(pending.orderId)[0] as { status: string }).status,
+      "pending",
+    );
+    assert.equal(database.prepare("SELECT COUNT(*) AS n FROM wallet_order_closures").all()[0] && (database.prepare("SELECT COUNT(*) AS n FROM wallet_order_closures").all()[0] as { n: number }).n, 0);
+    // 关单后复查发现买家已支付：paid 胜出，结算保留财务事实，取消被拒。
+    sdk.closeResponse = { code: "10000" };
+    sdk.queryResponse = (ref: string) =>
+      queryResult({
+        tradeStatus: sdk.closeCalls.includes(ref) ? "TRADE_SUCCESS" : "WAIT_BUYER_PAY",
+        outTradeNo: ref,
+        totalAmount: "79.00",
+      });
+    res = await post(app, `/api/me/orders/${pending.orderRef}/cancel`, owner.session);
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.json().error.code, "not_cancellable");
+    assert.equal(
+      (database.prepare("SELECT status FROM orders WHERE id=?").all(pending.orderId)[0] as { status: string }).status,
+      "paid",
+    );
+    const settlement = database
+      .prepare("SELECT state, provider_trade_no FROM wallet_order_settlements WHERE order_id=?")
+      .all(pending.orderId)[0] as { state: string; provider_trade_no: string } | undefined;
+    assert.equal(settlement?.state, "PAID");
+    assert.equal(database.prepare("SELECT COUNT(*) AS n FROM wallet_order_closures").all()[0] && (database.prepare("SELECT COUNT(*) AS n FROM wallet_order_closures").all()[0] as { n: number }).n, 0);
+    await app.close();
+  });
+});
+
+test("admin order close: unpaid closes through provider path; paid+pending_open and OPEN record refund/termination; replay idempotent", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const sdk = new FakeAlipaySdk();
+    const app = walletApp(database, sdk);
+    const owner = user(database, "a1@example.test");
+    const admin = user(database, "a2@example.test", "admin");
+    const nonAdmin = user(database, "a3@example.test");
+    const unpaid = seedOrder(database, owner.id, { ref: "AC-1", orderStatus: "pending", paymentStatus: "pending" });
+    const pendingOpen = seedOrder(database, owner.id, {
+      ref: "AC-2", orderStatus: "paid", paymentStatus: "paid", tradeNo: "t-po", serviceStatus: "pending_open",
+    });
+    const open = seedOrder(database, owner.id, {
+      ref: "AC-3", orderStatus: "paid", paymentStatus: "paid", tradeNo: "t-op", serviceStatus: "open", adminId: admin.id,
+    });
+    const noService = seedOrder(database, owner.id, { ref: "AC-4", orderStatus: "paid", paymentStatus: "paid", tradeNo: "t-ns" });
+    database
+      .prepare(`INSERT INTO wallet_consents(service_id,user_id,state,revision,next_billing_period,updated_at)
+        VALUES (?,?,'ENABLED',1,'MONTHLY',?)`)
+      .run(open.serviceId, owner.id, NOW);
+    sdk.queryResponse = (ref: string) =>
+      queryResult({
+        tradeStatus: sdk.closeCalls.includes(ref) ? "TRADE_CLOSED" : "WAIT_BUYER_PAY",
+        outTradeNo: ref,
+        totalAmount: "79.00",
+      });
+    let res = await post(app, `/api/admin/orders/${unpaid.orderId}/close`, nonAdmin.session);
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.json().error.code, "forbidden");
+    res = await post(app, `/api/admin/orders/${unpaid.orderId}/close`, admin.session, null);
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.json().error.code, "csrf_invalid");
+    res = await post(app, "/api/admin/orders/999/close", admin.session);
+    assert.equal(res.statusCode, 404);
+    res = await post(app, `/api/admin/orders/${unpaid.orderId}/close`, admin.session);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), {
+      orderRef: "AC-1", managementClosed: true, refundState: null, serviceStopState: null,
+    });
+    assert.equal(
+      (database.prepare("SELECT status FROM orders WHERE id=?").all(unpaid.orderId)[0] as { status: string }).status,
+      "closed",
+    );
+    res = await post(app, `/api/admin/orders/${unpaid.orderId}/close`, admin.session);
+    assert.deepEqual(res.json(), {
+      orderRef: "AC-1", managementClosed: true, refundState: null, serviceStopState: null,
+    });
+    // paid + pending_open：管理关闭 + AWAITING_POLICY 退款案，支付事实原样保留。
+    res = await post(app, `/api/admin/orders/${pendingOpen.orderId}/close`, admin.session);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), {
+      orderRef: "AC-2", managementClosed: true, refundState: "AWAITING_POLICY", serviceStopState: null,
+    });
+    assert.equal(
+      (database.prepare("SELECT status FROM payments WHERE order_id=?").all(pendingOpen.orderId)[0] as { status: string }).status,
+      "paid",
+    );
+    assert.equal(
+      (database.prepare("SELECT state FROM wallet_order_settlements WHERE order_id=?").all(pendingOpen.orderId)[0] as { state: string }).state,
+      "PAID",
+    );
+    const refundRow = database
+      .prepare("SELECT service_id, refund_state FROM wallet_refund_cases WHERE source_kind='ORIGINAL_PAYMENT' AND source_id=?")
+      .all(pendingOpen.paymentId)[0] as { service_id: number; refund_state: string };
+    assert.equal(refundRow.refund_state, "AWAITING_POLICY");
+    assert.equal(refundRow.service_id, pendingOpen.serviceId);
+    res = await post(app, `/api/admin/orders/${pendingOpen.orderId}/close`, admin.session);
+    assert.deepEqual(res.json(), {
+      orderRef: "AC-2", managementClosed: true, refundState: "AWAITING_POLICY", serviceStopState: null,
+    });
+    assert.equal(
+      (database.prepare("SELECT COUNT(*) AS n FROM wallet_refund_cases WHERE source_kind='ORIGINAL_PAYMENT' AND source_id=?").all(pendingOpen.paymentId)[0] as { n: number }).n,
+      1,
+    );
+    // OPEN 服务：REQUESTED 内部终止 + 自动续期禁用，无外部停止。
+    res = await post(app, `/api/admin/orders/${open.orderId}/close`, admin.session);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), {
+      orderRef: "AC-3", managementClosed: true, refundState: "AWAITING_POLICY", serviceStopState: "REQUESTED",
+    });
+    const termination = database
+      .prepare("SELECT stop_state, requested_by FROM wallet_termination_cases WHERE service_id=?")
+      .all(open.serviceId)[0] as { stop_state: string; requested_by: number };
+    assert.equal(termination.stop_state, "REQUESTED");
+    assert.equal(termination.requested_by, admin.id);
+    assert.equal(
+      (database.prepare("SELECT state FROM wallet_consents WHERE service_id=?").all(open.serviceId)[0] as { state: string }).state,
+      "DISABLED",
+    );
+    res = await post(app, `/api/admin/orders/${open.orderId}/close`, admin.session);
+    assert.deepEqual(res.json(), {
+      orderRef: "AC-3", managementClosed: true, refundState: "AWAITING_POLICY", serviceStopState: "REQUESTED",
+    });
+    assert.equal(
+      (database.prepare("SELECT COUNT(*) AS n FROM wallet_refund_cases WHERE source_kind='ORIGINAL_PAYMENT' AND source_id=?").all(open.paymentId)[0] as { n: number }).n,
+      1,
+    );
+    // 已付款但无 services 行：拒绝而不伪造退款绑定或丢弃财务事实。
+    res = await post(app, `/api/admin/orders/${noService.orderId}/close`, admin.session);
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.json().error.code, "not_cancellable");
+    assert.equal(
+      (database.prepare("SELECT COUNT(*) AS n FROM wallet_order_closures WHERE order_id=?").all(noService.orderId)[0] as { n: number }).n,
+      0,
+    );
+    await app.close();
+  });
+});
+
+test("close-first late paid: wallet preserves the verified payment as PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING with a bound refund case", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const sdk = new FakeAlipaySdk();
+    const app = walletApp(database, sdk);
+    const owner = user(database, "l1@example.test");
+    const admin = user(database, "l2@example.test", "admin");
+    const unpaid = seedOrder(database, owner.id, { ref: "LATE-1", orderStatus: "pending", paymentStatus: "pending" });
+    sdk.queryResponse = (ref: string) =>
+      queryResult({
+        tradeStatus: sdk.closeCalls.includes(ref) ? "TRADE_CLOSED" : "WAIT_BUYER_PAY",
+        outTradeNo: ref,
+        tradeNo: "late-trade-1",
+        totalAmount: "79.00",
+      });
+    let res = await post(app, `/api/me/orders/${unpaid.orderRef}/cancel`, owner.session);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), { result: "CANCELLED" });
+    // 先关后到的合法支付（权威事件）：paid 事实恢复，结算标记待退款，绝不重开交付。
+    const result = applyAdminOrderClose(
+      database,
+      { database, appId: "app-123", sellerId: "seller-456" },
+      { userId: admin.id, sessionValid: true, csrfValid: true, isAdmin: true },
+      unpaid.orderId,
+      {
+        kind: "paid",
+        event: {
+          outTradeNo: `out-${unpaid.orderRef}`,
+          tradeNo: "late-trade-1",
+          tradeStatus: "TRADE_SUCCESS",
+          totalAmount: "79.00",
+          totalAmountFen: 7900,
+          appId: "app-123",
+          sellerId: "seller-456",
+        },
+      },
+      NOW,
+    );
+    assert.equal(result.managementClosed, true);
+    assert.equal(result.refundState, "AWAITING_POLICY");
+    assert.equal(
+      (database.prepare("SELECT status FROM orders WHERE id=?").all(unpaid.orderId)[0] as { status: string }).status,
+      "paid",
+    );
+    assert.equal(
+      (database.prepare("SELECT state FROM wallet_order_settlements WHERE order_id=?").all(unpaid.orderId)[0] as { state: string }).state,
+      "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING",
+    );
+    const serviceId = (database.prepare("SELECT s.id FROM services s JOIN payments p ON p.id=s.payment_id WHERE p.order_id=?").all(unpaid.orderId)[0] as { id: number }).id;
+    const refund = database
+      .prepare("SELECT service_id, refund_state FROM wallet_refund_cases WHERE source_kind='ORIGINAL_PAYMENT' AND source_id=?")
+      .all(unpaid.paymentId)[0] as { service_id: number; refund_state: string };
+    assert.equal(refund.service_id, serviceId);
+    assert.equal(refund.refund_state, "AWAITING_POLICY");
+    assert.equal(
+      (database.prepare("SELECT COUNT(*) AS n FROM wallet_order_closures WHERE order_id=?").all(unpaid.orderId)[0] as { n: number }).n,
+      1,
+    );
+    // 变体：provider 从未见过该交易（ACQ.TRADE_NOT_EXIST）→ 合成 LOCAL-CANCEL
+    // 标记关单；之后到达的真实签名 SUCCESS 仍以真实 trade_no 替换标记并结清。
+    const ghost = seedOrder(database, owner.id, { ref: "LATE-2", orderStatus: "pending", paymentStatus: "pending" });
+    sdk.queryResponse = () => tradeNotExistResult();
+    res = await post(app, `/api/me/orders/${ghost.orderRef}/cancel`, owner.session);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), { result: "CANCELLED" });
+    assert.equal(
+      (database.prepare("SELECT trade_no FROM payments WHERE id=?").all(ghost.paymentId)[0] as { trade_no: string }).trade_no,
+      `LOCAL-CANCEL-out-${ghost.orderRef}`,
+    );
+    const ghostResult = applyAdminOrderClose(
+      database,
+      { database, appId: "app-123", sellerId: "seller-456" },
+      { userId: admin.id, sessionValid: true, csrfValid: true, isAdmin: true },
+      ghost.orderId,
+      {
+        kind: "paid",
+        event: {
+          outTradeNo: `out-${ghost.orderRef}`,
+          tradeNo: "real-late-trade",
+          tradeStatus: "TRADE_SUCCESS",
+          totalAmount: "79.00",
+          totalAmountFen: 7900,
+          appId: "app-123",
+          sellerId: "seller-456",
+        },
+      },
+      NOW,
+    );
+    assert.equal(ghostResult.managementClosed, true);
+    assert.equal(
+      (database.prepare("SELECT trade_no FROM payments WHERE id=?").all(ghost.paymentId)[0] as { trade_no: string }).trade_no,
+      "real-late-trade",
+    );
+    assert.equal(
+      (database.prepare("SELECT state FROM wallet_order_settlements WHERE order_id=?").all(ghost.orderId)[0] as { state: string }).state,
+      "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING",
+    );
+    await app.close();
+  });
+});
+
+test("next-billing-period: owner PUT validates current SKU quote, forces RECONSENT_REQUIRED, keeps DISABLED off", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const app = walletApp(database);
+    const owner = user(database, "p1@example.test");
+    const admin = user(database, "p2@example.test", "admin");
+    const foreign = user(database, "p3@example.test");
+    const serviceId = seedService(database, owner.id, admin.id);
+    const url = `/api/me/services/${serviceId}/next-billing-period`;
+    let res = await put(app, url, owner.session, { period: "SEMIANNUAL", expectedRevision: 0 }, null);
+    assert.equal(res.statusCode, 403);
+    res = await put(app, url, foreign.session, { period: "SEMIANNUAL", expectedRevision: 0 });
+    assert.equal(res.statusCode, 404);
+    res = await put(app, url, owner.session, { period: "SEMIANNUAL", expectedRevision: 0, priceFen: 1 });
+    assert.equal(res.statusCode, 400);
+    // 无 consent 行：期望修订 0 建立 DISABLED 行并暂存周期。
+    res = await put(app, url, owner.session, { period: "SEMIANNUAL", expectedRevision: 0 });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), { revision: 1 });
+    let consent = database.prepare("SELECT state,revision,next_billing_period FROM wallet_consents WHERE service_id=?").all(serviceId)[0] as { state: string; revision: number; next_billing_period: string };
+    assert.equal(consent.state, "DISABLED");
+    assert.equal(consent.next_billing_period, "SEMIANNUAL");
+    // QUARTERLY 对应 month-3 无在售 SKU → 409。
+    res = await put(app, url, owner.session, { period: "QUARTERLY", expectedRevision: 1 });
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.json().error.code, "quote_unavailable");
+    res = await put(app, url, owner.session, { period: "MONTHLY", expectedRevision: 9 });
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.json().error.code, "revision_conflict");
+    res = await put(app, url, owner.session, { period: "ANNUAL", expectedRevision: 1 });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), { revision: 2 });
+    consent = database.prepare("SELECT state,next_billing_period FROM wallet_consents WHERE service_id=?").all(serviceId)[0] as { state: string; revision: number; next_billing_period: string };
+    assert.equal(consent.state, "DISABLED");
+    assert.equal(consent.next_billing_period, "ANNUAL");
+    // ENABLED 行再改周期 → RECONSENT_REQUIRED。
+    res = await put(app, `/api/me/services/${serviceId}/renewal-consent`, owner.session, {
+      period: "MONTHLY", expectedRevision: 2, enabled: true,
+    });
+    assert.equal(res.statusCode, 200);
+    res = await put(app, url, owner.session, { period: "SEMIANNUAL", expectedRevision: 3 });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), { revision: 4 });
+    consent = database.prepare("SELECT state,next_billing_period FROM wallet_consents WHERE service_id=?").all(serviceId)[0] as { state: string; revision: number; next_billing_period: string };
+    assert.equal(consent.state, "RECONSENT_REQUIRED");
+    assert.equal(consent.next_billing_period, "SEMIANNUAL");
+    await app.close();
+  });
+});
+
+test("admin next-billing-period: role gate 403, missing 404, quote check, owner consent row preserved", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    // 支付关闭时 /api/admin/services/* 被全局 503 钩子拦截（既有语义），故须注入 fake SDK。
+    const app = walletApp(database, new FakeAlipaySdk());
+    const owner = user(database, "q1@example.test");
+    const admin = user(database, "q2@example.test", "admin");
+    const nonAdmin = user(database, "q3@example.test");
+    const serviceId = seedService(database, owner.id, admin.id);
+    const url = `/api/admin/services/${serviceId}/next-billing-period`;
+    let res = await put(app, url, nonAdmin.session, { period: "SEMIANNUAL", expectedRevision: 0 });
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.json().error.code, "forbidden");
+    res = await put(app, "/api/admin/services/999/next-billing-period", admin.session, { period: "SEMIANNUAL", expectedRevision: 0 });
+    assert.equal(res.statusCode, 404);
+    res = await put(app, url, admin.session, { period: "QUARTERLY", expectedRevision: 0 });
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.json().error.code, "quote_unavailable");
+    res = await put(app, url, admin.session, { period: "SEMIANNUAL", expectedRevision: 0 });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), { revision: 1 });
+    const consent = database.prepare("SELECT user_id,state,next_billing_period FROM wallet_consents WHERE service_id=?").all(serviceId)[0] as { user_id: number; state: string; next_billing_period: string };
+    assert.equal(consent.user_id, owner.id);
+    assert.equal(consent.state, "DISABLED");
+    assert.equal(consent.next_billing_period, "SEMIANNUAL");
     await app.close();
   });
 });

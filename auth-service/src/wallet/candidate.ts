@@ -2,6 +2,12 @@ import type { DatabaseConnection } from "../db.js";
 import { findSellablePlan } from "../payment/commerce.js";
 import { addUtcMonths, parseEndsAt } from "../payment/admin-services.js";
 import { CATALOG_VERSION } from "../payment/pricing.js";
+import {
+  finalizeClosed,
+  finalizePaid,
+  type PaymentEventInput,
+  type PaymentStateDependencies,
+} from "../payment/state-machine.js";
 
 /** Internal candidate only: callers must supply authenticated Session/CSRF/admin facts. */
 export class WalletError extends Error {
@@ -237,11 +243,28 @@ export function readRenewalConsent(db: DatabaseConnection, serviceId: number, ac
     updatedAt: text(row.updated_at),
   };
 }
-export function changeNextBillingPeriod(db: DatabaseConnection, serviceId: number, ownerId: number, period: BillingPeriod,
+/* Period change contract (frozen): owner buyer or admin actor; the requested period
+   must resolve to a current sellable SKU quote for the owned OPEN paid service —
+   caller price/expiry/quote fields are never accepted. ENABLED and
+   RECONSENT_REQUIRED become/stay RECONSENT_REQUIRED; DISABLED stays DISABLED.
+   A missing consent row starts at expected revision 0 as a DISABLED row owned by
+   the service owner (admins never impersonate the owner). */
+export function setNextBillingPeriod(db: DatabaseConnection, actor: InternalActor, serviceId: number, period: BillingPeriod,
   expectedRevision: number, at: string): number {
   return write(db, () => {
+    authorize(actor);
+    const service = purchasedService(db, serviceId);
+    if (!service.purchased || service.ownerId === null) throw new WalletError("FORBIDDEN");
+    if (!actor.isAdmin && service.ownerId !== actor.userId) throw new WalletError("FORBIDDEN");
+    produceRenewalQuote(db, serviceId, period, service.ownerId);
     const old = one(db, "SELECT user_id,state,revision FROM wallet_consents WHERE service_id=?", serviceId);
-    if (!old || old.user_id !== ownerId) throw new WalletError("FORBIDDEN");
+    if (old === null) {
+      if (expectedRevision !== 0) throw new WalletError("REVISION_CONFLICT");
+      db.prepare(`INSERT INTO wallet_consents(service_id,user_id,state,revision,next_billing_period,updated_at)
+        VALUES (?,?,'DISABLED',1,?,?)`).run(serviceId, service.ownerId, period, timestamp(at));
+      recordConsentHistory(db, serviceId, at);
+      return 1;
+    }
     if (old.revision !== expectedRevision) throw new WalletError("REVISION_CONFLICT");
     db.prepare("UPDATE wallet_consents SET state=?,revision=?,next_billing_period=?,updated_at=? WHERE service_id=?")
       .run(old.state === "DISABLED" ? "DISABLED" : "RECONSENT_REQUIRED", expectedRevision + 1, period, timestamp(at), serviceId);
@@ -386,36 +409,41 @@ export function recordVerifiedOrderPayment(db: DatabaseConnection, expectedMerch
   });
 }
 
+/* In-transaction core so order-level management closes can request termination
+   atomically with their own closure/settlement records. */
+function requestPaidServiceTerminationInTransaction(db: DatabaseConnection, actor: InternalActor, serviceId: number,
+  sourceKind: "ORIGINAL_PAYMENT" | "WALLET_RENEWAL", sourceId: number, at: string): void {
+  authorize(actor);
+  if (!actor.isAdmin) throw new WalletError("FORBIDDEN");
+  const service = purchasedService(db, serviceId);
+  if (!service.purchased) throw new WalletError("SOURCE_UNAVAILABLE");
+  if (sourceKind === "ORIGINAL_PAYMENT") {
+    const payment = one(db, "SELECT payment_id FROM services WHERE id=?", serviceId);
+    if (!payment || payment.payment_id !== sourceId) throw new WalletError("SOURCE_UNAVAILABLE");
+  } else {
+    const cycle = one(db, "SELECT id FROM wallet_renewal_cycles WHERE id=? AND service_id=?", sourceId, serviceId);
+    if (!cycle) throw new WalletError("SOURCE_UNAVAILABLE");
+  }
+  const prior = one(db, "SELECT service_id FROM wallet_termination_cases WHERE service_id=?", serviceId);
+  if (!prior) {
+    db.prepare(`INSERT INTO wallet_termination_cases(service_id,requested_at,requested_by,stop_state)
+      VALUES (?,?,?,'REQUESTED')`).run(serviceId, timestamp(at), actor.userId);
+    db.prepare("UPDATE wallet_consents SET state='DISABLED',revision=revision+1,updated_at=? WHERE service_id=?")
+      .run(at, serviceId);
+    if (one(db, "SELECT revision FROM wallet_consents WHERE service_id=?", serviceId)) recordConsentHistory(db, serviceId, at);
+  }
+  const refundCase = one(db, "SELECT service_id FROM wallet_refund_cases WHERE source_kind=? AND source_id=?", sourceKind, sourceId);
+  if (refundCase) {
+    if (refundCase.service_id !== serviceId) throw new WalletError("SOURCE_CONFLICT");
+    return;
+  }
+  db.prepare(`INSERT INTO wallet_refund_cases(service_id,refund_state,source_kind,source_id)
+    VALUES (?,'AWAITING_POLICY',?,?)`).run(serviceId, sourceKind, sourceId);
+}
+
 export function requestPaidServiceTermination(db: DatabaseConnection, actor: InternalActor, serviceId: number,
   sourceKind: "ORIGINAL_PAYMENT" | "WALLET_RENEWAL", sourceId: number, at: string): void {
-  write(db, () => {
-    authorize(actor);
-    if (!actor.isAdmin) throw new WalletError("FORBIDDEN");
-    const service = purchasedService(db, serviceId);
-    if (!service.purchased) throw new WalletError("SOURCE_UNAVAILABLE");
-    if (sourceKind === "ORIGINAL_PAYMENT") {
-      const payment = one(db, "SELECT payment_id FROM services WHERE id=?", serviceId);
-      if (!payment || payment.payment_id !== sourceId) throw new WalletError("SOURCE_UNAVAILABLE");
-    } else {
-      const cycle = one(db, "SELECT id FROM wallet_renewal_cycles WHERE id=? AND service_id=?", sourceId, serviceId);
-      if (!cycle) throw new WalletError("SOURCE_UNAVAILABLE");
-    }
-    const prior = one(db, "SELECT service_id FROM wallet_termination_cases WHERE service_id=?", serviceId);
-    if (!prior) {
-      db.prepare(`INSERT INTO wallet_termination_cases(service_id,requested_at,requested_by,stop_state)
-        VALUES (?,?,?,'REQUESTED')`).run(serviceId, timestamp(at), actor.userId);
-      db.prepare("UPDATE wallet_consents SET state='DISABLED',revision=revision+1,updated_at=? WHERE service_id=?")
-        .run(at, serviceId);
-      if (one(db, "SELECT revision FROM wallet_consents WHERE service_id=?", serviceId)) recordConsentHistory(db, serviceId, at);
-    }
-    const refundCase = one(db, "SELECT service_id FROM wallet_refund_cases WHERE source_kind=? AND source_id=?", sourceKind, sourceId);
-    if (refundCase) {
-      if (refundCase.service_id !== serviceId) throw new WalletError("SOURCE_CONFLICT");
-      return;
-    }
-    db.prepare(`INSERT INTO wallet_refund_cases(service_id,refund_state,source_kind,source_id)
-      VALUES (?,'AWAITING_POLICY',?,?)`).run(serviceId, sourceKind, sourceId);
-  });
+  write(db, () => requestPaidServiceTerminationInTransaction(db, actor, serviceId, sourceKind, sourceId, at));
 }
 /** Isolated accounting fixture. No policy decision or real funds transfer is inferred. */
 export function recordWalletReversalFixture(db: DatabaseConnection, mode: "TEST_ONLY", actor: InternalActor,
@@ -448,5 +476,208 @@ export function recordWalletReversalFixture(db: DatabaseConnection, mode: "TEST_
     db.prepare("UPDATE wallet_accounts SET balance_fen=? WHERE user_id=?").run(next, userId);
     ledger(db, userId, "REFUND_REVERSAL", amountFen, `reversal:${refundKey}`, at);
     return "RECORDED";
+  });
+}
+
+/* ---- Real order close/cancel boundary (frozen route delta) ----
+   Provider observations happen OUTSIDE these transactions; only the verified
+   terminal event is handed in. Inside, current state is re-read and the
+   order/payment transition, management closure, release-once, settlement and
+   refund/termination records commit atomically. Paid facts are never rewritten,
+   a payment_id is never changed, and no refund is ever marked completed. */
+export interface OrderObservation {
+  readonly kind: "paid" | "closed";
+  readonly event: PaymentEventInput;
+}
+
+interface OrderPaymentRow {
+  readonly orderId: number;
+  readonly orderRef: string;
+  readonly ownerId: number | null;
+  readonly orderStatus: string;
+  readonly paymentId: number;
+  readonly paymentStatus: string;
+  readonly amountFen: number;
+  readonly tradeNo: string | null;
+  readonly serviceId: number | null;
+  readonly serviceStatus: string | null;
+}
+
+function orderPaymentRow(db: DatabaseConnection, sql: string, arg: unknown): OrderPaymentRow | null {
+  const row = one(db, sql, arg);
+  if (row === null) return null;
+  return {
+    orderId: integer(row.order_id),
+    orderRef: text(row.order_ref),
+    ownerId: row.user_id === null ? null : integer(row.user_id),
+    orderStatus: text(row.order_status),
+    paymentId: integer(row.payment_id),
+    paymentStatus: text(row.payment_status),
+    amountFen: integer(row.amount_fen),
+    tradeNo: row.trade_no === null ? null : text(row.trade_no),
+    serviceId: row.service_id === null ? null : integer(row.service_id),
+    serviceStatus: row.service_status === null ? null : text(row.service_status),
+  };
+}
+
+const ORDER_PAYMENT_SELECT = `SELECT o.id AS order_id, o.order_ref, o.user_id, o.status AS order_status,
+  p.id AS payment_id, p.status AS payment_status, p.amount_fen, p.trade_no,
+  s.id AS service_id, s.status AS service_status
+  FROM orders o JOIN payments p ON p.order_id = o.id
+  LEFT JOIN services s ON s.payment_id = p.id`;
+
+export function loadOrderPaymentById(db: DatabaseConnection, orderId: number): OrderPaymentRow | null {
+  return orderPaymentRow(db, `${ORDER_PAYMENT_SELECT} WHERE o.id = ?`, orderId);
+}
+export function loadOrderPaymentByRef(db: DatabaseConnection, orderRef: string): OrderPaymentRow | null {
+  return orderPaymentRow(db, `${ORDER_PAYMENT_SELECT} WHERE o.order_ref = ?`, orderRef);
+}
+
+/* released=true records that finalizeClosed's single release point already ran;
+   paid orders never release, so their management close records flags=0. */
+function insertClosureOnce(db: DatabaseConnection, orderId: number, closedByUserId: number, released: boolean, at: string): void {
+  db.prepare(`INSERT INTO wallet_order_closures(order_id,closed_by_user_id,closed_at,inventory_released,coupon_released)
+    VALUES (?,?,?,?,?)`).run(orderId, closedByUserId, timestamp(at), released ? 1 : 0, released ? 1 : 0);
+}
+
+function recordSettlementIfAbsent(db: DatabaseConnection, orderId: number, tradeNo: string, amountFen: number,
+  lateAfterClose: boolean, at: string): void {
+  const existing = one(db, "SELECT provider_trade_no,amount_fen FROM wallet_order_settlements WHERE order_id=?", orderId);
+  if (existing !== null) {
+    if (existing.provider_trade_no !== tradeNo || existing.amount_fen !== amountFen) throw new WalletError("TRADE_CONFLICT");
+    return;
+  }
+  db.prepare("INSERT INTO wallet_order_settlements(order_id,provider_trade_no,amount_fen,state,recorded_at) VALUES (?,?,?,?,?)")
+    .run(orderId, tradeNo, amountFen, lateAfterClose ? "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING" : "PAID", timestamp(at));
+}
+
+function ensurePaymentRefundCase(db: DatabaseConnection, serviceId: number, paymentId: number): void {
+  const existing = one(db,
+    "SELECT service_id FROM wallet_refund_cases WHERE source_kind='ORIGINAL_PAYMENT' AND source_id=?", paymentId);
+  if (existing !== null) {
+    if (existing.service_id !== serviceId) throw new WalletError("SOURCE_CONFLICT");
+    return;
+  }
+  db.prepare(`INSERT INTO wallet_refund_cases(service_id,refund_state,source_kind,source_id)
+    VALUES (?,'AWAITING_POLICY','ORIGINAL_PAYMENT',?)`).run(serviceId, paymentId);
+}
+
+function serviceIdForPayment(db: DatabaseConnection, paymentId: number): number | null {
+  const row = one(db, "SELECT id FROM services WHERE payment_id=?", paymentId);
+  return row === null ? null : integer(row.id);
+}
+
+/* A legitimate provider-confirmed payment that arrived after a local close:
+   finalizePaid restores the paid facts (never reopens delivery), the settlement
+   is stamped PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING, and the refund case binds
+   the verified payment through the service row created by the paid path. */
+function preserveLatePaidAfterClose(db: DatabaseConnection, dependencies: PaymentStateDependencies,
+  row: OrderPaymentRow, observation: OrderObservation, at: string): void {
+  const transition = finalizePaid(dependencies, observation.event);
+  if (transition === "rejected") throw new WalletError("PAYMENT_STATE_CONFLICT");
+  recordSettlementIfAbsent(db, row.orderId, observation.event.tradeNo, observation.event.totalAmountFen, true, at);
+  const serviceId = row.serviceId ?? serviceIdForPayment(db, row.paymentId);
+  if (serviceId !== null) ensurePaymentRefundCase(db, serviceId, row.paymentId);
+}
+
+/** Buyer cancel: only an actually-unpaid owned order can close. Paid (whether it
+    was already paid or the authoritative observation just revealed it) always
+    rejects the cancel — the payment is finalized/settled, never reopened. */
+export function applyBuyerOrderCancellation(db: DatabaseConnection, dependencies: PaymentStateDependencies,
+  actor: InternalActor, orderRef: string, observation: OrderObservation | null, at: string): "CANCELLED" | "ALREADY_CANCELLED" | "NOT_CANCELLABLE" {
+  return write(db, () => {
+    authorize(actor);
+    const row = loadOrderPaymentByRef(db, orderRef);
+    if (row === null || row.ownerId !== actor.userId) throw new WalletError("ORDER_UNAVAILABLE");
+    const hasClosure = one(db, "SELECT order_id FROM wallet_order_closures WHERE order_id=?", row.orderId) !== null;
+    const locallyClosed = hasClosure || row.orderStatus === "closed" || row.paymentStatus === "closed";
+    if (locallyClosed) {
+      if (observation?.kind === "paid") preserveLatePaidAfterClose(db, dependencies, row, observation, at);
+      else if (!hasClosure) insertClosureOnce(db, row.orderId, actor.userId, true, at);
+      return "ALREADY_CANCELLED";
+    }
+    if (row.orderStatus === "paid" || row.paymentStatus === "paid") return "NOT_CANCELLABLE";
+    if (observation === null) throw new WalletError("ORDER_UNAVAILABLE");
+    if (observation.kind === "paid") {
+      const transition = finalizePaid(dependencies, observation.event);
+      if (transition === "rejected") throw new WalletError("PAYMENT_STATE_CONFLICT");
+      recordSettlementIfAbsent(db, row.orderId, observation.event.tradeNo, observation.event.totalAmountFen, false, at);
+      return "NOT_CANCELLABLE";
+    }
+    const transition = finalizeClosed(dependencies, observation.event);
+    if (transition === "rejected") throw new WalletError("PAYMENT_STATE_CONFLICT");
+    if (transition === "ignored_paid") {
+      recordSettlementIfAbsent(db, row.orderId, observation.event.tradeNo, observation.event.totalAmountFen, false, at);
+      return "NOT_CANCELLABLE";
+    }
+    if (!hasClosure) insertClosureOnce(db, row.orderId, actor.userId, true, at);
+    return transition === "finalized" ? "CANCELLED" : "ALREADY_CANCELLED";
+  });
+}
+
+export interface AdminOrderCloseResult {
+  readonly orderRef: string;
+  readonly managementClosed: true;
+  readonly refundState: "AWAITING_POLICY" | null;
+  readonly serviceStopState: "REQUESTED" | null;
+}
+
+/** Admin internal closure: unpaid orders close through the provider-observed
+    path; paid orders keep their financial facts and get an internal management
+    close plus a pending refund case bound to the verified payment source. OPEN
+    services additionally record an internal termination REQUEST and disable
+    future autorenewal — no external stop is performed or claimed. A paid order
+    without a services row refuses instead of discarding facts. */
+export function applyAdminOrderClose(db: DatabaseConnection, dependencies: PaymentStateDependencies,
+  actor: InternalActor, orderId: number, observation: OrderObservation | null, at: string): AdminOrderCloseResult {
+  return write(db, () => {
+    authorize(actor);
+    if (!actor.isAdmin) throw new WalletError("FORBIDDEN");
+    let row = loadOrderPaymentById(db, orderId);
+    if (row === null) throw new WalletError("ORDER_UNAVAILABLE");
+    const hasClosure = () =>
+      one(db, "SELECT order_id FROM wallet_order_closures WHERE order_id=?", row!.orderId) !== null;
+    const stored = (): AdminOrderCloseResult => ({
+      orderRef: row!.orderRef,
+      managementClosed: true,
+      refundState: one(db, `SELECT service_id FROM wallet_refund_cases
+          WHERE source_kind='ORIGINAL_PAYMENT' AND source_id=?`, row!.paymentId) === null ? null : "AWAITING_POLICY",
+      serviceStopState: row!.serviceId !== null &&
+        one(db, "SELECT service_id FROM wallet_termination_cases WHERE service_id=?", row!.serviceId) !== null
+          ? "REQUESTED" : null,
+    });
+    if (hasClosure() || row.orderStatus === "closed" || row.paymentStatus === "closed") {
+      if (!hasClosure()) insertClosureOnce(db, row.orderId, actor.userId, true, at);
+      if (observation?.kind === "paid") preserveLatePaidAfterClose(db, dependencies, row, observation, at);
+      return stored();
+    }
+    if (row.orderStatus === "pending" && row.paymentStatus === "pending") {
+      if (observation === null) throw new WalletError("ORDER_UNAVAILABLE");
+      if (observation.kind === "closed") {
+        const transition = finalizeClosed(dependencies, observation.event);
+        if (transition === "rejected") throw new WalletError("PAYMENT_STATE_CONFLICT");
+        if (transition !== "ignored_paid") {
+          insertClosureOnce(db, row.orderId, actor.userId, true, at);
+          return stored();
+        }
+      } else {
+        const transition = finalizePaid(dependencies, observation.event);
+        if (transition === "rejected") throw new WalletError("PAYMENT_STATE_CONFLICT");
+        recordSettlementIfAbsent(db, row.orderId, observation.event.tradeNo, observation.event.totalAmountFen, false, at);
+      }
+      row = loadOrderPaymentById(db, orderId)!;
+    }
+    if (row.orderStatus === "paid" || row.paymentStatus === "paid") {
+      if (row.serviceId === null) throw new WalletError("NOT_CANCELLABLE");
+      if (!hasClosure()) insertClosureOnce(db, row.orderId, actor.userId, false, at);
+      if (row.tradeNo !== null) recordSettlementIfAbsent(db, row.orderId, row.tradeNo, row.amountFen, false, at);
+      if (row.serviceStatus === "open") {
+        requestPaidServiceTerminationInTransaction(db, actor, row.serviceId, "ORIGINAL_PAYMENT", row.paymentId, at);
+      } else {
+        ensurePaymentRefundCase(db, row.serviceId, row.paymentId);
+      }
+      return stored();
+    }
+    throw new WalletError("NOT_CANCELLABLE");
   });
 }

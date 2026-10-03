@@ -315,6 +315,9 @@ async function start(): Promise<void> {
           database,
           tokenHmacKeyring: credentials.tokenHmacKeyring,
           csrfSigningKey: credentials.csrfSigningKey,
+          payment: payment.enabled
+            ? { appId: payment.appId, sellerId: payment.sellerId, sdk: payment.sdk }
+            : undefined,
         },
         invites: {
           database,

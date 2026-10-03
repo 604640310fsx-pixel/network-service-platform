@@ -140,6 +140,71 @@ database
   .run(foreignPaymentId, adminId, started, started, started, expiry);
 const foreignServiceId = database.prepare("SELECT id FROM services WHERE payment_id = ?").get(foreignPaymentId).id;
 
+// Order-close fixture: a customer-owned UNPAID pending order (buyer cancel and
+// admin close target) and a paid order whose service is still pending_open
+// (admin close → AWAITING_POLICY refund case). The foreign paid order ref gives
+// the buyer cancel route a uniform 404. All rows are synthetic and disposable.
+const unpaidOrderRef = "DLFIXTURE0003";
+database
+  .prepare(
+    `INSERT INTO orders (
+       order_ref, idempotency_key, request_fingerprint, user_id,
+       type_id, region_id, isp_id, spec_id, duration_id, catalog_version,
+       amount_fen, currency, contact, scenarios, notes, status, created_at, updated_at
+     ) VALUES (?, 'fx-idem-3', 'fx-fp-3', ?, 'local-isp', 'us', 'us-verizon', NULL,
+       'month-1', 'v1', 1000, 'CNY', 'fixture@example.test', '[]', NULL, 'pending', ?, ?)`,
+  )
+  .run(unpaidOrderRef, customerId, started, started);
+const unpaidOrderId = database.prepare("SELECT id FROM orders WHERE order_ref = ?").get(unpaidOrderRef).id;
+database
+  .prepare(
+    `INSERT INTO payments (
+       order_id, out_trade_no, channel, app_id, amount_fen, currency, status,
+       created_at, updated_at, reserved_until
+     ) VALUES (?, 'fx-out-3', 'alipay_page', 'app-123', 1000, 'CNY', 'pending', ?, ?, ?)`,
+  )
+  .run(unpaidOrderId, started, started, expiry);
+const pendingOpenOrderRef = "DLFIXTURE0004";
+database
+  .prepare(
+    `INSERT INTO orders (
+       order_ref, idempotency_key, request_fingerprint, user_id,
+       type_id, region_id, isp_id, spec_id, duration_id, catalog_version,
+       amount_fen, currency, contact, scenarios, notes, status, created_at, updated_at
+     ) VALUES (?, 'fx-idem-4', 'fx-fp-4', ?, 'local-isp', 'us', 'us-verizon', NULL,
+       'month-1', 'v1', 1000, 'CNY', 'fixture@example.test', '[]', NULL, 'paid', ?, ?)`,
+  )
+  .run(pendingOpenOrderRef, customerId, started, started);
+const pendingOpenOrderId = database.prepare("SELECT id FROM orders WHERE order_ref = ?").get(pendingOpenOrderRef).id;
+database
+  .prepare(
+    `INSERT INTO payments (
+       order_id, out_trade_no, channel, app_id, amount_fen, currency, status,
+       trade_no, alipay_trade_status, paid_at, created_at, updated_at
+     ) VALUES (?, 'fx-out-4', 'alipay_page', 'app-123', 1000, 'CNY', 'paid',
+       'fx-trade-4', 'TRADE_SUCCESS', ?, ?, ?)`,
+  )
+  .run(pendingOpenOrderId, started, started, started);
+const pendingOpenPaymentId = database.prepare("SELECT id FROM payments WHERE order_id = ?").get(pendingOpenOrderId).id;
+database
+  .prepare(
+    `INSERT INTO services (
+       payment_id, status, ends_at, created_at, updated_at
+     ) VALUES (?, 'pending_open', ?, ?, ?)`,
+  )
+  .run(pendingOpenPaymentId, expiry, started, started);
+
+const paymentDeps = paymentDependencies(database);
+// The fake provider: trades stay WAIT_BUYER_PAY until alipay.trade.close runs,
+// then report TRADE_CLOSED on the authoritative requery. No real provider.
+paymentDeps.sdk.queryResponse = (ref) => ({
+  code: "10000",
+  tradeStatus: paymentDeps.sdk.closeCalls.includes(ref) ? "TRADE_CLOSED" : "WAIT_BUYER_PAY",
+  outTradeNo: ref,
+  tradeNo: `fx-qt-${ref}`,
+  totalAmount: "10.00",
+});
+
 const app = buildApp({
   auth: {
     database,
@@ -148,7 +213,7 @@ const app = buildApp({
     rateLimitKeyring: TOKEN_KEYRING,
     csrfSigningKey: CSRF_KEY,
   },
-  payment: { ...paymentDependencies(database), now: () => new Date() },
+  payment: { ...paymentDeps, now: () => new Date() },
   tickets: {
     database,
     tokenHmacKeyring: TOKEN_KEYRING,
@@ -159,6 +224,7 @@ const app = buildApp({
     database,
     tokenHmacKeyring: TOKEN_KEYRING,
     csrfSigningKey: CSRF_KEY,
+    payment: { appId: paymentDeps.appId, sellerId: paymentDeps.sellerId, sdk: paymentDeps.sdk },
   },
 });
 
@@ -189,6 +255,11 @@ process.stdout.write(
         supportedPeriod: "MONTHLY",
         durationId: "month-1",
         planPriceFen: 7900,
+        unpaidOrderRef,
+        unpaidOrderId,
+        pendingOpenOrderId,
+        openOrderId: orderId,
+        foreignOrderRef: "DLFIXTURE0002",
       },
       checks: {
         me: `curl -s ${base}/api/auth/me -H 'cookie: <customer.cookie>'`,

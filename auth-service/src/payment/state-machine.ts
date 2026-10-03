@@ -183,12 +183,14 @@ function validateEvent(
   input: PaymentEventInput,
   now: string,
 ): payment is PaymentRow {
-  // ACQ.TRADE_NOT_EXIST after the local expiry window is represented with a
-  // synthetic trade number. A later signed SUCCESS/FINISHED is more authoritative
-  // and must be allowed to replace only that exact marker with Alipay's real number.
-  const replacesLocalExpiryTradeNo =
+  // ACQ.TRADE_NOT_EXIST after the local expiry window or a local cancel close is
+  // represented with a synthetic trade number. A later signed SUCCESS/FINISHED is
+  // more authoritative and must be allowed to replace only that exact marker with
+  // Alipay's real number.
+  const replacesLocalSyntheticTradeNo =
     payment?.status === "closed" &&
-    payment.trade_no === `LOCAL-EXPIRED-${input.outTradeNo}` &&
+    (payment.trade_no === `LOCAL-EXPIRED-${input.outTradeNo}` ||
+      payment.trade_no === `LOCAL-CANCEL-${input.outTradeNo}`) &&
     (input.tradeStatus === "TRADE_SUCCESS" ||
       input.tradeStatus === "TRADE_FINISHED");
   const matches =
@@ -199,7 +201,7 @@ function validateEvent(
     input.totalAmountFen === payment.amount_fen &&
     (payment.trade_no === null ||
       payment.trade_no === input.tradeNo ||
-      replacesLocalExpiryTradeNo);
+      replacesLocalSyntheticTradeNo);
   if (!matches) {
     audit(database, "payment.event_rejected", input.outTradeNo, now);
   }
