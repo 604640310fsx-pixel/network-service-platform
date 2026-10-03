@@ -299,6 +299,92 @@ export function registerWalletHttpRoutes(app: FastifyInstance, dependencies: Wal
     },
   );
 
+  /* 管理员订单列表：只读主表投影 + payment/service 左连（含无支付/无服务行）。
+     无 provider/网络/支付动作；闭单、退款案、终止案与管理关闭标记全部读自
+     存储事实——表缺失或数据库故障一律 503，绝不返回空集或假标志。
+     过滤器仅 orderRef/userId/beforeId；按 id 倒序定长 50，多取一行推导游标。 */
+  const ADMIN_ORDER_FILTERS = new Set(["orderRef", "userId", "beforeId"]);
+  app.get<{ Querystring: { orderRef?: string; userId?: string; beforeId?: string } }>(
+    "/api/admin/orders",
+    routeOptions,
+    async (request, reply) => {
+      const gate = authorize(request, dependencies, { write: false });
+      if (!gate.ok) return reply.code(gate.statusCode).send(errorBody(gate.code));
+      const denied = requireAdmin(gate);
+      if (denied !== null) return reply.code(denied.statusCode).send(errorBody(denied.code));
+      const query = request.query as Record<string, unknown>;
+      if (Object.keys(query).some((key) => !ADMIN_ORDER_FILTERS.has(key))) {
+        return reply.code(400).send(errorBody("invalid_request"));
+      }
+      const positive = (raw: unknown): boolean =>
+        raw === undefined ||
+        (typeof raw === "string" && /^[0-9]+$/.test(raw) && Number.isSafeInteger(Number(raw)) && Number(raw) > 0);
+      if (
+        !positive(query.userId) || !positive(query.beforeId) ||
+        !(query.orderRef === undefined ||
+          (typeof query.orderRef === "string" && query.orderRef.length > 0 && query.orderRef.length <= 128))
+      ) {
+        return reply.code(400).send(errorBody("invalid_request"));
+      }
+      const orderRef = (query.orderRef as string | undefined) ?? null;
+      const userId = query.userId === undefined ? null : Number(query.userId);
+      const beforeId = query.beforeId === undefined ? null : Number(query.beforeId);
+      const clauses: string[] = [];
+      const params: unknown[] = [];
+      if (orderRef !== null) { clauses.push("o.order_ref = ?"); params.push(orderRef); }
+      if (userId !== null) { clauses.push("o.user_id = ?"); params.push(userId); }
+      if (beforeId !== null) { clauses.push("o.id < ?"); params.push(beforeId); }
+      const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+      try {
+        const rows = dependencies.database.prepare(
+          `SELECT o.id, o.order_ref, o.user_id, o.status, o.amount_fen, o.currency, o.created_at,
+             p.status AS payment_status,
+             s.id AS service_id, s.status AS service_status,
+             CASE WHEN c.order_id IS NULL THEN 0 ELSE 1 END AS management_closed,
+             rc.refund_state, tc.stop_state
+           FROM orders o
+           LEFT JOIN payments p ON p.order_id = o.id
+           LEFT JOIN services s ON s.payment_id = p.id
+           LEFT JOIN wallet_order_closures c ON c.order_id = o.id
+           LEFT JOIN wallet_refund_cases rc ON rc.source_kind = 'ORIGINAL_PAYMENT' AND rc.source_id = p.id
+           LEFT JOIN wallet_termination_cases tc ON tc.service_id = s.id
+           ${where}
+           ORDER BY o.id DESC
+           LIMIT 51`,
+        ).all(...params) as Array<{
+          readonly id: number; readonly order_ref: string; readonly user_id: number | null;
+          readonly status: "pending" | "paid" | "closed";
+          readonly amount_fen: number; readonly currency: string; readonly created_at: string;
+          readonly payment_status: "pending" | "paid" | "closed" | null;
+          readonly service_id: number | null; readonly service_status: "pending_open" | "open" | null;
+          readonly management_closed: number; readonly refund_state: string | null;
+          readonly stop_state: string | null;
+        }>;
+        const page = rows.slice(0, 50);
+        return await reply.send({
+          orders: page.map((row) => ({
+            id: row.id,
+            orderRef: row.order_ref,
+            userId: row.user_id,
+            status: row.status,
+            paymentStatus: row.payment_status,
+            amountFen: row.amount_fen,
+            currency: row.currency,
+            createdAt: row.created_at,
+            serviceId: row.service_id,
+            serviceStatus: row.service_status,
+            managementClosed: row.management_closed === 1,
+            refundState: row.refund_state,
+            serviceStopState: row.stop_state,
+          })),
+          nextBeforeId: rows.length === 51 ? page[49]!.id : null,
+        });
+      } catch (error) {
+        return sendFailure(reply, error);
+      }
+    },
+  );
+
   /* 管理员内部关单：未付款走与买家相同的观察路径；已付款仅内部记录管理关闭
      + 结算 + AWAITING_POLICY 退款案（绑定已验证支付来源），OPEN 服务另记
      REQUESTED 终止请求并禁用后续自动续期——不执行也不声称任何外部停止。 */

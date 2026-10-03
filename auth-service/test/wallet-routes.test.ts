@@ -734,3 +734,126 @@ test("admin next-billing-period: role gate 403, missing 404, quote check, owner 
     await app.close();
   });
 });
+
+test("admin orders list: role gates, stored-state DTO, filters, cursor pagination, close state refresh", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const app = walletApp(database);
+    const owner = user(database, "ao1@example.test");
+    const other = user(database, "ao2@example.test");
+    const admin = user(database, "ao3@example.test", "admin");
+    const pending = seedOrder(database, owner.id, { ref: "AL-PEND", orderStatus: "pending", paymentStatus: "pending" });
+    const paidOpen = seedOrder(database, owner.id, { ref: "AL-OPEN", orderStatus: "paid", paymentStatus: "paid", serviceStatus: "open", adminId: admin.id, tradeNo: "al-open-t" });
+    const paidNoService = seedOrder(database, other.id, { ref: "AL-NOSVC", orderStatus: "paid", paymentStatus: "paid", tradeNo: "al-nosvc-t" });
+    // 无 payments 行的订单（历史/异常形状）也必须列出：paymentStatus 为 null，绝不推断。
+    database.prepare(
+      `INSERT INTO orders (order_ref, idempotency_key, request_fingerprint, user_id,
+        type_id, region_id, isp_id, spec_id, duration_id, catalog_version,
+        amount_fen, currency, contact, scenarios, notes, status, created_at, updated_at)
+       VALUES ('AL-NOPAY','i-AL-NOPAY','f-AL-NOPAY',NULL,'local-isp','us','us-verizon',NULL,'month-1','SUBSCRIBE-CATALOG-V1',
+        7900,'CNY','w@example.test','[]',NULL,'paid',?,?)`,
+    ).run(NOW, NOW);
+    const noPayment = database.prepare("SELECT id FROM orders WHERE order_ref='AL-NOPAY'").all()[0] as { id: number };
+
+    let res = await get(app, "/api/admin/orders", null);
+    assert.equal(res.statusCode, 401);
+    res = await get(app, "/api/admin/orders", owner.session);
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.json().error.code, "forbidden");
+    // 严格过滤器：未知键 / 非法值一律 400，绝不静默忽略。
+    res = await get(app, "/api/admin/orders?tradeNo=x", admin.session);
+    assert.equal(res.statusCode, 400);
+    res = await get(app, "/api/admin/orders?userId=-1", admin.session);
+    assert.equal(res.statusCode, 400);
+    res = await get(app, "/api/admin/orders?beforeId=abc", admin.session);
+    assert.equal(res.statusCode, 400);
+    res = await get(app, "/api/admin/orders?orderRef=", admin.session);
+    assert.equal(res.statusCode, 400);
+
+    res = await get(app, "/api/admin/orders", admin.session);
+    assert.equal(res.statusCode, 200);
+    const byRef = new Map(res.json().orders.map((o: { orderRef: string }) => [o.orderRef, o]));
+    const pendRow = byRef.get(pending.orderRef) as Record<string, unknown>;
+    assert.deepEqual(
+      Object.keys(pendRow).sort(),
+      ["amountFen", "createdAt", "currency", "id", "managementClosed", "orderRef", "paymentStatus",
+        "refundState", "serviceId", "serviceStatus", "serviceStopState", "status", "userId"].sort(),
+    );
+    assert.equal(pendRow.status, "pending");
+    assert.equal(pendRow.paymentStatus, "pending");
+    assert.equal(pendRow.serviceId, null);
+    assert.equal(pendRow.serviceStatus, null);
+    assert.equal(pendRow.managementClosed, false);
+    assert.equal(pendRow.refundState, null);
+    assert.equal(pendRow.serviceStopState, null);
+    assert.equal(pendRow.userId, owner.id);
+    const openRow = byRef.get(paidOpen.orderRef) as Record<string, unknown>;
+    assert.equal(openRow.status, "paid");
+    assert.equal(openRow.paymentStatus, "paid");
+    assert.equal(openRow.serviceId, paidOpen.serviceId);
+    assert.equal(openRow.serviceStatus, "open");
+    const noSvcRow = byRef.get(paidNoService.orderRef) as Record<string, unknown>;
+    assert.equal(noSvcRow.paymentStatus, "paid");
+    assert.equal(noSvcRow.serviceId, null);
+    const noPayRow = byRef.get("AL-NOPAY") as Record<string, unknown>;
+    assert.equal(noPayRow.status, "paid");
+    assert.equal(noPayRow.paymentStatus, null);
+    assert.equal(noPayRow.userId, null);
+    assert.equal(noPayRow.amountFen, 7900);
+    assert.equal(noPayRow.currency, "CNY");
+
+    // 精确过滤器。
+    res = await get(app, `/api/admin/orders?orderRef=${paidOpen.orderRef}`, admin.session);
+    assert.equal(res.json().orders.length, 1);
+    assert.equal(res.json().orders[0].id, paidOpen.orderId);
+    res = await get(app, `/api/admin/orders?userId=${other.id}`, admin.session);
+    assert.equal(res.json().orders.length, 1);
+    assert.equal(res.json().orders[0].orderRef, paidNoService.orderRef);
+    res = await get(app, `/api/admin/orders?orderRef=${paidOpen.orderRef}&userId=${other.id}`, admin.session);
+    assert.equal(res.json().orders.length, 0);
+    res = await get(app, `/api/admin/orders?beforeId=${paidOpen.orderId}`, admin.session);
+    assert.equal(res.json().orders.length, 1);
+    assert.equal(res.json().orders[0].orderRef, pending.orderRef);
+
+    // 分页：55 个真实订单 → 首页 50 + 游标，次页余量 + null，无重复无遗漏。
+    for (let i = 0; i < 55; i += 1) {
+      database.prepare(
+        `INSERT INTO orders (order_ref, idempotency_key, request_fingerprint, user_id,
+          type_id, region_id, isp_id, spec_id, duration_id, catalog_version,
+          amount_fen, currency, contact, scenarios, notes, status, created_at, updated_at)
+         VALUES (?,?,?,?, 'local-isp','us','us-verizon',NULL,'month-1','SUBSCRIBE-CATALOG-V1',
+          100,'CNY','w@example.test','[]',NULL,'pending',?,?)`,
+      ).run(`AL-BULK-${i}`, `i-AL-BULK-${i}`, `f-AL-BULK-${i}`, owner.id, NOW, NOW);
+    }
+    const total = (database.prepare("SELECT COUNT(*) AS n FROM orders").all()[0] as { n: number }).n;
+    res = await get(app, "/api/admin/orders", admin.session);
+    assert.equal(res.json().orders.length, 50);
+    const next = res.json().nextBeforeId as number | null;
+    assert.equal(typeof next, "number");
+    res = await get(app, `/api/admin/orders?beforeId=${next}`, admin.session);
+    assert.equal(res.json().nextBeforeId, null);
+    assert.equal(res.json().orders.length, total - 50);
+    const seen = new Set<number>();
+    const all = await get(app, "/api/admin/orders", admin.session);
+    for (const o of all.json().orders as Array<{ id: number }>) seen.add(o.id);
+    for (const o of res.json().orders as Array<{ id: number }>) seen.add(o.id);
+    assert.equal(seen.size, total);
+
+    // 状态实时读取：关单后同一列表立即反映管理关闭 + 真实退款案。
+    const closed = applyAdminOrderClose(
+      database,
+      { database, appId: "app-123", sellerId: "seller-456" },
+      { userId: admin.id, sessionValid: true, csrfValid: true, isAdmin: true },
+      paidNoService.orderId, null, NOW,
+    );
+    assert.equal(closed.managementClosed, true);
+    assert.equal(closed.refundState, "AWAITING_POLICY");
+    assert.equal(closed.serviceStopState, null);
+    res = await get(app, `/api/admin/orders?orderRef=${paidNoService.orderRef}`, admin.session);
+    const row = res.json().orders[0];
+    assert.equal(row.managementClosed, true);
+    assert.equal(row.refundState, "AWAITING_POLICY");
+    assert.equal(row.serviceStopState, null);
+    assert.equal(row.paymentStatus, "paid");
+    await app.close();
+  });
+});
