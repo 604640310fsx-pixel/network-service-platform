@@ -159,7 +159,7 @@ in a separate decision. Before requesting a release window:
    unavailable metadata, altered archive, PR merge ref, failed run, or
    environment-only provenance fails closed.
 4. The bundle retains the repository-relative auth runtime layout, including
-   compiled `auth-service/dist/src`, package manifests, migrations 001-025, and
+   compiled `auth-service/dist/src`, package manifests, migrations 001-026, and
    `website/dist`. It excludes dependency directories, environment files,
    credentials, private keys, databases, and files outside the explicit release
    inputs. Bind its verified manifest and auth/website inventory hashes.
@@ -449,8 +449,8 @@ is still running.
    MONITOR_API_ORIGIN: OMITTED_IN_QUIESCENT_MODE
    ```
 
-   Startup may apply migrations 017, 018, 019, 020, 021, 022, 023, 024 and 025. Validate exact candidate identity, loopback
-   health, migration prefix 001-025, database integrity, static website files,
+   Startup may apply migrations 017, 018, 019, 020, 021, 022, 023, 024, 025 and 026. Validate exact candidate identity, loopback
+   health, migration prefix 001-026, database integrity, static website files,
    the manifest inventory, and the still-closed ingress. The loopback
    `GET /health` liveness response is exactly `200 {"status":"ok"}`; do not treat
    it as traffic readiness or send a payment, email, order, registration,
@@ -483,7 +483,7 @@ is still running.
    ```
 
 10. While ingress remains closed, validate `GET /health` exact
-    `200 {"status":"ok"}` as liveness, schema 001-025, database integrity, and
+    `200 {"status":"ok"}` as liveness, schema 001-026, database integrity, and
     auth and website artifact hashes. Then require loopback `GET /ready` to
     return exact `200 {"status":"ready"}` with `Cache-Control: no-store` as the
     normal aggregate readiness proof for the serving phase, database migration
@@ -521,7 +521,7 @@ Rollback is a matched database-and-artifact operation:
    boundary 001-016. Reprove that no post-snapshot write occurred and the
    restore deadline has not passed.
 3. Restore the verified pre-017 snapshot using the separately authorized bound
-   command. Never open the old binary on a database containing migration 017, 018, 019, 020, 021, 022, 023 or 024.
+   command. Never open the old binary on a database containing migration 017, 018, 019, 020, 021, 022, 023, 024 or 025.
 4. Atomically switch the single consolidated pointer to the matched rollback
    bundle containing both old auth and old website artifacts. Prove their hashes
    and old source SHA.
@@ -945,6 +945,58 @@ a separately approved forward fix is eligible.
 
 No step here authorizes production access, a database write, backup, restore,
 pointer switch, traffic change, deployment, or release by itself.
+
+## Explicit DIRECT14 to 26 route
+
+Current-source counterpart of the DIRECT14 to 25 route above, for candidates
+whose inventory ends at migration 026. Every requirement, proof, substitution,
+and stop line of the DIRECT14 routes applies unchanged, with the candidate
+boundary 001-026. The standard counterpart is `--schema-route standard16-26`
+(`rollback: 16, candidate: 26`).
+
+Validate the retained artifact `consolidated-release-direct14-<RELEASE_CANDIDATE_SHA>`
+with the candidate command above plus `--schema-route direct14-26`. The
+manifest must state `"schemaRoute":"direct14-26"` and
+`rollback: 14, candidate: 26`, and list exactly migrations 001-026. Quiescent
+startup may apply migrations **015 through 026**; verify schema 001-026, the
+Migration 021 table rebuild proof, and the Migration 022, 023, 024, 025 and 026 forward-only proofs.
+
+## Explicit STANDARD19 to 26 route
+
+Current-source counterpart of the STANDARD19 to 25 route above. The manifest
+states `"schemaRoute":"standard19-26"` and `rollback: 19, candidate: 26`, and
+lists exactly migrations 001-026; the existing loader applies every listed
+migration the live database does not yet record (only 026 on a database
+already at 025). Validate the retained artifact
+`consolidated-release-standard19-<RELEASE_CANDIDATE_SHA>` with the candidate
+command above plus `--schema-route standard19-26`. Every `STANDARD19_*` proof,
+the pre-open restore rule, and the after-write rule apply unchanged. After any
+new write, never overwrite or restore the database and never start an Auth
+binary whose inventory ends before 026 on a database containing migration 026;
+there is no rollback artifact for a database at 026, and none may be assumed.
+
+## Migration 026 forward-only wallet accounting
+
+Migration 026 (wallet) adds eleven wallet accounting tables — accounts,
+append-only ledger, topups, consents, immutable consent history, renewal
+cycles, order closures, order settlements, termination cases, refund cases,
+and refund reversals — with foreign keys to the existing users, services,
+orders, and renewal-cycle rows and the enum/sign/uniqueness checks the wallet
+module writes under. It creates no column on existing tables and rewrites no
+existing value; the modeled `wallet_service_extensions` fixture table stays
+test-only and is not part of this migration.
+
+It is forward-only for the Auth binary: an Auth binary whose inventory ends at
+025 refuses a database that records migration 026
+(`database contains unknown migration version 26`), so after 026 applies there
+is no code-only rollback. Before any post-snapshot write, only the verified
+pre-candidate snapshot under the existing restore-eligibility rules may be
+restored together with the matched old Auth and website; after any write, only
+a separately approved forward fix is eligible.
+
+No step here authorizes production access, a database write, backup, restore,
+pointer switch, traffic change, deployment, release, or real fund movement by
+itself.
 
 ## Monitor boundary
 

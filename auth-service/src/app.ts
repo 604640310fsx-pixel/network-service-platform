@@ -50,6 +50,10 @@ import {
   registerReferralHttpRoutes,
   type ReferralHttpDependencies,
 } from "./http/referral-routes.js";
+import {
+  registerWalletHttpRoutes,
+  type WalletHttpDependencies,
+} from "./http/wallet-routes.js";
 
 interface HealthResponse {
   readonly status: "ok";
@@ -103,6 +107,7 @@ export interface BuildAppOptions {
   readonly monitor?: MonitorHttpDependencies;
   readonly subscriptionInfo?: SubscriptionInfoHttpDependencies;
   readonly referral?: ReferralHttpDependencies;
+  readonly wallet?: WalletHttpDependencies;
   readonly readiness?: ReadinessDependencies;
 }
 
@@ -182,6 +187,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   registerPaymentHttpRoutes(app, payment);
   registerPaymentAdminHttpRoutes(app, payment);
   registerAdminServiceHttpRoutes(app, payment);
+  if (options.wallet !== undefined) {
+    registerWalletHttpRoutes(app, options.wallet);
+  }
 
   return app;
 }

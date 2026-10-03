@@ -119,7 +119,7 @@ export function purchasedService(db: DatabaseConnection, serviceId: number): Ser
   const row = one(db, `SELECT s.id AS service_id,s.ends_at,o.user_id
     FROM services s JOIN payments p ON p.id=s.payment_id
     JOIN orders o ON o.id=p.order_id
-    WHERE s.id=? AND p.status='paid' AND o.status='paid'`, serviceId);
+    WHERE s.id=? AND s.status='open' AND p.status='paid' AND o.status='paid'`, serviceId);
   if (!row) return { serviceId, ownerId: null, purchased: false, endsAt: null };
   // Normalize through the same strict-instant helper the quote uses, so a stored
   // `ends_at` in any accepted ISO shape equals the quote's previousEndsAt.
@@ -146,7 +146,7 @@ export function produceRenewalQuote(db: DatabaseConnection, serviceId: number, p
   const row = one(db, `SELECT s.ends_at,o.user_id,o.type_id,o.region_id,o.isp_id,o.spec_id
     FROM services s JOIN payments p ON p.id=s.payment_id
     JOIN orders o ON o.id=p.order_id
-    WHERE s.id=? AND p.status='paid' AND o.status='paid'`, serviceId);
+    WHERE s.id=? AND s.status='open' AND p.status='paid' AND o.status='paid'`, serviceId);
   if (!row || row.user_id === null) throw new WalletError("QUOTE_UNAVAILABLE");
   if (integer(row.user_id) !== actorUserId) throw new WalletError("FORBIDDEN");
   const endsAt = parseEndsAt(row.ends_at);
@@ -157,9 +157,11 @@ export function produceRenewalQuote(db: DatabaseConnection, serviceId: number, p
   };
   const typeId = field(row.type_id), regionId = field(row.region_id), ispId = field(row.isp_id);
   const specId = row.spec_id === null ? null : field(row.spec_id);
-  /* Current catalog version only — the old order's catalog_version stamp is
-     purchase-time history, never the live source. Binds the same constant the
-     order path stamps today; an unavailable version fails closed. */
+  /* Consent TERMS key: current catalog version + full tuple + CNY price + period
+     duration. Expiry is deliberately NOT bound — terms identical across successive
+     periods need no reconsent; the cycle snapshot (previousEndsAt/newEndsAt) is
+     protected by UNIQUE(service_id,previous_ends_at) and the in-transaction re-read.
+     The live constant is bound, never the order's purchase-time stamp. */
   const catalogVersion = field(CATALOG_VERSION);
   const durationId = PERIOD_DURATION_ID[period];
   const months = /^month-(\d+)$/.exec(durationId);
@@ -174,7 +176,7 @@ export function produceRenewalQuote(db: DatabaseConnection, serviceId: number, p
   const previousEndsAt = endsAt.value;
   const newEndsAt = addUtcMonths(previousEndsAt, Number(months[1]));
   return {
-    key: `renewal-quote:${catalogVersion}:${typeId}:${regionId}:${ispId}:${specId ?? ""}:${durationId}:${plan.priceFen}:${previousEndsAt}`,
+    key: `renewal-quote:${catalogVersion}:${typeId}:${regionId}:${ispId}:${specId ?? ""}:${durationId}:${plan.priceFen}`,
     serviceId, ownerId: integer(row.user_id), priceFen: plan.priceFen, durationId, period,
     previousEndsAt, newEndsAt,
   };
@@ -190,34 +192,50 @@ function eligible(service: ServiceEligibility): void {
     throw new WalletError("QUOTE_UNAVAILABLE");
   }
 }
-export function setRenewalConsent(db: DatabaseConnection, service: ServiceEligibility, actorUserId: number,
-  period: BillingPeriod, quote: AuthoritativeQuote | null, expectedRevision: number, enabled: boolean, at: string): number {
+export function setRenewalConsent(db: DatabaseConnection, serviceId: number, actorUserId: number,
+  period: BillingPeriod, expectedRevision: number, enabled: boolean, at: string): number {
   return write(db, () => {
-    const old = one(db, "SELECT revision,user_id FROM wallet_consents WHERE service_id=?", service.serviceId);
+    const old = one(db, "SELECT revision,user_id FROM wallet_consents WHERE service_id=?", serviceId);
     if (old && old.user_id !== actorUserId) throw new WalletError("FORBIDDEN");
-    if (enabled) {
-      assertLiveService(db, service);
-      eligible(service);
-      if (service.ownerId !== actorUserId) throw new WalletError("FORBIDDEN");
-    } else if (old ? old.user_id !== actorUserId : purchasedService(db, service.serviceId).ownerId !== actorUserId) {
+    /* Enabling binds the server-produced quote inside this same transaction (owned
+       open paid service, finite expiry, live active plan); no caller price/key/expiry
+       is ever stored. Disabling needs only the real current owner + revision and works
+       even when the catalog is unavailable. */
+    const fresh = enabled ? produceRenewalQuote(db, serviceId, period, actorUserId) : null;
+    if (!enabled && old === null && purchasedService(db, serviceId).ownerId !== actorUserId) {
       throw new WalletError("FORBIDDEN");
     }
     const revision = old ? integer(old.revision) : 0;
     if (revision !== expectedRevision) throw new WalletError("REVISION_CONFLICT");
-    if (enabled && !validQuote(quote, service, period)) throw new WalletError("QUOTE_UNAVAILABLE");
-    /* Consent binds the server-produced quote inside this same transaction — the
-       caller object is only a shape check, its price/key/duration are never stored. */
-    const fresh = enabled ? produceRenewalQuote(db, service.serviceId, period, actorUserId) : null;
     const next = revision + 1;
     db.prepare(`INSERT INTO wallet_consents (service_id,user_id,state,revision,quote_key,price_fen,duration_id,next_billing_period,updated_at)
       VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(service_id) DO UPDATE SET
       state=excluded.state,revision=excluded.revision,quote_key=excluded.quote_key,price_fen=excluded.price_fen,
       duration_id=excluded.duration_id,next_billing_period=excluded.next_billing_period,updated_at=excluded.updated_at`)
-      .run(service.serviceId, actorUserId, enabled ? "ENABLED" : "DISABLED", next,
+      .run(serviceId, actorUserId, enabled ? "ENABLED" : "DISABLED", next,
         fresh ? fresh.key : null, fresh ? fresh.priceFen : null, fresh ? fresh.durationId : null, period, timestamp(at));
-    recordConsentHistory(db, service.serviceId, at);
+    recordConsentHistory(db, serviceId, at);
     return next;
   });
+}
+/** Current consent snapshot for an owned service; null when the caller does not own
+    it or no consent row exists. */
+export function readRenewalConsent(db: DatabaseConnection, serviceId: number, actorUserId: number):
+  { readonly state: string; readonly revision: number; readonly period: string | null;
+    readonly priceFen: number | null; readonly durationId: string | null; readonly updatedAt: string } | null {
+  const owner = one(db, `SELECT o.user_id FROM services s
+    JOIN payments p ON p.id=s.payment_id JOIN orders o ON o.id=p.order_id WHERE s.id=?`, serviceId);
+  if (!owner || owner.user_id === null || integer(owner.user_id) !== actorUserId) return null;
+  const row = one(db, `SELECT state,revision,next_billing_period,price_fen,duration_id,updated_at
+    FROM wallet_consents WHERE service_id=?`, serviceId);
+  if (!row) return { state: "DISABLED", revision: 0, period: null, priceFen: null, durationId: null, updatedAt: "" };
+  return {
+    state: text(row.state), revision: integer(row.revision),
+    period: row.next_billing_period === null ? null : text(row.next_billing_period),
+    priceFen: row.price_fen === null ? null : integer(row.price_fen),
+    durationId: row.duration_id === null ? null : text(row.duration_id),
+    updatedAt: text(row.updated_at),
+  };
 }
 export function changeNextBillingPeriod(db: DatabaseConnection, serviceId: number, ownerId: number, period: BillingPeriod,
   expectedRevision: number, at: string): number {

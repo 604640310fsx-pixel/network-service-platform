@@ -32,7 +32,7 @@ function state(db: DatabaseConnection, serviceId: number): string {
   return (db.prepare("SELECT state FROM wallet_consents WHERE service_id=?").all(serviceId)[0] as { state: string }).state;
 }
 const service: ServiceEligibility = { serviceId: 11, ownerId: 7, purchased: true, endsAt: "2026-11-01T00:00:00.000Z" };
-const quote: AuthoritativeQuote = { key: "renewal-quote:SUBSCRIBE-CATALOG-V1:local-isp:us:us-verizon::month-1:900:2026-11-01T00:00:00.000Z",
+const quote: AuthoritativeQuote = { key: "renewal-quote:SUBSCRIBE-CATALOG-V1:local-isp:us:us-verizon::month-1:900",
   serviceId: 11, ownerId: 7,
   priceFen: 900, durationId: "month-1", period: "MONTHLY",
   previousEndsAt: service.endsAt!, newEndsAt: "2026-12-01T00:00:00.000Z" };
@@ -43,7 +43,7 @@ function credit(db: DatabaseConnection, orderRef = "t-1", trade = "trade-1", amo
   return creditVerifiedTopup(db, "merchant-1", { orderRef, providerTradeNo: trade, merchantId: "merchant-1",
     amountFen, currency: "CNY", finalStatus: "SUCCESS", signatureVerified: true }, AT);
 }
-function consent(db: DatabaseConnection): number { return setRenewalConsent(db, service, 7, "MONTHLY", quote, 0, true, AT); }
+function consent(db: DatabaseConnection): number { return setRenewalConsent(db, 11, 7, "MONTHLY", 0, true, AT); }
 
 test("missing wallet is zero; SQL failure remains unknown, and verified credit is atomic and idempotent", () => fixture((db) => {
   assert.equal(walletBalance(db, 7), 0);
@@ -66,11 +66,13 @@ test("missing wallet is zero; SQL failure remains unknown, and verified credit i
   assert.throws(() => walletBalance(db, 7));
 }));
 
-test("quote and owner are required; gift, missing end, missing quote and changed quote cannot debit", () => fixture((db) => {
-  assert.throws(() => setRenewalConsent(db, { ...service, purchased: false }, 7, "MONTHLY", quote, 0, true, AT), /QUOTE_UNAVAILABLE/);
-  assert.throws(() => setRenewalConsent(db, { ...service, endsAt: null }, 7, "MONTHLY", quote, 0, true, AT), /QUOTE_UNAVAILABLE/);
-  assert.throws(() => setRenewalConsent(db, service, 8, "MONTHLY", quote, 0, true, AT), /FORBIDDEN/);
-  assert.throws(() => setRenewalConsent(db, service, 7, "MONTHLY", null, 0, true, AT), /QUOTE_UNAVAILABLE/);
+test("quote and owner are required; gift, missing end, missing plan and changed quote cannot debit", () => fixture((db) => {
+  assert.throws(() => setRenewalConsent(db, 12, 7, "MONTHLY", 0, true, AT), /QUOTE_UNAVAILABLE/);
+  db.prepare("UPDATE services SET ends_at=NULL WHERE id=11").run();
+  assert.throws(() => setRenewalConsent(db, 11, 7, "MONTHLY", 0, true, AT), /QUOTE_UNAVAILABLE/);
+  db.prepare("UPDATE services SET ends_at='2026-11-01T00:00:00.000Z' WHERE id=11").run();
+  assert.throws(() => setRenewalConsent(db, 11, 8, "MONTHLY", 0, true, AT), /FORBIDDEN/);
+  assert.throws(() => setRenewalConsent(db, 11, 7, "SEMIANNUAL", 0, true, AT), /QUOTE_UNAVAILABLE/);
   consent(db);
   assert.equal(renewalDryRun(db, service, { ...quote, priceFen: 901 }), "RECONSENT_REQUIRED");
   assert.equal(runRenewalFixture(db, "TEST_ONLY", service, { ...quote, priceFen: 901 }, 1, AT), "RECONSENT_REQUIRED");
@@ -92,7 +94,7 @@ test("debit, ledger, cycle and modeled extension commit together or roll back to
   assert.equal(count(db, "wallet_renewal_cycles"), 1);
   assert.equal(count(db, "wallet_ledger"), 2);
   assert.throws(() => db.prepare("DELETE FROM wallet_ledger").run(), /immutable ledger/);
-  assert.throws(() => setRenewalConsent(db, service, 7, "MONTHLY", quote, 0, false, AT), /REVISION_CONFLICT/);
+  assert.throws(() => setRenewalConsent(db, 11, 7, "MONTHLY", 0, false, AT), /REVISION_CONFLICT/);
 }));
 
 test("period change serializes with runner and forces renewed consent; disabling stays off", () => fixture((db) => {
@@ -103,7 +105,7 @@ test("period change serializes with runner and forces renewed consent; disabling
   assert.equal(runRenewalFixture(db, "TEST_ONLY", service, quote, 2, AT), "RECONSENT_REQUIRED");
   assert.equal(walletBalance(db, 7), 1000);
   db.prepare("UPDATE services SET ends_at=NULL WHERE id=11").run();
-  setRenewalConsent(db, { ...service, endsAt: null }, 7, "MONTHLY", null, 2, false, AT);
+  setRenewalConsent(db, 11, 7, "MONTHLY", 2, false, AT);
   changeNextBillingPeriod(db, 11, 7, "ANNUAL", 3, AT);
   assert.equal(state(db, 11), "DISABLED");
   assert.equal(count(db, "wallet_consent_history"), 4);
@@ -211,8 +213,9 @@ test("renewal quote is server-derived from the paid order tuple and live plan; e
   assert.equal(produced.period, "MONTHLY");
   assert.equal(produced.previousEndsAt, "2026-11-01T00:00:00.000Z");
   assert.equal(produced.newEndsAt, "2026-12-01T00:00:00.000Z");
-  assert.ok(produced.key.includes("SUBSCRIBE-CATALOG-V1") && produced.key.includes("month-1:900:2026-11-01T00:00:00.000Z"));
-  assert.ok(!produced.key.includes("CATV1:")); // old order stamp is never bound as current
+  assert.ok(produced.key.includes("SUBSCRIBE-CATALOG-V1") && produced.key.endsWith(":month-1:900"));
+  assert.ok(!produced.key.includes("CATV1") && !produced.key.includes("2026-11-01"));
+  // terms key binds version+tuple+price+duration only, never expiry or the old stamp
   // Derived quote is exactly what consent/dry-run accept.
   assert.equal(renewalDryRun(db, service, produced), "DISABLED");
   // Same instant in a non-canonical stored form must not conflict with the quote.
@@ -262,9 +265,7 @@ test("deactivated plan after consent fails closed inside the deduction transacti
 
 test("crafted caller fields are never consumed: consent stores produced values, runner commits produced values", () => fixture((db) => {
   topup(db); credit(db);
-  const crafted: AuthoritativeQuote = { ...quote, priceFen: 1, durationId: "month-12",
-    newEndsAt: "2099-01-01T00:00:00.000Z" };
-  setRenewalConsent(db, service, 7, "MONTHLY", crafted, 0, true, AT);
+  setRenewalConsent(db, 11, 7, "MONTHLY", 0, true, AT);
   const stored = db.prepare("SELECT quote_key,price_fen,duration_id FROM wallet_consents WHERE service_id=11")
     .all()[0] as { quote_key: string; price_fen: number; duration_id: string };
   assert.equal(stored.price_fen, 900);
@@ -293,4 +294,40 @@ test("genuine key with hostile caller fields cannot reach READY: zero debit, zer
 test("producer owner gate: non-owner cannot obtain the quote", () => fixture((db) => {
   assert.throws(() => produceRenewalQuote(db, 11, "MONTHLY", 8), /FORBIDDEN/);
   assert.throws(() => produceRenewalQuote(db, 12, "MONTHLY", 8), /QUOTE_UNAVAILABLE/);
+}));
+
+test("same terms across successive periods need no reconsent; each cycle binds its own expiry snapshot", () => fixture((db) => {
+  topup(db, "t-1", 3000); credit(db, "t-1", "trade-1", 3000); consent(db);
+  assert.equal(runRenewalFixture(db, "TEST_ONLY", service, quote, 1, AT), "COMMITTED");
+  // Local fulfillment advances the service expiry; identical terms keep the consent usable.
+  db.prepare("UPDATE services SET ends_at='2026-12-01T00:00:00.000Z' WHERE id=11").run();
+  const service2: ServiceEligibility = { ...service, endsAt: "2026-12-01T00:00:00.000Z" };
+  const next = produceRenewalQuote(db, 11, "MONTHLY", 7);
+  assert.equal(next.key, quote.key);
+  assert.equal(next.previousEndsAt, "2026-12-01T00:00:00.000Z");
+  assert.equal(next.newEndsAt, "2027-01-01T00:00:00.000Z");
+  assert.equal(runRenewalFixture(db, "TEST_ONLY", service2, next, 1, AT), "COMMITTED");
+  assert.equal(runRenewalFixture(db, "TEST_ONLY", service2, next, 1, AT), "DUPLICATE");
+  assert.equal(walletBalance(db, 7), 1200);
+  const periods = db.prepare("SELECT previous_ends_at,new_ends_at FROM wallet_renewal_cycles WHERE service_id=11 ORDER BY id")
+    .all() as Array<{ previous_ends_at: string; new_ends_at: string }>;
+  assert.equal(periods.length, 2);
+  assert.ok(periods[0] !== undefined && periods[1] !== undefined);
+  assert.equal(periods[0].previous_ends_at, "2026-11-01T00:00:00.000Z");
+  assert.equal(periods[0].new_ends_at, "2026-12-01T00:00:00.000Z");
+  assert.equal(periods[1].previous_ends_at, "2026-12-01T00:00:00.000Z");
+  assert.equal(periods[1].new_ends_at, "2027-01-01T00:00:00.000Z");
+}));
+
+test("terms change forces reconsent or unavailability: price, owner, open status", () => fixture((db) => {
+  topup(db); credit(db); consent(db);
+  db.prepare("UPDATE sellable_plans SET price_fen=950 WHERE id=1").run();
+  assert.equal(runRenewalFixture(db, "TEST_ONLY", service, quote, 1, AT), "RECONSENT_REQUIRED");
+  db.prepare("UPDATE sellable_plans SET price_fen=900 WHERE id=1").run();
+  db.prepare("UPDATE orders SET user_id=8 WHERE id=1").run();
+  assert.equal(renewalDryRun(db, service, quote), "QUOTE_UNAVAILABLE");
+  assert.throws(() => produceRenewalQuote(db, 11, "MONTHLY", 7), /FORBIDDEN/);
+  db.prepare("UPDATE orders SET user_id=7 WHERE id=1").run();
+  db.prepare("UPDATE services SET status='pending_open' WHERE id=11").run();
+  assert.throws(() => produceRenewalQuote(db, 11, "MONTHLY", 7), /QUOTE_UNAVAILABLE/);
 }));

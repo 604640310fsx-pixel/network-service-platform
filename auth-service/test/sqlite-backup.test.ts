@@ -182,7 +182,7 @@ test("creates and independently verifies a single-file backup from a live WAL da
       operation: "create",
       quickCheck: "ok",
       foreignKeyFailures: 0,
-      migrations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25],
+      migrations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
       sha256: result.sha256,
       bytes: result.bytes,
       fileMode: "0600",
@@ -208,7 +208,7 @@ test("creates and independently verifies a single-file backup from a live WAL da
         backupDatabase
           .prepare("SELECT version FROM schema_migrations ORDER BY version")
           .all(),
-        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25].map(
+        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26].map(
           (version) => ({ version }),
         ),
       );
@@ -229,7 +229,7 @@ test("creates and independently verifies a single-file backup from a live WAL da
       "--expected-sha256",
       result.sha256,
       "--expected-last-migration",
-      "25",
+      "26",
     ]);
     assert.equal(verified.exitCode, 0, verified.stderr);
     assert.deepEqual(parseSuccess(verified.stdout), {
@@ -325,7 +325,7 @@ test("rejects a corrupted backup during independent verification", async () => {
   }
 });
 
-test("keeps a verified 015 snapshot rollback-compatible after the live source advances to 025", async () => {
+test("keeps a verified 015 snapshot rollback-compatible after the live source advances to 026", async () => {
   const directory = await mkdtemp(join(tmpdir(), "sqlite-backup-rollback-"));
   const source = join(directory, "source.sqlite");
   const backup = join(directory, "backup.sqlite");
@@ -361,7 +361,7 @@ test("keeps a verified 015 snapshot rollback-compatible after the live source ad
           .prepare("SELECT version FROM schema_migrations ORDER BY version")
           .all() as Array<{ readonly version: number }>
       ).map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25],
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
     );
 
     const verified = await executeTool([

@@ -11,7 +11,8 @@ CREATE TABLE sellable_plans (id INTEGER PRIMARY KEY,
 CREATE TABLE payments (id INTEGER PRIMARY KEY, order_id INTEGER NOT NULL UNIQUE,
   status TEXT NOT NULL CHECK(status IN ('pending','paid','closed')),
   amount_fen INTEGER NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT 'CNY', trade_no TEXT);
-CREATE TABLE services (id INTEGER PRIMARY KEY, payment_id INTEGER NOT NULL, ends_at TEXT);
+CREATE TABLE services (id INTEGER PRIMARY KEY, payment_id INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('pending_open','open','closed')), ends_at TEXT);
 CREATE TABLE wallet_accounts (user_id INTEGER PRIMARY KEY, balance_fen INTEGER NOT NULL DEFAULT 0 CHECK(balance_fen >= 0));
 CREATE TABLE wallet_ledger (
   id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('TOPUP','RENEWAL_DEBIT','REFUND_REVERSAL')),

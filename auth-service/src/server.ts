@@ -311,6 +311,11 @@ async function start(): Promise<void> {
           rateLimitKeyring: credentials.rateLimitKeyring,
           csrfSigningKey: credentials.csrfSigningKey,
         },
+        wallet: {
+          database,
+          tokenHmacKeyring: credentials.tokenHmacKeyring,
+          csrfSigningKey: credentials.csrfSigningKey,
+        },
         invites: {
           database,
           nodeEnv: config.nodeEnv,

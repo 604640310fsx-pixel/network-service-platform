@@ -166,7 +166,7 @@ test("Migration 021 rebuild preserves every 020 user, reference, index, trigger,
     const database = initializeDatabase(path);
     try {
       assert.deepEqual(rows(database, "SELECT version FROM schema_migrations ORDER BY version").map((row) => (row as { version: number }).version),
-        Array.from({ length: 25 }, (_, index) => index + 1));
+        Array.from({ length: 26 }, (_, index) => index + 1));
       const after = snapshot(database);
       // Initializing runs through 022 as well, which only adds three nullable services
       // columns: they must be NULL on existing rows, and every other field is unchanged.
@@ -191,7 +191,7 @@ test("Migration 021 rebuild preserves every 020 user, reference, index, trigger,
       assert.deepEqual(database.pragma("foreign_key_check"), []);
       assert.equal(database.pragma("integrity_check", { simple: true }), "ok");
       // Every pre-existing table keeps exactly the same foreign keys and targets;
-      // only the new users/pending columns and the 025 tickets grant link add references.
+      // only the new users/pending columns and the 025 tickets grant link add references to pre-existing tables.
       const foreignKeysAfter = foreignKeyMap(database);
       for (const [table, fks] of Object.entries(foreignKeysBefore)) {
         if (table === "users" || table === "pending_registrations" || table === "tickets") continue;
@@ -229,7 +229,7 @@ test("Migration 021 rebuild preserves every 020 user, reference, index, trigger,
 
     const restarted = initializeDatabase(path);
     try {
-      assert.equal(value(restarted, "SELECT COUNT(*) FROM schema_migrations"), 25);
+      assert.equal(value(restarted, "SELECT COUNT(*) FROM schema_migrations"), 26);
       assert.deepEqual(snapshot(restarted).users, before.users);
       assert.equal(restarted.pragma("foreign_keys", { simple: true }), 1);
     } finally {
