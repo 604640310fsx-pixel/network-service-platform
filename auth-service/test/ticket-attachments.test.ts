@@ -248,8 +248,14 @@ test("invalid types, signatures, structures, and shapes are rejected without wri
         ["string-not-object", "invalid_attachments"],
         [{ contentType: "image/png", dataBase64: b64(PNG), extra: 1 }, "invalid_attachments"],
       ];
+      // Attachment-bearing attempts count against the per-account per-minute
+      // limit, so validation-only cases spread across accounts (dedicated quota
+      // tests cover the counted-attempt behavior).
+      let caseIndex = 0;
       for (const [attachment, code] of cases) {
-        const response = await post(app, "/api/me/tickets", customer.session, {
+        const attemptUser = user(database, `case-${caseIndex}@example.test`);
+        caseIndex += 1;
+        const response = await post(app, "/api/me/tickets", attemptUser.session, {
           subject: "s",
           body: "b",
           attachments: [attachment],
@@ -530,6 +536,88 @@ test("attachment upload writes are bounded to ten per account per minute", async
         subject: "s", body: "b", attachments: [entry("image/png", PNG)],
       });
       assert.equal(own.statusCode, 200);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+test("malformed attachment attempts consume the same per-minute bucket", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const app = ticketApp(database);
+    const customer = user(database, "customer@example.test");
+    try {
+      const ref = (await post(app, "/api/me/tickets", customer.session, { subject: "s", body: "b" })).json().ticket.ref;
+      // Each attempt carries a malformed attachment and is rejected, but still
+      // counts: attachment-bearing spam cannot bypass the per-minute limit.
+      for (let index = 0; index < 10; index += 1) {
+        const rejected = await post(app, `/api/me/tickets/${ref}/messages`, customer.session, {
+          body: `bad${index}`, attachments: [entry("image/gif", PNG)],
+        });
+        assert.equal(rejected.statusCode, 400, `attempt ${index}`);
+        assert.deepEqual(rejected.json(), { error: { code: "unsupported_image_type" } });
+      }
+      const limited = await post(app, `/api/me/tickets/${ref}/messages`, customer.session, {
+        body: "now blocked", attachments: [entry("image/png", PNG)],
+      });
+      assert.equal(limited.statusCode, 429);
+      assert.deepEqual(limited.json(), { error: { code: "rate_limited" } });
+      // The rejected attempts wrote nothing: only the creation message exists.
+      assert.equal(
+        firstValue(database, "SELECT COUNT(*) FROM ticket_messages WHERE ticket_id = (SELECT id FROM tickets WHERE ticket_ref = ?)", ref),
+        1,
+      );
+      assert.equal(firstValue(database, "SELECT COUNT(*) FROM ticket_attachments"), 0);
+      // Plain text without an attachments key still does not consume the bucket.
+      const plain = await post(app, `/api/me/tickets/${ref}/messages`, customer.session, { body: "text only" });
+      assert.equal(plain.statusCode, 200);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+test("the attachment-write window counts the last minute, not per-bucket bursts", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    // TEST_NOW is bucket-aligned; a mutable clock proves the retained-bucket sum
+    // counts the prior window, so a boundary crossing cannot double the limit.
+    let now = new Date(TEST_NOW);
+    let sequence = 0;
+    const app = buildApp({
+      tickets: {
+        database,
+        tokenHmacKeyring: TOKEN_KEYRING,
+        rateLimitKeyring: TOKEN_KEYRING,
+        csrfSigningKey: CSRF_KEY,
+        now: () => new Date(now),
+        randomRef: () => {
+          sequence += 1;
+          return Buffer.from(sequence.toString(16).padStart(16, "0"), "hex");
+        },
+      },
+    });
+    const customer = user(database, "customer@example.test");
+    try {
+      const ref = (await post(app, "/api/me/tickets", customer.session, { subject: "s", body: "b" })).json().ticket.ref;
+      for (let index = 0; index < 10; index += 1) {
+        const response = await post(app, `/api/me/tickets/${ref}/messages`, customer.session, {
+          body: `u${index}`, attachments: [entry("image/png", PNG)],
+        });
+        assert.equal(response.statusCode, 200, `write ${index}`);
+      }
+      // One bucket boundary later (t+61s) the earlier writes are still inside
+      // the retained window: no fixed-window burst reset.
+      now = new Date(now.getTime() + 61_000);
+      const stillLimited = await post(app, `/api/me/tickets/${ref}/messages`, customer.session, {
+        body: "edge", attachments: [entry("image/png", PNG)],
+      });
+      assert.equal(stillLimited.statusCode, 429);
+      // Once every counted bucket has aged out (t+122s), writes resume.
+      now = new Date(now.getTime() + 61_000);
+      const resumed = await post(app, `/api/me/tickets/${ref}/messages`, customer.session, {
+        body: "after", attachments: [entry("image/png", PNG)],
+      });
+      assert.equal(resumed.statusCode, 200, JSON.stringify(resumed.json()));
     } finally {
       await app.close();
     }

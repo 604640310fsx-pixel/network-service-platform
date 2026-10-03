@@ -178,8 +178,10 @@ export function registerTicketHttpRoutes(app: FastifyInstance, dependencies: Tic
       return reply.code(400).send(errorBody("invalid_request"));
     }
     try {
+      // 只要带了 attachments 键就先计入每分钟上限再逐张校验：形状非法的大体积
+      // 附件请求不能绕过限流；纯文本（无附件键）不计数。
+      if (body.attachments !== undefined) consumeAttachmentWriteLimit(gate.session.principal.userId);
       const attachments = body.attachments === undefined ? [] : prepareTicketAttachments(body.attachments);
-      if (attachments.length > 0) consumeAttachmentWriteLimit(gate.session.principal.userId);
       const ticket = createTicket(database, {
         userId: gate.session.principal.userId,
         subject,
@@ -231,8 +233,8 @@ export function registerTicketHttpRoutes(app: FastifyInstance, dependencies: Tic
         return reply.code(400).send(errorBody("invalid_request"));
       }
       try {
+        if (body.attachments !== undefined) consumeAttachmentWriteLimit(gate.session.principal.userId);
         const attachments = body.attachments === undefined ? [] : prepareTicketAttachments(body.attachments);
-        if (attachments.length > 0) consumeAttachmentWriteLimit(gate.session.principal.userId);
         const ticket = replyAsCustomer(database, {
           userId: gate.session.principal.userId,
           ref: request.params.ref,
