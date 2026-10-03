@@ -59,10 +59,11 @@ CREATE TABLE wallet_termination_cases (
   stop_state TEXT NOT NULL CHECK(stop_state IN ('REQUESTED','ACTUAL_STOP_CONFIRMED','FAILED','UNKNOWN'))
 );
 CREATE TABLE wallet_refund_cases (
-  id INTEGER PRIMARY KEY, service_id INTEGER NOT NULL,
+  id INTEGER PRIMARY KEY, service_id INTEGER,
   refund_state TEXT NOT NULL CHECK(refund_state IN ('AWAITING_POLICY','PROCESSING','SUCCESS','FAILED','UNKNOWN')),
   source_kind TEXT NOT NULL CHECK(source_kind IN ('ORIGINAL_PAYMENT','WALLET_RENEWAL')),
-  source_id INTEGER NOT NULL, UNIQUE(source_kind,source_id)
+  source_id INTEGER NOT NULL, UNIQUE(source_kind,source_id),
+  CHECK(source_kind='ORIGINAL_PAYMENT' OR service_id IS NOT NULL)
 );
 CREATE TABLE wallet_refund_reversals (
   refund_key TEXT PRIMARY KEY, cycle_id INTEGER NOT NULL, amount_fen INTEGER NOT NULL CHECK(amount_fen > 0),

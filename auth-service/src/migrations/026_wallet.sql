@@ -107,13 +107,16 @@ CREATE TABLE wallet_termination_cases (
 
 CREATE TABLE wallet_refund_cases (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE RESTRICT,
+  service_id INTEGER REFERENCES services(id) ON DELETE RESTRICT,
   refund_state TEXT NOT NULL CHECK(
     refund_state IN ('AWAITING_POLICY','PROCESSING','SUCCESS','FAILED','UNKNOWN')
   ),
   source_kind TEXT NOT NULL CHECK(source_kind IN ('ORIGINAL_PAYMENT','WALLET_RENEWAL')),
   source_id INTEGER NOT NULL,
-  UNIQUE(source_kind, source_id)
+  UNIQUE(source_kind, source_id),
+  /* ORIGINAL_PAYMENT may bind a verified paid order that has no services row;
+     WALLET_RENEWAL always requires a real service/cycle. */
+  CHECK(source_kind = 'ORIGINAL_PAYMENT' OR service_id IS NOT NULL)
 );
 
 CREATE TABLE wallet_refund_reversals (

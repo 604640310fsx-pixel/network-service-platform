@@ -79,6 +79,7 @@ function sendFailure(reply: FastifyReply, error: unknown): FastifyReply {
     if (error.code === "FORBIDDEN") return reply.code(404).send(errorBody("not_found"));
     if (error.code === "ORDER_UNAVAILABLE") return reply.code(404).send(errorBody("not_found"));
     if (error.code === "QUOTE_UNAVAILABLE") return reply.code(409).send(errorBody("quote_unavailable"));
+    if (error.code === "QUOTE_CHANGED") return reply.code(409).send(errorBody("quote_changed"));
     if (error.code === "SERVICE_CLOSED") return reply.code(409).send(errorBody("service_closed"));
     if (error.code === "REVISION_CONFLICT") return reply.code(409).send(errorBody("revision_conflict"));
     if (
@@ -200,12 +201,14 @@ export function registerWalletHttpRoutes(app: FastifyInstance, dependencies: Wal
       if (!gate.ok) return reply.code(gate.statusCode).send(errorBody(gate.code));
       const serviceId = parseServiceId(request.params.id);
       if (serviceId === null) return reply.code(404).send(errorBody("not_found"));
-      const body = exactKeys(request.body, ["period", "expectedRevision", "enabled"]);
+      const body = exactKeys(request.body, ["period", "expectedRevision", "enabled"], ["expectedQuoteKey"]);
       const period = body === null ? null : parsePeriod(body.period);
       if (
         body === null || period === null ||
         !Number.isSafeInteger(body.expectedRevision) || (body.expectedRevision as number) < 0 ||
-        typeof body.enabled !== "boolean"
+        typeof body.enabled !== "boolean" ||
+        (body.enabled === true &&
+          (typeof body.expectedQuoteKey !== "string" || body.expectedQuoteKey.length === 0))
       ) {
         return reply.code(400).send(errorBody("invalid_request"));
       }
@@ -216,7 +219,8 @@ export function registerWalletHttpRoutes(app: FastifyInstance, dependencies: Wal
         const at = (dependencies.now?.() ?? new Date()).toISOString();
         const revision = setRenewalConsent(
           dependencies.database, serviceId, gate.session.principal.userId, period,
-          body.expectedRevision as number, body.enabled as boolean, at,
+          body.expectedRevision as number, body.enabled as boolean,
+          body.enabled === true ? (body.expectedQuoteKey as string) : null, at,
         );
         return await reply.send({ revision });
       } catch (error) {

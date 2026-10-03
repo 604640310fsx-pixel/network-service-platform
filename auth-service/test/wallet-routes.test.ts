@@ -7,7 +7,7 @@ import type { DatabaseConnection } from "../src/db.js";
 import { buildApp } from "../src/app.js";
 import { insertAuthenticationUser, withAuthenticationDatabase } from "./auth/helpers.js";
 import { CSRF_KEY, FakeAlipaySdk, TEST_NOW, TOKEN_KEYRING, insertWebSession, paymentDependencies, queryResult, tradeNotExistResult } from "./payment/helpers.js";
-import { applyAdminOrderClose } from "../src/wallet/candidate.js";
+import { applyAdminOrderClose, applyBuyerOrderCancellation } from "../src/wallet/candidate.js";
 
 const NOW = "2026-08-21T00:00:00.000Z";
 const ENDS = "2026-09-01T00:00:00.000Z";
@@ -211,15 +211,39 @@ test("renewal-consent: GET snapshot, PUT enable/disable with owner+CSRF+revision
     assert.equal(res.json().consent.revision, 0);
     res = await get(app, url, foreign.session);
     assert.equal(res.statusCode, 404);
-    res = await put(app, url, owner.session, { period: "MONTHLY", expectedRevision: 0, enabled: true }, null);
+    res = await put(app, url, owner.session, { period: "MONTHLY", expectedRevision: 0, enabled: true, expectedQuoteKey: "k" }, null);
     assert.equal(res.statusCode, 403);
     res = await put(app, url, owner.session, { period: "MONTHLY", expectedRevision: 0, enabled: true, priceFen: 1 });
     assert.equal(res.statusCode, 400);
-    res = await put(app, url, foreign.session, { period: "MONTHLY", expectedRevision: 0, enabled: true });
-    assert.equal(res.statusCode, 404);
-    res = await put(app, url, admin.session, { period: "MONTHLY", expectedRevision: 0, enabled: true });
-    assert.equal(res.statusCode, 404);
+    // enabled=true 必须携带买家实际看到的 GET-quote key。
     res = await put(app, url, owner.session, { period: "MONTHLY", expectedRevision: 0, enabled: true });
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.json().error.code, "invalid_request");
+    res = await put(app, url, owner.session, { period: "MONTHLY", expectedRevision: 0, enabled: true, expectedQuoteKey: "" });
+    assert.equal(res.statusCode, 400);
+    res = await put(app, url, owner.session, { period: "MONTHLY", expectedRevision: 0, enabled: true, expectedQuoteKey: 7 });
+    assert.equal(res.statusCode, 400);
+    res = await put(app, url, foreign.session, { period: "MONTHLY", expectedRevision: 0, enabled: true, expectedQuoteKey: "k" });
+    assert.equal(res.statusCode, 404);
+    res = await put(app, url, admin.session, { period: "MONTHLY", expectedRevision: 0, enabled: true, expectedQuoteKey: "k" });
+    assert.equal(res.statusCode, 404);
+    // 买家看到的 quote.key 原样回传 → 通过；条款只取 server 端。
+    res = await get(app, `/api/me/services/${serviceId}/renewal-quote?period=MONTHLY`, owner.session);
+    assert.equal(res.statusCode, 200);
+    const seenKey = res.json().quote.key as string;
+    // 看到报价后价格变化：旧 key 409 quote_changed，同意/修订/历史零写入。
+    database.prepare("UPDATE sellable_plans SET price_fen=price_fen+1 WHERE type_id='local-isp' AND region_id='us' AND isp_id='us-verizon' AND duration_id='month-1'").run();
+    res = await put(app, url, owner.session, { period: "MONTHLY", expectedRevision: 0, enabled: true, expectedQuoteKey: seenKey });
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.json().error.code, "quote_changed");
+    res = await get(app, url, owner.session);
+    assert.equal(res.json().consent.state, "DISABLED");
+    assert.equal(res.json().consent.revision, 0);
+    assert.equal(database.prepare("SELECT COUNT(*) AS n FROM wallet_consent_history").all()[0] && (database.prepare("SELECT COUNT(*) AS n FROM wallet_consent_history").all()[0] as { n: number }).n, 0);
+    res = await get(app, `/api/me/services/${serviceId}/renewal-quote?period=MONTHLY`, owner.session);
+    const freshKey = res.json().quote.key as string;
+    assert.notEqual(freshKey, seenKey);
+    res = await put(app, url, owner.session, { period: "MONTHLY", expectedRevision: 0, enabled: true, expectedQuoteKey: freshKey });
     assert.equal(res.statusCode, 200);
     assert.equal(res.json().revision, 1);
     res = await get(app, url, owner.session);
@@ -227,14 +251,14 @@ test("renewal-consent: GET snapshot, PUT enable/disable with owner+CSRF+revision
     assert.equal(consent.state, "ENABLED");
     assert.equal(consent.revision, 1);
     assert.equal(consent.period, "MONTHLY");
-    assert.equal(consent.priceFen, 7900);
+    assert.equal(consent.priceFen, 7901);
     assert.equal(consent.durationId, "month-1");
-    res = await put(app, url, owner.session, { period: "MONTHLY", expectedRevision: 0, enabled: true });
+    res = await put(app, url, owner.session, { period: "MONTHLY", expectedRevision: 0, enabled: true, expectedQuoteKey: freshKey });
     assert.equal(res.statusCode, 409);
     assert.equal(res.json().error.code, "revision_conflict");
     // Disable still works with the catalog row gone — only owner + revision are needed.
     database.prepare("DELETE FROM sellable_plans WHERE type_id='local-isp' AND region_id='us' AND isp_id='us-verizon' AND duration_id='month-1'").run();
-    res = await put(app, url, owner.session, { period: "MONTHLY", expectedRevision: 1, enabled: true });
+    res = await put(app, url, owner.session, { period: "MONTHLY", expectedRevision: 1, enabled: true, expectedQuoteKey: "k" });
     assert.equal(res.statusCode, 409);
     res = await put(app, url, owner.session, { period: "MONTHLY", expectedRevision: 1, enabled: false });
     assert.equal(res.statusCode, 200);
@@ -316,6 +340,13 @@ test("buyer order cancel: provider failure announces nothing; late paid wins and
       "pending",
     );
     assert.equal(database.prepare("SELECT COUNT(*) AS n FROM wallet_order_closures").all()[0] && (database.prepare("SELECT COUNT(*) AS n FROM wallet_order_closures").all()[0] as { n: number }).n, 0);
+    // 15 秒 provider 节流与状态查询共享：窗口内重试直接 unknown/503，不再访问 provider。
+    const queriesBefore = sdk.queryCalls.length;
+    res = await post(app, `/api/me/orders/${pending.orderRef}/cancel`, owner.session);
+    assert.equal(res.statusCode, 503);
+    assert.equal(res.json().error.code, "wallet_unavailable");
+    assert.equal(sdk.queryCalls.length, queriesBefore);
+    database.prepare("UPDATE payments SET last_queried_at = NULL WHERE id=?").run(pending.paymentId);
     // 关单后复查发现买家已支付：paid 胜出，结算保留财务事实，取消被拒。
     sdk.closeResponse = { code: "10000" };
     sdk.queryResponse = (ref: string) =>
@@ -436,14 +467,31 @@ test("admin order close: unpaid closes through provider path; paid+pending_open 
       (database.prepare("SELECT COUNT(*) AS n FROM wallet_refund_cases WHERE source_kind='ORIGINAL_PAYMENT' AND source_id=?").all(open.paymentId)[0] as { n: number }).n,
       1,
     );
-    // 已付款但无 services 行：拒绝而不伪造退款绑定或丢弃财务事实。
+    // 已付款但无 services 行：管理关闭 + NULL service_id 退款案（绑定已验证支付），
+    // 绝不伪造 services/OPEN 行；无属主 guest 支付单仍拒绝。
     res = await post(app, `/api/admin/orders/${noService.orderId}/close`, admin.session);
-    assert.equal(res.statusCode, 409);
-    assert.equal(res.json().error.code, "not_cancellable");
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), {
+      orderRef: "AC-4", managementClosed: true, refundState: "AWAITING_POLICY", serviceStopState: null,
+    });
+    const servicelessCase = database
+      .prepare("SELECT service_id, refund_state FROM wallet_refund_cases WHERE source_kind='ORIGINAL_PAYMENT' AND source_id=?")
+      .all(noService.paymentId)[0] as { service_id: number | null; refund_state: string };
+    assert.equal(servicelessCase.service_id, null);
+    assert.equal(servicelessCase.refund_state, "AWAITING_POLICY");
     assert.equal(
       (database.prepare("SELECT COUNT(*) AS n FROM wallet_order_closures WHERE order_id=?").all(noService.orderId)[0] as { n: number }).n,
+      1,
+    );
+    assert.equal(
+      (database.prepare("SELECT COUNT(*) AS n FROM services WHERE payment_id=?").all(noService.paymentId)[0] as { n: number }).n,
       0,
     );
+    const guest = seedOrder(database, owner.id, { ref: "AC-5", orderStatus: "paid", paymentStatus: "paid", tradeNo: "t-g" });
+    database.prepare("UPDATE orders SET user_id=NULL WHERE id=?").run(guest.orderId);
+    res = await post(app, `/api/admin/orders/${guest.orderId}/close`, admin.session);
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.json().error.code, "not_cancellable");
     // 管理关闭后的 OPEN 服务：OPEN+paid 旧检查仍会通过，但每个可执行的续期
     // 面都必须命中真实关闭态——报价/启用/改期一律 409 service_closed，仅 OFF 放行。
     res = await get(app, `/api/me/services/${open.serviceId}/renewal-quote?period=MONTHLY`, owner.session);
@@ -455,7 +503,7 @@ test("admin order close: unpaid closes through provider path; paid+pending_open 
       .prepare("SELECT revision,state FROM wallet_consents WHERE service_id=?").all(open.serviceId)[0] as { revision: number; state: string };
     assert.equal(closedConsent.state, "DISABLED");
     res = await put(app, `/api/me/services/${open.serviceId}/renewal-consent`, owner.session, {
-      period: "MONTHLY", expectedRevision: closedConsent.revision, enabled: true,
+      period: "MONTHLY", expectedRevision: closedConsent.revision, enabled: true, expectedQuoteKey: "k",
     });
     assert.equal(res.statusCode, 409);
     assert.equal(res.json().error.code, "service_closed");
@@ -576,6 +624,35 @@ test("close-first late paid: wallet preserves the verified payment as PAID_AFTER
       (database.prepare("SELECT state FROM wallet_order_settlements WHERE order_id=?").all(ghost.orderId)[0] as { state: string }).state,
       "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING",
     );
+    // 买家侧同样的先关后付：闭单记录与新支付/退款案必须原子并存，绝不丢关闭态。
+    const buyerClosed = applyBuyerOrderCancellation(
+      database,
+      { database, appId: "app-123", sellerId: "seller-456" },
+      { userId: owner.id, sessionValid: true, csrfValid: true, isAdmin: false },
+      ghost.orderRef,
+      {
+        kind: "paid",
+        event: {
+          outTradeNo: `out-${ghost.orderRef}`,
+          tradeNo: "real-late-trade",
+          tradeStatus: "TRADE_SUCCESS",
+          totalAmount: "79.00",
+          totalAmountFen: 7900,
+          appId: "app-123",
+          sellerId: "seller-456",
+        },
+      },
+      NOW,
+    );
+    assert.equal(buyerClosed, "ALREADY_CANCELLED");
+    assert.equal(
+      (database.prepare("SELECT COUNT(*) AS n FROM wallet_order_closures WHERE order_id=?").all(ghost.orderId)[0] as { n: number }).n,
+      1,
+    );
+    assert.equal(
+      (database.prepare("SELECT COUNT(*) AS n FROM wallet_refund_cases WHERE source_kind='ORIGINAL_PAYMENT' AND source_id=?").all(ghost.paymentId)[0] as { n: number }).n,
+      1,
+    );
     await app.close();
   });
 });
@@ -615,8 +692,9 @@ test("next-billing-period: owner PUT validates current SKU quote, forces RECONSE
     assert.equal(consent.state, "DISABLED");
     assert.equal(consent.next_billing_period, "ANNUAL");
     // ENABLED 行再改周期 → RECONSENT_REQUIRED。
+    const enableKey = (await get(app, `/api/me/services/${serviceId}/renewal-quote?period=MONTHLY`, owner.session)).json().quote.key as string;
     res = await put(app, `/api/me/services/${serviceId}/renewal-consent`, owner.session, {
-      period: "MONTHLY", expectedRevision: 2, enabled: true,
+      period: "MONTHLY", expectedRevision: 2, enabled: true, expectedQuoteKey: enableKey,
     });
     assert.equal(res.statusCode, 200);
     res = await put(app, url, owner.session, { period: "SEMIANNUAL", expectedRevision: 3 });

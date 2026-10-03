@@ -214,15 +214,23 @@ function eligible(service: ServiceEligibility): void {
   }
 }
 export function setRenewalConsent(db: DatabaseConnection, serviceId: number, actorUserId: number,
-  period: BillingPeriod, expectedRevision: number, enabled: boolean, at: string): number {
+  period: BillingPeriod, expectedRevision: number, enabled: boolean, expectedQuoteKey: string | null, at: string): number {
   return write(db, () => {
     const old = one(db, "SELECT revision,user_id FROM wallet_consents WHERE service_id=?", serviceId);
     if (old && old.user_id !== actorUserId) throw new WalletError("FORBIDDEN");
     /* Enabling binds the server-produced quote inside this same transaction (owned
        open paid service, finite expiry, live active plan); no caller price/key/expiry
-       is ever stored. Disabling needs only the real current owner + revision and works
-       even when the catalog is unavailable. */
+       is ever stored. The buyer must echo the exact key from the quote they saw —
+       a stale/changed quote rejects with QUOTE_CHANGED and writes nothing.
+       Disabling needs only the real current owner + revision and works even when
+       the catalog is unavailable. */
     const fresh = enabled ? produceRenewalQuote(db, serviceId, period, actorUserId) : null;
+    if (enabled) {
+      if (typeof expectedQuoteKey !== "string" || expectedQuoteKey.length === 0) {
+        throw new WalletError("INVALID_REQUEST");
+      }
+      if (fresh === null || fresh.key !== expectedQuoteKey) throw new WalletError("QUOTE_CHANGED");
+    }
     if (!enabled && old === null && purchasedService(db, serviceId).ownerId !== actorUserId) {
       throw new WalletError("FORBIDDEN");
     }
@@ -397,12 +405,16 @@ export function recordVerifiedOrderPayment(db: DatabaseConnection, expectedMerch
     positive(amountFen);
     if (event.signatureVerified !== true || event.finalStatus !== "SUCCESS" || event.currency !== "CNY" ||
       event.merchantId !== expectedMerchantId || !tradeNo) throw new WalletError("VERIFICATION_REQUIRED");
-    const payment = one(db, `SELECT p.amount_fen,p.currency,p.status AS payment_status,p.trade_no,
+    const payment = one(db, `SELECT p.id AS payment_id,p.amount_fen,p.currency,p.status AS payment_status,p.trade_no,
       o.status AS order_status FROM payments p JOIN orders o ON o.id=p.order_id WHERE p.order_id=?`, orderId);
     if (!payment || payment.amount_fen !== amountFen || payment.currency !== event.currency) throw new WalletError("PAYMENT_MISMATCH");
-    const existing = one(db, "SELECT provider_trade_no,amount_fen FROM wallet_order_settlements WHERE order_id=?", orderId);
+    const paymentId = integer(payment.payment_id);
+    const existing = one(db, "SELECT provider_trade_no,amount_fen,state FROM wallet_order_settlements WHERE order_id=?", orderId);
     if (existing) {
       if (existing.provider_trade_no !== tradeNo || existing.amount_fen !== amountFen) throw new WalletError("TRADE_CONFLICT");
+      if (text(existing.state) === "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING") {
+        ensurePaymentRefundCase(db, serviceIdForPayment(db, paymentId), paymentId);
+      }
       return "REPLAY";
     }
     const closed = one(db, "SELECT order_id FROM wallet_order_closures WHERE order_id=?", orderId) !== null;
@@ -416,6 +428,7 @@ export function recordVerifiedOrderPayment(db: DatabaseConnection, expectedMerch
       if (payment.trade_no !== tradeNo) throw new WalletError("PAYMENT_STATE_CONFLICT");
       db.prepare("INSERT INTO wallet_order_settlements(order_id,provider_trade_no,amount_fen,state,recorded_at) VALUES (?,?,?,?,?)")
         .run(orderId, tradeNo, amountFen, closed ? "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING" : "PAID", timestamp(at));
+      if (closed) ensurePaymentRefundCase(db, serviceIdForPayment(db, paymentId), paymentId);
       return closed ? "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING" : "REPLAY";
     }
     const locallyClosed = closed || orderStatus === "closed" || paymentStatus === "closed";
@@ -423,6 +436,9 @@ export function recordVerifiedOrderPayment(db: DatabaseConnection, expectedMerch
     const state = locallyClosed ? "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING" : "PAID";
     db.prepare("INSERT INTO wallet_order_settlements(order_id,provider_trade_no,amount_fen,state,recorded_at) VALUES (?,?,?,?,?)")
       .run(orderId, tradeNo, amountFen, state, timestamp(at));
+    /* Every verified late-paid on a locally closed order owes a real pending-refund
+       case in the same transaction — the settlement state alone is not a case. */
+    if (locallyClosed) ensurePaymentRefundCase(db, serviceIdForPayment(db, paymentId), paymentId);
     if (!locallyClosed) fulfill(db, orderId);
     return state;
   });
@@ -570,11 +586,21 @@ function recordSettlementIfAbsent(db: DatabaseConnection, orderId: number, trade
     .run(orderId, tradeNo, amountFen, lateAfterClose ? "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING" : "PAID", timestamp(at));
 }
 
-function ensurePaymentRefundCase(db: DatabaseConnection, serviceId: number, paymentId: number): void {
+/* NULL serviceId is legitimate for ORIGINAL_PAYMENT: the case binds the verified
+   payment, and a serviceless paid order is still owed a pending refund decision.
+   No services/OPEN row is ever fabricated to satisfy the binding. */
+function ensurePaymentRefundCase(db: DatabaseConnection, serviceId: number | null, paymentId: number): void {
   const existing = one(db,
     "SELECT service_id FROM wallet_refund_cases WHERE source_kind='ORIGINAL_PAYMENT' AND source_id=?", paymentId);
   if (existing !== null) {
-    if (existing.service_id !== serviceId) throw new WalletError("SOURCE_CONFLICT");
+    if (serviceId !== null && existing.service_id === null) {
+      db.prepare("UPDATE wallet_refund_cases SET service_id=? WHERE source_kind='ORIGINAL_PAYMENT' AND source_id=?")
+        .run(serviceId, paymentId);
+      return;
+    }
+    if (existing.service_id !== null && serviceId !== null && existing.service_id !== serviceId) {
+      throw new WalletError("SOURCE_CONFLICT");
+    }
     return;
   }
   db.prepare(`INSERT INTO wallet_refund_cases(service_id,refund_state,source_kind,source_id)
@@ -595,8 +621,8 @@ function preserveLatePaidAfterClose(db: DatabaseConnection, dependencies: Paymen
   const transition = finalizePaid(dependencies, observation.event);
   if (transition === "rejected") throw new WalletError("PAYMENT_STATE_CONFLICT");
   recordSettlementIfAbsent(db, row.orderId, observation.event.tradeNo, observation.event.totalAmountFen, true, at);
-  const serviceId = row.serviceId ?? serviceIdForPayment(db, row.paymentId);
-  if (serviceId !== null) ensurePaymentRefundCase(db, serviceId, row.paymentId);
+  // The case is always owed a pending decision — serviceless late-paid included.
+  ensurePaymentRefundCase(db, row.serviceId ?? serviceIdForPayment(db, row.paymentId), row.paymentId);
 }
 
 /** Buyer cancel: only an actually-unpaid owned order can close. Paid (whether it
@@ -611,8 +637,10 @@ export function applyBuyerOrderCancellation(db: DatabaseConnection, dependencies
     const hasClosure = one(db, "SELECT order_id FROM wallet_order_closures WHERE order_id=?", row.orderId) !== null;
     const locallyClosed = hasClosure || row.orderStatus === "closed" || row.paymentStatus === "closed";
     if (locallyClosed) {
+      // Closure persists first — even when a verified late-paid lands in the same
+      // call — so the paid path can never reopen delivery or renewal (admin parity).
+      if (!hasClosure) insertClosureOnce(db, row.orderId, actor.userId, true, at);
       if (observation?.kind === "paid") preserveLatePaidAfterClose(db, dependencies, row, observation, at);
-      else if (!hasClosure) insertClosureOnce(db, row.orderId, actor.userId, true, at);
       return "ALREADY_CANCELLED";
     }
     if (row.orderStatus === "paid" || row.paymentStatus === "paid") return "NOT_CANCELLABLE";
@@ -646,7 +674,8 @@ export interface AdminOrderCloseResult {
     close plus a pending refund case bound to the verified payment source. OPEN
     services additionally record an internal termination REQUEST and disable
     future autorenewal — no external stop is performed or claimed. A paid order
-    without a services row refuses instead of discarding facts. */
+    without a services row records the case with service_id NULL; no service or
+    OPEN row is ever invented, and a guest (ownerless) paid order still refuses. */
 export function applyAdminOrderClose(db: DatabaseConnection, dependencies: PaymentStateDependencies,
   actor: InternalActor, orderId: number, observation: OrderObservation | null, at: string): AdminOrderCloseResult {
   return write(db, () => {
@@ -687,10 +716,13 @@ export function applyAdminOrderClose(db: DatabaseConnection, dependencies: Payme
       row = loadOrderPaymentById(db, orderId)!;
     }
     if (row.orderStatus === "paid" || row.paymentStatus === "paid") {
-      if (row.serviceId === null) throw new WalletError("NOT_CANCELLABLE");
+      // A paid order needs a real owner to attribute the refund to; a missing
+      // services row is fine — the case binds the verified payment with
+      // service_id NULL rather than an invented service/OPEN row.
+      if (row.ownerId === null) throw new WalletError("NOT_CANCELLABLE");
       if (!hasClosure()) insertClosureOnce(db, row.orderId, actor.userId, false, at);
       if (row.tradeNo !== null) recordSettlementIfAbsent(db, row.orderId, row.tradeNo, row.amountFen, false, at);
-      if (row.serviceStatus === "open") {
+      if (row.serviceStatus === "open" && row.serviceId !== null) {
         requestPaidServiceTerminationInTransaction(db, actor, row.serviceId, "ORIGINAL_PAYMENT", row.paymentId, at);
       } else {
         ensurePaymentRefundCase(db, row.serviceId, row.paymentId);

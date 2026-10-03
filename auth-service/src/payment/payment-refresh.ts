@@ -203,6 +203,11 @@ export async function observePendingTradeForCancel(
   dependencies: PaymentRefreshDependencies,
   target: RefreshTarget,
 ): Promise<PendingTradeObservation> {
+  // Same 15s provider throttle as the status refresh and the sweep: a retried
+  // observation inside the window yields unknown (503), never a guessed close.
+  if (!claimAlipayQuery(dependencies, target.paymentId)) {
+    return { kind: "unknown" };
+  }
   const syntheticClosed = (): PendingTradeObservation => ({
     kind: "closed",
     event: {

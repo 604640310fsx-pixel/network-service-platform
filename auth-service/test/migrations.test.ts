@@ -629,6 +629,24 @@ test("Migration 026 adds the wallet accounting tables on a 025 database", async 
       ).run(serviceId, NOW, LATER, userId, NOW),
       /UNIQUE constraint failed/,
     );
+
+    // Refund cases: ORIGINAL_PAYMENT may bind a verified paid order without a
+    // services row (service_id NULL); WALLET_RENEWAL always needs a real service.
+    database.prepare(
+      "INSERT INTO wallet_refund_cases (service_id, refund_state, source_kind, source_id) VALUES (NULL, 'AWAITING_POLICY', 'ORIGINAL_PAYMENT', ?)",
+    ).run(paymentId);
+    assert.throws(
+      () => database.prepare(
+        "INSERT INTO wallet_refund_cases (service_id, refund_state, source_kind, source_id) VALUES (NULL, 'AWAITING_POLICY', 'ORIGINAL_PAYMENT', ?)",
+      ).run(paymentId),
+      /UNIQUE constraint failed/,
+    );
+    assert.throws(
+      () => database.prepare(
+        "INSERT INTO wallet_refund_cases (service_id, refund_state, source_kind, source_id) VALUES (NULL, 'AWAITING_POLICY', 'WALLET_RENEWAL', ?)",
+      ).run(999),
+      /CHECK constraint failed/,
+    );
     assert.equal((database.pragma("foreign_key_check") as unknown[]).length, 0);
   } finally {
     database.close();

@@ -325,6 +325,48 @@ export function finalizePaid(
          ) VALUES (?, 'pending_open', NULL, NULL, ?, ?)`,
       )
       .run(payment.id, now, now);
+    /* A signed paid landing on a locally closed payment (notify, sweep query or a
+       management observation all converge here) owes a pending-refund record in
+       the same transaction: the settlement marker plus a real AWAITING_POLICY
+       refund case bound to the verified payment. Both writes are replay-safe. */
+    if (payment.status === "closed") {
+      const settled = dependencies.database
+        .prepare("SELECT order_id FROM wallet_order_settlements WHERE order_id = ?")
+        .all(payment.order_id)[0];
+      if (settled === undefined) {
+        dependencies.database
+          .prepare(
+            `INSERT INTO wallet_order_settlements (
+               order_id, provider_trade_no, amount_fen, state, recorded_at
+             ) VALUES (?, ?, ?, 'PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING', ?)`,
+          )
+          .run(payment.order_id, input.tradeNo, payment.amount_fen, now);
+      }
+      const serviceId = (
+        dependencies.database
+          .prepare("SELECT id FROM services WHERE payment_id = ?")
+          .all(payment.id)[0] as { readonly id: number } | undefined
+      )?.id ?? null;
+      const existingCase = dependencies.database
+        .prepare(
+          "SELECT service_id FROM wallet_refund_cases WHERE source_kind = 'ORIGINAL_PAYMENT' AND source_id = ?",
+        )
+        .all(payment.id)[0] as { readonly service_id: number | null } | undefined;
+      if (existingCase === undefined) {
+        dependencies.database
+          .prepare(
+            `INSERT INTO wallet_refund_cases (service_id, refund_state, source_kind, source_id)
+             VALUES (?, 'AWAITING_POLICY', 'ORIGINAL_PAYMENT', ?)`,
+          )
+          .run(serviceId, payment.id);
+      } else if (existingCase.service_id === null && serviceId !== null) {
+        dependencies.database
+          .prepare(
+            "UPDATE wallet_refund_cases SET service_id = ? WHERE source_kind = 'ORIGINAL_PAYMENT' AND source_id = ?",
+          )
+          .run(serviceId, payment.id);
+      }
+    }
     insertNotification(dependencies.database, payment.id, input, now);
     return "finalized" as const;
   });
