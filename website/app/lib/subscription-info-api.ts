@@ -36,7 +36,9 @@ export function parseSubscriptionInfo(value: unknown): SubscriptionInfo {
   const info = body.info as Record<string, unknown>;
   if (Object.keys(info).sort().join(",") !== "download,expire,total,upload") throw new PaymentApiError("invalid_response");
   const [upload, download, total, expire] = [count(info.upload), count(info.download), count(info.total), count(info.expire)];
-  if (upload === undefined || download === undefined || total === undefined || expire === undefined) {
+  // A safe integer can still exceed JavaScript Date's range and crash the usage row.
+  if (upload === undefined || download === undefined || total === undefined ||
+      expire === undefined || (expire !== null && expire > 8_640_000_000_000)) {
     throw new PaymentApiError("invalid_response");
   }
   return { kind: "usage", usage: { upload, download, total, expire } };

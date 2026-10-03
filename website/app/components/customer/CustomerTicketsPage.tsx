@@ -2,7 +2,7 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
 import { useI18n, useT } from "../../lib/i18n";
-import { getMyServices, type MyServiceItem } from "../../lib/payment-api";
+import { getMyServices, PaymentApiError, type MyServiceItem } from "../../lib/payment-api";
 import {
   TICKET_BODY_MAX,
   TICKET_SUBJECT_MAX,
@@ -121,6 +121,12 @@ type Load<Value> =
   | { readonly kind: "unauthorized" }
   | { readonly kind: "error"; readonly message: string };
 
+type ServiceLoad =
+  | { readonly kind: "loading" }
+  | { readonly kind: "ready"; readonly value: readonly MyServiceItem[] }
+  | { readonly kind: "unauthorized" }
+  | { readonly kind: "error" };
+
 function TicketList({ page }: { page: number }) {
   const { t } = useI18n();
   const copy = t.tickets;
@@ -211,21 +217,39 @@ function NewTicketForm() {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [serviceOrderRef, setServiceOrderRef] = useState("");
-  const [services, setServices] = useState<readonly MyServiceItem[]>([]);
+  const [services, setServices] = useState<ServiceLoad>({ kind: "loading" });
+  const [servicesReload, setServicesReload] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [signedOut, setSignedOut] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
-    // 服务列表只用于可选关联；读取失败时仍可不关联服务提交。
-    void getMyServices(controller.signal).then(setServices).catch(() => setServices([]));
-    return () => controller.abort();
-  }, []);
+    let stopped = false;
+    setServices({ kind: "loading" });
+    void getMyServices(controller.signal)
+      .then((items) => {
+        if (!stopped) setServices({ kind: "ready", value: items });
+      })
+      .catch((loadError: unknown) => {
+        if (stopped) return;
+        if (loadError instanceof PaymentApiError && loadError.code === "unauthorized") {
+          setServices({ kind: "unauthorized" });
+        } else {
+          setServices({ kind: "error" });
+        }
+      });
+    return () => {
+      stopped = true;
+      controller.abort();
+    };
+  }, [servicesReload]);
 
   const subjectValid = subject.trim().length > 0 && subject.trim().length <= TICKET_SUBJECT_MAX && !/[\r\n]/.test(subject);
   const bodyValid = body.trim().length > 0 && body.trim().length <= TICKET_BODY_MAX;
-  const canSubmit = csrfToken !== null && subjectValid && bodyValid && !submitting;
+  const serviceValid = serviceOrderRef === "" ||
+    (services.kind === "ready" && services.value.some((service) => service.orderRef === serviceOrderRef));
+  const canSubmit = csrfToken !== null && subjectValid && bodyValid && serviceValid && !submitting;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -247,10 +271,10 @@ function NewTicketForm() {
     }
   }
 
-  if (signedOut) return <SignedOutNotice />;
+  if (signedOut || services.kind === "unauthorized") return <SignedOutNotice />;
   return (
     <section className="cc-ord-panel">
-      <PanelHead title={copy.newTicket} tag={copy.plainTextTag} />
+      <PanelHead title={copy.newTicket} />
       <form className="cc-tk-form" onSubmit={handleSubmit}>
         <label htmlFor={subjectId}>{copy.subjectLabel}</label>
         <input
@@ -263,14 +287,21 @@ function NewTicketForm() {
           onChange={(event) => setSubject(event.target.value)}
         />
         <label htmlFor={serviceId}>{copy.serviceLabel}</label>
-        <select id={serviceId} value={serviceOrderRef} disabled={submitting} onChange={(event) => setServiceOrderRef(event.target.value)}>
+        <select id={serviceId} value={serviceOrderRef} disabled={submitting || services.kind !== "ready"} onChange={(event) => setServiceOrderRef(event.target.value)}>
           <option value="">{copy.noServiceOption}</option>
-          {services.map((service) => (
+          {services.kind === "ready" && services.value.map((service) => (
             <option key={service.orderRef} value={service.orderRef}>
               {service.orderRef} · {service.serviceStatus === "open" ? copy.serviceOpen : copy.servicePending}
             </option>
           ))}
         </select>
+        {services.kind === "loading" && <p className="cc-tk-service-state" role="status">{copy.serviceLoading}</p>}
+        {services.kind === "error" && (
+          <div className="cc-tk-service-state" role="alert">
+            <span>{copy.serviceLoadFailed}</span>
+            <button type="button" className="cc-ord-ghost" onClick={() => setServicesReload((n) => n + 1)}>{copy.reload}</button>
+          </div>
+        )}
         <label htmlFor={bodyId}>{copy.bodyLabel}</label>
         <textarea
           id={bodyId}

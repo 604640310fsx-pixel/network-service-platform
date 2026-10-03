@@ -83,7 +83,6 @@ export function ProfilePage() {
             <em>PROFILE</em>
             <h2 id="cc-profile-title">{copy.title}</h2>
           </div>
-          <span className="cc-profile-tag">{copy.readOnlyTag}</span>
         </div>
 
         <p className="cc-profile-intro">{copy.intro}</p>

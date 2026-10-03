@@ -175,6 +175,15 @@
   resize: vertical;
   line-height: 1.6;
 }
+.cc-tk-service-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: var(--cc-text-3);
+  font-size: 13px;
+}
+.cc-tk-service-state[role="alert"] { color: var(--cc-text-2); }
 .cc-tk-form input:focus-visible,
 .cc-tk-form select:focus-visible,
 .cc-tk-form textarea:focus-visible {

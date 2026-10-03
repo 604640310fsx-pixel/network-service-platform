@@ -29,7 +29,7 @@ test("buyer status entry uses the authenticated target-free projection route", (
   assert.match(page, /<Link className="cc-net-ghost" to=\{statusHref\}>\{t\.network\.viewStatus\}<\/Link>/);
   const zhCopy = source("../app/i18n/zh.ts");
   assert.match(zhCopy, /statusTitle: "服务器状态入口"/);
-  assert.match(zhCopy, /目标由服务端按所有权选择，不会进入浏览器。/);
+  assert.match(zhCopy, /查看当前账户可访问的服务器状态。/);
   assert.doesNotMatch(zhCopy, /买家线路与服务器状态联动/);
   assert.doesNotMatch(page, /status\?vps=/);
   assert.doesNotMatch(page, /买家线路与服务器状态联动/);

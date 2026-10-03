@@ -137,7 +137,7 @@
 
 /* 目录标称表：真实目录字段 + 明确未知的实际用量列 */
 .cc-net-traffic-rows { list-style: none; margin: 0; padding: 10px 20px 0; display: flex; flex-direction: column; gap: 7px; }
-.cc-net-traffic-row { min-width: 0; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.8fr); align-items: center; gap: 10px; padding: 11px 13px; border: 1px solid var(--cc-line); border-radius: 9px; background: var(--cc-card); color: var(--cc-text-2); font-size: 12.5px; }
+.cc-net-traffic-row { min-width: 0; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 10px; padding: 11px 13px; border: 1px solid var(--cc-line); border-radius: 9px; background: var(--cc-card); color: var(--cc-text-2); font-size: 12.5px; }
 .cc-net-traffic-row > span { min-width: 0; overflow-wrap: anywhere; }
 .cc-net-traffic-row.is-head { padding: 0 13px; border: 0; background: transparent; color: var(--cc-text-4); font-size: 11px; }
 /* 字段名在桌面视觉隐藏、窄屏显示；始终留在 DOM 中，保证读屏能听到列含义。 */

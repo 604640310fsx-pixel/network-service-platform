@@ -28,6 +28,7 @@ test("subscription info parses usage, no_userinfo and unreachable, and rejects a
     { info: { upload: -1, download: 2, total: 10, expire: null } },
     { info: { upload: 1.5, download: 2, total: 10, expire: null } },
     { info: { upload: 1, download: 2, total: 10, expire: null, url: "https://x" } },
+    { info: { upload: 1, download: 2, total: 10, expire: Number.MAX_SAFE_INTEGER } },
     { info: { upload: 1, download: 2, total: 10, expire: null }, reason: "no_userinfo" },
   ]) {
     assert.throws(() => parseSubscriptionInfo(body), (error) => error instanceof PaymentApiError && error.code === "invalid_response", JSON.stringify(body));
@@ -43,11 +44,16 @@ test("usage facts: used = upload + download, remaining clamps at 0, missing valu
   assert.deepEqual(usageFacts({ upload: 12 * GB, download: 0, total: 10 * GB, expire: null }).remaining, 0);
   const partial = usageFacts({ upload: null, download: null, total: 10 * GB, expire: null });
   assert.deepEqual([partial.used, partial.remaining, partial.ratio, partial.expireAt], [null, null, null, null]);
-  assert.equal(usageFacts({ upload: 5, download: null, total: 0, expire: null }).total, null, "total 0 means not provided");
-  assert.deepEqual(aggregateUsage([facts, partial, usageFacts({ upload: 1, download: 1, total: null, expire: null })]), {
-    used: 3 * GB + 2, remaining: 7 * GB, lines: 2,
+  assert.deepEqual(usageFacts({ upload: 5, download: null, total: 0, expire: null }), {
+    used: null, remaining: null, total: 0, ratio: null, expireAt: null,
   });
-  assert.deepEqual(aggregateUsage([]), { used: null, remaining: null, lines: 0 });
+  assert.deepEqual(usageFacts({ upload: 0, download: 0, total: 0, expire: null }), {
+    used: 0, remaining: 0, total: 0, ratio: null, expireAt: null,
+  });
+  assert.deepEqual(aggregateUsage([facts, partial, usageFacts({ upload: 1, download: 1, total: null, expire: null })]), {
+    used: 3 * GB + 2, remaining: 7 * GB, usedLines: 2, remainingLines: 1,
+  });
+  assert.deepEqual(aggregateUsage([]), { used: null, remaining: null, usedLines: 0, remainingLines: 0 });
 });
 
 test("bytes use binary units", () => {
