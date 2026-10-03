@@ -165,9 +165,13 @@ test("private client maps only the frozen nested error envelopes", async () => {
 test("private origin is HTTPS, private-only, credential-free, and path-free", () => {
   assert.equal(normalizeMonitorPrivateOrigin("https://10.0.0.2:3443"), "https://10.0.0.2:3443");
   assert.equal(normalizeMonitorPrivateOrigin("https://monitor.internal"), "https://monitor.internal");
+  assert.equal(normalizeMonitorPrivateOrigin("https://100.64.0.1:3443"), "https://100.64.0.1:3443");
+  assert.equal(normalizeMonitorPrivateOrigin("https://100.127.255.254:3443"), "https://100.127.255.254:3443");
   for (const value of [
     "http://10.0.0.2:3443",
     "https://8.8.8.8:3443",
+    "https://100.63.255.255:3443",
+    "https://100.128.0.1:3443",
     "https://user:pass@10.0.0.2:3443",
     "https://10.0.0.2:3443/path",
     " https://10.0.0.2:3443",

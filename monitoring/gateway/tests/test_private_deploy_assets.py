@@ -17,13 +17,14 @@ from unittest import mock
 
 from monitoring.gateway import server
 from monitoring.gateway.client import AUTH_SERVICE_IDENTITY, PUBLIC_BFF_IDENTITY, Origin
-from monitoring.gateway.security import SecurityBoundaryError
+from monitoring.gateway.security import SecurityBoundaryError, validate_private_bind_host
 
 
 GATEWAY = Path(__file__).resolve().parents[1]
 DEPLOY = GATEWAY / "deploy"
 ENV_TEMPLATE = DEPLOY / "private.env.example"
 UNIT = DEPLOY / "systemd" / "monitor-gateway-private.service"
+AUTH_HOST_ENV = DEPLOY / "auth-host" / "monitor-private.env.example"
 
 # Settings private mode reads when the raw origin is plain loopback HTTP and
 # the Auth Service identity is bound for /status.
@@ -112,6 +113,27 @@ class PrivateEnvTemplateTests(unittest.TestCase):
         for key, value in _template().items():
             if key.endswith("_FILE"):
                 self.assertTrue(value.startswith("/etc/monitor-gateway/pki/"), key)
+
+
+class PrivateLinkBindingTests(unittest.TestCase):
+    def test_overlay_shared_address_space_is_a_private_bind_host(self):
+        for host in ("100.64.0.1", "100.127.255.254"):
+            self.assertEqual(validate_private_bind_host(host), host)
+        for host in ("0.0.0.0", "8.8.8.8", "100.128.0.1"):
+            with self.assertRaises(SecurityBoundaryError):
+                validate_private_bind_host(host)
+
+    def test_auth_host_template_enables_projection_and_fails_closed_without_origin(self):
+        values = {}
+        for line in AUTH_HOST_ENV.read_text(encoding="utf-8").splitlines():
+            if line.strip() and not line.startswith("#"):
+                key, _, value = line.partition("=")
+                values[key] = value
+        self.assertEqual(
+            values,
+            {"MONITOR_AUTH_PROJECTION_ENABLED": "true", "MONITOR_AUTH_PRIVATE_ORIGIN": ""},
+        )
+        self.assertNotIn("BEGIN", AUTH_HOST_ENV.read_text(encoding="utf-8"))
 
 
 class PrivateUnitTests(unittest.TestCase):
