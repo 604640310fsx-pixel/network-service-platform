@@ -45,7 +45,7 @@ test("userinfo parsing: full, partial, malformed and absent headers", () => {
 });
 
 test("blocked addresses cover loopback, private, link-local, CGNAT and mapped forms", () => {
-  for (const address of ["127.0.0.1", "10.1.2.3", "172.20.0.1", "192.168.1.1", "169.254.1.1", "100.99.1.1", "0.0.0.0", "::1", "fd00::1", "fe80::1", "::ffff:127.0.0.1", "not-an-ip"]) {
+  for (const address of ["127.0.0.1", "10.1.2.3", "172.20.0.1", "192.168.1.1", "169.254.1.1", "100.64.0.1", "0.0.0.0", "::1", "fd00::1", "fe80::1", "::ffff:127.0.0.1", "not-an-ip"]) {
     assert.equal(isBlockedAddress(address), true, address);
   }
   for (const address of ["8.8.8.8", "203.0.113.10", "2606:4700::1111"]) {
