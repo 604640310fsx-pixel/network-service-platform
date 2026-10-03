@@ -4,6 +4,11 @@ import type { DatabaseConnection } from "../db.js";
 import { readPaymentSession, type PaymentSession } from "../payment/http-auth.js";
 import type { TokenHmacKeyring } from "../session/session-token.js";
 import {
+  loadStoredAttachment,
+  prepareTicketAttachments,
+  type PreparedAttachment,
+} from "../tickets/attachments.js";
+import {
   closeTicketAsAdmin,
   createTicket,
   getOwnTicket,
@@ -19,13 +24,20 @@ import {
   type TicketStatus,
 } from "../tickets/tickets.js";
 import { verifyCsrfToken } from "./csrf.js";
+import {
+  consumeTicketAttachmentWriteRateLimit,
+  RateLimitExceededError,
+  type RateLimitKeyring,
+} from "./rate-limit.js";
 
 const TICKET_BODY_LIMIT_BYTES = 32 * 1024;
+const TICKET_ATTACHMENT_BODY_LIMIT_BYTES = 21 * 1024 * 1024;
 const ORDER_REF_PATTERN = /^DL[A-Za-z0-9]{8,64}$/;
 
 export interface TicketHttpDependencies {
   readonly database: DatabaseConnection;
   readonly tokenHmacKeyring: TokenHmacKeyring;
+  readonly rateLimitKeyring: RateLimitKeyring;
   readonly csrfSigningKey: Buffer;
   readonly now?: () => Date;
   readonly randomRef?: () => Buffer;
@@ -87,6 +99,9 @@ function sendFailure(reply: FastifyReply, error: unknown): FastifyReply {
   if (error instanceof TicketDomainError) {
     return reply.code(error.statusCode).send(errorBody(error.code));
   }
+  if (error instanceof RateLimitExceededError) {
+    return reply.code(429).send(errorBody("rate_limited"));
+  }
   return reply.code(503).send(errorBody("tickets_unavailable"));
 }
 
@@ -98,31 +113,80 @@ const routeOptions = {
     reply.code(400).send(errorBody("invalid_request")),
 };
 
+interface EarlyGatedRequest extends FastifyRequest {
+  ticketWriteGate?: Gate;
+}
+
+function parsePositiveId(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function sendAttachmentBytes(reply: FastifyReply, stored: { contentType: string; content: Buffer }): FastifyReply {
+  return reply
+    .header("Content-Type", stored.contentType)
+    .header("X-Content-Type-Options", "nosniff")
+    .header("Cache-Control", "private, no-store")
+    .send(stored.content);
+}
+
 export function registerTicketHttpRoutes(app: FastifyInstance, dependencies: TicketHttpDependencies): void {
   const { database } = dependencies;
 
+  /* 可选附件的两条写路由放开到 21MiB，并在 preParsing（JSON 解析前）先完成
+     会话与 CSRF 校验；未通过即返回，不读取大体积 body。其余路由保持 32KiB。 */
+  const attachmentWriteOptions = {
+    ...routeOptions,
+    bodyLimit: TICKET_ATTACHMENT_BODY_LIMIT_BYTES,
+    preParsing: async (request: FastifyRequest, reply: FastifyReply) => {
+      const gate = authorize(request, dependencies, { admin: false, write: true });
+      if (!gate.ok) {
+        return reply.code(gate.statusCode).send(errorBody(gate.code));
+      }
+      (request as EarlyGatedRequest).ticketWriteGate = gate;
+      return undefined;
+    },
+  };
+
+  const writeGate = (request: FastifyRequest): Gate =>
+    (request as EarlyGatedRequest).ticketWriteGate ?? authorize(request, dependencies, { admin: false, write: true });
+
+  const consumeAttachmentWriteLimit = (userId: number): void =>
+    consumeTicketAttachmentWriteRateLimit(
+      database,
+      dependencies.rateLimitKeyring,
+      userId,
+      dependencies.now ? { now: dependencies.now } : {},
+    );
+
   // ---------- customer ----------
-  app.post<{ Body: unknown }>("/api/me/tickets", routeOptions, async (request, reply) => {
-    const gate = authorize(request, dependencies, { admin: false, write: true });
+  app.post<{ Body: unknown }>("/api/me/tickets", attachmentWriteOptions, async (request, reply) => {
+    const gate = writeGate(request);
     if (!gate.ok) return reply.code(gate.statusCode).send(errorBody(gate.code));
-    const body = exactKeys(request.body, ["subject", "body"], ["serviceOrderRef"]);
+    const body = exactKeys(request.body, ["subject", "body"], ["serviceOrderRef", "serviceGrantId", "attachments"]);
     const subject = normalizeTicketSubject(body?.subject);
     const message = normalizeTicketBody(body?.body);
     const serviceOrderRef = body?.serviceOrderRef ?? null;
+    const rawGrantId = body?.serviceGrantId;
+    const serviceGrantId = rawGrantId === undefined || rawGrantId === null ? null : parsePositiveId(rawGrantId);
     if (
       body === null ||
       subject === null ||
       message === null ||
-      (serviceOrderRef !== null && (typeof serviceOrderRef !== "string" || !ORDER_REF_PATTERN.test(serviceOrderRef)))
+      (serviceOrderRef !== null && (typeof serviceOrderRef !== "string" || !ORDER_REF_PATTERN.test(serviceOrderRef))) ||
+      (rawGrantId !== undefined && rawGrantId !== null && serviceGrantId === null)
     ) {
       return reply.code(400).send(errorBody("invalid_request"));
     }
     try {
+      const attachments = body.attachments === undefined ? [] : prepareTicketAttachments(body.attachments);
+      if (attachments.length > 0) consumeAttachmentWriteLimit(gate.session.principal.userId);
       const ticket = createTicket(database, {
         userId: gate.session.principal.userId,
         subject,
         body: message,
         serviceOrderRef: serviceOrderRef as string | null,
+        serviceGrantId,
+        attachments,
         ...(dependencies.now ? { now: dependencies.now } : {}),
         ...(dependencies.randomRef ? { randomRef: dependencies.randomRef } : {}),
       });
@@ -157,20 +221,47 @@ export function registerTicketHttpRoutes(app: FastifyInstance, dependencies: Tic
 
   app.post<{ Params: { ref: string }; Body: unknown }>(
     "/api/me/tickets/:ref/messages",
-    routeOptions,
+    attachmentWriteOptions,
     async (request, reply) => {
-      const gate = authorize(request, dependencies, { admin: false, write: true });
+      const gate = writeGate(request);
       if (!gate.ok) return reply.code(gate.statusCode).send(errorBody(gate.code));
-      const message = normalizeTicketBody(exactKeys(request.body, ["body"])?.body);
-      if (message === null) return reply.code(400).send(errorBody("invalid_request"));
+      const body = exactKeys(request.body, ["body"], ["attachments"]);
+      const message = normalizeTicketBody(body?.body);
+      if (body === null || message === null) {
+        return reply.code(400).send(errorBody("invalid_request"));
+      }
       try {
+        const attachments = body.attachments === undefined ? [] : prepareTicketAttachments(body.attachments);
+        if (attachments.length > 0) consumeAttachmentWriteLimit(gate.session.principal.userId);
         const ticket = replyAsCustomer(database, {
           userId: gate.session.principal.userId,
           ref: request.params.ref,
           body: message,
+          attachments,
           ...(dependencies.now ? { now: dependencies.now } : {}),
+          ...(dependencies.randomRef ? { randomRef: dependencies.randomRef } : {}),
         });
         return reply.code(200).send({ ticket });
+      } catch (error) {
+        return sendFailure(reply, error);
+      }
+    },
+  );
+
+  app.get<{ Params: { ref: string; attachmentRef: string } }>(
+    "/api/me/tickets/:ref/attachments/:attachmentRef",
+    routeOptions,
+    async (request, reply) => {
+      const gate = authorize(request, dependencies, { admin: false, write: false });
+      if (!gate.ok) return reply.code(gate.statusCode).send(errorBody(gate.code));
+      try {
+        const stored = loadStoredAttachment(database, {
+          ticketRef: request.params.ref,
+          attachmentRef: request.params.attachmentRef,
+          ownerUserId: gate.session.principal.userId,
+        });
+        if (stored === null) return reply.code(404).send(errorBody("not_found"));
+        return sendAttachmentBytes(reply, stored);
       } catch (error) {
         return sendFailure(reply, error);
       }
@@ -206,6 +297,25 @@ export function registerTicketHttpRoutes(app: FastifyInstance, dependencies: Tic
       return sendFailure(reply, error);
     }
   });
+
+  app.get<{ Params: { ref: string; attachmentRef: string } }>(
+    "/api/admin/tickets/:ref/attachments/:attachmentRef",
+    routeOptions,
+    async (request, reply) => {
+      const gate = authorize(request, dependencies, { admin: true, write: false });
+      if (!gate.ok) return reply.code(gate.statusCode).send(errorBody(gate.code));
+      try {
+        const stored = loadStoredAttachment(database, {
+          ticketRef: request.params.ref,
+          attachmentRef: request.params.attachmentRef,
+        });
+        if (stored === null) return reply.code(404).send(errorBody("not_found"));
+        return sendAttachmentBytes(reply, stored);
+      } catch (error) {
+        return sendFailure(reply, error);
+      }
+    },
+  );
 
   app.post<{ Params: { ref: string }; Body: unknown }>(
     "/api/admin/tickets/:ref/messages",

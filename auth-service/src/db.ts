@@ -28,7 +28,10 @@ export interface DatabaseTransaction<Result> {
 
 interface DatabaseStatement {
   all(...parameters: readonly unknown[]): unknown[];
-  run(...parameters: readonly unknown[]): { readonly changes: number };
+  run(...parameters: readonly unknown[]): {
+    readonly changes: number;
+    readonly lastInsertRowid?: number | bigint;
+  };
 }
 
 interface DatabaseConstructor {
@@ -69,6 +72,7 @@ export const MIGRATION_FILES = [
   "022_admin_service_management.sql",
   "023_admin_grant_delivery.sql",
   "024_grant_delivery_monitor_target.sql",
+  "025_ticket_attachments_and_grant_link.sql",
 ] as const;
 
 // Migrations that rebuild a table other tables reference with ON DELETE

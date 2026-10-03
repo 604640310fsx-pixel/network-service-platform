@@ -308,6 +308,7 @@ async function start(): Promise<void> {
         tickets: {
           database,
           tokenHmacKeyring: credentials.tokenHmacKeyring,
+          rateLimitKeyring: credentials.rateLimitKeyring,
           csrfSigningKey: credentials.csrfSigningKey,
         },
         invites: {

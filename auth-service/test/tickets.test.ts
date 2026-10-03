@@ -27,6 +27,7 @@ function ticketApp(database: DatabaseConnection) {
     tickets: {
       database,
       tokenHmacKeyring: TOKEN_KEYRING,
+      rateLimitKeyring: TOKEN_KEYRING,
       csrfSigningKey: CSRF_KEY,
       now: () => new Date(TEST_NOW),
       randomRef: () => {
@@ -105,7 +106,7 @@ test("customers own their tickets; foreign and unknown refs share one 404", asyn
       assert.match(ticket.ref, /^TK[0-9A-F]{16}$/);
       assert.equal(ticket.status, "open");
       assert.equal(ticket.serviceOrderRef, null);
-      assert.deepEqual(ticket.messages, [{ role: "customer", body: "<b>hello</b>\nline 2", createdAt: TEST_NOW.toISOString() }]);
+      assert.deepEqual(ticket.messages, [{ role: "customer", body: "<b>hello</b>\nline 2", createdAt: TEST_NOW.toISOString(), attachments: [] }]);
       assert.equal(firstValue(database, "SELECT user_id FROM tickets WHERE ticket_ref = ?", ticket.ref), alice.id);
 
       assert.equal((await get(app, "/api/me/tickets", alice.session)).json().items.length, 1);
