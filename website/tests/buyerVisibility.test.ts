@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 // @ts-ignore TS5097: node strip-types needs the explicit .ts specifier
 import { buyerPlanCounts, combineBuyerPlans } from "../app/components/dashboard/buyerPlans.ts";
 // @ts-ignore TS5097
@@ -89,4 +90,15 @@ test("gift visibility copy is bilingual", () => {
   assert.equal(zh.dashboard.giftAwaitingDelivery, "待开通交付");
   assert.match(zh.dashboard.stats.services.hint, /赠送/);
   assert.doesNotMatch(en.dashboard.stats.open.hint, CJK);
+});
+
+test("the services page counts purchases and gifts with the dashboard semantics", () => {
+  const page = readFileSync(new URL("../app/components/customer/CustomerServicesPage.tsx", import.meta.url), "utf8");
+  assert.match(page, /const counts = buyerPlanCounts\(combineBuyerPlans\(items, grants\)\);/);
+  for (const field of ["total", "open", "pending"]) assert.match(page, new RegExp(`<strong>\\{counts\\.${field}\\}</strong>`), field);
+  assert.match(page, /itemCount\(counts\.total\)/);
+  assert.doesNotMatch(page, /itemCount\(items\.length\)|<strong>\{items\.length\}<\/strong>/);
+  // The total hint must say gifts are included, matching the dashboard copy.
+  assert.equal(zh.services.totalHint, zh.dashboard.stats.services.hint);
+  assert.equal(en.services.totalHint, en.dashboard.stats.services.hint);
 });

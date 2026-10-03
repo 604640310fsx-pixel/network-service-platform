@@ -194,7 +194,7 @@ export function SubscribePage() {
                       </>
                     )}
                     <span className="sub-solution-footer">
-                      <span><small>{copy.typeSection.officialPrice}</small><b>{typeFromFen === null ? copy.pricePending : copy.from(formatCardYuan(typeFromFen))}</b></span>
+                      <b>{typeFromFen === null ? copy.pricePending : copy.from(formatCardYuan(typeFromFen))}</b>
                       <strong>{selected ? copy.typeSection.current : copy.typeSection.choose}<i aria-hidden="true">→</i></strong>
                     </span>
                   </OptionCard>

@@ -11,7 +11,11 @@
 .diagnosis-form > header p { margin: 0; color: var(--cc-text-4); font-size: 12px; }
 .diagnosis-form b { color: var(--cc-accent); }
 .diagnosis-form fieldset { min-width: 0; margin: 0; padding: 28px; border: 0; border-bottom: 1px solid var(--cc-hairline); }
-.diagnosis-form legend { width: 100%; padding: 0 0 18px; color: var(--cc-text); font-size: 14px; font-weight: 600; }
+/* legend 默认渲染在 fieldset 顶边线上、不吃 padding-top，标题会贴着上一段的分隔线，
+   padding 反而全堆在标题下方。浮动后 legend 回到内容盒内：分隔线下方留出 fieldset 的
+   padding-top，标题下方统一 18px。 */
+.diagnosis-form legend { float: left; width: 100%; margin: 0 0 18px; padding: 0; color: var(--cc-text); font-size: 14px; font-weight: 600; line-height: 22px; }
+.diagnosis-form legend + * { clear: both; }
 .diagnosis-form legend > span { display: inline-grid; width: 28px; height: 22px; place-items: center; margin-right: 9px; border: 1px solid var(--cc-line); border-radius: 6px; color: var(--cc-accent); font-size: 10px; letter-spacing: 0.06em; }
 .diagnosis-form legend small { margin-left: 8px; color: var(--cc-text-4); font-size: 11px; font-weight: 400; }
 .diagnosis-fields { display: grid; gap: 18px; }
