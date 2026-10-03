@@ -108,6 +108,9 @@ export type PaymentOrderSnapshot = {
 };
 
 export type MyServiceItem = {
+  /** 服务端 services.id（后端 6503430 起随购买项返回），用于钱包续费接口；
+      旧服务端不返回时为 null，前端不推算、不显示续费控件。赠送项用 grantId，不在此映射。 */
+  readonly serviceId: number | null;
   readonly orderRef: string;
   readonly amountFen: number;
   readonly currency: "CNY";
@@ -508,7 +511,10 @@ function parseMyServiceListing(value: unknown): MyServiceListing {
 function parseMyServiceItem(item: Record<string, unknown>): MyServiceItem {
   const endsAt = item.endsAt === undefined ? null : item.endsAt;
   const planLabel = item.planLabel === undefined ? null : item.planLabel;
+  // 后端 6503430 起返回正整数 serviceId；缺省（旧服务端）视为 null，出现但非法则整条拒收。
+  const serviceId = item.serviceId === undefined ? null : item.serviceId;
   if (
+    (serviceId !== null && !isPositiveInteger(serviceId)) ||
     !isNullableIsoInstant(endsAt) ||
     (planLabel !== null && !isNonEmptyString(planLabel)) ||
     !isNonEmptyString(item.orderRef) ||
@@ -521,6 +527,7 @@ function parseMyServiceItem(item: Record<string, unknown>): MyServiceItem {
     throw new PaymentApiError("invalid_response");
   }
   return {
+    serviceId: serviceId as number | null,
     orderRef: item.orderRef,
     amountFen: item.amountFen,
     currency: item.currency,

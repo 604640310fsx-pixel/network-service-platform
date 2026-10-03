@@ -16,7 +16,227 @@ import { resolveSelection } from "../../lib/resolveSelection";
 import { serviceTerm } from "../../lib/serviceTerm";
 import { SubscriptionImportModule, verifiedSubscriptionDeepLink } from "../subscription-import";
 import { buyerPlanCounts, combineBuyerPlans } from "../dashboard/buyerPlans";
+import { useAuth } from "../../lib/auth";
+import {
+  BILLING_PERIODS,
+  WalletApiError,
+  formatWalletFen,
+  getRenewalConsent,
+  getRenewalQuote,
+  putRenewalConsent,
+  type BillingPeriod,
+  type RenewalConsent,
+  type RenewalQuote,
+} from "../../lib/wallet-api";
 import "./customer-services.css";
+
+/* ---------- 自动续费授权（钱包，后端 16458599 + serviceId 6503430） ----------
+   只对本人已开通、带真实 serviceId 的购买服务显示；默认关闭。开启前必须先取得服务端报价，
+   并由买家勾选确认该报价金额与周期；提交只含 { period, expectedRevision, enabled }。
+   revision 冲突时重新读取并要求重新确认；报价不可用时禁止开启。不展示任何扣款或续费结果。 */
+
+type ConsentLoad =
+  | { readonly kind: "loading" }
+  | { readonly kind: "ready"; readonly consent: RenewalConsent }
+  | { readonly kind: "error"; readonly message: string };
+
+type QuoteState =
+  | { readonly kind: "idle" }
+  | { readonly kind: "loading" }
+  | { readonly kind: "ready"; readonly quote: RenewalQuote }
+  | { readonly kind: "unavailable" }
+  | { readonly kind: "error"; readonly message: string };
+
+type RenewalCopy = Messages["wallet"]["renewal"];
+
+function renewalErrorMessage(error: unknown, copy: RenewalCopy): string {
+  if (!(error instanceof WalletApiError)) return copy.errors.unavailable;
+  switch (error.code) {
+    case "unauthorized":
+      return copy.errors.unauthorized;
+    case "csrf_invalid":
+      return copy.errors.csrfInvalid;
+    case "not_found":
+      return copy.errors.notFound;
+    case "invalid_request":
+      return copy.errors.invalidRequest;
+    case "quote_unavailable":
+      return copy.quoteUnavailable;
+    case "network_error":
+      return copy.errors.network;
+    default:
+      return copy.errors.unavailable;
+  }
+}
+
+function RenewalConsentControl({ serviceId }: { serviceId: number }) {
+  const t = useT();
+  const copy = t.wallet.renewal;
+  const { csrfToken } = useAuth();
+  const [load, setLoad] = useState<ConsentLoad>({ kind: "loading" });
+  const [reloadToken, setReloadToken] = useState(0);
+  const [period, setPeriod] = useState<BillingPeriod>("MONTHLY");
+  const [quote, setQuote] = useState<QuoteState>({ kind: "idle" });
+  const [confirmed, setConfirmed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let stopped = false;
+    setLoad({ kind: "loading" });
+    void getRenewalConsent(serviceId, controller.signal)
+      .then((consent) => {
+        if (stopped) return;
+        setLoad({ kind: "ready", consent });
+        if (consent.period !== null) setPeriod(consent.period);
+      })
+      .catch((loadError: unknown) => {
+        if (stopped || (loadError instanceof DOMException && loadError.name === "AbortError")) return;
+        setLoad({ kind: "error", message: renewalErrorMessage(loadError, copy) });
+      });
+    return () => {
+      stopped = true;
+      controller.abort();
+    };
+  }, [serviceId, reloadToken]);
+
+  function resetDecision() {
+    setQuote({ kind: "idle" });
+    setConfirmed(false);
+  }
+
+  function changePeriod(next: BillingPeriod) {
+    setPeriod(next);
+    resetDecision();
+    setNotice(null);
+    setError(null);
+  }
+
+  async function fetchQuote() {
+    setQuote({ kind: "loading" });
+    setConfirmed(false);
+    setError(null);
+    setNotice(null);
+    try {
+      const value = await getRenewalQuote(serviceId, period);
+      setQuote({ kind: "ready", quote: value });
+    } catch (quoteError) {
+      if (quoteError instanceof WalletApiError && quoteError.code === "quote_unavailable") setQuote({ kind: "unavailable" });
+      else setQuote({ kind: "error", message: renewalErrorMessage(quoteError, copy) });
+    }
+  }
+
+  async function save(enabled: boolean) {
+    if (load.kind !== "ready" || csrfToken === null || saving) return;
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await putRenewalConsent(csrfToken, serviceId, {
+        period: enabled ? period : load.consent.period ?? period,
+        expectedRevision: load.consent.revision,
+        enabled,
+      });
+      resetDecision();
+      setNotice(enabled ? copy.saved : copy.disabledSaved);
+      setReloadToken((token) => token + 1);
+    } catch (saveError) {
+      if (saveError instanceof WalletApiError && saveError.code === "revision_conflict") {
+        resetDecision();
+        setNotice(copy.conflict);
+        setReloadToken((token) => token + 1);
+      } else if (saveError instanceof WalletApiError && saveError.code === "quote_unavailable") {
+        setQuote({ kind: "unavailable" });
+        setConfirmed(false);
+      } else {
+        setError(renewalErrorMessage(saveError, copy));
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const consent = load.kind === "ready" ? load.consent : null;
+  const isOn = consent?.state === "ENABLED";
+  const stateText = consent === null
+    ? null
+    : isOn
+      ? copy.stateEnabled(copy.periods[consent.period ?? ""] ?? "—", consent.priceFen === null ? "—" : formatWalletFen(consent.priceFen))
+      : copy.stateDisabled;
+  const readyQuote = quote.kind === "ready" && quote.quote.period === period ? quote.quote : null;
+  const canEnable = readyQuote !== null && confirmed && !saving && csrfToken !== null && consent !== null;
+  const periodId = `cc-svc-renewal-period-${serviceId}`;
+  const confirmId = `cc-svc-renewal-confirm-${serviceId}`;
+
+  return (
+    <div className="cc-svc-renewal" role="group" aria-label={copy.title}>
+      <div className="cc-svc-renewal-head">
+        <b>{copy.title}</b>
+        {stateText !== null && <span className={`cc-svc-renewal-state${isOn ? " is-on" : ""}`}>{stateText}</span>}
+      </div>
+      {load.kind === "loading" && <p className="cc-svc-renewal-note" role="status">{copy.loading}</p>}
+      {load.kind === "error" && (
+        <div className="cc-svc-renewal-row" role="alert">
+          <span className="cc-svc-renewal-note">{load.message}</span>
+          <button type="button" className="cc-svc-ghost" onClick={() => setReloadToken((token) => token + 1)}>{t.wallet.retry}</button>
+        </div>
+      )}
+      {consent !== null && consent.state === "RECONSENT_REQUIRED" && <p className="cc-svc-renewal-note is-warn">{copy.stateReconsent}</p>}
+      {consent !== null && isOn && (
+        <div className="cc-svc-renewal-row">
+          <button type="button" className="cc-svc-ghost" disabled={saving || csrfToken === null} aria-busy={saving} onClick={() => void save(false)}>
+            {saving ? copy.saving : copy.disable}
+          </button>
+        </div>
+      )}
+      {consent !== null && !isOn && (
+        <>
+          <div className="cc-svc-renewal-row">
+            <label htmlFor={periodId}>{copy.periodLabel}</label>
+            <select id={periodId} value={period} disabled={saving} onChange={(event) => changePeriod(event.target.value as BillingPeriod)}>
+              {BILLING_PERIODS.map((value) => <option key={value} value={value}>{copy.periods[value]}</option>)}
+            </select>
+            <button type="button" className="cc-svc-ghost" disabled={saving || quote.kind === "loading"} aria-busy={quote.kind === "loading"} onClick={() => void fetchQuote()}>
+              {quote.kind === "loading" ? copy.quoting : copy.getQuote}
+            </button>
+          </div>
+          {readyQuote !== null && (
+            <>
+              <p className="cc-svc-renewal-quote">
+                {copy.quoteLine(copy.periods[readyQuote.period] ?? readyQuote.period, formatWalletFen(readyQuote.priceFen), formatDay(readyQuote.newEndsAt, t.account.dateLocale))}
+              </p>
+              <label className="cc-svc-renewal-confirm" htmlFor={confirmId}>
+                <input id={confirmId} type="checkbox" checked={confirmed} disabled={saving} onChange={(event) => setConfirmed(event.target.checked)} />
+                <span>{copy.confirmLabel(formatWalletFen(readyQuote.priceFen), copy.periods[readyQuote.period] ?? readyQuote.period)}</span>
+              </label>
+            </>
+          )}
+          {quote.kind === "unavailable" && <p className="cc-svc-renewal-note is-warn" role="alert">{copy.quoteUnavailable}</p>}
+          {quote.kind === "error" && <p className="cc-svc-renewal-note is-warn" role="alert">{quote.message}</p>}
+          <div className="cc-svc-renewal-row">
+            <button type="button" className="cc-svc-primary" disabled={!canEnable} aria-busy={saving} onClick={() => void save(true)}>
+              {saving ? copy.saving : copy.enable}
+            </button>
+          </div>
+        </>
+      )}
+      {notice && <p className="cc-svc-renewal-note" role="status">{notice}</p>}
+      {error && <p className="cc-svc-renewal-note is-warn" role="alert">{error}</p>}
+    </div>
+  );
+}
+
+function RenewalUnavailable({ message }: { message: string }) {
+  const copy = useT().wallet.renewal;
+  return (
+    <div className="cc-svc-renewal is-unavailable">
+      <div className="cc-svc-renewal-head"><b>{copy.title}</b></div>
+      <p className="cc-svc-renewal-note">{message}</p>
+    </div>
+  );
+}
 
 /* /services 列表只来自 GET /api/me/services；已开通卡片的交付数据按其 orderRef
    独立读取现有授权订单快照，不从仅含线路名称的 delivery-lines 接口推导地址。
@@ -408,6 +628,9 @@ export function CustomerServicesPage() {
                 )}
                 {isOpen && <ServiceSubscription item={item} />}
                 {!isOpen && <p className="cc-svc-import-state">{t.services.awaitingDelivery}</p>}
+                {isOpen && item.serviceId !== null
+                  ? <RenewalConsentControl serviceId={item.serviceId} />
+                  : <RenewalUnavailable message={isOpen ? t.wallet.renewal.unavailableNoId : t.wallet.renewal.unavailablePending} />}
               </li>
             );
           })}
@@ -430,6 +653,7 @@ export function CustomerServicesPage() {
                 {grant.deliveryStatus === "open"
                   ? <GiftSubscription grant={grant} />
                   : <p className="cc-svc-import-state">{grant.typeId === null ? t.services.giftHint : t.services.giftAwaiting}</p>}
+                <RenewalUnavailable message={t.wallet.renewal.unavailableGift} />
               </li>
             ))}
           </ul>

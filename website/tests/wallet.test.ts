@@ -113,6 +113,42 @@ test("invalid service ids and periods never reach the network", async () => {
   });
 });
 
+test("the buyer services DTO carries the real purchase serviceId (backend 6503430); gifts keep grantId", async () => {
+  // @ts-ignore TS5097
+  const { getMyServiceListing, PaymentApiError } = await import("../app/lib/payment-api.ts");
+  const purchase = { source: "purchase", orderRef: "DLDEMO0000000001", amountFen: 5900, currency: "CNY", orderStatus: "paid", serviceStatus: "open", createdAt: "2026-10-04T00:00:00.000Z", endsAt: null, planLabel: null };
+  const grant = { source: "grant", grantId: 3, label: "Gift", startsAt: "2026-10-04T00:00:00.000Z", endsAt: null, status: "active", deliveryStatus: "open" };
+  await withFetch(() => ({ status: 200, body: { items: [{ ...purchase, serviceId: 42 }, { ...purchase, orderRef: "DLDEMO0000000002" }, grant] } }), async () => {
+    const listing = await getMyServiceListing();
+    assert.equal(listing.services[0].serviceId, 42);
+    // Older servers send no serviceId: it stays null and no id is inferred from orderRef.
+    assert.equal(listing.services[1].serviceId, null);
+    assert.equal(listing.grants[0].grantId, 3);
+    assert.equal("serviceId" in listing.grants[0], false);
+  });
+  for (const bad of [0, -1, 1.5, "42"]) {
+    await withFetch(() => ({ status: 200, body: { items: [{ ...purchase, serviceId: bad }] } }), async () => {
+      await assert.rejects(getMyServiceListing(), (error: unknown) => error instanceof PaymentApiError && (error as { code: string }).code === "invalid_response");
+    });
+  }
+});
+
+test("the consent control is off by default and enables only after a fresh quote is explicitly confirmed", () => {
+  const page = source("../app/components/customer/CustomerServicesPage.tsx");
+  assert.match(page, /const \[confirmed, setConfirmed\] = useState\(false\);/);
+  assert.match(page, /const canEnable = readyQuote !== null && confirmed && !saving && csrfToken !== null && consent !== null;/);
+  assert.match(page, /disabled=\{!canEnable\}/);
+  // Changing the period or a new quote clears any earlier confirmation.
+  assert.match(page, /function resetDecision\(\) \{\s*setQuote\(\{ kind: "idle" \}\);\s*setConfirmed\(false\);\s*\}/);
+  // A stale revision refetches and asks again; an unavailable quote blocks enabling.
+  assert.match(page, /saveError\.code === "revision_conflict"\) \{\s*resetDecision\(\);\s*setNotice\(copy\.conflict\);\s*setReloadToken/);
+  assert.match(page, /quoteError\.code === "quote_unavailable"\) setQuote\(\{ kind: "unavailable" \}\)/);
+  // Only owned OPEN purchases with a real serviceId get the control; pending, legacy and gifts are unavailable.
+  assert.match(page, /\{isOpen && item\.serviceId !== null\s*\? <RenewalConsentControl serviceId=\{item\.serviceId\} \/>/);
+  assert.match(page, /<RenewalUnavailable message=\{t\.wallet\.renewal\.unavailableGift\} \/>/);
+  assert.doesNotMatch(page, /grantId=\{|serviceId=\{grant|orderRef\)\s*as number/);
+});
+
 test("profile and dashboard never show a counterfeit zero while loading or after an error", () => {
   const profile = source("../app/components/profile/ProfilePage.tsx");
   const dashboard = source("../app/components/dashboard/BuyerDashboardOverview.tsx");
