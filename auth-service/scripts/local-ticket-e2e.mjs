@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-/* TEST-ONLY local ticket E2E fixture for NSP-CUSTOMER-PORTAL-INTEGRATION-20261004.
+/* TEST-ONLY local ticket+wallet E2E fixture for NSP-CUSTOMER-PORTAL-INTEGRATION-20261004.
    Runs the real auth-service buildApp against a disposable SQLite file with
-   synthetic identities on 127.0.0.1 so the customer/admin ticket UI can be
-   exercised end to end (create/reply/image download/draft/purchase+grant link).
+   synthetic identities on 127.0.0.1 so the customer/admin ticket UI and the
+   wallet/renewal endpoints can be exercised end to end (create/reply/image
+   download/draft/purchase+grant link, balance, renewal quote, consent).
 
    - Loopback only; every identity, order, grant and session is synthetic.
    - No production data, credentials, provider calls, or persistent writes.
@@ -96,6 +97,48 @@ database
   )
   .run(customerId, adminId, started, started, started, started);
 const grantId = database.prepare("SELECT id FROM admin_grants WHERE user_id = ?").get(customerId).id;
+const serviceId = database.prepare("SELECT id FROM services WHERE payment_id = ?").get(paymentId).id;
+
+// Wallet fixture: known synthetic CNY balance on the customer's account, plus a
+// foreign-owned open paid service so owner checks return the uniform 404.
+const BALANCE_FEN = 30000;
+database
+  .prepare("INSERT INTO wallet_accounts (user_id, balance_fen) VALUES (?, ?)")
+  .run(customerId, BALANCE_FEN);
+const foreignId = insertAuthenticationUser(database, {
+  email: "foreign@fixture.test",
+  passwordHash: "fixture",
+  status: "active",
+});
+database
+  .prepare(
+    `INSERT INTO orders (
+       order_ref, idempotency_key, request_fingerprint, user_id,
+       type_id, region_id, isp_id, spec_id, duration_id, catalog_version,
+       amount_fen, currency, contact, scenarios, notes, status, created_at, updated_at
+     ) VALUES ('DLFIXTURE0002', 'fx-idem-2', 'fx-fp-2', ?, 'local-isp', 'us', 'us-verizon', NULL,
+       'month-1', 'v1', 1000, 'CNY', 'foreign@fixture.test', '[]', NULL, 'paid', ?, ?)`,
+  )
+  .run(foreignId, started, started);
+const foreignOrderId = database.prepare("SELECT id FROM orders WHERE order_ref = 'DLFIXTURE0002'").get().id;
+database
+  .prepare(
+    `INSERT INTO payments (
+       order_id, out_trade_no, channel, app_id, amount_fen, currency, status,
+       trade_no, alipay_trade_status, paid_at, created_at, updated_at
+     ) VALUES (?, 'fx-out-2', 'alipay_page', 'fx-app', 1000, 'CNY', 'paid',
+       'fx-trade-2', 'TRADE_SUCCESS', ?, ?, ?)`,
+  )
+  .run(foreignOrderId, started, started, started);
+const foreignPaymentId = database.prepare("SELECT id FROM payments WHERE order_id = ?").get(foreignOrderId).id;
+database
+  .prepare(
+    `INSERT INTO services (
+       payment_id, status, opened_by_admin_id, opened_at, created_at, updated_at, ends_at
+     ) VALUES (?, 'open', ?, ?, ?, ?, ?)`,
+  )
+  .run(foreignPaymentId, adminId, started, started, started, expiry);
+const foreignServiceId = database.prepare("SELECT id FROM services WHERE payment_id = ?").get(foreignPaymentId).id;
 
 const app = buildApp({
   auth: {
@@ -110,6 +153,11 @@ const app = buildApp({
     database,
     tokenHmacKeyring: TOKEN_KEYRING,
     rateLimitKeyring: TOKEN_KEYRING,
+    csrfSigningKey: CSRF_KEY,
+  },
+  wallet: {
+    database,
+    tokenHmacKeyring: TOKEN_KEYRING,
     csrfSigningKey: CSRF_KEY,
   },
 });
@@ -133,6 +181,15 @@ process.stdout.write(
         csrfToken: admin.csrfToken,
       },
       links: { serviceOrderRef: orderRef, serviceGrantId: grantId },
+      wallet: {
+        serviceId,
+        foreignServiceId,
+        balanceFen: BALANCE_FEN,
+        currency: "CNY",
+        supportedPeriod: "MONTHLY",
+        durationId: "month-1",
+        planPriceFen: 7900,
+      },
       checks: {
         me: `curl -s ${base}/api/auth/me -H 'cookie: <customer.cookie>'`,
         createTicket: `curl -s -X POST ${base}/api/me/tickets -H 'content-type: application/json' -H 'cookie: <customer.cookie>' -H 'x-csrf-token: <customer.csrfToken>' -d '{"subject":"fixture","body":"hello","serviceGrantId":${grantId}}'`,
