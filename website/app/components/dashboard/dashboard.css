@@ -54,6 +54,9 @@
 .dash-more-list strong { display: block; color: var(--cc-text-2); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .dash-more-list small { display: block; margin-top: 2px; color: var(--cc-text-4); font-size: 11.5px; overflow-wrap: anywhere; }
 .dash-more-list .dash-tag { margin-left: auto; }
+/* 赠送：徽标与状态并排，第二个标签紧随第一个，不再各自推到右侧。 */
+.dash-service-head .dash-tag + .dash-tag,
+.dash-more-list .dash-tag + .dash-tag { margin-left: 6px; }
 
 /* 买家节点入口：账户内数据页与公开实时监控保持为两个清晰入口。 */
 .dash-network-entry-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
