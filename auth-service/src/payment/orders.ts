@@ -1154,7 +1154,7 @@ export function openService(
   readonly items: ReadonlyArray<{
     readonly position: number;
     readonly label: string;
-    readonly monitorTargetKey: string;
+    readonly monitorTargetKey: string | null;
   }>;
 } {
   if (
@@ -1227,6 +1227,15 @@ export function openService(
          VALUES (?, 'service.open', ?, ?)`,
       )
       .run(input.adminEmail, rowString(row, "order_ref"), openedAt);
+    // Opened while the monitor catalog was unavailable: record that some lines still need a VPS binding.
+    if (input.items.some((item) => item.monitorTargetKey === null)) {
+      database
+        .prepare(
+          `INSERT INTO audit_log (actor, action, target_ref, created_at)
+           VALUES (?, 'service.delivery_unbound', ?, ?)`,
+        )
+        .run(input.adminEmail, rowString(row, "order_ref"), openedAt);
+    }
     return {
       id: input.serviceId,
       status: "open" as const,

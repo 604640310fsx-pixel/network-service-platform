@@ -9,7 +9,9 @@ import {
   normalizeGrantDeliveryInput,
   type GrantDeliveryInput,
 } from "../payment/delivery-crypto.js";
+import { normalizeMonitorTargetKey } from "../monitor/target-catalog.js";
 import {
+  bindServiceDeliveryForAdmin,
   createGrantForAdmin,
   listUserServicesForAdmin,
   openGrantForAdmin,
@@ -337,4 +339,49 @@ export function registerAdminServiceHttpRoutes(
       return sendDomainError(reply, error);
     }
   });
+
+  /* 事后补绑：监控目录必须可用且目标在用（与开通同一判定），否则 503 / 400。 */
+  app.patch<{ Params: { id: string; position: string }; Body: unknown }>(
+    "/api/admin/services/:id/delivery/:position",
+    async (request, reply) => {
+      setNoStore(reply);
+      if (!dependencies.enabled) return reply.code(503).send(errorResponse("payment_unavailable"));
+      const auth = authorizeAdminSession(request, dependencies);
+      if (!auth.ok) return reply.code(auth.statusCode).send(errorResponse(auth.code));
+      if (!verifyAdminCsrf(request, dependencies, auth.admin.sessionTokenHash)) {
+        return reply.code(403).send(errorResponse("csrf_invalid"));
+      }
+      const serviceId = positiveId(request.params.id);
+      const position = positiveId(request.params.position);
+      if (serviceId === null || position === null) return reply.code(404).send(errorResponse("not_found"));
+      const body = plainObject(request.body);
+      const monitorTargetKey = body !== null && onlyKeys(body, new Set(["monitorTargetKey"]))
+        ? normalizeMonitorTargetKey(body.monitorTargetKey)
+        : null;
+      if (monitorTargetKey === null) return reply.code(400).send(errorResponse("invalid_monitor_target"));
+      if (dependencies.monitorTargetCatalog === null) return reply.code(503).send(errorResponse("monitor_unavailable"));
+      let active: boolean;
+      try {
+        active = (await dependencies.monitorTargetCatalog.list()).some(
+          (target) => target.key === monitorTargetKey && target.state === "active",
+        );
+      } catch {
+        return reply.code(503).send(errorResponse("monitor_unavailable"));
+      }
+      if (!active) return reply.code(400).send(errorResponse("invalid_monitor_target"));
+      try {
+        return reply.code(200).send(
+          bindServiceDeliveryForAdmin(dependencies.database, {
+            serviceId,
+            position,
+            monitorTargetKey,
+            adminEmail: auth.admin.email,
+            now: dependencies.now,
+          }),
+        );
+      } catch (error) {
+        return sendDomainError(reply, error);
+      }
+    },
+  );
 }

@@ -27,6 +27,7 @@ export type AdminUserService = {
   readonly endsAt: string | null;
   readonly planLabel: string | null;
   readonly adminNote: string | null;
+  readonly deliveryLines: ReadonlyArray<{ readonly position: number; readonly label: string; readonly monitorTargetKey: string | null }>;
 };
 
 export type AdminGrant = {
@@ -140,6 +141,12 @@ function parseService(value: unknown): AdminUserService {
     endsAt: nullableStr(row.endsAt),
     planLabel: nullableStr(row.planLabel),
     adminNote: nullableStr(row.adminNote),
+    deliveryLines: Array.isArray(row.deliveryLines)
+      ? row.deliveryLines.map((line) => {
+          const item = record(line);
+          return { position: int(item.position), label: str(item.label), monitorTargetKey: nullableStr(item.monitorTargetKey) };
+        })
+      : (() => { throw new PaymentApiError("invalid_response"); })(),
   };
 }
 
@@ -245,4 +252,9 @@ export async function updateAdminGrant(grantId: number, patch: AdminGrantPatch, 
 
 export async function openAdminGrant(grantId: number, items: readonly AdminGrantDeliveryInput[], csrfToken: string): Promise<AdminGrant> {
   return parseGrant(await requestJson(`/api/admin/grants/${grantId}/open`, writeInit("POST", csrfToken, { items })));
+}
+
+/** Bind (or rebind) a delivered line to an active VPS after an unbound open. */
+export async function bindAdminServiceDelivery(serviceId: number, position: number, monitorTargetKey: string, csrfToken: string): Promise<AdminUserService> {
+  return parseService(await requestJson(`/api/admin/services/${serviceId}/delivery/${position}`, writeInit("PATCH", csrfToken, { monitorTargetKey })));
 }

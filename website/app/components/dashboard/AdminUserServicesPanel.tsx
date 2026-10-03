@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { getAdminPlans, type AdminPlanItem } from "../../lib/admin-commerce-api";
 import {
+  bindAdminServiceDelivery,
   createAdminGrant,
   getAdminUserServices,
   openAdminGrant,
@@ -13,7 +14,7 @@ import {
   type GrantSelection,
 } from "../../lib/admin-services-api";
 import { useCatalogText, useT, type Messages } from "../../lib/i18n";
-import { PaymentApiError } from "../../lib/payment-api";
+import { PaymentApiError, getAdminMonitorTargets, type AdminMonitorTarget } from "../../lib/payment-api";
 import { resolveSelection } from "../../lib/resolveSelection";
 import { endOfUtcDay, serviceTerm, utcDateInput } from "../../lib/serviceTerm";
 
@@ -45,6 +46,98 @@ function snapshotLabel(service: AdminUserService): string {
     durationId: service.durationId,
   });
   return [summary.type, summary.region, summary.isp, summary.spec, summary.duration].filter((part) => part && part !== "—").join(" · ");
+}
+
+/* 交付线路的 VPS 绑定：未绑定（监控不可用时开通）的线路可事后补绑；VPS 列表按需读取，
+   读取失败即显示「监控暂不可用」，不提交。 */
+function DeliveryBindings({
+  service,
+  csrfToken,
+  copy,
+  onSaved,
+}: {
+  service: AdminUserService;
+  csrfToken: string | null;
+  copy: Copy;
+  onSaved: (service: AdminUserService) => void;
+}) {
+  const delivery = useT().adminDelivery;
+  const [editing, setEditing] = useState<number | null>(null);
+  const [targets, setTargets] = useState<AdminMonitorTarget[] | null>(null);
+  const [targetsError, setTargetsError] = useState(false);
+  const [choice, setChoice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function startBinding(position: number, current: string | null) {
+    setEditing(position);
+    setChoice(current ?? "");
+    setError(null);
+    setTargets(null);
+    setTargetsError(false);
+    try {
+      setTargets(await getAdminMonitorTargets());
+    } catch {
+      setTargetsError(true);
+    }
+  }
+
+  async function save(position: number) {
+    if (csrfToken === null || choice === "") return;
+    setBusy(true);
+    setError(null);
+    try {
+      onSaved(await bindAdminServiceDelivery(service.id, position, choice, csrfToken));
+      setEditing(null);
+    } catch (caught) {
+      setError(errorMessage(caught, copy));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (service.deliveryLines.length === 0) return null;
+  const label = (key: string) => targets?.find((target) => target.key === key)?.label ?? key;
+  return (
+    <div className="dash-usvc-open">
+      <p className="dash-usvc-meta">{delivery.deliveryLines}</p>
+      {service.deliveryLines.map((line) => (
+        <div className="dash-usvc-line" key={line.position}>
+          <span>{line.position}. {line.label}</span>
+          <span className={`dash-tag${line.monitorTargetKey === null ? " is-warn" : " is-accent"}`}>
+            {line.monitorTargetKey === null ? delivery.unbound : delivery.bound(label(line.monitorTargetKey))}
+          </span>
+          {editing === line.position ? (
+            targetsError ? (
+              <span className="dash-usvc-meta">{delivery.bindUnavailable}</span>
+            ) : targets === null ? (
+              <span className="dash-usvc-meta">{delivery.loadingTargets}</span>
+            ) : (
+              <>
+                <select value={choice} onChange={(event) => setChoice(event.target.value)} disabled={busy}>
+                  <option value="">{delivery.chooseVps}</option>
+                  {targets.filter((target) => target.state === "active").map((target) => (
+                    <option key={target.key} value={target.key}>{target.label}</option>
+                  ))}
+                </select>
+                <button type="button" className="dash-primary-link" disabled={busy || choice === "" || csrfToken === null} aria-busy={busy} onClick={() => void save(line.position)}>
+                  {busy ? delivery.binding : delivery.saveBinding}
+                </button>
+              </>
+            )
+          ) : (
+            <button type="button" className="dash-usvc-ghost" disabled={csrfToken === null} onClick={() => void startBinding(line.position, line.monitorTargetKey)}>
+              {delivery.bindVps}
+            </button>
+          )}
+          {editing === line.position && (
+            <button type="button" className="dash-usvc-ghost" onClick={() => setEditing(null)} disabled={busy}>{delivery.cancel}</button>
+          )}
+        </div>
+      ))}
+      {error && <p className="dash-inline-error" role="alert">{error}</p>}
+    </div>
+  );
 }
 
 function ServiceRow({
@@ -129,6 +222,7 @@ function ServiceRow({
           {error && <p className="dash-inline-error" role="alert">{error}</p>}
         </div>
       </form>
+      <DeliveryBindings service={service} csrfToken={csrfToken} copy={copy} onSaved={onSaved} />
     </li>
   );
 }

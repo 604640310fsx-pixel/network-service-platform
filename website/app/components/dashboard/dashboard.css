@@ -254,3 +254,14 @@ button.dash-action strong { color: var(--cc-text-3); font-weight: 500; }
   .dash-diagnosis-form > div { grid-template-columns: minmax(0, 1fr); }
   .dash-action-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* 监控不可用时的「暂不绑定 VPS 开通」确认项 */
+.dash-delivery-unbound { display: flex; align-items: flex-start; gap: 10px; margin: 12px 0 0; padding: 11px 12px; border: 1px dashed var(--cc-accent-line); border-radius: 9px; background: var(--cc-accent-tint); cursor: pointer; }
+.dash-delivery-unbound input { margin-top: 3px; flex: 0 0 auto; }
+.dash-delivery-unbound strong { display: block; color: var(--cc-text); font-size: 13px; }
+.dash-delivery-unbound small { display: block; margin-top: 3px; color: var(--cc-text-3); font-size: 12px; line-height: 1.5; }
+.dash-usvc-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 7px 0; border-top: 1px solid var(--cc-hairline); font-size: 12.5px; }
+.dash-usvc-line:first-child { border-top: 0; }
+.dash-usvc-line > span:first-child { min-width: 0; flex: 1 1 160px; overflow-wrap: anywhere; color: var(--cc-text); }
+.dash-usvc-line select { height: 32px; min-width: 0; max-width: 100%; padding: 0 8px; border: 1px solid var(--cc-line); border-radius: 7px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 12.5px; }
+.dash-tag.is-warn { border-style: dashed; color: #b06d05; }

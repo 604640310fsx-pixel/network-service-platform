@@ -18,13 +18,14 @@ const BASE64_32_BYTE_KEY_PATTERN = /^[A-Za-z0-9+/]{43}=$/;
 export interface ServiceDeliveryInput {
   readonly label: string;
   readonly subscriptionUrl: string;
-  readonly monitorTargetKey: string;
+  /** null only on the explicit unbound path (monitor catalog unavailable + allowUnbound). */
+  readonly monitorTargetKey: string | null;
 }
 
 export interface EncryptedServiceDeliveryItem {
   readonly position: number;
   readonly label: string;
-  readonly monitorTargetKey: string;
+  readonly monitorTargetKey: string | null;
   readonly keyVersion: number;
   readonly nonce: Buffer;
   readonly ciphertext: Buffer;
@@ -117,14 +118,17 @@ function normalizeDeliveryPayload(
 
 export function normalizeServiceDeliveryInput(
   value: unknown,
+  options: { readonly allowUnbound?: boolean } = {},
 ): ServiceDeliveryInput | null {
   const payload = normalizeDeliveryPayload(value);
   if (payload === null || typeof value !== "object" || value === null) {
     return null;
   }
-  const monitorTargetKey = normalizeMonitorTargetKey(
-    (value as Record<string, unknown>).monitorTargetKey,
-  );
+  const rawKey = (value as Record<string, unknown>).monitorTargetKey;
+  if (options.allowUnbound === true && (rawKey === undefined || rawKey === null || rawKey === "")) {
+    return { ...payload, monitorTargetKey: null };
+  }
+  const monitorTargetKey = normalizeMonitorTargetKey(rawKey);
   return monitorTargetKey === null
     ? null
     : { ...payload, monitorTargetKey };
@@ -141,7 +145,7 @@ export function encryptServiceDeliveryItem(
 ): EncryptedServiceDeliveryItem {
   assertPositiveInteger(input.serviceId);
   assertPositiveInteger(input.position);
-  const normalized = normalizeServiceDeliveryInput(input.item);
+  const normalized = normalizeServiceDeliveryInput(input.item, { allowUnbound: input.item.monitorTargetKey === null });
   if (normalized === null) {
     throw new Error("Service delivery input is invalid");
   }
