@@ -119,3 +119,8 @@ test("line-name-follows-VPS hint is bilingual (NSP-LINE-NAME-10)", () => {
   assert.match(zh.adminDelivery.nameFollowsVps, /VPS/);
   assert.doesNotMatch(en.adminDelivery.nameFollowsVps, CJK);
 });
+
+test("sync-name action copy is bilingual", () => {
+  assert.equal(zh.adminDelivery.syncName, "同步为 VPS 名称");
+  assert.doesNotMatch(en.adminDelivery.syncName, CJK);
+});

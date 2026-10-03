@@ -1305,6 +1305,7 @@ export const en: Messages = {
     bindUnavailable: "Monitoring is unavailable, so a VPS can't be bound right now.",
     loadingTargets: "Loading the VPS list…",
     nameFollowsVps: "The line name follows the selected VPS and updates on bind or rebind.",
+    syncName: "Sync name to VPS",
     rebindVps: "Change VPS",
     unbindVps: "Unbind",
     unbinding: "Unbinding…",
