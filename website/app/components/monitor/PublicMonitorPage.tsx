@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getLineMonitorTarget } from "../../lib/line-monitor-target-api";
 import { useI18n, useT } from "../../lib/i18n";
 import { useThemePreference, type ThemePreference } from "../../lib/theme";
 import { WorkbenchBanner, workbenchBannerLayoutClass } from "../WorkbenchBanner";
@@ -66,14 +67,31 @@ export function PublicMonitorPage() {
 }
 
 /* 已登录客户在客户中心壳层内访问 /status：同一公开运营方监控嵌入，
-   主题随壳层 topbar 切换；不新增数据源、客户字段或账户投影。 */
-export function CustomerShellMonitor() {
+   主题随壳层 topbar 切换。从「节点与流量」点某条线路进来时（line），先向 Auth 取该线路绑定的
+   公开服务器名，再让监控页预选它；取不到就按默认服务器打开。 */
+export function CustomerShellMonitor({ line = null }: { line?: string | null }) {
   const theme = useCustomerShellTheme();
-  return <PublicMonitorEmbed theme={theme} />;
+  const [vps, setVps] = useState<{ readonly line: string | null; readonly server: string | null } | null>(
+    line === null ? { line: null, server: null } : null,
+  );
+  useEffect(() => {
+    if (line === null) {
+      setVps({ line: null, server: null });
+      return;
+    }
+    const controller = new AbortController();
+    setVps(null);
+    void getLineMonitorTarget(line, controller.signal).then((server) => {
+      if (!controller.signal.aborted) setVps({ line, server });
+    });
+    return () => controller.abort();
+  }, [line]);
+  if (vps === null || vps.line !== line) return null;
+  return <PublicMonitorEmbed key={vps.server ?? ""} theme={theme} vps={vps.server} />;
 }
 
 /* 公开监控 iframe 主体：/monitor、匿名 /status 与客户中心 /status 共用。 */
-export function PublicMonitorEmbed({ theme }: { theme: ThemePreference }) {
+export function PublicMonitorEmbed({ theme, vps = null }: { theme: ThemePreference; vps?: string | null }) {
   const copy = useT().monitor;
   const { lang } = useI18n();
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -83,8 +101,8 @@ export function PublicMonitorEmbed({ theme }: { theme: ThemePreference }) {
   const initialThemeRef = useRef(theme);
   const initialLangRef = useRef(lang);
   const monitorSource = useMemo(
-    () => buildMonitorEmbedUrl(base, { theme: initialThemeRef.current, lang: initialLangRef.current, embedded: true }, window.location.origin),
-    [base],
+    () => buildMonitorEmbedUrl(base, { theme: initialThemeRef.current, lang: initialLangRef.current, embedded: true, vps }, window.location.origin),
+    [base, vps],
   );
   const targetOrigin = useMemo(() => monitorPostTargetOrigin(base, window.location.origin), [base]);
 
