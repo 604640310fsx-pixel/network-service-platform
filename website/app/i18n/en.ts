@@ -961,7 +961,7 @@ export const en: Messages = {
     emptyHint: "After payment, your services and activation progress appear here.",
     summaryLabel: "Service overview",
     total: "Services",
-    totalHint: "From paid orders",
+    totalHint: "Paid services and gifted plans",
     open: "Active",
     openHint: "Activated manually",
     pending: "Pending",

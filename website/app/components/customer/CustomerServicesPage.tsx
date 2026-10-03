@@ -15,6 +15,7 @@ import {
 import { resolveSelection } from "../../lib/resolveSelection";
 import { serviceTerm } from "../../lib/serviceTerm";
 import { SubscriptionImportModule, verifiedSubscriptionDeepLink } from "../subscription-import";
+import { buyerPlanCounts, combineBuyerPlans } from "../dashboard/buyerPlans";
 import "./customer-services.css";
 
 /* /services 列表只来自 GET /api/me/services；已开通卡片的交付数据按其 orderRef
@@ -357,31 +358,31 @@ export function CustomerServicesPage() {
     );
   }
 
-  const openCount = items.filter((item) => item.serviceStatus === "open").length;
-  const pendingCount = items.length - openCount;
+  // 与仪表板同一计数口径：已购服务 + 有效赠送合并计数（buyerPlans.ts）。
+  const counts = buyerPlanCounts(combineBuyerPlans(items, grants));
 
   return (
     <PageFrame>
       <section className="cc-svc-summary" aria-label={t.services.summaryLabel}>
         <article>
           <span>{t.services.total}</span>
-          <strong>{items.length}</strong>
+          <strong>{counts.total}</strong>
           <small>{t.services.totalHint}</small>
         </article>
         <article>
           <span>{t.services.open}</span>
-          <strong>{openCount}</strong>
+          <strong>{counts.open}</strong>
           <small>{t.services.openHint}</small>
         </article>
         <article>
           <span>{t.services.pending}</span>
-          <strong>{pendingCount}</strong>
+          <strong>{counts.pending}</strong>
           <small>{t.services.pendingHint}</small>
         </article>
       </section>
 
       <section className="cc-svc-panel">
-        <PanelHead tag={t.account.itemCount(items.length)} />
+        <PanelHead tag={t.account.itemCount(counts.total)} />
         <ul className="cc-svc-list">
           {items.map((item) => {
             const isOpen = item.serviceStatus === "open";

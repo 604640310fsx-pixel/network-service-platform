@@ -960,7 +960,7 @@ export const zh = {
     emptyHint: "完成付款后，你的服务与开通进度会显示在这里。",
     summaryLabel: "服务概览",
     total: "服务总数",
-    totalHint: "来自已支付订单",
+    totalHint: "已支付服务与赠送套餐",
     open: "已开通",
     openHint: "已完成人工开通",
     pending: "待开通",
