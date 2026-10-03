@@ -22,6 +22,17 @@ export function buyerLineStatusHref(line: BuyerLineRef): string {
   return `/status?line=${encodeURIComponent(lineSelector(line))}`;
 }
 
+/** The status entry of the account's first delivered line (service lines first, then gifts), skipping
+    lines known to be unbound; plain /status when there is none. /status?line=… opens the public
+    monitor with that line's server preselected (Auth resolves the server by ownership). */
+export function primaryLineStatusHref(
+  lines: readonly BuyerLineRef[],
+  isUnbound: (line: BuyerLineRef) => boolean = () => false,
+): string {
+  const line = lines.find((candidate) => !isUnbound(candidate));
+  return line === undefined ? "/status" : buyerLineStatusHref(line);
+}
+
 const LINE_SELECTOR = /^(?:service:DL[A-Za-z0-9]{8,64}|grant:[1-9][0-9]{0,8}):[1-9][0-9]{0,8}$/;
 
 /** The `line` query value when it is a well-formed selector; null when absent; "invalid" otherwise. */

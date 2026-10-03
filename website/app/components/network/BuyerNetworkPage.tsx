@@ -17,7 +17,7 @@ import { groupGiftLines, type GiftLineGroup } from "./giftLines";
 import {
   buyerLineStatusHref,
   lineSelector,
-  resolveBuyerStatusHref,
+  primaryLineStatusHref,
   type BuyerLineRef,
 } from "../../lib/buyerStatusLink";
 import { getSubscriptionInfo, type SubscriptionInfo } from "../../lib/subscription-info-api";
@@ -784,17 +784,19 @@ function TrafficPanel({
   accountServices,
   usageLines,
   reloadToken,
+  statusHref,
 }: {
   servicesState: Resource<readonly MyServiceItem[]>;
   ordersState: Resource<readonly MyOrderItem[]>;
   accountServices: readonly AccountServiceView[];
   usageLines: readonly UsageLine[];
   reloadToken: number;
+  /** /status?line=… of the account's first bound line, or plain /status. */
+  statusHref: string;
 }) {
   const t = useT();
   const ct = useCatalogText();
   const ready = servicesState.kind === "ready";
-  const statusHref = resolveBuyerStatusHref();
   const usage = useLineUsage(usageLines, reloadToken);
   const reported: UsageFacts[] = usageLines.flatMap((line) => {
     const state = usage.states[line.selector];
@@ -1051,6 +1053,14 @@ export function BuyerNetworkPage() {
     services === null ? [] : collectOrphanLineGroups(linesByOrder, services);
   const giftGroups: readonly GiftLineGroup[] = services === null ? [] : groupGiftLines(grants, giftDeliveryLines);
   const giftOpenCount = grants.filter((grant) => grant.deliveryStatus === "open").length;
+  const statusLines: BuyerLineRef[] = [
+    ...(deliveryLines ?? []).map((line): BuyerLineRef => ({ kind: "service", ref: line.orderRef, position: line.position })),
+    ...(giftDeliveryLines ?? []).map((line): BuyerLineRef => ({ kind: "grant", ref: line.grantId, position: line.position })),
+  ];
+  const knownStatus = nodeStatus.kind === "ready" && nodeStatus.result.monitor === "available"
+    ? new Map<string, NodeLineStatus>(nodeStatus.result.items.map((item) => [`${item.kind}:${item.ref}:${item.position}`, item.status]))
+    : null;
+  const statusHref = primaryLineStatusHref(statusLines, (line) => knownStatus?.get(lineSelector(line)) === "unbound");
   const usageLines: readonly UsageLine[] = [
     ...(deliveryLines ?? []).map((line) => ({
       selector: lineSelector({ kind: "service", ref: line.orderRef, position: line.position }),
@@ -1107,6 +1117,7 @@ export function BuyerNetworkPage() {
             accountServices={accountServices}
             usageLines={usageLines}
             reloadToken={reloadToken}
+            statusHref={statusHref}
           />
         </div>
       </div>
