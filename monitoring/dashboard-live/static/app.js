@@ -285,8 +285,10 @@ const WAN_META = {
 };
 const wanName = wan => tr().wan[wan];
 const RANGE_MS = {'1h':3600000,'6h':21600000,'24h':86400000,'7d':604800000};
+// 官网从买家线路点进来时带 ?vps=<target_name>：首屏选中该服务器（不在列表里则按原规则回落），不写入本站 localStorage。
+const urlVps=(()=>{try{const v=new URLSearchParams(location.search).get('vps');return v&&v.length<=128&&!/[\u0000-\u001f\u007f]/.test(v)?v:null}catch{return null}})();
 const savedVps=(()=>{try{return localStorage.getItem('network-monitor-selected-vps')}catch{return null}})();
-const state = {overall:null, chartSignature:null, chartMeta:null, routeData:null, routeError:false, vpsStatusData:null, bandwidthPayload:null, bandwidthFailed:false, type:'icmp', range:'24h', target:'AliDNS', lastVps:savedVps||'DMIT Premium', vpsTargets:[], visible:new Set(['telecom','mobile','unicom']), samples:[], chart:null, liveKey:null, targetRequest:0, chartRequest:0, liveRequest:0, refreshPromise:null, chartController:null, vpsStatusRequest:0, vpsStatusPromise:null, vpsStatusTarget:null};
+const state = {overall:null, chartSignature:null, chartMeta:null, routeData:null, routeError:false, vpsStatusData:null, bandwidthPayload:null, bandwidthFailed:false, type:'icmp', range:'24h', target:'AliDNS', lastVps:urlVps||savedVps||'DMIT Premium', vpsTargets:[], visible:new Set(['telecom','mobile','unicom']), samples:[], chart:null, liveKey:null, targetRequest:0, chartRequest:0, liveRequest:0, refreshPromise:null, chartController:null, vpsStatusRequest:0, vpsStatusPromise:null, vpsStatusTarget:null};
 const routeState={wan:'telecom',direction:'outbound',protocol:'icmp',target:state.lastVps,targets:[],hops:[],expanded:false,request:0,controller:null};
 
 const $ = selector => document.querySelector(selector);

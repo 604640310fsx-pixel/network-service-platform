@@ -15,25 +15,26 @@ test("/status stays public without a login redirect; /monitor unchanged", () => 
 
 test("/status always renders the monitor inside the customer shell, signed in or not", () => {
   const shell = source("../app/components/DashboardShell.tsx");
-  // NSP-LINE-STATUS-08: only /status?line=… (a buyer line) renders the account status projection.
-  const lineBranch = shell.slice(shell.indexOf('if (section === "status" && '), shell.indexOf('if (section === "status") {'));
-  assert.match(lineBranch, /new URLSearchParams\(search\)\.has\("line"\)/);
-  assert.match(lineBranch, /<BuyerServerStatusPage \/>/);
   const status = shell.slice(shell.indexOf('if (section === "status") {'), shell.indexOf('if (section === "subscribe")'));
+  // A buyer line (/status?line=…) only preselects that line's server in the same public monitor (user decision 2026-10-04).
+  assert.match(status, /const line = readStatusLineParam\(search\);/);
   assert.match(
     status,
-    /return \(\s*<CustomerCenterShell fill[^>]*>\s*<CustomerShellMonitor \/>\s*<\/CustomerCenterShell>\s*\);\s*\}\s*$/,
+    /return \(\s*<CustomerCenterShell fill[^>]*>\s*<CustomerShellMonitor line=\{line === "invalid" \? null : line\} \/>\s*<\/CustomerCenterShell>\s*\);\s*\}\s*$/,
   );
   assert.doesNotMatch(status, /authStatus|PublicMonitorPage|BuyerServerStatusPage|monitor-status|Navigate/);
 });
 
 test("customer-shell /status reuses the same public embed and follows the shell theme", () => {
   const page = source("../app/components/monitor/PublicMonitorPage.tsx");
-  assert.match(page, /export function CustomerShellMonitor\(\) \{\s*const theme = useCustomerShellTheme\(\);\s*return <PublicMonitorEmbed theme=\{theme\} \/>;/);
+  assert.match(page, /export function CustomerShellMonitor\(\{ line = null \}: \{ line\?: string \| null \}\) \{\s*const theme = useCustomerShellTheme\(\);/);
+  // The only server identity is the one Auth resolves for the buyer's own line.
+  assert.match(page, /getLineMonitorTarget\(line, controller\.signal\)/);
+  assert.match(page, /<PublicMonitorEmbed key=\{vps\.server \?\? ""\} theme=\{theme\} vps=\{vps\.server\} \/>/);
   assert.match(page, /<PublicMonitorEmbed theme=\{theme\} \/>\s*<\/main>/);
   const embed = page.slice(page.indexOf("export function PublicMonitorEmbed"));
-  assert.match(embed, /embedded: true/);
-  assert.doesNotMatch(embed, /target\s*:|vps/);
+  assert.match(embed, /embedded: true, vps \}/);
+  assert.doesNotMatch(embed, /target\s*:|monitorTargetKey/);
   const customerShell = source("../app/components/customer/CustomerCenterShell.tsx");
   assert.match(customerShell, /<CustomerShellThemeContext\.Provider value=\{theme\}>\{children\}<\/CustomerShellThemeContext\.Provider>/);
 });

@@ -539,3 +539,42 @@ test("line selector parsing is strict", async () => {
   assert.deepEqual(parseLineQuery("/x?line=bad"), { ok: true, line: "invalid" });
   assert.deepEqual(parseLineQuery("/x?other=1"), { ok: false });
 });
+
+test("monitor-target returns the public server name of an owned line only", async (context) => {
+  await withAuthenticationDatabase(async (database) => {
+    const ownerId = insertAuthenticationUser(database, { email: "target-owner@example.com", passwordHash: "hash", status: "active" });
+    const otherId = insertAuthenticationUser(database, { email: "target-other@example.com", passwordHash: "hash", status: "active" });
+    const adminId = insertAuthenticationUser(database, { email: "target-admin@example.com", passwordHash: "hash", status: "active", role: "admin" });
+    const owner = insertWebSession(database, ownerId);
+    const admin = insertWebSession(database, adminId);
+    insertOpenService(database, 41, ownerId, adminId, ["target-a", null]);
+    insertOpenService(database, 42, otherId, adminId, ["target-b"]);
+    const grantId = insertOpenGrantLine(database, ownerId, adminId, "target-b");
+    const client = new FakePrivateClient();
+    const app = buildApp({ monitor: dependencies(database, client) });
+    context.after(async () => app.close());
+    const get = (session: { cookie: string } | null, query: string) =>
+      app.inject({ method: "GET", url: `/api/me/monitor-target${query}`, headers: session === null ? {} : { cookie: session.cookie } });
+
+    const service = await get(owner, "?line=service:DLHTTPMONITOR41:1");
+    assert.equal(service.statusCode, 200, service.body);
+    assert.equal(service.headers["cache-control"], "no-store");
+    assert.deepEqual(service.json(), { target: "target-a" });
+    assert.deepEqual((await get(owner, `?line=grant:${grantId}:1`)).json(), { target: "target-b" });
+    for (const [session, query, status, code] of [
+      [owner, "?line=service:DLHTTPMONITOR42:1", 404, "line_not_found"],
+      [owner, "?line=service:DLHTTPMONITOR41:9", 404, "line_not_found"],
+      [owner, "?line=bad", 404, "line_not_found"],
+      [owner, "?line=service:DLHTTPMONITOR41:2", 409, "line_unbound"],
+      [owner, "", 400, "invalid_request"],
+      [owner, "?target=target-a", 400, "invalid_request"],
+      [null, "?line=service:DLHTTPMONITOR41:1", 401, "unauthorized"],
+      [admin, "?line=service:DLHTTPMONITOR41:1", 403, "forbidden"],
+    ] as const) {
+      const response = await get(session, query);
+      assert.equal(response.statusCode, status, query);
+      assert.equal(response.json().error.code, code, query);
+    }
+    assert.equal(client.statusCalls.length + client.listSignals.length, 0, "no private monitor call");
+  });
+});

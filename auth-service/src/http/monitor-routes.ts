@@ -192,6 +192,39 @@ export function registerMonitorHttpRoutes(
     },
   });
 
+  /* 买家线路 → 公开监控页要选中的服务器（用户裁决 2026-10-04）：只返回买家本人已交付线路绑定的
+     监控服务器名 `{target}`（公开三网监控页本来就列出这些名字），供 /status 嵌入的监控页预选；
+     不调用私有监控、不返回状态或其他字段。越权 / 不存在 / 格式错误 404，未绑定 409。 */
+  app.get("/api/me/monitor-target", async (request, reply) => {
+    setJsonNoStore(reply);
+    const query = parseLineQuery(request.raw.url);
+    if (!query.ok || query.line === null) return reply.code(400).send(errorResponse("invalid_request"));
+    if (dependencies === null) return reply.code(503).send(errorResponse("monitor_unconfigured"));
+    let session: ReturnType<typeof readPaymentSession>;
+    try {
+      session = readPaymentSession(request, dependencies);
+    } catch {
+      return reply.code(503).send(errorResponse("monitor_unavailable"));
+    }
+    if (session === null) return reply.code(401).send(errorResponse("unauthorized"));
+    if (session.principal.role !== "user") return reply.code(403).send(errorResponse("forbidden"));
+    try {
+      consumeMonitorStatusRateLimit(
+        dependencies.database,
+        dependencies.rateLimitKeyring,
+        session.principal.userId,
+        dependencies.now ? { now: dependencies.now } : {},
+      );
+    } catch (error) {
+      if (error instanceof RateLimitExceededError) return reply.code(429).send(errorResponse("rate_limited"));
+      return reply.code(503).send(errorResponse("monitor_unavailable"));
+    }
+    const owned = query.line === "invalid" ? null : findOwnedLine(dependencies.database, session.principal.userId, query.line);
+    if (owned === null) return reply.code(404).send(errorResponse("line_not_found"));
+    if (owned.targetKey === null) return reply.code(409).send(errorResponse("line_unbound"));
+    return reply.code(200).send({ target: owned.targetKey });
+  });
+
   /* 买家节点在线状态：会话鉴权 + 与 monitor-status 共用的按用户限流；私有监控未配置时
      返回 200 {monitor:"unavailable", items:[]}，由前端显示「状态暂不可用」，不让整页 503。 */
   app.get("/api/me/node-status", async (request, reply) => {

@@ -72,14 +72,21 @@ export function monitorBannerMode(base: string | undefined, origin: string): Mon
   return url.searchParams.get("preview") === "fixture" ? "fixture" : "embed";
 }
 
-/** 构造公共 iframe src：清除已有查询参数，只写入 theme、可选 lang 与受控 view；唯一保留项
+/** 买家线路点进 /status 时预选的公开监控服务器名：只接受 ≤128 字符、无控制字符、无首尾空白的值。 */
+export function normalizeMonitorVps(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 && value.length <= 128 && value.trim() === value && !/[\u0000-\u001f\u007f]/.test(value)
+    ? value
+    : null;
+}
+
+/** 构造公共 iframe src：清除已有查询参数，只写入 theme、可选 lang、可选预选服务器 vps 与受控 view；唯一保留项
     是值精确等于 fixture 的 preview 标记，用于本地演示数据保持可见标识。
     compact=true 使用侧栏 mini；embedded=true 使用去掉重复标题带的官网嵌入视图。
     两种视图互斥，冲突时 fail closed。base 非法或未配置时返回 null，由调用方
     渲染真实缺失态。 */
 export function buildMonitorEmbedUrl(
   base: string | undefined,
-  options: { theme: MonitorTheme; lang?: MonitorLang; compact?: boolean; embedded?: boolean },
+  options: { theme: MonitorTheme; lang?: MonitorLang; compact?: boolean; embedded?: boolean; vps?: string | null },
   origin: string,
 ): string | null {
   const url = toMonitorUrl(base, origin);
@@ -92,6 +99,8 @@ export function buildMonitorEmbedUrl(
   else url.searchParams.delete("view");
   url.searchParams.set("theme", normalizeMonitorTheme(options.theme));
   if (options.lang !== undefined) url.searchParams.set("lang", normalizeMonitorLang(options.lang));
+  const vps = normalizeMonitorVps(options.vps);
+  if (vps !== null) url.searchParams.set("vps", vps);
   return url.toString();
 }
 
