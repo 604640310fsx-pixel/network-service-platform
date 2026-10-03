@@ -196,8 +196,8 @@ export async function getMonitorStatus(
   try {
     let response: Response;
     try {
-      const url = line === undefined ? "/api/me/monitor-status" : `/api/me/monitor-status?line=${encodeURIComponent(line)}`;
-      response = await fetchImpl(url, {
+      // The fixed same-origin path is a release invariant; only the buyer line selector is appended.
+      response = await fetchImpl("/api/me/monitor-status" + (line === undefined ? "" : `?line=${encodeURIComponent(line)}`), {
         method: "GET",
         credentials: "same-origin",
         headers: { Accept: "application/json" },

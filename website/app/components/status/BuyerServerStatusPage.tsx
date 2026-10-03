@@ -180,7 +180,9 @@ export function BuyerServerStatusPage() {
       if (!active) return;
       try {
         if (lineParam === "invalid") throw new MonitorStatusApiError("line_not_found", 404);
-        const projection = await getMonitorStatus(controller.signal, undefined, lineParam ?? undefined);
+        const projection = lineParam === null
+          ? await getMonitorStatus(controller.signal)
+          : await getMonitorStatus(controller.signal, undefined, lineParam);
         if (active) setState({ kind: "ready", projection });
       } catch (error) {
         if (!active || error instanceof MonitorStatusAbortError) return;
