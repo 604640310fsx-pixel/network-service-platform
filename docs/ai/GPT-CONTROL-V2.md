@@ -61,7 +61,7 @@
 | 原 Sol 作者无法解决的明确复杂技术问题 | GPT-6 Astra / medium | 由经理按证据裁决 specialist；原作者先停写并以已 push 精确 SHA 交接，不设第二作者或主管；其他执行任务默认排除 Astra |
 | 必须使用 Codex 原生能力、原作者恢复或明确例外 | 官方 Codex / GPT-6 Sol，普通 medium、复杂 high | 不默认承包后端、集成、测试、审计或 Git 收尾；每次例外有具体理由 |
 | Claude Design | 当前 Packet 明确的 Claude 模型/档位 | 获准视觉探索，输出默认是 `PROPOSAL`；不自动扩大后端/安全职责 |
-| Claude Sonnet | Sonnet 5.5（`claude-sonnet-5-5`）medium | 仅限 Packet 明确指定的单页面/组件、局部修复或聚焦审查；high 须写明具体理由；不作为默认 Claude 路线，不为模型丰富新增工作 |
+| Claude Sonnet | Sonnet 5.5 medium | 仅限 Packet 明确指定的单页面/组件、局部修复或聚焦审查；high 须写明具体理由；不作为默认 Claude 路线，不为模型丰富新增工作 |
 | Claude Fable | Fable 5.1，精确 ID/档位按当前专项批准 | 仅有证据的异常困难任务，不自动提档或替换 |
 
 未被本次调整的既有特殊路线继续按本文件执行；不重新启用 GPT-5.6/Terra，不静默采用表外模型。模型存在于目录不等于自动批准它执行所有领域。任何推荐都不是已经切换；更新本文件不会自动修改项目设置或切换任何已运行任务的模型。
