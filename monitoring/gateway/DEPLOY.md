@@ -123,15 +123,26 @@ on it until step 3, and Auth falls back to "monitor unavailable" if it stops lat
 
 ## 3. Auth host wiring (Auth host, root, inside a release window)
 
-Auth reads three systemd credentials and two settings:
+Auth reads three credential files from `$CREDENTIALS_DIRECTORY` and two settings.
+Check where that directory comes from before wiring: if an Auth `EnvironmentFile`
+sets `CREDENTIALS_DIRECTORY` to a fixed path (as on the current production host),
+systemd `LoadCredential=` has no effect and the files must be installed into that
+directory with the same owner/mode as the existing credentials (for example
+`root:<auth-group> 0640`). Only when the unit relies on systemd's own credential
+directory are `LoadCredential=` lines the right mechanism.
 
-| Name | Kind | Value |
+| Name | Kind | Source |
 | --- | --- | --- |
-| `monitor_private_ca_certificate` | `LoadCredential` | `/etc/network-service-platform/monitor-pki/private-ca.pem` |
-| `monitor_auth_service_client_certificate` | `LoadCredential` | `/etc/network-service-platform/monitor-pki/auth-service-client.crt` |
-| `monitor_auth_service_client_private_key` | `LoadCredential` | `/etc/network-service-platform/monitor-pki/auth-service-client.key` |
+| `monitor_private_ca_certificate` | credential file | `/etc/network-service-platform/monitor-pki/private-ca.pem` |
+| `monitor_auth_service_client_certificate` | credential file | `/etc/network-service-platform/monitor-pki/auth-service-client.crt` |
+| `monitor_auth_service_client_private_key` | credential file | `/etc/network-service-platform/monitor-pki/auth-service-client.key` |
 | `MONITOR_AUTH_PROJECTION_ENABLED` | env | `true` |
 | `MONITOR_AUTH_PRIVATE_ORIGIN` | env | `https://<LINK_IP>:<PORT>` |
+
+The Auth host may also restrict its own egress on the private link (an nftables
+`output` allowlist). Allow exactly `<LINK_IP>` tcp `<PORT>` there, in addition to
+the tailnet ACL; `timeout 5 bash -c '</dev/tcp/<LINK_IP>/<PORT>'` from the Auth
+host proves both layers.
 
 Pre-check from the Auth host with the real client identity (expect `200` and
 `{"items":[...]}`):
@@ -152,8 +163,15 @@ systemd precedence matters on the current Auth unit:
   `MONITOR_AUTH_PROJECTION_ENABLED=false`.
 - Remove `MONITOR_AUTH_PRIVATE_ORIGIN` from any `UnsetEnvironment=` line in the
   normal drop-in (an unset runs after the files are read and would drop it).
-- Add the three `LoadCredential=` lines to the normal drop-in.
+- Install the three credential files as described above (no Auth restart needed:
+  they are read only when the projection is enabled).
 - Keep the quiescent drop-in unchanged: quiescent starts with the monitor origin absent.
+
+Before the window, prove startup without starting a server: run the Auth config
+loaders under `systemd-run -p User=<auth-user>` with the unit's `Environment*=` and
+`EnvironmentFile=` lines (Auth's own startup error is intentionally generic).
+The Auth release that runs must already include overlay-range support in its
+private-origin check when `<LINK_IP>` is a Tailscale address.
 
 Then restart Auth in the normal release window. Evidence: Auth `ready`, zero
 error lines, and the process environment shows the flag `true` and the origin
