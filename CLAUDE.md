@@ -108,4 +108,4 @@ push 前必须确认 branch、base、HEAD、远端目标、允许路径、最终
 
 每次完成只返回 `TEAM-COLLAB-V1` 的短核心报告，并仅追加 Packet 明确要求的条件证据；不得把 Packet 必需验证改标 `N/A`。代码 handoff 绑定已 push 的精确 SHA；批准的设计或本地 artifact 使用自身版本/哈希，不伪装成 Git commit。相关未提交工作必须如实记录。
 
-完成当前 Task Packet 后停止该阶段操作并交主管；已批准的连续阶段由主管按标准续接，仅最终验收、关键裁决或授权变化交经理，作者不得自行启动其他执行器、下一任务或 merge/release/deploy/production。
+完成当前 Task Packet 后停止该阶段操作并交主管；已批准的连续阶段由主管按标准续接，仅最终验收、关键裁决或授权变化需要经理作新决定（必要报告照常发送且不构成重复审批，按 `TEAM-COLLAB-V1` §7、§8.1），作者不得自行启动其他执行器、下一任务或 merge/release/deploy/production。

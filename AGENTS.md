@@ -92,7 +92,7 @@ push 前必须确认 branch、base、HEAD、远端目标、允许路径、最终
 
 每次完成只返回 `TEAM-COLLAB-V1` 的短核心报告：任务、状态、写入者、base/handoff SHA、修改文件、实际验证、风险/未知和一个下一授权动作。仅追加 Task Packet 明确要求的条件证据；不得把 Packet 必需验证改标 `N/A`。代码 handoff 必须绑定已 push 的精确 SHA 且相关未提交工作为 `NONE`。
 
-完成当前 Task Packet 后停止该阶段操作并回交主管；已批准的连续阶段由主管在既有目标和授权内按标准续接，仅最终验收、关键裁决或授权变化交经理，不重复索要用户“继续”。作者不得自行开下一任务、merge、release、deploy 或 production。
+完成当前 Task Packet 后停止该阶段操作并回交主管；已批准的连续阶段由主管在既有目标和授权内按标准续接，仅最终验收、关键裁决或授权变化需要经理作新决定，不重复索要用户“继续”；必要报告照常发送且不构成重复审批，按 `TEAM-COLLAB-V1` §7、§8.1。作者不得自行开下一任务、merge、release、deploy 或 production。
 
 ## 7. Devin 最小启动与交接增量
 
