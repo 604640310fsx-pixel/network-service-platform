@@ -6,6 +6,7 @@ import {
   TicketApiError,
   closeAdminTicket,
   createMyTicket,
+  getAdminTicket,
   getMyTicket,
   listMyTickets,
   replyToMyTicket,
@@ -146,6 +147,39 @@ test("attachment URLs must be the same-origin ticket endpoint the client rebuild
   });
 });
 
+test("admin detail reads only admin-scoped image URLs", async () => {
+  const ATTACHMENT = "TA00000000000000C3";
+  const adminTicket = (url: string) => ({
+    ...detail,
+    customerEmail: "customer@example.test",
+    messages: [{ ...detail.messages[0], attachments: [{ ref: ATTACHMENT, contentType: "image/png", byteSize: 99, url }] }],
+  });
+  const adminUrl = `/api/admin/tickets/${REF}/attachments/${ATTACHMENT}`;
+  await withFetch(() => ({ status: 200, body: { ticket: adminTicket(adminUrl) } }), async (calls) => {
+    const ticket = await getAdminTicket(REF);
+    assert.equal(ticket.messages[0]?.attachments[0]?.url, adminUrl);
+    // Reading a ticket is a plain GET; nothing is uploaded or written.
+    assert.equal(calls[0]?.init.method, "GET");
+  });
+  await withFetch(() => ({ status: 200, body: { ticket: adminTicket(`/api/me/tickets/${REF}/attachments/${ATTACHMENT}`) } }), async () => {
+    await assert.rejects(getAdminTicket(REF), (error: unknown) => error instanceof TicketApiError && error.code === "invalid_response");
+  });
+});
+
+test("the admin list labels a gifted-plan link instead of showing it as unlinked", async () => {
+  const admin = source("../app/components/dashboard/AdminTicketsPanel.tsx");
+  // @ts-ignore TS5097: node strip-types needs the explicit .ts specifier
+  const { zh } = await import("../app/i18n/zh.ts");
+  assert.match(admin, /<dd>\{linkedServiceLabel\(item\)\}<\/dd>/);
+  assert.match(admin, /if \(item\.serviceOrderRef !== null\) return item\.serviceOrderRef;/);
+  assert.match(admin, /if \(item\.serviceGrantId != null\) return `赠送套餐 #\$\{item\.serviceGrantId\}`;/);
+  // Same wording as the customer page's gifted-plan label.
+  assert.equal(zh.tickets.giftRef(9001), "赠送套餐 #9001");
+  // An in-place update after reply/close keeps the gift link on the list row.
+  assert.match(admin, /serviceGrantId: updated\.serviceGrantId \?\? null,/);
+  assert.doesNotMatch(admin, /item\.serviceOrderRef \?\? "未关联"/);
+});
+
 test("image and gift errors map to their own messages", () => {
   assert.equal(ticketErrorMessage(new TicketApiError("image_too_large", 400)), "单张图片不能超过 5MB。");
   for (const code of ["unsupported_image_type", "invalid_image", "image_type_mismatch"]) {
@@ -193,8 +227,10 @@ test("ticket pages render plain text only and promise no SLA or notifications; o
     assert.match(file, /<p className="cc-tk-body">\{message\.body\}<\/p>/);
     assert.doesNotMatch(withoutComments(file), /小时内|分钟内|工作日内|满意度|邮件通知|短信/);
   }
-  // The admin panel still has no attachment UI; the customer page renders images only from parsed same-origin URLs.
-  assert.doesNotMatch(withoutComments(admin), /附件|上传|attachments/);
+  // The admin panel only reads existing images (parsed, admin-scoped URLs); it has no upload control.
+  assert.match(admin, /<img src=\{attachment\.url\} alt=\{`客户图片 \$\{imageIndex \+ 1\}`\} loading="lazy" \/>/);
+  assert.match(admin, /\{message\.attachments\.map\(/);
+  assert.doesNotMatch(withoutComments(admin), /type="file"|上传|dataBase64|attachments:/);
   assert.match(page, /<MessageImages attachments=\{message\.attachments\} copy=\{copy\} \/>/);
   assert.match(page, /<img src=\{attachment\.url\} alt=\{copy\.imageAlt\(index \+ 1\)\} loading="lazy" \/>/);
   assert.match(page, /rel="noopener noreferrer"/);
