@@ -860,6 +860,8 @@ export function claimAlipayQuery(
 
 export interface MyServiceItem {
   readonly source: "purchase";
+  /** Real services.id for wallet/renewal lookups; grants carry grantId instead and never map here. */
+  readonly serviceId: number;
   readonly orderRef: string;
   readonly amountFen: number;
   readonly currency: "CNY";
@@ -878,7 +880,7 @@ export function listMyServices(
 ): MyServiceItem[] {
   const rows = database
     .prepare(
-      `SELECT orders.order_ref, orders.amount_fen, orders.currency,
+      `SELECT services.id AS service_id, orders.order_ref, orders.amount_fen, orders.currency,
               orders.status AS order_status, services.status AS service_status,
               services.created_at, services.ends_at, services.plan_override
        FROM services
@@ -895,14 +897,18 @@ export function listMyServices(
     const value = row as Record<string, unknown>;
     const orderStatus = rowString(value, "order_status");
     const serviceStatus = rowString(value, "service_status");
+    const serviceId = rowNumber(value, "service_id");
     if (
       (orderStatus !== "pending" && orderStatus !== "paid" && orderStatus !== "closed") ||
-      (serviceStatus !== "pending_open" && serviceStatus !== "open")
+      (serviceStatus !== "pending_open" && serviceStatus !== "open") ||
+      !Number.isSafeInteger(serviceId) ||
+      serviceId < 1
     ) {
       throw new Error("Service database invariant failed");
     }
     return {
       source: "purchase" as const,
+      serviceId,
       orderRef: rowString(value, "order_ref"),
       amountFen: rowNumber(value, "amount_fen"),
       currency: "CNY" as const,
