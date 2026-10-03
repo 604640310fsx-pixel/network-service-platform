@@ -682,14 +682,18 @@ export function deliveryBindingChange(current: string | null, next: string | nul
 }
 
 /** Bind, rebind or unbind one delivered service line. The route checks a new target against the
-    live catalog; this only enforces ownership of the line and the open state. Each actual change
-    is audited as admin.service.delivery_<bind|rebind|unbind>; an unchanged value is a no-op. */
+    live catalog; this only enforces ownership of the line and the open state. Binding also renames
+    the line to the VPS display name (`label`, NSP-LINE-NAME-10); unbinding keeps the current name.
+    Each actual change is audited as admin.service.delivery_<bind|rebind|unbind>; re-binding the same
+    target only to sync a legacy name counts as a rebind; a fully unchanged line is a no-op. */
 export function bindServiceDeliveryForAdmin(
   database: DatabaseConnection,
   input: {
     readonly serviceId: number;
     readonly position: number;
     readonly monitorTargetKey: string | null;
+    /** VPS display name to use as the line label when binding; ignored (kept) when unbinding. */
+    readonly label: string | null;
     readonly adminEmail: string;
     readonly now?: () => Date;
   },
@@ -699,12 +703,13 @@ export function bindServiceDeliveryForAdmin(
     const line = service?.deliveryLines.find((candidate) => candidate.position === input.position);
     if (service === null || line === undefined) throw new PaymentDomainError(404, "not_found");
     if (service.serviceStatus !== "open") throw new PaymentDomainError(409, "invalid_transition");
-    const change = deliveryBindingChange(line.monitorTargetKey, input.monitorTargetKey);
+    const label = input.monitorTargetKey === null || input.label === null ? line.label : input.label;
+    const change = deliveryBindingChange(line.monitorTargetKey, input.monitorTargetKey) ?? (label !== line.label ? "rebind" : null);
     if (change === null) return service;
     const at = nowIso(input.now);
     database
-      .prepare("UPDATE service_delivery_items SET monitor_target_key = ?, updated_at = ? WHERE service_id = ? AND position = ?")
-      .run(input.monitorTargetKey, at, input.serviceId, input.position);
+      .prepare("UPDATE service_delivery_items SET monitor_target_key = ?, label = ?, updated_at = ? WHERE service_id = ? AND position = ?")
+      .run(input.monitorTargetKey, label, at, input.serviceId, input.position);
     audit(database, input.adminEmail, `admin.service.delivery_${change}`, `service:${input.serviceId}#${input.position}`, at);
     const updated = readAdminService(database, input.serviceId);
     if (updated === null) throw new Error("Admin service database invariant failed");
@@ -720,6 +725,8 @@ export function bindGrantDeliveryForAdmin(
     readonly grantId: number;
     readonly position: number;
     readonly monitorTargetKey: string | null;
+    /** VPS display name to use as the line label when binding; ignored (kept) when unbinding. */
+    readonly label: string | null;
     readonly adminEmail: string;
     readonly now?: () => Date;
   },
@@ -730,12 +737,13 @@ export function bindGrantDeliveryForAdmin(
     if (grant === null || line === undefined) throw new PaymentDomainError(404, "not_found");
     if (grant.status === "revoked") throw new PaymentDomainError(409, "grant_revoked");
     if (grant.deliveryStatus !== "open") throw new PaymentDomainError(409, "invalid_transition");
-    const change = deliveryBindingChange(line.monitorTargetKey, input.monitorTargetKey);
+    const label = input.monitorTargetKey === null || input.label === null ? line.label : input.label;
+    const change = deliveryBindingChange(line.monitorTargetKey, input.monitorTargetKey) ?? (label !== line.label ? "rebind" : null);
     if (change === null) return grant;
     const at = nowIso(input.now);
     database
-      .prepare("UPDATE admin_grant_delivery_items SET monitor_target = ?, updated_at = ? WHERE grant_id = ? AND position = ?")
-      .run(input.monitorTargetKey, at, input.grantId, input.position);
+      .prepare("UPDATE admin_grant_delivery_items SET monitor_target = ?, label = ?, updated_at = ? WHERE grant_id = ? AND position = ?")
+      .run(input.monitorTargetKey, label, at, input.grantId, input.position);
     audit(database, input.adminEmail, `admin.grant.delivery_${change}`, `grant:${input.grantId}#${input.position}`, at);
     const updated = readAdminGrant(database, input.grantId);
     if (updated === null) throw new Error("Admin grant database invariant failed");

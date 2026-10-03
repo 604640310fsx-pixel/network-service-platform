@@ -327,9 +327,10 @@ test("admin save-and-open is atomic and customer delivery is authorized before d
         },
       });
       assert.equal(opened.statusCode, 200);
+      // NSP-LINE-NAME-10: a line bound to a VPS is named after the VPS (request label overridden).
       assert.deepEqual(opened.json().items, [
-        { position: 1, label: "订阅线路 1", monitorTargetKey: "DMIT Premium" },
-        { position: 2, label: "订阅线路 2", monitorTargetKey: "Tokyo Transit A" },
+        { position: 1, label: "DMIT Premium", monitorTargetKey: "DMIT Premium" },
+        { position: 2, label: "日本东京 VPS 中转 A", monitorTargetKey: "Tokyo Transit A" },
       ]);
       assert.equal(opened.body.includes(DELIVERY_URL), false);
       assert.equal(firstValue(database, "SELECT status FROM services"), "open");
@@ -362,12 +363,12 @@ test("admin save-and-open is atomic and customer delivery is authorized before d
         items: [
           {
             position: 1,
-            label: "订阅线路 1",
+            label: "DMIT Premium",
             subscriptionUrl: DELIVERY_URL,
           },
           {
             position: 2,
-            label: "订阅线路 2",
+            label: "日本东京 VPS 中转 A",
             subscriptionUrl: "https://subscription.example.test/backup",
           },
         ],

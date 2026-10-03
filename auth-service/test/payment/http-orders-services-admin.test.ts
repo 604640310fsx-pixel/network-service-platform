@@ -548,10 +548,11 @@ test("me/delivery-lines returns only buyer-visible labels for the owning user", 
       assert.equal(mine.statusCode, 200);
       assert.equal(mine.headers["cache-control"], "no-store");
       assert.deepEqual(mine.json(), {
+        // NSP-LINE-NAME-10: the bound line carries the VPS display name.
         items: [{
           orderRef: order.orderRef,
           position: 1,
-          label: "日本中转 A",
+          label: "日本东京 VPS 中转 A",
         }],
       });
       assert.equal(mine.body.includes("subscription.example.test"), false);
@@ -758,9 +759,10 @@ test("admin list returns the full frozen snapshot and open requires admin plus v
         id: serviceId,
         status: "open",
         openedAt: "2026-08-21T00:00:00.000Z",
+        // NSP-LINE-NAME-10: the bound line carries the VPS display name.
         items: [{
           position: 1,
-          label: "订阅线路 1",
+          label: "DMIT Premium",
           monitorTargetKey: "DMIT Premium",
         }],
       });

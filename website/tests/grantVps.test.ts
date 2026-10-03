@@ -114,3 +114,8 @@ test("rebind / unbind and gift VPS copy is bilingual", () => {
   assert.equal(zh.adminDelivery.vpsServer, "对应 VPS 线路服务器");
   assert.doesNotMatch(en.adminDelivery.unbindConfirm("Line"), CJK);
 });
+
+test("line-name-follows-VPS hint is bilingual (NSP-LINE-NAME-10)", () => {
+  assert.match(zh.adminDelivery.nameFollowsVps, /VPS/);
+  assert.doesNotMatch(en.adminDelivery.nameFollowsVps, CJK);
+});

@@ -268,3 +268,8 @@ button.dash-action strong { color: var(--cc-text-3); font-weight: 500; }
 .dash-usvc-line > span:first-child { min-width: 0; flex: 1 1 160px; overflow-wrap: anywhere; color: var(--cc-text); }
 .dash-usvc-line select { height: 32px; min-width: 0; max-width: 100%; padding: 0 8px; border: 1px solid var(--cc-line); border-radius: 7px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 12.5px; }
 .dash-tag.is-warn { border-style: dashed; color: #b06d05; }
+
+/* NSP-LINE-NAME-10：绑定 VPS 后线路名只读，跟随 VPS 名。 */
+.dash-delivery-name-hint { display: block; margin-top: 4px; color: var(--cc-text-4); font-size: 11px; font-weight: 400; line-height: 1.5; }
+.dash-delivery-form input[readonly],
+.dash-usvc-open input[readonly] { background: var(--cc-inset); color: var(--cc-text-2); cursor: default; }

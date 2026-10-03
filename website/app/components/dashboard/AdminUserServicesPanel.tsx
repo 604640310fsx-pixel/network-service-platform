@@ -291,14 +291,14 @@ function selectionOf(grant: AdminGrant): GrantSelection | null {
     : null;
 }
 
-/* 选择值："" = 尚未选择；NO_VPS = 明确不绑定；其它 = VPS key。选 VPS 时，名称为空或仍是上次自动带出的
-   名称则自动带出 VPS 名称，可再修改。VPS 列表读取失败时与「待开通服务」一致：提示不可用，勾选
-   「暂不绑定 VPS 开通」后才能提交（全部线路不绑定）。 */
+/* 选择值："" = 尚未选择；NO_VPS = 明确不绑定；其它 = VPS key。选了 VPS 的线路名即 VPS 名且只读
+   （NSP-LINE-NAME-10，服务端同样以 VPS 名为准）；不绑定的线路可自由命名。VPS 列表读取失败时与
+   「待开通服务」一致：提示不可用，勾选「暂不绑定 VPS 开通」后才能提交（全部线路不绑定）。 */
 const NO_VPS = "__none__";
 
-type GrantLineDraft = { readonly label: string; readonly subscriptionUrl: string; readonly target: string; readonly autoLabel: string | null };
+type GrantLineDraft = { readonly label: string; readonly subscriptionUrl: string; readonly target: string };
 
-const EMPTY_GRANT_LINE: GrantLineDraft = { label: "", subscriptionUrl: "", target: "", autoLabel: null };
+const EMPTY_GRANT_LINE: GrantLineDraft = { label: "", subscriptionUrl: "", target: "" };
 
 function OpenGrantForm({
   grant,
@@ -339,14 +339,11 @@ function OpenGrantForm({
   }
 
   function chooseTarget(index: number, value: string) {
-    const line = lines[index];
-    if (line === undefined) return;
     const target = activeTargets.find((candidate) => candidate.key === value);
-    const keepsAuto = line.label.trim() === "" || line.label === line.autoLabel;
-    update(index, target !== undefined && keepsAuto
-      ? { target: value, label: target.label, autoLabel: target.label }
-      : { target: value });
+    update(index, target === undefined ? { target: value } : { target: value, label: target.label });
   }
+
+  const boundToVps = (line: GrantLineDraft) => !targetsFailed && line.target !== "" && line.target !== NO_VPS;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -393,8 +390,9 @@ function OpenGrantForm({
           </label>
           <label>
             {copy.lineLabel} {index + 1}
-            <input type="text" maxLength={200} value={line.label} disabled={busy}
+            <input type="text" maxLength={200} value={line.label} disabled={busy} readOnly={boundToVps(line)}
               onChange={(event) => update(index, { label: event.target.value })} />
+            {boundToVps(line) && <small className="dash-delivery-name-hint">{delivery.nameFollowsVps}</small>}
           </label>
           <label>
             {copy.lineUrl}
