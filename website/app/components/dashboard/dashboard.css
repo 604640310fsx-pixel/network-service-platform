@@ -158,6 +158,16 @@
 .dash-usvc-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .dash-usvc-head strong { min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
 .dash-usvc-meta { margin: 6px 0 0; color: var(--cc-text-3); font-size: 12px; overflow-wrap: anywhere; }
+/* 管理员下期续费周期：服务卡内一行，沿用 dash-usvc 控件尺寸。 */
+.dash-usvc-renewal { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--cc-hairline); }
+.dash-usvc-renewal .dash-usvc-foot { margin-top: 8px; }
+.dash-usvc-renewal select { height: 30px; padding: 0 8px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 12.5px; }
+.dash-usvc-renewal select:focus-visible,
+.dash-usvc-renewal button:focus-visible { outline: 2px solid var(--cc-accent-line); outline-offset: 2px; }
+/* 管理员订单管理：说明、结果提示、关单确认文字。 */
+.dash-order-intro { margin: -6px 0 14px; color: var(--cc-text-3); font-size: 12.5px; line-height: 1.6; }
+.dash-order-notice { margin: 0 0 12px; padding: 9px 12px; border: 1px solid var(--cc-accent-line); border-radius: 10px; background: var(--cc-accent-tint); color: var(--cc-text-2); font-size: 13px; }
+.dash-order-close-prompt { flex-basis: 100%; margin: 0; color: var(--cc-text-2); font-size: 12.5px; line-height: 1.6; }
 .dash-usvc-head .dash-usvc-meta { margin: 0 0 0 auto; }
 .dash-usvc-grid { display: grid; gap: 10px 14px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 12px; }
 .dash-usvc-grid label { display: flex; flex-direction: column; gap: 6px; min-width: 0; color: var(--cc-text-3); font-size: 11.5px; }

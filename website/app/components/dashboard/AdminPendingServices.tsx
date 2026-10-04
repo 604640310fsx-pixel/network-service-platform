@@ -49,6 +49,8 @@ function adminErrorMessage(error: unknown) {
     case "forbidden": return "当前账户没有人工开通权限。";
     case "csrf_invalid": return "安全校验已失效，请刷新页面后重试。";
     case "invalid_transition": return "该服务状态已变化，请刷新后确认。";
+    // 后端 004bfeb：订单已被管理关闭或服务已有停止请求时拒绝开通，未写入任何开通或交付数据。
+    case "service_closed": return "该订单已被管理关闭（或服务已记录停止请求），不能开通；未做任何更改。";
     case "items_required": return "请至少填写一条订阅链接。";
     case "invalid_item": return "请检查买家可见线路名称与 HTTPS 订阅链接。";
     case "invalid_monitor_target": return "选择的 VPS 已不可用，请刷新目标列表后重试。";

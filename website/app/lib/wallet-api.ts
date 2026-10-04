@@ -203,6 +203,52 @@ export async function putRenewalConsent(csrfToken: string, serviceId: number, in
   return value.revision;
 }
 
+function writeHeaders(csrfToken: string): Record<string, string> {
+  return {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    "X-Requested-With": "XMLHttpRequest",
+    "X-CSRF-Token": csrfToken,
+  };
+}
+
+/* 后端 f1e0898：买家取消未付款订单。已付 409 not_cancellable；他人或不存在 404。 */
+export type OrderCancelResult = "CANCELLED" | "ALREADY_CANCELLED";
+
+export async function cancelMyOrder(csrfToken: string, orderRef: string): Promise<OrderCancelResult> {
+  if (typeof orderRef !== "string" || !/^DL[A-Za-z0-9]{8,64}$/.test(orderRef)) throw new WalletApiError("not_found", 404);
+  const value = await requestJson(`/api/me/orders/${encodeURIComponent(orderRef)}/cancel`, {
+    method: "POST",
+    headers: writeHeaders(csrfToken),
+    body: "{}",
+  });
+  if (!isRecord(value) || (value.result !== "CANCELLED" && value.result !== "ALREADY_CANCELLED")) invalid();
+  return value.result;
+}
+
+/* 后端 f1e0898：下期续费周期，体仅 { period, expectedRevision }，返回 revision。
+   服务端按真实在售 SKU 校验（无报价 409 quote_unavailable）；已开启的授权转为需重新确认，未开启保持未开启。
+   买家只能改本人服务（他人 / 缺失 404），管理员按角色改任意真实服务；id 均为 services.id。 */
+async function putNextBillingPeriod(url: string, csrfToken: string, input: { readonly period: BillingPeriod; readonly expectedRevision: number }): Promise<number> {
+  if (!isPeriod(input.period) || !isNonNegativeInteger(input.expectedRevision)) throw new WalletApiError("invalid_request", 400);
+  const value = await requestJson(url, {
+    method: "PUT",
+    headers: writeHeaders(csrfToken),
+    body: JSON.stringify({ period: input.period, expectedRevision: input.expectedRevision }),
+  });
+  if (!isRecord(value) || !isNonNegativeInteger(value.revision)) invalid();
+  return value.revision;
+}
+
+export function setMyNextBillingPeriod(csrfToken: string, serviceId: number, input: { readonly period: BillingPeriod; readonly expectedRevision: number }): Promise<number> {
+  return putNextBillingPeriod(`${servicePath(serviceId)}/next-billing-period`, csrfToken, input);
+}
+
+export function setAdminNextBillingPeriod(csrfToken: string, serviceId: number, input: { readonly period: BillingPeriod; readonly expectedRevision: number }): Promise<number> {
+  if (!Number.isSafeInteger(serviceId) || serviceId <= 0) return Promise.reject(new WalletApiError("not_found", 404));
+  return putNextBillingPeriod(`/api/admin/services/${serviceId}/next-billing-period`, csrfToken, input);
+}
+
 /** 金额一律按分精确显示两位小数：0 分显示 ¥0.00（真实零余额），不是占位。 */
 export function formatWalletFen(balanceFen: number): string {
   const yuan = Math.trunc(balanceFen / 100);

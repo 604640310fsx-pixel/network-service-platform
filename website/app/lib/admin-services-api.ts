@@ -29,6 +29,8 @@ export type AdminUserService = {
   readonly endsAt: string | null;
   readonly planLabel: string | null;
   readonly adminNote: string | null;
+  /** 钱包续费授权（后端 f1e0898 AdminServiceView.renewal）；旧服务端不返回时为 null，不显示周期控件。 */
+  readonly renewal: { readonly state: string; readonly revision: number; readonly period: string | null } | null;
   readonly deliveryLines: ReadonlyArray<{ readonly position: number; readonly label: string; readonly monitorTargetKey: string | null }>;
 };
 
@@ -127,6 +129,17 @@ function parseUser(value: unknown): AdminUserSummary {
   return { id: int(row.id), email: str(row.email), role, status, createdAt: str(row.createdAt) };
 }
 
+const RENEWAL_PERIODS = ["MONTHLY", "QUARTERLY", "SEMIANNUAL", "ANNUAL"];
+
+function parseRenewal(value: unknown): AdminUserService["renewal"] {
+  if (value === undefined) return null;
+  const row = record(value);
+  const revision = int(row.revision);
+  const period = row.period;
+  if (revision < 0 || (period !== null && !RENEWAL_PERIODS.includes(period as string))) throw new PaymentApiError("invalid_response");
+  return { state: str(row.state), revision, period: period as string | null };
+}
+
 function parseService(value: unknown): AdminUserService {
   const row = record(value);
   const serviceStatus = row.serviceStatus;
@@ -147,6 +160,7 @@ function parseService(value: unknown): AdminUserService {
     endsAt: nullableStr(row.endsAt),
     planLabel: nullableStr(row.planLabel),
     adminNote: nullableStr(row.adminNote),
+    renewal: parseRenewal(row.renewal),
     deliveryLines: Array.isArray(row.deliveryLines)
       ? row.deliveryLines.map((line) => {
           const item = record(line);

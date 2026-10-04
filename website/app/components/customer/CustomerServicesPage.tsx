@@ -24,6 +24,7 @@ import {
   getRenewalConsent,
   getRenewalQuote,
   putRenewalConsent,
+  setMyNextBillingPeriod,
   type BillingPeriod,
   type RenewalConsent,
   type RenewalQuote,
@@ -62,6 +63,8 @@ function renewalErrorMessage(error: unknown, copy: RenewalCopy): string {
       return copy.errors.invalidRequest;
     case "quote_unavailable":
       return copy.quoteUnavailable;
+    case "service_closed":
+      return copy.errors.serviceClosed;
     case "network_error":
       return copy.errors.network;
     default:
@@ -81,6 +84,9 @@ function RenewalConsentControl({ serviceId }: { serviceId: number }) {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [nextChoice, setNextChoice] = useState<BillingPeriod>("MONTHLY");
+  const [nextSaving, setNextSaving] = useState(false);
+  const nextCopy = t.wallet.nextPeriod;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -90,7 +96,10 @@ function RenewalConsentControl({ serviceId }: { serviceId: number }) {
       .then((consent) => {
         if (stopped) return;
         setLoad({ kind: "ready", consent });
-        if (consent.period !== null) setPeriod(consent.period);
+        if (consent.period !== null) {
+          setPeriod(consent.period);
+          setNextChoice(consent.period);
+        }
       })
       .catch((loadError: unknown) => {
         if (stopped || (loadError instanceof DOMException && loadError.name === "AbortError")) return;
@@ -169,8 +178,41 @@ function RenewalConsentControl({ serviceId }: { serviceId: number }) {
     }
   }
 
+  /* 下期周期（后端 f1e0898 PUT /api/me/services/:id/next-billing-period，体仅 { period, expectedRevision }）。
+     已开启的授权更改后转为需重新确认，未开启保持未开启；结果以重新读取的授权为准。 */
+  async function saveNextPeriod() {
+    if (load.kind !== "ready" || csrfToken === null || nextSaving) return;
+    const wasOn = load.consent.state === "ENABLED";
+    setNextSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await setMyNextBillingPeriod(csrfToken, serviceId, { period: nextChoice, expectedRevision: load.consent.revision });
+      resetDecision();
+      setNotice(wasOn ? `${nextCopy.saved} ${nextCopy.reconsentNote}` : nextCopy.saved);
+      setReloadToken((token) => token + 1);
+    } catch (saveError) {
+      const code = saveError instanceof WalletApiError ? saveError.code : "";
+      if (code === "revision_conflict") {
+        resetDecision();
+        setNotice(copy.conflict);
+        setReloadToken((token) => token + 1);
+      } else if (code === "quote_unavailable") {
+        setError(nextCopy.quoteUnavailable);
+      } else if (code === "service_closed") {
+        setError(nextCopy.serviceClosed);
+      } else {
+        setError(renewalErrorMessage(saveError, copy));
+      }
+    } finally {
+      setNextSaving(false);
+    }
+  }
+
   const consent = load.kind === "ready" ? load.consent : null;
   const isOn = consent?.state === "ENABLED";
+  const showNextPeriod = consent !== null && (isOn || consent.state === "RECONSENT_REQUIRED");
+  const nextId = `cc-svc-next-period-${serviceId}`;
   const stateText = consent === null
     ? null
     : isOn
@@ -195,6 +237,24 @@ function RenewalConsentControl({ serviceId }: { serviceId: number }) {
         </div>
       )}
       {consent !== null && consent.state === "RECONSENT_REQUIRED" && <p className="cc-svc-renewal-note is-warn">{copy.stateReconsent}</p>}
+      {showNextPeriod && (
+        <div className="cc-svc-renewal-row">
+          <label htmlFor={nextId}>{nextCopy.label}</label>
+          <select id={nextId} value={nextChoice} disabled={nextSaving || saving} onChange={(event) => setNextChoice(event.target.value as BillingPeriod)}>
+            {BILLING_PERIODS.map((value) => <option key={value} value={value}>{copy.periods[value]}</option>)}
+          </select>
+          <button
+            type="button"
+            className="cc-svc-ghost"
+            disabled={nextSaving || saving || csrfToken === null || nextChoice === consent?.period}
+            aria-busy={nextSaving}
+            onClick={() => void saveNextPeriod()}
+          >
+            {nextSaving ? nextCopy.saving : nextCopy.save}
+          </button>
+        </div>
+      )}
+      {isOn && <p className="cc-svc-renewal-note">{nextCopy.reconsentNote}</p>}
       {consent !== null && isOn && (
         <div className="cc-svc-renewal-row">
           <button type="button" className="cc-svc-ghost" disabled={saving || csrfToken === null} aria-busy={saving} onClick={() => void save(false)}>
