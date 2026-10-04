@@ -22,15 +22,16 @@ test("home preview presents only connected information and labels unavailable ca
   assert.doesNotMatch(page, /网络状态持续可见/);
 });
 
-test("buyer status entry uses the authenticated target-free projection route", () => {
+test("buyer status entry opens /status with the account's first bound line preselected", () => {
   const page = source("../app/components/network/BuyerNetworkPage.tsx");
-
-  assert.match(page, /const statusHref = resolveBuyerStatusHref\(\);/);
+  // User decision 2026-10-04: the entry carries a buyer line; Auth resolves its server by ownership.
+  assert.match(page, /const statusHref = primaryLineStatusHref\(statusLines, \(line\) => knownStatus\?\.get\(lineSelector\(line\)\) === "unbound"\);/);
   assert.match(page, /<Link className="cc-net-ghost" to=\{statusHref\}>\{t\.network\.viewStatus\}<\/Link>/);
   const zhCopy = source("../app/i18n/zh.ts");
-  assert.match(zhCopy, /statusTitle: "服务器状态入口"/);
-  assert.match(zhCopy, /查看当前账户可访问的服务器状态。/);
+  assert.match(zhCopy, /statusTitle: "服务器状态"/);
+  assert.match(zhCopy, /statusBody: "打开三网监控页，自动选中你的线路对应的服务器；/);
   assert.doesNotMatch(zhCopy, /买家线路与服务器状态联动/);
+  // The page never names a server itself.
   assert.doesNotMatch(page, /status\?vps=/);
   assert.doesNotMatch(page, /买家线路与服务器状态联动/);
 });

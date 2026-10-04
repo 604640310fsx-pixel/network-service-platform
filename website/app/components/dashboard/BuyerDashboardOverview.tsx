@@ -13,6 +13,8 @@ import { useT, type Messages } from "../../lib/i18n";
 import { useMyWallet } from "../../lib/useWallet";
 import { formatWalletFen, type WalletLoad } from "../../lib/wallet-api";
 import { buyerPlanCounts, combineBuyerPlans, type BuyerPlan } from "./buyerPlans";
+import { getMyDeliveryLineListing } from "../../lib/payment-api";
+import { primaryLineStatusHref, type BuyerLineRef } from "../../lib/buyerStatusLink";
 
 // 钱包余额卡与其他概览卡同一口径：未就绪一律显示 "—"，提示语说明加载中 / 失败 / 未登录。
 function walletHint(state: WalletLoad, readyHint: string, messages: Messages["dashboard"]): string {
@@ -288,6 +290,22 @@ export function BuyerDashboardOverview() {
   const [ordersState, setOrdersState] = useState<ResourceState<readonly MyOrderItem[]>>({ kind: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
   const wallet = useMyWallet(reloadToken);
+  // 「服务器状态」入口：账户第一条已交付线路 → /status 预选其服务器；读不到线路时为 /status。
+  const [statusHref, setStatusHref] = useState("/status");
+  useEffect(() => {
+    const controller = new AbortController();
+    void getMyDeliveryLineListing(controller.signal)
+      .then(({ services, grants }) => {
+        if (controller.signal.aborted) return;
+        const lines: BuyerLineRef[] = [
+          ...services.map((line): BuyerLineRef => ({ kind: "service", ref: line.orderRef, position: line.position })),
+          ...grants.map((line): BuyerLineRef => ({ kind: "grant", ref: line.grantId, position: line.position })),
+        ];
+        setStatusHref(primaryLineStatusHref(lines));
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [reloadToken]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -458,7 +476,7 @@ export function BuyerDashboardOverview() {
               <p>{t.dashboard.monitorBody}</p>
               <small>{t.dashboard.monitorNoLogin}</small>
             </div>
-            <Link className="dash-secondary-link" to="/monitor">{t.dashboard.monitorLink}</Link>
+            <Link className="dash-secondary-link" to={statusHref}>{t.dashboard.monitorLink}</Link>
           </article>
         </div>
       </section>

@@ -60,3 +60,16 @@ test("line status copy is bilingual", () => {
   assert.doesNotMatch(en.network.giftLineAria(1, "Line"), CJK);
   assert.equal(zh.serverStatus.allServers, "查看我的全部服务器");
 });
+
+test("status entries point at the first bound line, else plain /status", async () => {
+  // @ts-ignore TS5097
+  const { primaryLineStatusHref } = await import("../app/lib/buyerStatusLink.ts");
+  const lines = [
+    { kind: "service", ref: "DL0000000001", position: 1 },
+    { kind: "grant", ref: 2, position: 1 },
+  ] as const;
+  assert.equal(primaryLineStatusHref(lines), "/status?line=service%3ADL0000000001%3A1");
+  assert.equal(primaryLineStatusHref(lines, (line: { kind: string }) => line.kind === "service"), "/status?line=grant%3A2%3A1");
+  assert.equal(primaryLineStatusHref(lines, () => true), "/status");
+  assert.equal(primaryLineStatusHref([]), "/status");
+});
