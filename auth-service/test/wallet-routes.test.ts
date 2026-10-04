@@ -487,11 +487,74 @@ test("admin order close: unpaid closes through provider path; paid+pending_open 
       (database.prepare("SELECT COUNT(*) AS n FROM services WHERE payment_id=?").all(noService.paymentId)[0] as { n: number }).n,
       0,
     );
+    // 无属主（user_id NULL 旧单）的真实已验证支付：管理员内部关单不缩范围——
+    // 关闭 + NULL service_id 退款案照写，属主字段保持 NULL，绝不建钱包/关联/金额/通道。
     const guest = seedOrder(database, owner.id, { ref: "AC-5", orderStatus: "paid", paymentStatus: "paid", tradeNo: "t-g" });
     database.prepare("UPDATE orders SET user_id=NULL WHERE id=?").run(guest.orderId);
+    // 零余额副作用与零归属关联：guest 关单前后钱包账户/流水/充值/同意/周期一律未变。
+    const before = new Map(
+      ["wallet_accounts", "wallet_ledger", "wallet_topups", "wallet_consents", "wallet_renewal_cycles"].map(
+        (table) => [table, (database.prepare(`SELECT COUNT(*) AS n FROM ${table}`).all()[0] as { n: number }).n] as const,
+      ),
+    );
     res = await post(app, `/api/admin/orders/${guest.orderId}/close`, admin.session);
-    assert.equal(res.statusCode, 409);
-    assert.equal(res.json().error.code, "not_cancellable");
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), {
+      orderRef: "AC-5", managementClosed: true, refundState: "AWAITING_POLICY", serviceStopState: null,
+    });
+    const guestCase = database
+      .prepare("SELECT service_id, refund_state FROM wallet_refund_cases WHERE source_kind='ORIGINAL_PAYMENT' AND source_id=?")
+      .all(guest.paymentId)[0] as { service_id: number | null; refund_state: string };
+    assert.equal(guestCase.service_id, null);
+    assert.equal(guestCase.refund_state, "AWAITING_POLICY");
+    assert.equal(
+      (database.prepare("SELECT COUNT(*) AS n FROM wallet_order_closures WHERE order_id=?").all(guest.orderId)[0] as { n: number }).n,
+      1,
+    );
+    assert.equal(
+      (database.prepare("SELECT user_id FROM orders WHERE id=?").all(guest.orderId)[0] as { user_id: number | null }).user_id,
+      null,
+    );
+    for (const [table, n] of before) {
+      assert.equal((database.prepare(`SELECT COUNT(*) AS n FROM ${table}`).all()[0] as { n: number }).n, n, table);
+    }
+    // 重放幂等：同一真实结果返回，退款案依旧唯一（UNIQUE(source_kind,source_id)）。
+    res = await post(app, `/api/admin/orders/${guest.orderId}/close`, admin.session);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), {
+      orderRef: "AC-5", managementClosed: true, refundState: "AWAITING_POLICY", serviceStopState: null,
+    });
+    assert.equal(
+      (database.prepare("SELECT COUNT(*) AS n FROM wallet_refund_cases WHERE source_kind='ORIGINAL_PAYMENT' AND source_id=?").all(guest.paymentId)[0] as { n: number }).n,
+      1,
+    );
+    for (const [table, n] of before) {
+      assert.equal((database.prepare(`SELECT COUNT(*) AS n FROM ${table}`).all()[0] as { n: number }).n, n, table);
+    }
+    // guest + 真实 OPEN 服务：按真实 service→payment→order 绑定记录内部终止 REQUESTED。
+    const guestOpen = seedOrder(database, owner.id, { ref: "AC-6", orderStatus: "paid", paymentStatus: "paid", serviceStatus: "open", adminId: admin.id, tradeNo: "t-go" });
+    database.prepare("UPDATE orders SET user_id=NULL WHERE id=?").run(guestOpen.orderId);
+    res = await post(app, `/api/admin/orders/${guestOpen.orderId}/close`, admin.session);
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), {
+      orderRef: "AC-6", managementClosed: true, refundState: "AWAITING_POLICY", serviceStopState: "REQUESTED",
+    });
+    const term = database
+      .prepare("SELECT stop_state FROM wallet_termination_cases WHERE service_id=?").all(guestOpen.serviceId)[0] as { stop_state: string };
+    assert.equal(term.stop_state, "REQUESTED");
+    const openCase = database
+      .prepare("SELECT service_id, refund_state FROM wallet_refund_cases WHERE source_kind='ORIGINAL_PAYMENT' AND source_id=?")
+      .all(guestOpen.paymentId)[0] as { service_id: number; refund_state: string };
+    assert.equal(openCase.service_id, guestOpen.serviceId);
+    // 买家/非管理员边界不变：无会话 401、非管理员 403、买家对无属主订单不可见。
+    res = await post(app, `/api/admin/orders/${guest.orderId}/close`, null);
+    assert.equal(res.statusCode, 401);
+    res = await post(app, `/api/admin/orders/${guest.orderId}/close`, owner.session);
+    assert.equal(res.statusCode, 403);
+    const guestBuyer = seedOrder(database, owner.id, { ref: "CANCEL-G", orderStatus: "pending", paymentStatus: "pending" });
+    database.prepare("UPDATE orders SET user_id=NULL WHERE id=?").run(guestBuyer.orderId);
+    res = await post(app, `/api/me/orders/${guestBuyer.orderRef}/cancel`, owner.session);
+    assert.equal(res.statusCode, 404);
     // 管理关闭后的 OPEN 服务：OPEN+paid 旧检查仍会通过，但每个可执行的续期
     // 面都必须命中真实关闭态——报价/启用/改期一律 409 service_closed，仅 OFF 放行。
     res = await get(app, `/api/me/services/${open.serviceId}/renewal-quote?period=MONTHLY`, owner.session);

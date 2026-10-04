@@ -675,7 +675,9 @@ export interface AdminOrderCloseResult {
     services additionally record an internal termination REQUEST and disable
     future autorenewal — no external stop is performed or claimed. A paid order
     without a services row records the case with service_id NULL; no service or
-    OPEN row is ever invented, and a guest (ownerless) paid order still refuses. */
+    OPEN row is ever invented. Legacy/guest orders (user_id NULL) are still
+     closable by a real admin — ownership is never required for the admin
+     internal close, only for buyer/self paths. */
 export function applyAdminOrderClose(db: DatabaseConnection, dependencies: PaymentStateDependencies,
   actor: InternalActor, orderId: number, observation: OrderObservation | null, at: string): AdminOrderCloseResult {
   return write(db, () => {
@@ -716,10 +718,11 @@ export function applyAdminOrderClose(db: DatabaseConnection, dependencies: Payme
       row = loadOrderPaymentById(db, orderId)!;
     }
     if (row.orderStatus === "paid" || row.paymentStatus === "paid") {
-      // A paid order needs a real owner to attribute the refund to; a missing
-      // services row is fine — the case binds the verified payment with
-      // service_id NULL rather than an invented service/OPEN row.
-      if (row.ownerId === null) throw new WalletError("NOT_CANCELLABLE");
+      /* Admin scope is not shrunk by ownership: a real verified paid order may
+         be closed even when user_id is NULL (legacy/guest). The refund case
+         binds the verified payment source (service_id NULL when no services
+         row) — no wallet, association, amount or channel is inferred. Buyer
+         self-cancel and renewal paths keep their own ownership checks. */
       if (!hasClosure()) insertClosureOnce(db, row.orderId, actor.userId, false, at);
       if (row.tradeNo !== null) recordSettlementIfAbsent(db, row.orderId, row.tradeNo, row.amountFen, false, at);
       if (row.serviceStatus === "open" && row.serviceId !== null) {
