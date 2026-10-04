@@ -308,7 +308,16 @@ async function start(): Promise<void> {
         tickets: {
           database,
           tokenHmacKeyring: credentials.tokenHmacKeyring,
+          rateLimitKeyring: credentials.rateLimitKeyring,
           csrfSigningKey: credentials.csrfSigningKey,
+        },
+        wallet: {
+          database,
+          tokenHmacKeyring: credentials.tokenHmacKeyring,
+          csrfSigningKey: credentials.csrfSigningKey,
+          payment: payment.enabled
+            ? { appId: payment.appId, sellerId: payment.sellerId, sdk: payment.sdk }
+            : undefined,
         },
         invites: {
           database,

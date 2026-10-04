@@ -200,7 +200,7 @@ test("Migration 015 enforces canonical UUID, unique mapping, and restrictive own
   });
 });
 
-test("applies Migrations 016-024 to an existing 001-015 database without changing legacy rows", async () => {
+test("applies Migrations 016-026 to an existing 001-015 database without changing legacy rows", async () => {
   const directory = await mkdtemp(join(tmpdir(), "diagnosis-migration-compat-"));
   const database = openAndVerifyDatabase(join(directory, "auth.sqlite"));
   try {
@@ -320,7 +320,8 @@ test("applies Migrations 016-024 to an existing 001-015 database without changin
       },
       before,
     );
-    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 24);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 26);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 26);
     assert.deepEqual(
       database.prepare("SELECT * FROM diagnosis_requests").all(),
       legacyDiagnosisBefore,
@@ -370,6 +371,51 @@ test("applies Migrations 016-024 to an existing 001-015 database without changin
             "UPDATE service_delivery_items SET monitor_target_key = ? WHERE service_id = ?",
           )
           .run(" invalid-target ", serviceId),
+      /CHECK constraint failed/,
+    );
+    // 025 append: grant link column on tickets plus the attachment table.
+    assert.deepEqual(
+      database
+        .prepare("PRAGMA table_info(tickets)")
+        .all()
+        .map((row) => (row as { readonly name: string }).name)
+        .includes("grant_id"),
+      true,
+    );
+    assert.equal(
+      firstNumber(
+        database,
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ticket_attachments'",
+      ),
+      1,
+    );
+    // 026 append: wallet_refund_cases keeps the candidate constraints — a
+    // serviceless ORIGINAL_PAYMENT case is allowed, WALLET_RENEWAL requires a
+    // real service_id, and one case per (source_kind, source_id) source.
+    database
+      .prepare(
+        `INSERT INTO wallet_refund_cases (service_id, refund_state, source_kind, source_id)
+         VALUES (NULL, 'AWAITING_POLICY', 'ORIGINAL_PAYMENT', ?)`,
+      )
+      .run(paymentId);
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            `INSERT INTO wallet_refund_cases (service_id, refund_state, source_kind, source_id)
+             VALUES (NULL, 'AWAITING_POLICY', 'ORIGINAL_PAYMENT', ?)`,
+          )
+          .run(paymentId),
+      /UNIQUE constraint failed/,
+    );
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            `INSERT INTO wallet_refund_cases (service_id, refund_state, source_kind, source_id)
+             VALUES (NULL, 'AWAITING_POLICY', 'WALLET_RENEWAL', 999001)`,
+          )
+          .run(),
       /CHECK constraint failed/,
     );
   } finally {

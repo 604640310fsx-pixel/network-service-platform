@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from "react
 import { Link } from "react-router-dom";
 import { useCatalogText, useT } from "../../lib/i18n";
 import { useThemePreference } from "../../lib/theme";
-import { networkTypes, regions } from "../../lib/subscribeCatalog";
+import { regions } from "../../lib/subscribeCatalog";
 import { SiteHeader } from "./SiteHeader";
 import { SiteFooter } from "./SiteFooter";
 import "./home.css";
@@ -663,41 +663,6 @@ export function HomePage() {
             <div className="home-standard">
               <b>{copy.chain.standardTitle}</b>
               <p>{copy.chain.standardBody}</p>
-            </div>
-          </div>
-        </section>
-
-        {/* ================= 07 SERVICE TYPES（次级） ================= */}
-        <section className="home-section home-secondary">
-          <div className="home-wrap">
-            <div className="home-section-head is-split">
-              <div>
-                <p className="home-eyebrow"><i aria-hidden="true" />SERVICE TYPES</p>
-                <h2>{copy.types.title}</h2>
-              </div>
-              <Link to="/subscribe" className="home-text-link">{copy.types.viewAll}{ARROW}</Link>
-            </div>
-
-            <div className="home-types">
-              {networkTypes.map((type) => (
-                <article className="home-type" key={type.id}>
-                  <p className="home-type-role">{copy.types.meta[type.id]?.role ?? copy.types.roleFallback}</p>
-                  <div className="home-type-head">
-                    <h3>{ct(type.name)}</h3>
-                    {type.badge ? <span className="home-chip is-accent">{ct(type.badge)}</span> : null}
-                  </div>
-                  <p className="home-type-scene">
-                    <b>{copy.types.sceneLabel}</b>
-                    {copy.types.meta[type.id]?.scene ?? "—"}
-                  </p>
-                  <ul className="home-type-features">
-                    {type.features.map((feature) => (
-                      <li key={feature}>{ct(feature)}</li>
-                    ))}
-                  </ul>
-                  <Link to="/subscribe" className="home-text-link">{copy.types.viewPlan}{ARROW}</Link>
-                </article>
-              ))}
             </div>
           </div>
         </section>

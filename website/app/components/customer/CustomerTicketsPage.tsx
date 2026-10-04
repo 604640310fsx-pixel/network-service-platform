@@ -1,10 +1,13 @@
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
-import { useI18n, useT } from "../../lib/i18n";
-import { getMyServices, type MyServiceItem } from "../../lib/payment-api";
+import { useI18n, useT, type Messages } from "../../lib/i18n";
+import { getMyServiceListing, PaymentApiError, type MyServiceListing } from "../../lib/payment-api";
 import {
   TICKET_BODY_MAX,
+  TICKET_IMAGE_MAX_BYTES,
+  TICKET_IMAGE_TYPES,
+  TICKET_IMAGES_PER_MESSAGE,
   TICKET_SUBJECT_MAX,
   TicketApiError,
   createMyTicket,
@@ -13,17 +16,23 @@ import {
   listMyTickets,
   replyToMyTicket,
   ticketErrorMessage,
+  type TicketAttachment,
+  type TicketAttachmentUpload,
   type TicketDetail,
+  type TicketImageContentType,
   type TicketPage,
+  type TicketServiceLink,
   type TicketStatus,
   type TicketSummary,
 } from "../../lib/tickets-api";
 import "./customer-orders.css";
 import "./customer-tickets.css";
 
-/* /tickets 客户中心「工单」页：列表、新建、详情与文字回复。数据只来自
-   /api/me/tickets*；正文一律按纯文本渲染（React 文本节点 + pre-wrap），
-   不渲染 HTML。不承诺响应时效、不展示附件、通知或满意度。 */
+/* /tickets 客户中心「工单」页：列表、新建、详情与回复（文字 + 最多 3 张图片）。数据只来自
+   /api/me/tickets*；正文一律按纯文本渲染（React 文本节点 + pre-wrap），不渲染 HTML；
+   图片只从同源工单接口读取。不承诺响应时效、通知或满意度。 */
+
+type TicketCopy = Messages["tickets"];
 
 const STATUS_MODIFIER: Record<TicketStatus, string> = {
   open: "is-pending",
@@ -121,6 +130,269 @@ type Load<Value> =
   | { readonly kind: "unauthorized" }
   | { readonly kind: "error"; readonly message: string };
 
+type ServiceLoad =
+  | { readonly kind: "loading" }
+  | { readonly kind: "ready"; readonly value: MyServiceListing }
+  | { readonly kind: "unauthorized" }
+  | { readonly kind: "error" };
+
+/* ---------- 图片：选择、预览、移除 ---------- */
+
+type PickedImage = {
+  readonly id: number;
+  readonly name: string;
+  readonly file: File;
+  readonly contentType: TicketImageContentType;
+  readonly previewUrl: string;
+};
+
+function isTicketImageType(value: string): value is TicketImageContentType {
+  return TICKET_IMAGE_TYPES.includes(value as TicketImageContentType);
+}
+
+function readBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("read_failed"));
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const comma = result.indexOf(",");
+      if (comma < 0) reject(new Error("read_failed"));
+      else resolve(result.slice(comma + 1));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/* 客户端只做类型 / 体积 / 数量的预检，真实图片结构由服务端按字节复核。
+   预览用 object URL，移除或卸载时释放。 */
+function useImagePicker(copy: TicketCopy) {
+  const [images, setImages] = useState<readonly PickedImage[]>([]);
+  const [pickError, setPickError] = useState<string | null>(null);
+  const nextId = useRef(1);
+  const imagesRef = useRef(images);
+  imagesRef.current = images;
+
+  useEffect(() => () => imagesRef.current.forEach((image) => URL.revokeObjectURL(image.previewUrl)), []);
+
+  function add(files: FileList | null) {
+    if (files === null || files.length === 0) return;
+    let error: string | null = null;
+    const accepted: PickedImage[] = [];
+    for (const file of Array.from(files)) {
+      if (images.length + accepted.length >= TICKET_IMAGES_PER_MESSAGE) {
+        error = copy.errors.invalidAttachments(TICKET_IMAGES_PER_MESSAGE);
+        break;
+      }
+      if (!isTicketImageType(file.type)) {
+        error = copy.errors.invalidImage;
+        continue;
+      }
+      if (file.size === 0 || file.size > TICKET_IMAGE_MAX_BYTES) {
+        error = file.size === 0 ? copy.errors.invalidImage : copy.errors.imageTooLarge;
+        continue;
+      }
+      accepted.push({ id: nextId.current++, name: file.name, file, contentType: file.type, previewUrl: URL.createObjectURL(file) });
+    }
+    setPickError(error);
+    if (accepted.length > 0) setImages([...images, ...accepted]);
+  }
+
+  function remove(id: number) {
+    const target = images.find((image) => image.id === id);
+    if (target) URL.revokeObjectURL(target.previewUrl);
+    setImages(images.filter((image) => image.id !== id));
+    setPickError(null);
+  }
+
+  function clear() {
+    images.forEach((image) => URL.revokeObjectURL(image.previewUrl));
+    setImages([]);
+    setPickError(null);
+  }
+
+  async function uploads(): Promise<TicketAttachmentUpload[]> {
+    return Promise.all(images.map(async (image) => ({ contentType: image.contentType, dataBase64: await readBase64(image.file) })));
+  }
+
+  return { images, pickError, add, remove, clear, uploads };
+}
+
+function ImagePicker({
+  picker,
+  disabled,
+}: {
+  picker: ReturnType<typeof useImagePicker>;
+  disabled: boolean;
+}) {
+  const copy = useT().tickets;
+  const inputRef = useRef<HTMLInputElement>(null);
+  const hintId = useId();
+  const full = picker.images.length >= TICKET_IMAGES_PER_MESSAGE;
+
+  function handleChange(event: ChangeEvent<HTMLInputElement>) {
+    picker.add(event.target.files);
+    // 允许再次选择同一文件。
+    event.target.value = "";
+  }
+
+  return (
+    <div className="cc-tk-images" role="group" aria-label={copy.imagesLabel}>
+      <div className="cc-tk-images-head">
+        <span className="cc-tk-images-label">{copy.imagesLabel}</span>
+        <span className="cc-tk-images-count">{copy.imageCount(picker.images.length, TICKET_IMAGES_PER_MESSAGE)}</span>
+      </div>
+      <p id={hintId} className="cc-tk-images-hint">{copy.imagesHint(TICKET_IMAGES_PER_MESSAGE)}</p>
+      {picker.images.length > 0 && (
+        <ul className="cc-tk-thumbs">
+          {picker.images.map((image) => (
+            <li key={image.id}>
+              <img src={image.previewUrl} alt="" />
+              <span className="cc-tk-thumb-name">{image.name}</span>
+              <button
+                type="button"
+                className="cc-tk-thumb-remove"
+                disabled={disabled}
+                aria-label={copy.removeImage(image.name)}
+                onClick={() => picker.remove(image.id)}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <input
+        ref={inputRef}
+        className="cc-tk-file-input"
+        type="file"
+        accept={TICKET_IMAGE_TYPES.join(",")}
+        multiple
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={handleChange}
+      />
+      <button
+        type="button"
+        className="cc-ord-ghost cc-tk-add-images"
+        disabled={disabled || full}
+        aria-describedby={hintId}
+        onClick={() => inputRef.current?.click()}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2" /><path d="M7 15l3.5-3.5 3 3 2-2 3 3" /><circle cx="9" cy="9.5" r="1.3" /></svg>
+        {copy.addImages}
+      </button>
+      {picker.pickError && <p className="cc-tk-error" role="alert">{picker.pickError}</p>}
+    </div>
+  );
+}
+
+function MessageImages({ attachments, copy }: { attachments: readonly TicketAttachment[]; copy: TicketCopy }) {
+  if (attachments.length === 0) return null;
+  return (
+    <ul className="cc-tk-attachments">
+      {attachments.map((attachment, index) => (
+        <li key={attachment.ref}>
+          <a href={attachment.url} target="_blank" rel="noopener noreferrer" aria-label={copy.openImage(index + 1)}>
+            <img src={attachment.url} alt={copy.imageAlt(index + 1)} loading="lazy" />
+          </a>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/* ---------- 草稿：发送失败或会话失效后保留文字与关联 ---------- */
+
+type DraftFields = Record<string, string>;
+
+/* 文字草稿存在本标签页的 sessionStorage，按登录邮箱 + 目标（新建 / 工单号）隔离，发送成功即清除；
+   图片不进草稿（体积大且可能含敏感截图），恢复时提示重新添加。存储不可用时静默降级为仅内存。 */
+function useTicketDraft(target: string, initial: DraftFields) {
+  const { principal } = useAuth();
+  const key = principal ? `nsp.ticket-draft:${principal.email}:${target}` : null;
+  const [restored, setRestored] = useState<{ readonly fields: DraftFields; readonly hadImages: boolean } | null>(null);
+
+  useEffect(() => {
+    if (key === null) return;
+    try {
+      const raw = window.sessionStorage.getItem(key);
+      if (raw === null) return;
+      const parsed: unknown = JSON.parse(raw);
+      if (typeof parsed !== "object" || parsed === null) return;
+      const record = parsed as { fields?: unknown; hadImages?: unknown };
+      if (typeof record.fields !== "object" || record.fields === null) return;
+      const fields: DraftFields = {};
+      for (const name of Object.keys(initial)) {
+        const value = (record.fields as Record<string, unknown>)[name];
+        fields[name] = typeof value === "string" ? value : initial[name]!;
+      }
+      setRestored({ fields, hadImages: record.hadImages === true });
+    } catch {
+      // 存储不可用或内容损坏：不恢复。
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  function save(fields: DraftFields, hadImages: boolean) {
+    if (key === null) return;
+    try {
+      const empty = Object.keys(fields).every((name) => fields[name] === initial[name]);
+      if (empty) window.sessionStorage.removeItem(key);
+      else window.sessionStorage.setItem(key, JSON.stringify({ fields, hadImages }));
+    } catch {
+      // 忽略：草稿只是便利功能。
+    }
+  }
+
+  function clear() {
+    setRestored(null);
+    if (key === null) return;
+    try {
+      window.sessionStorage.removeItem(key);
+    } catch {
+      // 忽略。
+    }
+  }
+
+  return { restored, save, clear };
+}
+
+function DraftNotice({ hadImages, onDiscard }: { hadImages: boolean; onDiscard: () => void }) {
+  const copy = useT().tickets;
+  return (
+    <div className="cc-tk-draft" role="status">
+      <span>{copy.draftRestored}{hadImages ? ` ${copy.draftImagesNotSaved}` : ""}</span>
+      <button type="button" className="cc-tk-draft-discard" onClick={onDiscard}>{copy.discardDraft}</button>
+    </div>
+  );
+}
+
+function linkValue(link: TicketServiceLink): string {
+  if (link === null) return "";
+  return link.kind === "purchase" ? `p:${link.orderRef}` : `g:${link.grantId}`;
+}
+
+function parseLinkValue(value: string, listing: MyServiceListing | null): TicketServiceLink | undefined {
+  if (value === "") return null;
+  if (listing === null) return undefined;
+  if (value.startsWith("p:")) {
+    const orderRef = value.slice(2);
+    return listing.services.some((service) => service.orderRef === orderRef) ? { kind: "purchase", orderRef } : undefined;
+  }
+  if (value.startsWith("g:")) {
+    const grantId = Number(value.slice(2));
+    return listing.grants.some((grant) => grant.grantId === grantId) ? { kind: "grant", grantId } : undefined;
+  }
+  return undefined;
+}
+
+function ticketLinkText(ticket: TicketSummary, copy: TicketCopy): string {
+  if (ticket.serviceOrderRef !== null) return ticket.serviceOrderRef;
+  if (ticket.serviceGrantId != null) return copy.giftRef(ticket.serviceGrantId);
+  return copy.noService;
+}
+
 function TicketList({ page }: { page: number }) {
   const { t } = useI18n();
   const copy = t.tickets;
@@ -181,7 +453,7 @@ function TicketList({ page }: { page: number }) {
                 <span className="cc-tk-row-meta">
                   <span>{copy.messageCount(item.messageCount)}</span>
                   <span>{copy.lastReply(item.lastMessageRole === "admin" ? copy.support : copy.me)}</span>
-                  <span>{item.serviceOrderRef ?? copy.noService}</span>
+                  <span>{ticketLinkText(item, copy)}</span>
                 </span>
                 <StatusBadge status={item.status} />
                 <svg className="cc-tk-row-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
@@ -210,36 +482,78 @@ function NewTicketForm() {
   const serviceId = useId();
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
-  const [serviceOrderRef, setServiceOrderRef] = useState("");
-  const [services, setServices] = useState<readonly MyServiceItem[]>([]);
+  const [linkChoice, setLinkChoice] = useState("");
+  const [services, setServices] = useState<ServiceLoad>({ kind: "loading" });
+  const [servicesReload, setServicesReload] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [signedOut, setSignedOut] = useState(false);
+  const picker = useImagePicker(copy);
+  const draft = useTicketDraft("new", { subject: "", body: "", link: "" });
+
+  // 恢复上次未成功提交的文字草稿（只在挂载时读取一次）。
+  useEffect(() => {
+    if (draft.restored === null) return;
+    setSubject(draft.restored.fields.subject ?? "");
+    setBody(draft.restored.fields.body ?? "");
+    setLinkChoice(draft.restored.fields.link ?? "");
+  }, [draft.restored]);
+
+  useEffect(() => {
+    draft.save({ subject, body, link: linkChoice }, picker.images.length > 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subject, body, linkChoice, picker.images.length]);
 
   useEffect(() => {
     const controller = new AbortController();
-    // 服务列表只用于可选关联；读取失败时仍可不关联服务提交。
-    void getMyServices(controller.signal).then(setServices).catch(() => setServices([]));
-    return () => controller.abort();
-  }, []);
+    let stopped = false;
+    setServices({ kind: "loading" });
+    void getMyServiceListing(controller.signal)
+      .then((listing) => {
+        if (!stopped) setServices({ kind: "ready", value: listing });
+      })
+      .catch((loadError: unknown) => {
+        if (stopped) return;
+        if (loadError instanceof PaymentApiError && loadError.code === "unauthorized") {
+          setServices({ kind: "unauthorized" });
+        } else {
+          setServices({ kind: "error" });
+        }
+      });
+    return () => {
+      stopped = true;
+      controller.abort();
+    };
+  }, [servicesReload]);
 
   const subjectValid = subject.trim().length > 0 && subject.trim().length <= TICKET_SUBJECT_MAX && !/[\r\n]/.test(subject);
   const bodyValid = body.trim().length > 0 && body.trim().length <= TICKET_BODY_MAX;
-  const canSubmit = csrfToken !== null && subjectValid && bodyValid && !submitting;
+  const link = parseLinkValue(linkChoice, services.kind === "ready" ? services.value : null);
+  const canSubmit = csrfToken !== null && subjectValid && bodyValid && link !== undefined && !submitting;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canSubmit || csrfToken === null) return;
+    if (!canSubmit || csrfToken === null || link === undefined) return;
     setSubmitting(true);
     setError(null);
     try {
-      const ticket = await createMyTicket(csrfToken, {
-        subject: subject.trim(),
-        body: body.trim(),
-        serviceOrderRef: serviceOrderRef === "" ? null : serviceOrderRef,
-      });
+      let attachments: TicketAttachmentUpload[];
+      try {
+        attachments = await picker.uploads();
+      } catch {
+        setError(copy.imageReadFailed);
+        return;
+      }
+      const ticket = await createMyTicket(csrfToken, { subject: subject.trim(), body: body.trim(), link, attachments });
+      // 先清空字段再清草稿：否则清图片触发的保存会把已发送的文字重新写回草稿。
+      setSubject("");
+      setBody("");
+      setLinkChoice("");
+      picker.clear();
+      draft.clear();
       setSearchParams({ ref: ticket.ref });
     } catch (submitError) {
+      // 失败时不清空：文字、关联与已选图片都留在表单里，文字另存草稿。
       if (isUnauthorized(submitError)) setSignedOut(true);
       else setError(ticketErrorMessage(submitError, copy.errors));
     } finally {
@@ -247,11 +561,19 @@ function NewTicketForm() {
     }
   }
 
-  if (signedOut) return <SignedOutNotice />;
+  function discardDraft() {
+    draft.clear();
+    setSubject("");
+    setBody("");
+    setLinkChoice("");
+  }
+
+  if (signedOut || services.kind === "unauthorized") return <SignedOutNotice />;
   return (
     <section className="cc-ord-panel">
-      <PanelHead title={copy.newTicket} tag={copy.plainTextTag} />
+      <PanelHead title={copy.newTicket} />
       <form className="cc-tk-form" onSubmit={handleSubmit}>
+        {draft.restored && <DraftNotice hadImages={draft.restored.hadImages} onDiscard={discardDraft} />}
         <label htmlFor={subjectId}>{copy.subjectLabel}</label>
         <input
           id={subjectId}
@@ -263,14 +585,34 @@ function NewTicketForm() {
           onChange={(event) => setSubject(event.target.value)}
         />
         <label htmlFor={serviceId}>{copy.serviceLabel}</label>
-        <select id={serviceId} value={serviceOrderRef} disabled={submitting} onChange={(event) => setServiceOrderRef(event.target.value)}>
+        <select id={serviceId} value={linkChoice} disabled={submitting || services.kind !== "ready"} onChange={(event) => setLinkChoice(event.target.value)}>
           <option value="">{copy.noServiceOption}</option>
-          {services.map((service) => (
-            <option key={service.orderRef} value={service.orderRef}>
-              {service.orderRef} · {service.serviceStatus === "open" ? copy.serviceOpen : copy.servicePending}
-            </option>
-          ))}
+          {services.kind === "ready" && services.value.services.length > 0 && (
+            <optgroup label={copy.purchasedGroup}>
+              {services.value.services.map((service) => (
+                <option key={service.orderRef} value={linkValue({ kind: "purchase", orderRef: service.orderRef })}>
+                  {service.planLabel ? `${service.planLabel} · ` : ""}{service.orderRef} · {service.serviceStatus === "open" ? copy.serviceOpen : copy.servicePending}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {services.kind === "ready" && services.value.grants.length > 0 && (
+            <optgroup label={copy.giftGroup}>
+              {services.value.grants.map((grant) => (
+                <option key={grant.grantId} value={linkValue({ kind: "grant", grantId: grant.grantId })}>
+                  {grant.label} · {copy.giftRef(grant.grantId)} · {grant.deliveryStatus === "open" ? copy.serviceOpen : copy.servicePending}
+                </option>
+              ))}
+            </optgroup>
+          )}
         </select>
+        {services.kind === "loading" && <p className="cc-tk-service-state" role="status">{copy.serviceLoading}</p>}
+        {services.kind === "error" && (
+          <div className="cc-tk-service-state" role="alert">
+            <span>{copy.serviceLoadFailed}</span>
+            <button type="button" className="cc-ord-ghost" onClick={() => setServicesReload((n) => n + 1)}>{copy.reload}</button>
+          </div>
+        )}
         <label htmlFor={bodyId}>{copy.bodyLabel}</label>
         <textarea
           id={bodyId}
@@ -282,6 +624,7 @@ function NewTicketForm() {
           onChange={(event) => setBody(event.target.value)}
         />
         <p className="cc-tk-counter">{body.trim().length} / {TICKET_BODY_MAX}</p>
+        <ImagePicker picker={picker} disabled={submitting} />
         {error && <p className="cc-tk-error" role="alert">{error}</p>}
         <div className="cc-ord-notice-actions">
           <button type="submit" className="cc-ord-primary" disabled={!canSubmit} aria-busy={submitting}>
@@ -303,6 +646,17 @@ function TicketThread({ ticketRef }: { ticketRef: string }) {
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const picker = useImagePicker(copy);
+  const draft = useTicketDraft(ticketRef, { reply: "" });
+
+  useEffect(() => {
+    if (draft.restored !== null) setReply(draft.restored.fields.reply ?? "");
+  }, [draft.restored]);
+
+  useEffect(() => {
+    draft.save({ reply }, picker.images.length > 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reply, picker.images.length]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -340,10 +694,20 @@ function TicketThread({ ticketRef }: { ticketRef: string }) {
     setSending(true);
     setError(null);
     try {
-      const updated = await replyToMyTicket(csrfToken, ticket.ref, reply.trim());
+      let attachments: TicketAttachmentUpload[];
+      try {
+        attachments = await picker.uploads();
+      } catch {
+        setError(copy.imageReadFailed);
+        return;
+      }
+      const updated = await replyToMyTicket(csrfToken, ticket.ref, reply.trim(), attachments);
       setReply("");
+      picker.clear();
+      draft.clear();
       setState({ kind: "ready", value: updated });
     } catch (replyError) {
+      // 失败时保留回复文字与已选图片；文字另存草稿，会话失效重新登录后可恢复。
       if (isUnauthorized(replyError)) setState({ kind: "unauthorized" });
       else setError(ticketErrorMessage(replyError, copy.errors));
     } finally {
@@ -357,7 +721,10 @@ function TicketThread({ ticketRef }: { ticketRef: string }) {
       <div className="cc-ord-item-head cc-tk-detail-head">
         <div className="cc-ord-item-id">
           <strong className="cc-tk-subject">{ticket.subject}</strong>
-          <small>{copy.createdAt(formatDate(ticket.createdAt, copy.dateLocale))}{ticket.serviceOrderRef ? copy.linkedService(ticket.serviceOrderRef) : ""}</small>
+          <small>
+            {copy.createdAt(formatDate(ticket.createdAt, copy.dateLocale))}
+            {ticket.serviceOrderRef ? copy.linkedService(ticket.serviceOrderRef) : ticket.serviceGrantId != null ? copy.linkedGift(ticket.serviceGrantId) : ""}
+          </small>
         </div>
         <StatusBadge status={ticket.status} />
       </div>
@@ -369,6 +736,7 @@ function TicketThread({ ticketRef }: { ticketRef: string }) {
               <small>{formatDate(message.createdAt, copy.dateLocale)}</small>
             </div>
             <p className="cc-tk-body">{message.body}</p>
+            <MessageImages attachments={message.attachments} copy={copy} />
           </li>
         ))}
       </ol>
@@ -376,6 +744,15 @@ function TicketThread({ ticketRef }: { ticketRef: string }) {
         <p className="cc-tk-closed">{copy.closedNotice}</p>
       ) : (
         <form className="cc-tk-form" onSubmit={handleReply}>
+          {draft.restored && (
+            <DraftNotice
+              hadImages={draft.restored.hadImages}
+              onDiscard={() => {
+                draft.clear();
+                setReply("");
+              }}
+            />
+          )}
           <label htmlFor={replyId}>{copy.replyLabel}</label>
           <textarea
             id={replyId}
@@ -386,6 +763,7 @@ function TicketThread({ ticketRef }: { ticketRef: string }) {
             placeholder={copy.replyPlaceholder}
             onChange={(event) => setReply(event.target.value)}
           />
+          <ImagePicker picker={picker} disabled={sending} />
           {error && <p className="cc-tk-error" role="alert">{error}</p>}
           <div className="cc-ord-notice-actions">
             <button type="submit" className="cc-ord-primary" disabled={!replyValid || sending || csrfToken === null} aria-busy={sending}>

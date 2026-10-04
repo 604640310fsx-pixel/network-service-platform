@@ -99,10 +99,17 @@ function getLocalRejectionReason(
   return null;
 }
 
-async function queryAndDispatch(
+interface QueriedTrade {
+  readonly queried: AlipayTradeQueryResult;
+  /* Null whenever the provider answer failed provider-shape or local validation;
+     the raw queried row is still returned so callers can inspect the raw status. */
+  readonly event: PaymentEventInput | null;
+}
+
+async function queryTrade(
   dependencies: PaymentRefreshDependencies,
   target: RefreshTarget,
-): Promise<AlipayTradeQueryResult | null> {
+): Promise<QueriedTrade | null> {
   try {
     const queried = await queryAlipayTrade(dependencies.sdk, target.outTradeNo);
     if (!queried.recognized) {
@@ -114,7 +121,7 @@ async function queryAndDispatch(
         localRejectionReason: "unrecognized_response",
       });
       auditPaymentFailure(dependencies, "payment.query_rejected", target.outTradeNo);
-      return queried;
+      return { queried, event: null };
     }
 
     const localRejectionReason = getLocalRejectionReason(queried, target);
@@ -127,29 +134,21 @@ async function queryAndDispatch(
         localRejectionReason,
       });
       auditPaymentFailure(dependencies, "payment.query_rejected", target.outTradeNo);
-      return queried;
+      return { queried, event: null };
     }
     const validatedQuery = queried as ValidatedAlipayTradeQueryResult;
-    const event: PaymentEventInput = {
-      outTradeNo: target.outTradeNo,
-      tradeNo: validatedQuery.tradeNo,
-      tradeStatus: validatedQuery.tradeStatus,
-      totalAmount: validatedQuery.totalAmount,
-      totalAmountFen: validatedQuery.totalAmountFen,
-      appId: dependencies.appId,
-      sellerId: dependencies.sellerId,
+    return {
+      queried,
+      event: {
+        outTradeNo: target.outTradeNo,
+        tradeNo: validatedQuery.tradeNo,
+        tradeStatus: validatedQuery.tradeStatus,
+        totalAmount: validatedQuery.totalAmount,
+        totalAmountFen: validatedQuery.totalAmountFen,
+        appId: dependencies.appId,
+        sellerId: dependencies.sellerId,
+      },
     };
-    if (
-      validatedQuery.tradeStatus === "TRADE_SUCCESS" ||
-      validatedQuery.tradeStatus === "TRADE_FINISHED"
-    ) {
-      finalizePaid(dependencies, event);
-    } else if (validatedQuery.tradeStatus === "TRADE_CLOSED") {
-      finalizeClosed(dependencies, event);
-    } else if (validatedQuery.tradeStatus === "WAIT_BUYER_PAY") {
-      acceptPendingPaymentEvent(dependencies, event);
-    }
-    return queried;
   } catch {
     logAlipayQueryDiagnostic({
       event: "query_failed",
@@ -161,6 +160,87 @@ async function queryAndDispatch(
     auditPaymentFailure(dependencies, "payment.query_failed", target.outTradeNo);
     return null;
   }
+}
+
+async function queryAndDispatch(
+  dependencies: PaymentRefreshDependencies,
+  target: RefreshTarget,
+): Promise<AlipayTradeQueryResult | null> {
+  const result = await queryTrade(dependencies, target);
+  if (result === null) {
+    return null;
+  }
+  const { queried, event } = result;
+  if (event !== null) {
+    if (event.tradeStatus === "TRADE_SUCCESS" || event.tradeStatus === "TRADE_FINISHED") {
+      finalizePaid(dependencies, event);
+    } else if (event.tradeStatus === "TRADE_CLOSED") {
+      finalizeClosed(dependencies, event);
+    } else if (event.tradeStatus === "WAIT_BUYER_PAY") {
+      acceptPendingPaymentEvent(dependencies, event);
+    }
+  }
+  return queried;
+}
+
+/* 关单观察结果：只把权威终态交还给调用方，由调用方在自己的事务里
+   finalizePaid/finalizeClosed 并原子记录管理表。观察本身不写任何本地状态；
+   未知/失败一律 unknown，绝不以推测充当已关闭。 */
+export type PendingTradeObservation =
+  | { readonly kind: "paid" | "closed"; readonly event: PaymentEventInput }
+  | { readonly kind: "unknown" };
+
+function observationFromEvent(event: PaymentEventInput | null): PendingTradeObservation | null {
+  if (event === null) return null;
+  if (event.tradeStatus === "TRADE_SUCCESS" || event.tradeStatus === "TRADE_FINISHED") {
+    return { kind: "paid", event };
+  }
+  if (event.tradeStatus === "TRADE_CLOSED") return { kind: "closed", event };
+  return null;
+}
+
+export async function observePendingTradeForCancel(
+  dependencies: PaymentRefreshDependencies,
+  target: RefreshTarget,
+): Promise<PendingTradeObservation> {
+  // Same 15s provider throttle as the status refresh and the sweep: a retried
+  // observation inside the window yields unknown (503), never a guessed close.
+  if (!claimAlipayQuery(dependencies, target.paymentId)) {
+    return { kind: "unknown" };
+  }
+  const syntheticClosed = (): PendingTradeObservation => ({
+    kind: "closed",
+    event: {
+      outTradeNo: target.outTradeNo,
+      tradeNo: `LOCAL-CANCEL-${target.outTradeNo}`,
+      tradeStatus: "TRADE_CLOSED",
+      totalAmount: formatFenAsYuan(target.amountFen),
+      totalAmountFen: target.amountFen,
+      appId: dependencies.appId,
+      sellerId: dependencies.sellerId,
+    },
+  });
+  const first = await queryTrade(dependencies, target);
+  if (first === null) return { kind: "unknown" };
+  const direct = observationFromEvent(first.event);
+  if (direct !== null) return direct;
+  if (first.queried.tradeStatus === "WAIT_BUYER_PAY") {
+    try {
+      await closeAlipayTrade(dependencies.sdk, target.outTradeNo);
+    } catch {
+      auditPaymentFailure(dependencies, "payment.close_failed", target.outTradeNo);
+      return { kind: "unknown" };
+    }
+    // 复查：买家在关单前后完成支付则 paid 胜出；复查失败一律 unknown。
+    const second = await queryTrade(dependencies, target);
+    if (second === null) return { kind: "unknown" };
+    const mapped = observationFromEvent(second.event);
+    if (mapped !== null) return mapped;
+    if (isTradeNotExist(second.queried)) return syntheticClosed();
+    return { kind: "unknown" };
+  }
+  if (isTradeNotExist(first.queried)) return syntheticClosed();
+  return { kind: "unknown" };
 }
 
 /* 普通路径：GET /api/pay/orders/:orderRef 触发的一次性查询+分发，

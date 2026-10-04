@@ -4,6 +4,7 @@ import { useT } from "../../lib/i18n";
 import { AdminCouponsPanel } from "./AdminCouponsPanel";
 import { AdminDiagnosisPanel } from "./AdminDiagnosisPanel";
 import { AdminInviteCodesPanel } from "./AdminInviteCodesPanel";
+import { AdminOrdersPanel } from "./AdminOrdersPanel";
 import { AdminPendingServices } from "./AdminPendingServices";
 import { AdminPlansPanel } from "./AdminPlansPanel";
 import { AdminTicketsPanel } from "./AdminTicketsPanel";
@@ -38,6 +39,7 @@ export function DashboardPage() {
         {principal?.role === "admin" && <AdminInviteCodesPanel csrfToken={csrfToken} />}
         {principal?.role === "admin" && <AdminPendingServices csrfToken={csrfToken} />}
         {principal?.role === "admin" && <AdminUserServicesPanel csrfToken={csrfToken} />}
+        {principal?.role === "admin" && <AdminOrdersPanel csrfToken={csrfToken} />}
         {principal?.role === "admin" && <AdminPlansPanel csrfToken={csrfToken} />}
         {principal?.role === "admin" && <AdminCouponsPanel csrfToken={csrfToken} />}
         {principal?.role === "admin" && <AdminTicketsPanel csrfToken={csrfToken} />}

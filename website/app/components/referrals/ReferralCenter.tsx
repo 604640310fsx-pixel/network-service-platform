@@ -88,7 +88,6 @@ export function ReferralCenter({
           <div className="rfc-sec-head">
             <div className="rfc-sec-title">
               <h2 id="rfc-level-title">{copy.levelTitle}</h2>
-              <span className="rfc-tag">{copy.officialRates}</span>
             </div>
             <p>{copy.levelLead}</p>
           </div>
@@ -109,7 +108,6 @@ export function ReferralCenter({
               <div className="rfc-sec-head">
                 <div className="rfc-sec-title">
                   <h2 id="rfc-strategic-title">{copy.strategicTitle}</h2>
-                  <span className="rfc-tag">{copy.strategicTag}</span>
                 </div>
               </div>
               <div className="rfc-card rfc-strategic">
@@ -130,7 +128,6 @@ export function ReferralCenter({
               <div className="rfc-sec-head">
                 <div className="rfc-sec-title">
                   <h2 id="rfc-faq-title">{copy.faqTitle}</h2>
-                  <span className="rfc-tag">{copy.faqTag}</span>
                 </div>
               </div>
               <FaqCard />
@@ -160,10 +157,7 @@ function PageNotice({ variant }: { variant: ReferralCenterNotice }) {
   return (
     <details className="rfc-demo">
       <summary>
-        {variant === "fixture"
-          ? <span className="rfc-demo-mark">{copy.fixtureMark}</span>
-          : <span className="rfc-demo-mark">{copy.pendingMark}</span>}
-        <span className="rfc-demo-mark">{copy.keepPendingMark}</span>
+        {variant === "fixture" && <span className="rfc-demo-mark">{copy.fixtureMark}</span>}
         <span className="rfc-demo-toggle">{copy.explain}</span>
       </summary>
       <p>
@@ -384,10 +378,6 @@ function ShareCard({
             <span>{message.text}</span>
           </>
         ) : ready ? null : reason}
-      </p>
-      <p className="rfc-share-meta">
-        <span>{copy.metaCandidatesBefore}<b>{copy.metaCandidates}</b></span>
-        <span>{copy.metaInviteOnly}<b className="is-pending">{copy.metaQrPending}</b></span>
       </p>
     </div>
   );

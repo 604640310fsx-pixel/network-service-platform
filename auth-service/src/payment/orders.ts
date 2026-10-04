@@ -860,6 +860,8 @@ export function claimAlipayQuery(
 
 export interface MyServiceItem {
   readonly source: "purchase";
+  /** Real services.id for wallet/renewal lookups; grants carry grantId instead and never map here. */
+  readonly serviceId: number;
   readonly orderRef: string;
   readonly amountFen: number;
   readonly currency: "CNY";
@@ -878,7 +880,7 @@ export function listMyServices(
 ): MyServiceItem[] {
   const rows = database
     .prepare(
-      `SELECT orders.order_ref, orders.amount_fen, orders.currency,
+      `SELECT services.id AS service_id, orders.order_ref, orders.amount_fen, orders.currency,
               orders.status AS order_status, services.status AS service_status,
               services.created_at, services.ends_at, services.plan_override
        FROM services
@@ -895,14 +897,18 @@ export function listMyServices(
     const value = row as Record<string, unknown>;
     const orderStatus = rowString(value, "order_status");
     const serviceStatus = rowString(value, "service_status");
+    const serviceId = rowNumber(value, "service_id");
     if (
       (orderStatus !== "pending" && orderStatus !== "paid" && orderStatus !== "closed") ||
-      (serviceStatus !== "pending_open" && serviceStatus !== "open")
+      (serviceStatus !== "pending_open" && serviceStatus !== "open") ||
+      !Number.isSafeInteger(serviceId) ||
+      serviceId < 1
     ) {
       throw new Error("Service database invariant failed");
     }
     return {
       source: "purchase" as const,
+      serviceId,
       orderRef: rowString(value, "order_ref"),
       amountFen: rowNumber(value, "amount_fen"),
       currency: "CNY" as const,
@@ -1171,7 +1177,7 @@ export function openService(
   const operation = database.transaction(() => {
     const rows = database
       .prepare(
-        `SELECT services.status, orders.order_ref
+        `SELECT services.status, orders.order_ref, orders.id AS order_id
          FROM services
          JOIN payments ON payments.id = services.payment_id
          JOIN orders ON orders.id = payments.order_id
@@ -1184,6 +1190,18 @@ export function openService(
     const row = rows[0] as Record<string, unknown>;
     if (row.status !== "pending_open") {
       throw new PaymentDomainError(409, "invalid_transition");
+    }
+    /* Management closure/termination is authoritative and checked against this
+       service's real order inside the same transaction — a closed service can
+       never be opened through any caller. Missing wallet tables surface as a
+       real error (503 at the route), never a silent pass. Zero writes on deny. */
+    const orderId = row.order_id;
+    const closed = typeof orderId === "number" &&
+      database.prepare("SELECT order_id FROM wallet_order_closures WHERE order_id = ?").all(orderId).length > 0;
+    const terminated =
+      database.prepare("SELECT service_id FROM wallet_termination_cases WHERE service_id = ?").all(input.serviceId).length > 0;
+    if (closed || terminated) {
+      throw new PaymentDomainError(409, "service_closed");
     }
     const now = (input.now ?? (() => new Date()))();
     if (!Number.isFinite(now.getTime())) {

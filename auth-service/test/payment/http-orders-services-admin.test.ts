@@ -5,6 +5,7 @@ import { buildApp } from "../../src/app.js";
 import { issueCsrfToken } from "../../src/http/csrf.js";
 import { createPaymentOrder } from "../../src/payment/orders.js";
 import { finalizeClosed, finalizePaid } from "../../src/payment/state-machine.js";
+import { applyAdminOrderClose } from "../../src/wallet/candidate.js";
 import { computeSessionTokenHash } from "../../src/session/session-token.js";
 import {
   insertAuthenticationUser,
@@ -1193,6 +1194,100 @@ test("admin coupons require admin and CSRF, support their main flow, and reject 
       });
       assert.equal(immutable.statusCode, 400);
       assert.deepEqual(immutable.json(), { error: { code: "immutable_field" } });
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+test("management-closed or termination-marked service cannot be opened; zero writes; normal open unaffected", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const userId = insertAuthenticationUser(database, {
+      email: "close-open@example.com", passwordHash: "hash", status: "active",
+    });
+    const adminId = insertAuthenticationUser(database, {
+      email: "close-open-admin@example.com", passwordHash: "hash", status: "active", role: "admin",
+    });
+    const adminSession = insertWebSession(database, adminId);
+    const dependencies = paymentDependencies(
+      database,
+      new FakeAlipaySdk(),
+      (() => { let n = 0; return () => `22222222-2222-4222-8222-${String(++n).padStart(12, "0")}`; })(),
+    );
+    const csrf = issueCsrfToken(
+      dependencies.csrfSigningKey,
+      computeSessionTokenHash(adminSession.rawToken, TOKEN_KEYRING).tokenHash,
+    );
+    const openRequest = (serviceId: number) => app.inject({
+      method: "POST",
+      url: `/api/admin/services/${serviceId}/open`,
+      headers: { cookie: adminSession.cookie, "content-type": "application/json", "x-csrf-token": csrf },
+      payload: { items: [{ label: "线路", subscriptionUrl: "https://subscription.example.test/x", monitorTargetKey: "DMIT Premium" }] },
+    });
+    const seedPending = (key: string, token: string) => {
+      const order = createPaymentOrder(dependencies, {
+        idempotencyKey: `co-${key}`, rawAccessToken: token,
+        selection: localIspSelection(), contact: `c-${key}`, scenarios: [], notes: null,
+        acknowledgedAmountFen: 7_900, userId,
+      });
+      finalizePaid(dependencies, {
+        outTradeNo: order.orderRef, tradeNo: `t-${key}`, tradeStatus: "TRADE_SUCCESS",
+        totalAmount: "79.00", totalAmountFen: 7_900, appId: "app-123", sellerId: "seller-456",
+      });
+      return {
+        orderId: firstValue(database, "SELECT id FROM orders WHERE order_ref = ?", order.orderRef) as number,
+        serviceId: firstValue(database, "SELECT id FROM services ORDER BY id DESC LIMIT 1") as number,
+      };
+    };
+    const closed = seedPending("closed", ACCESS_TOKEN_A);
+    const terminated = seedPending("terminated", ACCESS_TOKEN_B);
+    const normal = seedPending("normal", ACCESS_TOKEN_C);
+    // 真实管理关闭（与 POST /api/admin/orders/:id/close 相同的落库事实）。
+    applyAdminOrderClose(
+      database,
+      { database, appId: "app-123", sellerId: "seller-456" },
+      { userId: adminId, sessionValid: true, csrfValid: true, isAdmin: true },
+      closed.orderId, null, "2026-08-21T00:00:00.000Z",
+    );
+    // 终止案标记（OPEN 关单路径产生的真实行）单独也禁止开通。
+    database.prepare(
+      "INSERT INTO wallet_termination_cases (service_id, requested_at, requested_by, stop_state) VALUES (?, ?, ?, 'REQUESTED')",
+    ).run(terminated.serviceId, "2026-08-21T00:00:00.000Z", adminId);
+    const app = buildApp({ payment: dependencies });
+    try {
+      const auditBefore = (allRows(database, "SELECT action FROM audit_log") as unknown[]).length;
+      for (const serviceId of [closed.serviceId, terminated.serviceId]) {
+        const denied = await openRequest(serviceId);
+        assert.equal(denied.statusCode, 409);
+        assert.deepEqual(denied.json(), { error: { code: "service_closed" } });
+        // 重放同样拒绝，且整笔事务零写入：状态、交付项、审计一律未变。
+        const replay = await openRequest(serviceId);
+        assert.equal(replay.statusCode, 409);
+        assert.equal(
+          firstValue(database, "SELECT status FROM services WHERE id = ?", serviceId),
+          "pending_open",
+        );
+        assert.equal(
+          (allRows(database, "SELECT service_id FROM service_delivery_items WHERE service_id = ?", serviceId) as unknown[]).length,
+          0,
+        );
+        assert.equal(
+          (allRows(database, "SELECT action FROM audit_log WHERE action IN ('service.open','service.delivery_unbound')") as unknown[]).length,
+          0,
+        );
+      }
+      assert.equal(
+        (allRows(database, "SELECT action FROM audit_log") as unknown[]).length,
+        auditBefore,
+      );
+      // 未关闭的 pending_open 服务照常开通。
+      const opened = await openRequest(normal.serviceId);
+      assert.equal(opened.statusCode, 200);
+      assert.equal(opened.json().status, "open");
+      assert.equal(
+        firstValue(database, "SELECT status FROM services WHERE id = ?", normal.serviceId),
+        "open",
+      );
     } finally {
       await app.close();
     }

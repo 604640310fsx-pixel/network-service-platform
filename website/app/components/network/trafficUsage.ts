@@ -12,21 +12,27 @@ export type UsageFacts = {
 };
 
 export function usageFacts(usage: SubscriptionUsage): UsageFacts {
-  const used = usage.upload === null && usage.download === null ? null : (usage.upload ?? 0) + (usage.download ?? 0);
-  const total = usage.total === null || usage.total === 0 ? null : usage.total;
+  const used = usage.upload === null || usage.download === null ? null : usage.upload + usage.download;
+  const total = usage.total;
   const remaining = used === null || total === null ? null : Math.max(total - used, 0);
-  const ratio = used === null || total === null ? null : Math.min(used / total, 1);
+  const ratio = used === null || total === null || total === 0 ? null : Math.min(used / total, 1);
   return { used, remaining, total, ratio, expireAt: usage.expire === null ? null : new Date(usage.expire * 1000) };
 }
 
 /** Sum of the lines that report each figure, with how many lines contributed. */
-export function aggregateUsage(list: readonly UsageFacts[]): { readonly used: number | null; readonly remaining: number | null; readonly lines: number } {
+export function aggregateUsage(list: readonly UsageFacts[]): {
+  readonly used: number | null;
+  readonly remaining: number | null;
+  readonly usedLines: number;
+  readonly remainingLines: number;
+} {
   const withUsed = list.filter((facts) => facts.used !== null);
   const withRemaining = list.filter((facts) => facts.remaining !== null);
   return {
     used: withUsed.length === 0 ? null : withUsed.reduce((sum, facts) => sum + (facts.used ?? 0), 0),
     remaining: withRemaining.length === 0 ? null : withRemaining.reduce((sum, facts) => sum + (facts.remaining ?? 0), 0),
-    lines: withUsed.length,
+    usedLines: withUsed.length,
+    remainingLines: withRemaining.length,
   };
 }
 

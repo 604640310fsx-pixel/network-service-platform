@@ -10,9 +10,19 @@ import {
   type ServiceStatus,
 } from "../../lib/payment-api";
 import { useT, type Messages } from "../../lib/i18n";
+import { useMyWallet } from "../../lib/useWallet";
+import { formatWalletFen, type WalletLoad } from "../../lib/wallet-api";
 import { buyerPlanCounts, combineBuyerPlans, type BuyerPlan } from "./buyerPlans";
 import { getMyDeliveryLineListing } from "../../lib/payment-api";
 import { primaryLineStatusHref, type BuyerLineRef } from "../../lib/buyerStatusLink";
+
+// 钱包余额卡与其他概览卡同一口径：未就绪一律显示 "—"，提示语说明加载中 / 失败 / 未登录。
+function walletHint(state: WalletLoad, readyHint: string, messages: Messages["dashboard"]): string {
+  if (state.kind === "loading") return messages.stateLoading;
+  if (state.kind === "unauthorized") return messages.stateSignedOut;
+  if (state.kind === "error") return messages.stateFailed;
+  return readyHint;
+}
 
 type ResourceState<T> =
   | { readonly kind: "loading" }
@@ -279,6 +289,7 @@ export function BuyerDashboardOverview() {
   const [servicesState, setServicesState] = useState<ResourceState<readonly BuyerPlan[]>>({ kind: "loading" });
   const [ordersState, setOrdersState] = useState<ResourceState<readonly MyOrderItem[]>>({ kind: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
+  const wallet = useMyWallet(reloadToken);
   // 「服务器状态」入口：账户第一条已交付线路 → /status 预选其服务器；读不到线路时为 /status。
   const [statusHref, setStatusHref] = useState("/status");
   useEffect(() => {
@@ -399,6 +410,11 @@ export function BuyerDashboardOverview() {
       label: t.dashboard.stats.unpaid.label,
       value: unpaidCount === null ? "—" : String(unpaidCount),
       hint: stateHint(ordersState, t.dashboard.stats.unpaid.hint, t.dashboard),
+    },
+    {
+      label: t.wallet.balanceLabel,
+      value: wallet.state.kind === "ready" ? formatWalletFen(wallet.state.wallet.balanceFen) : "—",
+      hint: walletHint(wallet.state, t.wallet.balanceHint, t.dashboard),
     },
   ] as const;
 

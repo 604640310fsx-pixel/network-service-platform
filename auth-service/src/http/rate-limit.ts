@@ -75,6 +75,7 @@ export const REGISTRATION_VERIFY_IP_LIMIT = 30;
 export const REGISTRATION_COMPLETE_IP_LIMIT = 20;
 export const DIAGNOSIS_SUBMIT_IP_LIMIT = 5;
 export const MONITOR_STATUS_USER_LIMIT = 120;
+export const TICKET_ATTACHMENT_WRITE_USER_LIMIT = 10;
 // Traffic panel: one request per delivered line (≤20) per page load; upstream reads are cached 60s.
 export const SUBSCRIPTION_INFO_USER_LIMIT = 240;
 export const ACCOUNT_PASSWORD_CHANGE_USER_LIMIT = 10;
@@ -86,6 +87,8 @@ export const PASSWORD_RESET_REQUEST_EMAIL_LIMIT = 5;
 export const PASSWORD_RESET_CONFIRM_IP_LIMIT = 20;
 export const RATE_LIMIT_BUCKET_SECONDS = 300;
 export const RATE_LIMIT_WINDOW_SECONDS = 3_600;
+const TICKET_ATTACHMENT_BUCKET_SECONDS = 60;
+const TICKET_ATTACHMENT_WINDOW_SECONDS = 60;
 
 const EMPTY_HKDF_SALT = Buffer.alloc(0);
 const RATE_LIMIT_HKDF_INFO = Buffer.from("rate-limit-v1", "utf8");
@@ -184,7 +187,11 @@ export function canonicalizeIp(input: string): string {
   throw new Error("Client IP is invalid");
 }
 
-function rateLimitTimes(nowSource: () => Date): {
+function rateLimitTimes(
+  nowSource: () => Date,
+  bucketSeconds: number = RATE_LIMIT_BUCKET_SECONDS,
+  windowSeconds: number = RATE_LIMIT_WINDOW_SECONDS,
+): {
   readonly now: string;
   readonly windowStart: string;
   readonly windowFloor: string;
@@ -196,13 +203,13 @@ function rateLimitTimes(nowSource: () => Date): {
   }
   const nowEpochSeconds = Math.floor(milliseconds / 1_000);
   const currentBucketEpoch =
-    Math.floor(nowEpochSeconds / RATE_LIMIT_BUCKET_SECONDS) *
-    RATE_LIMIT_BUCKET_SECONDS;
+    Math.floor(nowEpochSeconds / bucketSeconds) *
+    bucketSeconds;
   const windowFloorEpoch =
     Math.floor(
-      (nowEpochSeconds - RATE_LIMIT_WINDOW_SECONDS) /
-        RATE_LIMIT_BUCKET_SECONDS,
-    ) * RATE_LIMIT_BUCKET_SECONDS;
+      (nowEpochSeconds - windowSeconds) /
+        bucketSeconds,
+    ) * bucketSeconds;
 
   return {
     now: date.toISOString(),
@@ -360,6 +367,36 @@ export function consumeMonitorStatusRateLimit(
         "monitor:status:user",
         [String(userId)],
         MONITOR_STATUS_USER_LIMIT,
+      ),
+    ],
+    times,
+  );
+}
+
+/* 附件上传写：除既有会话/CSRF 闸门外，每个账户每分钟最多 10 次携带附件的
+   工单创建或回复。窗口与桶独立成 60s，严格对应每分钟上限。 */
+export function consumeTicketAttachmentWriteRateLimit(
+  database: DatabaseConnection,
+  keyring: RateLimitKeyring,
+  userId: number,
+  dependencies: { readonly now?: () => Date } = {},
+): void {
+  if (!Number.isSafeInteger(userId) || userId < 1) {
+    throw new Error("Ticket attachment rate-limit principal is invalid");
+  }
+  const times = rateLimitTimes(
+    dependencies.now ?? (() => new Date()),
+    TICKET_ATTACHMENT_BUCKET_SECONDS,
+    TICKET_ATTACHMENT_WINDOW_SECONDS,
+  );
+  consumeDimensions(
+    database,
+    [
+      dimension(
+        keyring,
+        "ticket:attachment-write:user",
+        [String(userId)],
+        TICKET_ATTACHMENT_WRITE_USER_LIMIT,
       ),
     ],
     times,

@@ -295,6 +295,75 @@
   color: var(--cc-accent);
 }
 
+/* 自动续费授权：与交付区同一卡内层级，默认关闭；禁用态沿用按钮半透明。 */
+.cc-svc-renewal {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 14px;
+  padding: 12px 13px;
+  border: 1px solid var(--cc-line);
+  border-radius: 9px;
+  background: var(--cc-inset);
+}
+.cc-svc-renewal.is-unavailable { border-style: dashed; background: transparent; }
+.cc-svc-renewal-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.cc-svc-renewal-head b { color: var(--cc-text); font-size: 13px; font-weight: 600; }
+.cc-svc-renewal-state { color: var(--cc-text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.cc-svc-renewal-state.is-on { color: var(--cc-accent); font-weight: 600; }
+.cc-svc-renewal-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+.cc-svc-renewal-row label { color: var(--cc-text-2); font-size: 12.5px; font-weight: 600; }
+.cc-svc-renewal-row select {
+  height: 40px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--cc-line);
+  border-radius: 10px;
+  background: var(--cc-card);
+  color: var(--cc-text);
+  font: inherit;
+  font-size: 13.5px;
+}
+.cc-svc-renewal-note { margin: 0; color: var(--cc-text-3); font-size: 12px; line-height: 1.6; }
+.cc-svc-renewal-note.is-warn { color: var(--cc-text-2); }
+.cc-svc-renewal-quote {
+  margin: 0;
+  color: var(--cc-text);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.cc-svc-renewal-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--cc-text-2);
+  font-size: 12.5px;
+  line-height: 1.6;
+  cursor: pointer;
+}
+.cc-svc-renewal-confirm input { width: 16px; height: 16px; margin: 3px 0 0; flex: 0 0 16px; accent-color: #f59e0b; }
+.cc-svc-renewal button:disabled,
+.cc-svc-renewal select:disabled,
+.cc-svc-renewal input:disabled { cursor: not-allowed; opacity: 0.5; }
+.cc-svc-renewal button:focus-visible,
+.cc-svc-renewal select:focus-visible,
+.cc-svc-renewal input:focus-visible {
+  outline: 2px solid var(--cc-accent-line);
+  outline-offset: 2px;
+}
+
 @media (min-width: 821px) and (max-width: 980px) {
   .cc-svc-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

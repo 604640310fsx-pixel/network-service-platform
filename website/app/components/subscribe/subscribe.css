@@ -95,16 +95,15 @@
 .sub-capability-label { margin-top: 11px; }
 .sub-type-option .sub-features { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 9px; }
 .sub-type-option .sub-features > span { font-size: 11.5px; }
-.sub-solution-footer { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--cc-hairline); }
-.sub-solution-footer > span small,
-.sub-solution-footer > span b { display: block; }
-.sub-solution-footer > span small { color: var(--cc-text-4); font-size: 9px; letter-spacing: 0.08em; }
-.sub-solution-footer > span b { margin-top: 1px; font-size: 19px; font-weight: 650; font-variant-numeric: tabular-nums; }
-.sub-solution-footer > span b em { margin-left: 3px; color: var(--cc-text-3); font-size: 10px; font-style: normal; font-weight: 450; }
-.sub-solution-footer > strong { display: flex; align-items: center; gap: 7px; color: var(--cc-text-3); font-size: 11.5px; font-weight: 550; }
+/* 卡片底栏：价格在左、选择/当前方案在右，两者按文字基线对齐。
+   显式 width:100% 而不依赖 flex 子项的 stretch——按钮内的 flex 子项在部分引擎下会收缩到
+   内容宽度，底栏就会挤在左侧、分隔线变短。窄卡片放不下一行时操作换到下一行右侧，不压缩价格。 */
+.sub-solution-footer { box-sizing: border-box; width: 100%; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; margin-top: auto; padding-top: 14px; border-top: 1px solid var(--cc-hairline); }
+.sub-solution-footer > b { font-size: 19px; font-weight: 650; line-height: 1.2; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sub-solution-footer > strong { display: inline-flex; align-items: baseline; gap: 7px; margin-left: auto; color: var(--cc-text-3); font-size: 12px; font-weight: 550; line-height: 1.2; white-space: nowrap; }
 .sub-solution-footer > strong i { font-style: normal; transition: transform 0.16s; }
 .sub-type-option:hover .sub-solution-footer > strong i { transform: translateX(2px); }
-.sub-option.is-selected .sub-solution-footer > span b,
+.sub-option.is-selected .sub-solution-footer > b,
 .sub-option.is-selected .sub-solution-footer > strong { color: var(--cc-accent); }
 
 /* 地区卡片网格分两种密度：

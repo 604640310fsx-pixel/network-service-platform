@@ -1,6 +1,12 @@
 import { randomBytes } from "node:crypto";
 
 import type { DatabaseConnection } from "../db.js";
+import {
+  attachmentsForTicket,
+  insertTicketAttachments,
+  type PreparedAttachment,
+  type TicketAttachmentMeta,
+} from "./attachments.js";
 
 /* 客户工单 MVP。归属只取服务端 Session 用户；客户读写只按 (ticket_ref, user_id)
    查询，他人工单与不存在的工单返回同一个 404。状态：新建 open；管理员回复
@@ -32,6 +38,7 @@ export interface TicketMessage {
   readonly role: TicketAuthorRole;
   readonly body: string;
   readonly createdAt: string;
+  readonly attachments: readonly TicketAttachmentMeta[];
 }
 
 export interface TicketSummary {
@@ -39,6 +46,7 @@ export interface TicketSummary {
   readonly subject: string;
   readonly status: TicketStatus;
   readonly serviceOrderRef: string | null;
+  readonly serviceGrantId: number | null;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly closedAt: string | null;
@@ -135,6 +143,15 @@ function integer(row: Record<string, unknown>, name: string): number {
   return value;
 }
 
+function nullableInteger(row: Record<string, unknown>, name: string): number | null {
+  const value = row[name];
+  if (value === null) return null;
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
+    throw new Error("Ticket database invariant failed");
+  }
+  return value;
+}
+
 function status(row: Record<string, unknown>): TicketStatus {
   const value = row.status;
   if (value !== "open" && value !== "answered" && value !== "closed") {
@@ -154,6 +171,7 @@ const SUMMARY_COLUMNS = `
   tickets.id AS id, tickets.ticket_ref AS ref, tickets.subject AS subject,
   tickets.status AS status, tickets.created_at AS created_at,
   tickets.updated_at AS updated_at, tickets.closed_at AS closed_at,
+  tickets.grant_id AS service_grant_id,
   (SELECT orders.order_ref FROM services
      JOIN payments ON payments.id = services.payment_id
      JOIN orders ON orders.id = payments.order_id
@@ -168,6 +186,7 @@ function summaryFrom(row: Record<string, unknown>): TicketSummary {
     subject: text(row, "subject"),
     status: status(row),
     serviceOrderRef: nullableText(row, "service_order_ref"),
+    serviceGrantId: nullableInteger(row, "service_grant_id"),
     createdAt: text(row, "created_at"),
     updatedAt: text(row, "updated_at"),
     closedAt: nullableText(row, "closed_at"),
@@ -176,17 +195,26 @@ function summaryFrom(row: Record<string, unknown>): TicketSummary {
   };
 }
 
-function messagesFor(database: DatabaseConnection, ticketId: number): TicketMessage[] {
-  return database
+function messagesFor(
+  database: DatabaseConnection,
+  ticketId: number,
+  ticketRef: string,
+  admin: boolean,
+): TicketMessage[] {
+  const rows = database
     .prepare(
-      `SELECT author_role, body, created_at FROM ticket_messages
+      `SELECT id, author_role, body, created_at FROM ticket_messages
         WHERE ticket_id = ? ORDER BY id ASC LIMIT ?`,
     )
     .all(ticketId, TICKET_MESSAGES_MAX)
-    .map((raw) => {
-      const row = asRow(raw);
-      return { role: role(row.author_role), body: text(row, "body"), createdAt: text(row, "created_at") };
-    });
+    .map((raw) => asRow(raw));
+  const attachments = attachmentsForTicket(database, ticketId, ticketRef, admin);
+  return rows.map((row) => ({
+    role: role(row.author_role),
+    body: text(row, "body"),
+    createdAt: text(row, "created_at"),
+    attachments: attachments.get(integer(row, "id")) ?? [],
+  }));
 }
 
 function page<Item>(rows: Item[], pageNumber: number): TicketPage<Item> {
@@ -224,7 +252,7 @@ function findAny(database: DatabaseConnection, ref: string): Record<string, unkn
 function ownedDetail(database: DatabaseConnection, userId: number, ref: string): TicketDetail {
   const row = findOwned(database, userId, ref);
   if (row === null) throw new TicketDomainError(404, "not_found");
-  return { ...summaryFrom(row), messages: messagesFor(database, integer(row, "id")) };
+  return { ...summaryFrom(row), messages: messagesFor(database, integer(row, "id"), ref, false) };
 }
 
 function adminDetail(database: DatabaseConnection, ref: string): AdminTicketDetail {
@@ -233,7 +261,7 @@ function adminDetail(database: DatabaseConnection, ref: string): AdminTicketDeta
   return {
     ...summaryFrom(row),
     customerEmail: text(row, "customer_email"),
-    messages: messagesFor(database, integer(row, "id")),
+    messages: messagesFor(database, integer(row, "id"), ref, true),
   };
 }
 
@@ -248,18 +276,22 @@ function insertMessage(
   authorUserId: number,
   body: string,
   createdAt: string,
-): void {
+): number {
   const count = integer(
     asRow(database.prepare("SELECT COUNT(*) AS count FROM ticket_messages WHERE ticket_id = ?").all(ticketId)[0]),
     "count",
   );
   if (count >= TICKET_MESSAGES_MAX) throw new TicketDomainError(409, "message_limit_reached");
-  database
+  const inserted = database
     .prepare(
       `INSERT INTO ticket_messages (ticket_id, author_role, author_user_id, body, created_at)
        VALUES (?, ?, ?, ?, ?)`,
     )
     .run(ticketId, authorRole, authorUserId, body, createdAt);
+  if (inserted.lastInsertRowid === undefined) {
+    throw new Error("Ticket message insertion failed");
+  }
+  return Number(inserted.lastInsertRowid);
 }
 
 export interface CreateTicketInput extends Clock {
@@ -267,11 +299,18 @@ export interface CreateTicketInput extends Clock {
   readonly subject: string;
   readonly body: string;
   readonly serviceOrderRef: string | null;
+  readonly serviceGrantId?: number | null;
+  readonly attachments?: readonly PreparedAttachment[];
   readonly randomRef?: () => Buffer;
 }
 
 export function createTicket(database: DatabaseConnection, input: CreateTicketInput): TicketDetail {
   const operation = database.transaction(() => {
+    const serviceGrantId = input.serviceGrantId ?? null;
+    // 服务与赠送二选一；两个标识同时给出与未知标识一样被拒绝。
+    if (input.serviceOrderRef !== null && serviceGrantId !== null) {
+      throw new TicketDomainError(400, "invalid_link");
+    }
     let serviceId: number | null = null;
     if (input.serviceOrderRef !== null) {
       // 只有属于该客户的服务可以关联；他人或不存在的服务给同一个错误。
@@ -286,6 +325,19 @@ export function createTicket(database: DatabaseConnection, input: CreateTicketIn
       if (rows.length !== 1) throw new TicketDomainError(400, "invalid_service");
       serviceId = integer(asRow(rows[0]), "id");
     }
+    let grantId: number | null = null;
+    if (serviceGrantId !== null) {
+      // 新工单只能关联属于该客户且仍有效的赠送；他人、不存在或已撤销同错。
+      const rows = database
+        .prepare("SELECT user_id, status FROM admin_grants WHERE id = ?")
+        .all(serviceGrantId);
+      if (rows.length !== 1) throw new TicketDomainError(400, "invalid_grant");
+      const grant = asRow(rows[0]);
+      if (integer(grant, "user_id") !== input.userId || text(grant, "status") !== "active") {
+        throw new TicketDomainError(400, "invalid_grant");
+      }
+      grantId = serviceGrantId;
+    }
     const createdAt = nowIso(input);
     const generate = input.randomRef ?? (() => randomBytes(8));
     let ref = "";
@@ -297,12 +349,20 @@ export function createTicket(database: DatabaseConnection, input: CreateTicketIn
     if (ref === "") throw new Error("Ticket reference generation failed");
     database
       .prepare(
-        `INSERT INTO tickets (ticket_ref, user_id, service_id, subject, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'open', ?, ?)`,
+        `INSERT INTO tickets (ticket_ref, user_id, service_id, grant_id, subject, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'open', ?, ?)`,
       )
-      .run(ref, input.userId, serviceId, input.subject, createdAt, createdAt);
+      .run(ref, input.userId, serviceId, grantId, input.subject, createdAt, createdAt);
     const ticketId = integer(asRow(database.prepare("SELECT id FROM tickets WHERE ticket_ref = ?").all(ref)[0]), "id");
-    insertMessage(database, ticketId, "customer", input.userId, input.body, createdAt);
+    const messageId = insertMessage(database, ticketId, "customer", input.userId, input.body, createdAt);
+    insertTicketAttachments(database, {
+      ticketId,
+      ownerUserId: input.userId,
+      messageId,
+      attachments: input.attachments ?? [],
+      createdAt,
+      ...(input.randomRef ? { randomRef: input.randomRef } : {}),
+    });
     return ownedDetail(database, input.userId, ref);
   });
   return operation.immediate();
@@ -329,7 +389,13 @@ export function getOwnTicket(database: DatabaseConnection, userId: number, ref: 
 
 export function replyAsCustomer(
   database: DatabaseConnection,
-  input: Clock & { readonly userId: number; readonly ref: string; readonly body: string },
+  input: Clock & {
+    readonly userId: number;
+    readonly ref: string;
+    readonly body: string;
+    readonly attachments?: readonly PreparedAttachment[];
+    readonly randomRef?: () => Buffer;
+  },
 ): TicketDetail {
   const operation = database.transaction(() => {
     const row = findOwned(database, input.userId, input.ref);
@@ -337,7 +403,15 @@ export function replyAsCustomer(
     if (status(row) === "closed") throw new TicketDomainError(409, "ticket_closed");
     const ticketId = integer(row, "id");
     const createdAt = nowIso(input);
-    insertMessage(database, ticketId, "customer", input.userId, input.body, createdAt);
+    const messageId = insertMessage(database, ticketId, "customer", input.userId, input.body, createdAt);
+    insertTicketAttachments(database, {
+      ticketId,
+      ownerUserId: input.userId,
+      messageId,
+      attachments: input.attachments ?? [],
+      createdAt,
+      ...(input.randomRef ? { randomRef: input.randomRef } : {}),
+    });
     database
       .prepare("UPDATE tickets SET status = 'open', updated_at = ? WHERE id = ? AND status <> 'closed'")
       .run(createdAt, ticketId);

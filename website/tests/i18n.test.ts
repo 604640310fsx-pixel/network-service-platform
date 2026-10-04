@@ -181,7 +181,7 @@ function renderer() {
 }
 
 const PAGES: Array<{ file: string; name: string; url?: string; zh: string[]; en: string[] }> = [
-  { file: "app/components/home/HomePage.tsx", name: "HomePage", zh: ["先判断当前网络环境", "首页", "实时监控", "可选地区", "新加坡"], en: ["Not every problem needs a new network", "Home", "Live monitor", "Available regions", "Singapore", "Real Residential Broadband", "China Telecom"] },
+  { file: "app/components/home/HomePage.tsx", name: "HomePage", zh: ["先判断当前网络环境", "首页", "实时监控", "推荐地区", "新加坡"], en: ["Not every problem needs a new network", "Home", "Live monitor", "Recommended Regions", "Singapore", "China Telecom"] },
   { file: "app/components/auth/LoginPage.tsx", name: "LoginPage", url: "/login", zh: ["登录客户中心", "忘记密码？", "去注册"], en: ["Sign in to the dashboard", "Forgot password?", "No account yet? "] },
   { file: "app/components/auth/RegisterPage.tsx", name: "RegisterPage", url: "/register", zh: ["注册客户中心", "邀请码", "发送验证码"], en: ["Create your account", "Invite code", "Send code"] },
   { file: "app/components/auth/ForgotPasswordPage.tsx", name: "ForgotPasswordPage", url: "/forgot-password", zh: ["忘记密码", "发送重置链接"], en: ["Forgot password", "Send reset link"] },

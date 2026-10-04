@@ -399,6 +399,20 @@ test("signed authoritative query SUCCESS restores a locally closed payment", asy
       assert.equal(response.json().status, "paid");
       assert.equal(response.json().service.status, "pending_open");
       assert.deepEqual(sdk.queryOptions, [{ validateSign: true }]);
+      // 本地先关后到的权威支付在同一事务内留下真实待退款记录：结算标记 + 退款案。
+      const paymentRow = database
+        .prepare("SELECT id FROM payments WHERE out_trade_no = ?")
+        .all(order.orderRef)[0] as { id: number };
+      const settlement = database
+        .prepare("SELECT state, provider_trade_no FROM wallet_order_settlements")
+        .all()[0] as { state: string; provider_trade_no: string } | undefined;
+      assert.equal(settlement?.state, "PAID_AFTER_LOCAL_CLOSE_REFUND_PENDING");
+      assert.equal(settlement?.provider_trade_no, "trade-123");
+      const refundCase = database
+        .prepare("SELECT service_id, refund_state FROM wallet_refund_cases WHERE source_kind = 'ORIGINAL_PAYMENT' AND source_id = ?")
+        .all(paymentRow.id)[0] as { service_id: number; refund_state: string } | undefined;
+      assert.equal(refundCase?.refund_state, "AWAITING_POLICY");
+      assert.equal(typeof refundCase?.service_id, "number");
     } finally {
       await app.close();
     }

@@ -124,9 +124,8 @@ test("formal referral center states closed actions and leaves withdrawal disable
     "utf8",
   );
   assert.doesNotMatch(center, /注册暂未开放/);
-  assert.match(center, /当前仅开放邀请注册，推荐链接中的代码同时是你的个人邀请码，只能用于注册，不能登录你的账户/);
+  assert.match(center, /当前仅开放邀请注册。推荐链接中的代码也是你的个人邀请码，只能用于注册，不能登录你的账户/);
   assert.doesNotMatch(center, /推荐链接不包含邀请码/);
-  assert.match(center, /仅限邀请注册 · 推广二维码/);
   assert.doesNotMatch(center, /获取邀请码|申请邀请码|开放注册|自助注册/);
   assert.match(center, /提现门槛：已结算余额满 ¥1,000.00（功能开放后适用）/);
   assert.match(center, /提现功能暂未开放/);

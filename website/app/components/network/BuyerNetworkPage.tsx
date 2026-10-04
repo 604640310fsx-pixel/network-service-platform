@@ -37,8 +37,8 @@ import "./buyer-network.css";
    赠送套餐（services 中 source=grant）与其交付线路（delivery-lines 中 source=grant）按赠送 id
    单独成组，计入「关联服务」，同样只显示线路名称；
    服务属性名称来自已冻结的 SUBSCRIBE-CATALOG-V1（目录标称，非实测值）。节点在线 / 超时 /
-   离线、实际用量、配额与重置周期没有公共契约，一律显示「待接入」的未知态：参考稿里的
-   0 在本页一律写成 —，绝不渲染伪造的 0 值或 Mock 生产数据。
+   离线来自私有监控；用量来自既有 subscription-info 接口。缺失字段保持未知，
+   明确报告的 0 保留为 0；重置周期没有来源，显示未知。
    交付线路只展示后端已脱敏的 orderRef / position / label 三项，绝不展示订阅地址、主机名、
    IP、面板地址、凭据、监控 ID 或供应商身份；线路条数也不当作在线节点数使用。
    三个接口相互独立：交付线路读取失败时保留仍然有效的服务与订单，只降级为局部警告 + 重试。
@@ -240,7 +240,7 @@ function PanelHead({
   title: string;
   titleId: string;
   subline: string;
-  tag: string;
+  tag?: string;
   icon: ReactNode;
 }) {
   return (
@@ -251,7 +251,7 @@ function PanelHead({
         <h2 id={titleId}>{title}</h2>
         <p>{subline}</p>
       </div>
-      <span className="cc-net-tag">{tag}</span>
+      {tag && <span className="cc-net-tag">{tag}</span>}
     </div>
   );
 }
@@ -816,7 +816,6 @@ function TrafficPanel({
         title={t.network.trafficTitle}
         titleId="cc-net-traffic-title"
         subline={t.network.trafficSubline}
-        tag={totals.lines > 0 ? t.network.usage.tagLive : t.network.trafficTag}
         icon={<TrafficIcon />}
       />
 
@@ -830,7 +829,7 @@ function TrafficPanel({
               {fact === "reset"
                 ? (usageLines.length > 0 ? t.network.usage.resetHint : t.network.trafficFacts.reset.hint)
                 : summary[fact] !== null
-                  ? t.network.usage.aggregateHint(totals.lines)
+                  ? t.network.usage.aggregateHint(fact === "used" ? totals.usedLines : totals.remainingLines)
                   : t.network.trafficFacts[fact].hint}
             </small>
           </div>
@@ -902,7 +901,6 @@ function TrafficPanel({
               <span>{t.network.columns.service}</span>
               <span>{t.network.columns.traffic}</span>
               <span>{t.network.columns.bandwidth}</span>
-              <span>{t.network.columns.usage}</span>
             </li>
             {accountServices.map((service) => (
               <li className="cc-net-traffic-row" key={service.orderRef}>
@@ -919,10 +917,6 @@ function TrafficPanel({
                 <span>
                   <i className="cc-net-cell-label">{t.network.columns.bandwidth}</i>
                   {service.bandwidth ?? t.network.notInCatalog}
-                </span>
-                <span className="cc-net-traffic-unknown">
-                  <i className="cc-net-cell-label">{t.network.columns.usage}</i>
-                  {t.network.pending}
                 </span>
               </li>
             ))}

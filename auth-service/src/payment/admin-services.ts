@@ -159,6 +159,9 @@ export interface AdminServiceView {
   readonly endsAt: string | null;
   readonly planLabel: string | null;
   readonly adminNote: string | null;
+  /** Wallet consent state driving the admin next-billing-period control (Migration 026);
+      DISABLED/revision 0/period null when the owner never consented. */
+  readonly renewal: { readonly state: string; readonly revision: number; readonly period: string | null };
   /** Delivered lines with their VPS binding (null = opened while monitoring was unavailable). */
   readonly deliveryLines: ReadonlyArray<{ readonly position: number; readonly label: string; readonly monitorTargetKey: string | null }>;
 }
@@ -237,7 +240,28 @@ function adminServiceView(value: unknown, database?: DatabaseConnection): AdminS
     endsAt: nullableText(row, "ends_at"),
     planLabel: planOverrideLabel(row.plan_override),
     adminNote: nullableText(row, "admin_note"),
+    renewal: database === undefined
+      ? { state: "DISABLED", revision: 0, period: null }
+      : adminRenewalView(database, integer(row, "service_id")),
     deliveryLines: database === undefined ? [] : serviceDeliveryLines(database, integer(row, "service_id")),
+  };
+}
+
+function adminRenewalView(
+  database: DatabaseConnection,
+  serviceId: number,
+): { readonly state: string; readonly revision: number; readonly period: string | null } {
+  const row = database
+    .prepare("SELECT state, revision, next_billing_period FROM wallet_consents WHERE service_id = ?")
+    .all(serviceId)[0];
+  if (row === undefined || row === null || typeof row !== "object") {
+    return { state: "DISABLED", revision: 0, period: null };
+  }
+  const value = asRow(row, "Admin renewal consent");
+  return {
+    state: text(value, "state"),
+    revision: integer(value, "revision"),
+    period: nullableText(value, "next_billing_period"),
   };
 }
 

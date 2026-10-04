@@ -8,7 +8,58 @@ import {
   type ServiceStatus,
 } from "../../lib/payment-api";
 import { useT, type Messages } from "../../lib/i18n";
+import { useAuth } from "../../lib/auth";
+import { WalletApiError, cancelMyOrder } from "../../lib/wallet-api";
 import "./customer-orders.css";
+
+/* 未付款订单取消（后端 f1e0898 POST /api/me/orders/:orderRef/cancel）：两步确认；结果只按服务端
+   result 显示，并重新读取订单列表。已付 409 not_cancellable 时刷新列表；失败不改本地状态。 */
+function CancelUnpaidOrder({ orderRef, onDone }: { orderRef: string; onDone: (message: string) => void }) {
+  const copy = useT().wallet.orderCancel;
+  const { csrfToken } = useAuth();
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function confirmCancel() {
+    if (csrfToken === null || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await cancelMyOrder(csrfToken, orderRef);
+      onDone(result === "CANCELLED" ? copy.cancelled(orderRef) : copy.alreadyCancelled(orderRef));
+    } catch (cancelError) {
+      const code = cancelError instanceof WalletApiError ? cancelError.code : "";
+      if (code === "not_cancellable") {
+        onDone(copy.notCancellable);
+        return;
+      }
+      setError(
+        code === "unauthorized" ? copy.errors.unauthorized
+          : code === "csrf_invalid" ? copy.errors.csrfInvalid
+            : code === "not_found" ? copy.errors.notFound
+              : code === "network_error" ? copy.errors.network
+                : copy.errors.unavailable,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!asking) {
+    return <button type="button" className="cc-ord-ghost" disabled={csrfToken === null} onClick={() => setAsking(true)}>{copy.action}</button>;
+  }
+  return (
+    <div className="cc-ord-cancel" role="group" aria-label={copy.action}>
+      <span className="cc-ord-cancel-prompt">{copy.prompt}</span>
+      <button type="button" className="cc-ord-ghost cc-ord-cancel-confirm" disabled={busy} aria-busy={busy} onClick={() => void confirmCancel()}>
+        {busy ? copy.cancelling : copy.confirm}
+      </button>
+      <button type="button" className="cc-ord-ghost" disabled={busy} onClick={() => { setAsking(false); setError(null); }}>{copy.keep}</button>
+      {error && <p className="cc-ord-cancel-error" role="alert">{error}</p>}
+    </div>
+  );
+}
 
 /* /orders 客户中心「订单」页：数据只来自 GET /api/me/orders（listMyOrders），
    仅展示公共契约允许的客户字段。不展示 contact / notes / scenarios / tradeNo /
@@ -81,6 +132,12 @@ export function CustomerOrdersPage() {
   const t = useT();
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  function afterCancel(message: string) {
+    setNotice(message);
+    setReloadToken((token) => token + 1);
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -208,6 +265,7 @@ export function CustomerOrdersPage() {
 
       <section className="cc-ord-panel">
         <PanelHead tag={t.account.itemCount(items.length)} />
+        {notice && <p className="cc-ord-cancel-notice" role="status">{notice}</p>}
         <ul className="cc-ord-list">
           {items.map((item) => (
             <li className="cc-ord-item" key={item.orderRef}>
@@ -262,6 +320,7 @@ export function CustomerOrdersPage() {
                 >
                   {t.orders.viewStatus}
                 </Link>
+                {item.status === "pending" && <CancelUnpaidOrder orderRef={item.orderRef} onDone={afterCancel} />}
               </div>
             </li>
           ))}

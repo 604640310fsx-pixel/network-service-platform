@@ -59,13 +59,19 @@ export const STANDARD19_22_RELEASE_SCHEMA_ROUTE = "standard19-22";
 export const STANDARD16_23_RELEASE_SCHEMA_ROUTE = "standard16-23";
 export const DIRECT14_23_RELEASE_SCHEMA_ROUTE = "direct14-23";
 export const STANDARD19_23_RELEASE_SCHEMA_ROUTE = "standard19-23";
-// Current routes for the repository's 001-024 sequence (gift delivery VPS binding).
-// The -23 routes stay recognized only for already-built 001-023 bundles.
 export const STANDARD16_24_RELEASE_SCHEMA_ROUTE = "standard16-24";
 export const DIRECT14_24_RELEASE_SCHEMA_ROUTE = "direct14-24";
 export const STANDARD19_24_RELEASE_SCHEMA_ROUTE = "standard19-24";
-export const DEFAULT_RELEASE_SCHEMA_ROUTE = STANDARD16_24_RELEASE_SCHEMA_ROUTE;
-export const DIRECT14_RELEASE_SCHEMA_ROUTE = DIRECT14_24_RELEASE_SCHEMA_ROUTE;
+// The -25 and older routes stay recognized only for already-built historical bundles.
+export const STANDARD16_25_RELEASE_SCHEMA_ROUTE = "standard16-25";
+export const DIRECT14_25_RELEASE_SCHEMA_ROUTE = "direct14-25";
+export const STANDARD19_25_RELEASE_SCHEMA_ROUTE = "standard19-25";
+// Current routes for the repository's 001-026 sequence (wallet accounting tables).
+export const STANDARD16_26_RELEASE_SCHEMA_ROUTE = "standard16-26";
+export const DIRECT14_26_RELEASE_SCHEMA_ROUTE = "direct14-26";
+export const STANDARD19_26_RELEASE_SCHEMA_ROUTE = "standard19-26";
+export const DEFAULT_RELEASE_SCHEMA_ROUTE = STANDARD16_26_RELEASE_SCHEMA_ROUTE;
+export const DIRECT14_RELEASE_SCHEMA_ROUTE = DIRECT14_26_RELEASE_SCHEMA_ROUTE;
 export const RELEASE_SCHEMA_BOUNDARIES = Object.freeze({
   [STANDARD16_19_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 16, candidate: 19 }),
   [DIRECT14_19_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 14, candidate: 19 }),
@@ -84,9 +90,15 @@ export const RELEASE_SCHEMA_BOUNDARIES = Object.freeze({
   [STANDARD16_24_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 16, candidate: 24 }),
   [DIRECT14_24_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 14, candidate: 24 }),
   [STANDARD19_24_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 19, candidate: 24 }),
+  [STANDARD16_25_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 16, candidate: 25 }),
+  [DIRECT14_25_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 14, candidate: 25 }),
+  [STANDARD19_25_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 19, candidate: 25 }),
+  [STANDARD16_26_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 16, candidate: 26 }),
+  [DIRECT14_26_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 14, candidate: 26 }),
+  [STANDARD19_26_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 19, candidate: 26 }),
 });
 export const RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE =
-  "--schema-route must be standard16-19, direct14-19, standard16-20, direct14-20, standard19-20, standard16-21, direct14-21, standard19-21, standard16-22, direct14-22, standard19-22, standard16-23, direct14-23, standard19-23, standard16-24, direct14-24, or standard19-24";
+  "--schema-route must be standard16-19, direct14-19, standard16-20, direct14-20, standard19-20, standard16-21, direct14-21, standard19-21, standard16-22, direct14-22, standard19-22, standard16-23, direct14-23, standard19-23, standard16-24, direct14-24, standard19-24, standard16-25, direct14-25, standard19-25, standard16-26, direct14-26, or standard19-26";
 const DIRECT14_RELEASE_SCHEMA_ROUTES = Object.freeze(
   new Set([
     DIRECT14_19_RELEASE_SCHEMA_ROUTE,
@@ -95,6 +107,8 @@ const DIRECT14_RELEASE_SCHEMA_ROUTES = Object.freeze(
     DIRECT14_22_RELEASE_SCHEMA_ROUTE,
     DIRECT14_23_RELEASE_SCHEMA_ROUTE,
     DIRECT14_24_RELEASE_SCHEMA_ROUTE,
+    DIRECT14_25_RELEASE_SCHEMA_ROUTE,
+    DIRECT14_26_RELEASE_SCHEMA_ROUTE,
   ]),
 );
 export function isKnownReleaseSchemaRoute(schemaRoute) {
@@ -124,7 +138,9 @@ export function releaseArtifactNameForRoute(sha, schemaRoute) {
         schemaRoute === STANDARD19_21_RELEASE_SCHEMA_ROUTE ||
         schemaRoute === STANDARD19_22_RELEASE_SCHEMA_ROUTE ||
         schemaRoute === STANDARD19_23_RELEASE_SCHEMA_ROUTE ||
-        schemaRoute === STANDARD19_24_RELEASE_SCHEMA_ROUTE
+        schemaRoute === STANDARD19_24_RELEASE_SCHEMA_ROUTE ||
+        schemaRoute === STANDARD19_25_RELEASE_SCHEMA_ROUTE ||
+        schemaRoute === STANDARD19_26_RELEASE_SCHEMA_ROUTE
       ? STANDARD19_RELEASE_ARTIFACT_PREFIX
       : RELEASE_ARTIFACT_PREFIX;
   return `${prefix}${sha}`;
@@ -170,8 +186,16 @@ export const RELEASE_MIGRATIONS_001_024 = Object.freeze([
   ...RELEASE_MIGRATIONS_001_023,
   "024_grant_delivery_monitor_target.sql",
 ]);
+export const RELEASE_MIGRATIONS_001_025 = Object.freeze([
+  ...RELEASE_MIGRATIONS_001_024,
+  "025_ticket_attachments_and_grant_link.sql",
+]);
+export const RELEASE_MIGRATIONS_001_026 = Object.freeze([
+  ...RELEASE_MIGRATIONS_001_025,
+  "026_wallet.sql",
+]);
 // The exact sequence of the current repository source.
-export const RELEASE_MIGRATIONS = RELEASE_MIGRATIONS_001_024;
+export const RELEASE_MIGRATIONS = RELEASE_MIGRATIONS_001_026;
 export function releaseMigrationsForRoute(schemaRoute) {
   if (!isKnownReleaseSchemaRoute(schemaRoute)) {
     throw new ReleaseAssemblyError(
@@ -190,7 +214,11 @@ export function releaseMigrationsForRoute(schemaRoute) {
           ? RELEASE_MIGRATIONS_001_022
           : candidate === 23
             ? RELEASE_MIGRATIONS_001_023
-            : RELEASE_MIGRATIONS_001_024;
+            : candidate === 24
+              ? RELEASE_MIGRATIONS_001_024
+              : candidate === 25
+                ? RELEASE_MIGRATIONS_001_025
+                : RELEASE_MIGRATIONS_001_026;
 }
 export const RELEASE_HTTP_CONTRACT_PATHS = Object.freeze([
   "ops/nginx/release-traffic-open.conf.example",
