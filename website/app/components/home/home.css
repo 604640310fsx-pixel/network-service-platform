@@ -645,11 +645,24 @@
 .home-latency-row[data-line="1"] { --wan: #b03533; } /* 广州联通 */
 .home-latency-row[data-line="2"] { --wan: #5a9033; } /* 广州移动 */
 .home-latency-name i { width: 8px; height: 8px; border-radius: 50%; background: var(--wan, #3867c5); }
-.home-latency-track { position: relative; height: 22px; border-bottom: 1px dashed var(--cc-hairline); }
-.home-latency-track i {
-  position: absolute; left: 0; right: 0; top: 50%;
-  height: 1px; background: repeating-linear-gradient(90deg, var(--cc-line) 0 8px, transparent 8px 16px);
+.home-latency-track { position: relative; height: 22px; overflow: hidden; border-bottom: 1px dashed var(--cc-hairline); }
+/* 示意曲线：路径含两个相同周期（viewBox 宽 200），SVG 宽为轨道两倍，平移 -50% 恰好一个周期，无缝循环。
+   只动 transform（合成层），慢速匀速；三条错开相位，避免整齐划一。非实时数据，数值列仍为 —。 */
+.home-latency-curve {
+  position: absolute; left: 0; top: 0;
+  width: 200%; height: 100%;
+  overflow: visible;
+  animation: home-latency-drift 28s linear infinite;
+  will-change: transform;
 }
+.home-latency-curve path {
+  fill: none; stroke: var(--wan, #3867c5); stroke-width: 1.6;
+  stroke-linecap: round; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke; opacity: 0.85;
+}
+.home-latency-row[data-line="1"] .home-latency-curve { animation-duration: 32s; animation-delay: -9s; }
+.home-latency-row[data-line="2"] .home-latency-curve { animation-duration: 36s; animation-delay: -17s; }
+@keyframes home-latency-drift { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 .home-latency-row > b { color: var(--cc-text-4); font-size: 13px; font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; }
 .home-latency-axis { display: flex; justify-content: space-between; margin-top: 10px; color: var(--cc-text-4); font-size: 10.5px; font-variant-numeric: tabular-nums; }
 
@@ -935,7 +948,8 @@
   .home-stage-state i,
   .home-topo-signal,
   .home-routes-panel,
-  .home-showcase-panel { animation: none; }
+  .home-showcase-panel,
+  .home-latency-curve { animation: none; }
   /* 静态状态：仅第 01 阶段"检查中"，其余"待检查"，仍为示意，不表达任何结果 */
   .home-stage-state i { opacity: 0; }
   .home-stage-state .is-pending { opacity: 1; }
