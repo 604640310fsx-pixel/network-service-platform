@@ -59,12 +59,22 @@
 .cc-net-line-delivery { min-width: 0; margin-top: 11px; padding-top: 11px; border-top: 1px dashed var(--cc-hairline); }
 .cc-net-line-delivery-label { display: block; color: var(--cc-text-4); font-size: 11px; letter-spacing: 0.04em; }
 .cc-net-line-labels { list-style: none; margin: 7px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.cc-net-line-label { min-width: 0; display: flex; align-items: flex-start; gap: 9px; padding: 8px 10px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-inset); color: var(--cc-text); text-decoration: none; }
+/* 线路行：序号 · 名称 · 状态徽标 · 服务器状态入口共用同一垂直中线（徽标原本居中、其余顶对齐，四者高度错开）。
+   长名称换行时其余三项仍对齐到名称块中线；左右内边距一致，名称列吸收剩余宽度，窄屏不溢出。 */
+.cc-net-line-label { min-width: 0; display: flex; align-items: center; gap: 9px; min-height: 38px; box-sizing: border-box; padding: 8px 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-inset); color: var(--cc-text); text-decoration: none; }
 .cc-net-line-label:hover { border-color: var(--cc-accent-line); background: var(--cc-accent-tint); }
 .cc-net-line-label:focus-visible { outline: 2px solid #f59e0b; outline-offset: 2px; }
-.cc-net-line-label-index { width: 20px; height: 20px; flex: 0 0 20px; margin-top: 1px; display: grid; place-items: center; border: 1px solid var(--cc-line); border-radius: 6px; background: var(--cc-card); color: var(--cc-text-3); font-size: 11px; font-variant-numeric: tabular-nums; }
-.cc-net-line-label-text { min-width: 0; flex: 1 1 auto; font-size: 12.5px; font-weight: 600; line-height: 1.55; overflow-wrap: anywhere; }
-.cc-net-line-label-go { flex: 0 0 auto; margin-left: auto; padding-top: 1px; color: var(--cc-text-4); font-size: 11px; white-space: nowrap; }
+.cc-net-line-label-index { width: 20px; height: 20px; flex: 0 0 20px; display: grid; place-items: center; border: 1px solid var(--cc-line); border-radius: 6px; background: var(--cc-card); color: var(--cc-text-3); font-size: 11px; line-height: 1; font-variant-numeric: tabular-nums; }
+.cc-net-line-label-text { min-width: 0; flex: 1 1 auto; font-size: 12.5px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+.cc-net-line-label-go { flex: 0 0 auto; margin-left: auto; color: var(--cc-text-4); font-size: 11px; line-height: 1.6; white-space: nowrap; }
+.cc-net-line-label .cc-net-status { align-self: center; }
+/* 窄屏（≤480px）：徽标与「服务器状态」再挤一行会把名称压成一字一行。此时序号 + 名称独占首行，
+   徽标与入口换到第二行：徽标与名称左缘对齐（20px 序号 + 9px 间距），入口靠右；两行各自垂直居中。 */
+@media (max-width: 480px) {
+  .cc-net-line-label { flex-wrap: wrap; row-gap: 6px; }
+  .cc-net-line-label-text { flex-basis: calc(100% - 29px); }
+  .cc-net-line-label .cc-net-status { margin-left: 29px; }
+}
 .cc-net-line-label:hover .cc-net-line-label-go { color: var(--cc-accent); }
 /* 待交付 / 未配置 / 暂不可读取：三种诚实文案共用同一虚线容器，不伪装成线路条目。 */
 .cc-net-line-note { margin: 7px 0 0; padding: 8px 10px; border: 1px dashed var(--cc-line); border-radius: 8px; color: var(--cc-text-3); font-size: 11.5px; line-height: 1.6; overflow-wrap: anywhere; }

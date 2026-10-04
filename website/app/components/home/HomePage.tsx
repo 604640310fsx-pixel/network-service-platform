@@ -253,6 +253,39 @@ function RouteShowcase() {
   );
 }
 
+/* 三网示意曲线（产品预览，非实时数据）：纯形状，不对应任何真实毫秒值，不读取监控接口。
+   每条曲线是一个周期为 100 的平滑闭合波形（Catmull-Rom → 三次贝塞尔），路径画两个周期（0–200），
+   CSS 只把整条路径水平平移半宽即可无缝循环；动画完全由 CSS 驱动，无 JS 帧循环或监听器，
+   组件卸载即停止，prefers-reduced-motion 下静止。 */
+// y 为 viewBox 高 22 内的纵坐标（越小越高）；仅为示意起伏，不代表任何毫秒值。
+const LATENCY_SHAPES: readonly (readonly number[])[] = [
+  [13, 10, 12, 8, 11, 14, 9, 12, 7, 10, 13, 9, 11, 12, 8, 11],     // 电信：较平稳
+  [12, 8, 14, 9, 6, 13, 10, 16, 11, 7, 12, 15, 9, 13, 8, 11],      // 联通：起伏稍大
+  [9, 12, 8, 13, 11, 7, 12, 10, 14, 9, 11, 6, 12, 10, 13, 8],      // 移动：错峰
+];
+
+function periodicCurvePath(values: readonly number[]): string {
+  const count = values.length;
+  const step = 100 / count;
+  // 第 i 个控制点（可越界、按周期取值），两个周期共 2 × count 段。
+  const at = (index: number): [number, number] => [index * step, values[((index % count) + count) % count]!];
+  let d = `M0,${values[0]}`;
+  for (let index = 0; index < 2 * count; index += 1) {
+    const [x0, y0] = at(index - 1);
+    const [x1, y1] = at(index);
+    const [x2, y2] = at(index + 1);
+    const [x3, y3] = at(index + 2);
+    const c1x = x1 + (x2 - x0) / 6;
+    const c1y = y1 + (y2 - y0) / 6;
+    const c2x = x2 - (x3 - x1) / 6;
+    const c2y = y2 - (y3 - y1) / 6;
+    d += ` C${c1x.toFixed(2)},${c1y.toFixed(2)} ${c2x.toFixed(2)},${c2y.toFixed(2)} ${x2.toFixed(2)},${y2.toFixed(2)}`;
+  }
+  return d;
+}
+
+const LATENCY_PATHS = LATENCY_SHAPES.map(periodicCurvePath);
+
 /* 控制台展示：Tabs + 慢速自动切换。hover / focus 暂停，键盘可操作，
    prefers-reduced-motion 下关闭自动切换。 */
 function ConsoleShowcase() {
@@ -328,7 +361,11 @@ function ConsoleShowcase() {
             {copy.views.network.rows.map((row, index) => (
               <div className="home-latency-row" key={row} data-line={index}>
                 <span className="home-latency-name"><i aria-hidden="true" />{row}</span>
-                <span className="home-latency-track" aria-hidden="true"><i /></span>
+                <span className="home-latency-track" aria-hidden="true">
+                  <svg className="home-latency-curve" viewBox="0 0 200 22" preserveAspectRatio="none" focusable="false">
+                    <path d={LATENCY_PATHS[index % LATENCY_PATHS.length]} />
+                  </svg>
+                </span>
                 <b>—</b>
               </div>
             ))}
