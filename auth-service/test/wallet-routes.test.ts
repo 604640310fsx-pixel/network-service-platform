@@ -857,3 +857,19 @@ test("admin orders list: role gates, stored-state DTO, filters, cursor paginatio
     await app.close();
   });
 });
+
+test("admin orders list fails closed with 503 when a required wallet table is missing", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const app = walletApp(database);
+    const admin = user(database, "ao4@example.test", "admin");
+    seedOrder(database, admin.id, { ref: "AL-503" });
+    let res = await get(app, "/api/admin/orders", admin.session);
+    assert.equal(res.statusCode, 200);
+    // 026 钱包表缺失/读取失败是运行时故障：必须 503，绝不 200 空集或假标志。
+    database.exec("DROP TABLE wallet_termination_cases");
+    res = await get(app, "/api/admin/orders", admin.session);
+    assert.equal(res.statusCode, 503);
+    assert.equal(res.json().error.code, "wallet_unavailable");
+    await app.close();
+  });
+});
