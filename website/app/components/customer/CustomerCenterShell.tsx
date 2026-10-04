@@ -12,6 +12,8 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
 import { useI18n, useT } from "../../lib/i18n";
 import { useThemePreference, type ThemePreference } from "../../lib/theme";
+import { useMyWallet } from "../../lib/useWallet";
+import { formatWalletFen } from "../../lib/wallet-api";
 import {
   buildMonitorEmbedUrl,
   createMonitorLangMessage,
@@ -160,6 +162,32 @@ function SidebarMonitorCard({ theme, onNavigate }: { theme: ThemePreference; onN
         {t.center.viewServerStatus}<span aria-hidden="true">→</span>
       </NavLink>
     </section>
+  );
+}
+
+/* 顶栏钱包余额：只在已登录时读取 GET /api/me/wallet。真实 balanceFen（含 0）显示金额；
+   加载中 / 失败 / 会话失效只显示 "—" 并在无障碍标签里说明状态，绝不显示成 ¥0.00。 */
+function HeaderWalletChip() {
+  const t = useT();
+  const { state } = useMyWallet();
+  const ready = state.kind === "ready";
+  const status = ready
+    ? formatWalletFen(state.wallet.balanceFen)
+    : state.kind === "loading"
+      ? t.wallet.loading
+      : state.kind === "unauthorized"
+        ? t.wallet.signedOut
+        : t.wallet.unavailable;
+  return (
+    <span
+      className={`cc-balance-placeholder cc-wallet-chip${ready ? " is-ready" : ""}`}
+      role="status"
+      aria-busy={state.kind === "loading"}
+      aria-label={`${t.wallet.balanceLabel}: ${status}`}
+      title={`${t.wallet.balanceLabel}: ${status}`}
+    >
+      {t.center.balance} <b>{ready ? formatWalletFen(state.wallet.balanceFen) : "—"}</b>
+    </span>
   );
 }
 
@@ -320,7 +348,7 @@ export function CustomerCenterShell({
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
                 )}
               </button>
-              <span className="cc-balance-placeholder" aria-label={t.center.balancePending} title={t.center.balancePending}>{t.center.balance} <b>—</b></span>
+              {authStatus === "authenticated" && <HeaderWalletChip />}
               <Link className="cc-user-link" to="/profile" aria-label={t.center.profileLabel}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="3.4" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></svg><span>{t.center.profile}</span></Link>
               {authStatus === "authenticated" && (
                 <button

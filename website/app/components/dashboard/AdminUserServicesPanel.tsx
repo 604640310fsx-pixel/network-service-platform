@@ -19,6 +19,74 @@ import { useCatalogText, useT, type Messages } from "../../lib/i18n";
 import { PaymentApiError, getAdminMonitorTargets, type AdminMonitorTarget } from "../../lib/payment-api";
 import { resolveSelection } from "../../lib/resolveSelection";
 import { endOfUtcDay, serviceTerm, utcDateInput } from "../../lib/serviceTerm";
+import { BILLING_PERIODS, WalletApiError, setAdminNextBillingPeriod, type BillingPeriod } from "../../lib/wallet-api";
+
+/* 管理员下期续费周期（后端 f1e0898/078231c PUT /api/admin/services/:id/next-billing-period，
+   体仅 { period, expectedRevision }，id 为真实 services.id）。管理员不能开启授权；已开启转为需买家重新确认、
+   未开启保持未开启。保存后由父级重新读取服务列表，状态只以服务端返回为准。 */
+function AdminRenewalPeriod({
+  service,
+  csrfToken,
+  onChanged,
+}: {
+  service: AdminUserService & { readonly renewal: NonNullable<AdminUserService["renewal"]> };
+  csrfToken: string | null;
+  onChanged: () => void;
+}) {
+  const t = useT();
+  const copy = t.wallet.adminRenewal;
+  const nextCopy = t.wallet.nextPeriod;
+  const periods = t.wallet.renewal.periods;
+  const { renewal } = service;
+  const [choice, setChoice] = useState<BillingPeriod>((renewal.period as BillingPeriod | null) ?? "MONTHLY");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const selectId = `dash-usvc-next-period-${service.id}`;
+
+  async function save() {
+    if (csrfToken === null || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await setAdminNextBillingPeriod(csrfToken, service.id, { period: choice, expectedRevision: renewal.revision });
+      onChanged();
+    } catch (caught) {
+      const code = caught instanceof WalletApiError ? caught.code : "";
+      setError(
+        code === "revision_conflict" ? t.wallet.renewal.conflict
+          : code === "quote_unavailable" ? nextCopy.quoteUnavailable
+            : code === "service_closed" ? nextCopy.serviceClosed
+              : code === "forbidden" ? t.wallet.adminOrders.errors.forbidden
+                : code === "csrf_invalid" ? t.wallet.renewal.errors.csrfInvalid
+                  : code === "unauthorized" ? t.wallet.renewal.errors.unauthorized
+                    : code === "not_found" ? t.wallet.renewal.errors.notFound
+                      : t.wallet.renewal.errors.unavailable,
+      );
+      if (code === "revision_conflict") onChanged();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="dash-usvc-renewal" role="group" aria-label={copy.title}>
+      <p className="dash-usvc-meta">
+        {copy.title}: {copy.states[renewal.state] ?? renewal.state} · {nextCopy.label}: {renewal.period === null ? copy.periodNone : periods[renewal.period] ?? renewal.period}
+      </p>
+      <div className="dash-usvc-foot">
+        <label htmlFor={selectId} className="dash-usvc-meta">{nextCopy.label}</label>
+        <select id={selectId} value={choice} disabled={saving} onChange={(event) => setChoice(event.target.value as BillingPeriod)}>
+          {BILLING_PERIODS.map((value) => <option key={value} value={value}>{periods[value]}</option>)}
+        </select>
+        <button type="button" className="dash-usvc-ghost" disabled={saving || csrfToken === null || choice === renewal.period} aria-busy={saving} onClick={() => void save()}>
+          {saving ? nextCopy.saving : nextCopy.save}
+        </button>
+      </div>
+      <p className="dash-usvc-meta">{copy.note}</p>
+      {error && <p className="dash-inline-error" role="alert">{error}</p>}
+    </div>
+  );
+}
 
 /* 用户服务管理（Migration 022）：按邮箱找买家 → 调整已购服务的到期日 / 套餐名 / 内部备注，
    或赠送、撤销不经支付的套餐。日期输入是 UTC 日历日，保存为当天 23:59:59.999Z。
@@ -182,12 +250,14 @@ function ServiceRow({
   copy,
   expiredLabel,
   onSaved,
+  onRenewalChanged,
 }: {
   service: AdminUserService;
   csrfToken: string | null;
   copy: Copy;
   expiredLabel: string;
   onSaved: (service: AdminUserService) => void;
+  onRenewalChanged: () => void;
 }) {
   const [draft, setDraft] = useState<ServiceDraft>(() => draftOf(service));
   const [saving, setSaving] = useState(false);
@@ -266,6 +336,9 @@ function ServiceRow({
           if (csrfToken !== null) onSaved(await bindAdminServiceDelivery(service.id, position, key, csrfToken));
         }}
       />
+      {service.renewal !== null && (
+        <AdminRenewalPeriod service={{ ...service, renewal: service.renewal }} csrfToken={csrfToken} onChanged={onRenewalChanged} />
+      )}
     </li>
   );
 }
@@ -730,6 +803,7 @@ export function AdminUserServicesPanel({ csrfToken }: { csrfToken: string | null
   const [selected, setSelected] = useState<AdminUserSummary | null>(null);
   const [detail, setDetail] = useState<{ services: AdminUserService[]; grants: AdminGrant[] } | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailToken, setDetailToken] = useState(0);
 
   useEffect(() => {
     if (selected === null) return;
@@ -744,7 +818,7 @@ export function AdminUserServicesPanel({ csrfToken }: { csrfToken: string | null
     return () => controller.abort();
     // copy changes with the language only; the loaded data does not depend on it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected]);
+  }, [selected, detailToken]);
 
   async function search(event: FormEvent) {
     event.preventDefault();
@@ -826,6 +900,7 @@ export function AdminUserServicesPanel({ csrfToken }: { csrfToken: string | null
                       onSaved={(updated) =>
                         setDetail((current) => current && { ...current, services: current.services.map((item) => (item.id === updated.id ? updated : item)) })
                       }
+                      onRenewalChanged={() => setDetailToken((token) => token + 1)}
                     />
                   ))}
                 </ul>

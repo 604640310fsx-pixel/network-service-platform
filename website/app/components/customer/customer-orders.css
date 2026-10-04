@@ -277,6 +277,29 @@
   border-top: 1px solid var(--cc-hairline);
 }
 
+/* 未付款订单取消：行内二次确认；结果提示放在列表上方，随列表刷新保留。 */
+.cc-ord-cancel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  flex-basis: 100%;
+}
+.cc-ord-cancel-prompt { color: var(--cc-text-2); font-size: 13px; }
+.cc-ord-cancel-confirm { border-color: var(--cc-accent-line); color: var(--cc-accent); }
+.cc-ord-cancel-error { flex-basis: 100%; margin: 0; color: #e0575b; font-size: 12.5px; }
+.cc-ord-cancel-notice {
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--cc-accent-line);
+  border-radius: 10px;
+  background: var(--cc-accent-tint);
+  color: var(--cc-text-2);
+  font-size: 13px;
+}
+.cc-ord-item-foot button:disabled { cursor: not-allowed; opacity: 0.5; }
+.cc-ord-item-foot button:focus-visible { outline: 2px solid var(--cc-accent-line); outline-offset: 2px; }
+
 /* 操作按钮：沿用 dash-primary-link / ghost 语言 */
 .cc-ord-primary {
   height: 40px;
