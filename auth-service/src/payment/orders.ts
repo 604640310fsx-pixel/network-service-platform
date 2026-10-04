@@ -1177,7 +1177,7 @@ export function openService(
   const operation = database.transaction(() => {
     const rows = database
       .prepare(
-        `SELECT services.status, orders.order_ref
+        `SELECT services.status, orders.order_ref, orders.id AS order_id
          FROM services
          JOIN payments ON payments.id = services.payment_id
          JOIN orders ON orders.id = payments.order_id
@@ -1190,6 +1190,18 @@ export function openService(
     const row = rows[0] as Record<string, unknown>;
     if (row.status !== "pending_open") {
       throw new PaymentDomainError(409, "invalid_transition");
+    }
+    /* Management closure/termination is authoritative and checked against this
+       service's real order inside the same transaction — a closed service can
+       never be opened through any caller. Missing wallet tables surface as a
+       real error (503 at the route), never a silent pass. Zero writes on deny. */
+    const orderId = row.order_id;
+    const closed = typeof orderId === "number" &&
+      database.prepare("SELECT order_id FROM wallet_order_closures WHERE order_id = ?").all(orderId).length > 0;
+    const terminated =
+      database.prepare("SELECT service_id FROM wallet_termination_cases WHERE service_id = ?").all(input.serviceId).length > 0;
+    if (closed || terminated) {
+      throw new PaymentDomainError(409, "service_closed");
     }
     const now = (input.now ?? (() => new Date()))();
     if (!Number.isFinite(now.getTime())) {
