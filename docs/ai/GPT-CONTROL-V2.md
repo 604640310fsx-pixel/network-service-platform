@@ -98,7 +98,7 @@ SWE-2 Max 当前免费待遇按已有账户证据使用，不逐任务重查；�
 
 ### 2.4 Codex 原生同线程下一实质回合 effort 覆盖
 
-本节与 §2.5 是该机制的唯一完整来源；不改变 §1 固定绑定或 §2 路由表，只规定已批准模型/档位如何在原 Codex 线程生效（例如固定经理关键影响裁决使用已批准的 xhigh）。
+本节与 §2.5–2.6 是该机制的唯一完整来源；不改变 §1 固定绑定或 §2 路由表，只规定已批准模型/档位如何在原 Codex 线程生效（例如固定经理关键影响裁决使用已批准的 xhigh）。
 
 - 只使用实际暴露的工具 `send_message_to_thread`，其 `model`/`thinking` 覆盖仅用于 Codex 线程；不发明新接口，不直接接管 app-server。依据 [Codex app-server 文档](https://learn.chatgpt.com/docs/app-server)：`turn/start` 允许覆盖，`turn/steer` 不允许。
 - 目标线程（如固定经理线程）空闲时，发送恰好一条实质问题，附最少新增证据和已批准的精确 model/effort；不主动中断在途回合，不发送空的升档/降档验证回合。
@@ -109,14 +109,40 @@ SWE-2 Max 当前免费待遇按已有账户证据使用，不逐任务重查；�
 
 ### 2.5 Codex 原生 Goal
 
-用户已于 2026-10-05 明确批准原 NSP 采用 Codex 原生 Goal，日期化事实见 [`NSP-PROJECT-KNOWLEDGE.md`](NSP-PROJECT-KNOWLEDGE.md) §10。依据 [Using goals in Codex](https://developers.openai.com/cookbook/examples/codex/using_goals_in_codex)。
+用户已于 2026-10-05 明确批准原 NSP 采用 Codex 原生 Goal，日期化事实见 [`NSP-PROJECT-KNOWLEDGE.md`](NSP-PROJECT-KNOWLEDGE.md) §10。依据 [Using goals in Codex](https://developers.openai.com/cookbook/examples/codex/using_goals_in_codex) 与 [Mastering Codex Remote for engineering](https://developers.openai.com/blog/mastering-codex-remote-for-engineering)（Plan 定路径、Goal 定结果）；通用指南不覆盖本文件冻结的治理。
+
+**定义。** Goal 是一个已经批准、可独立验收的完整阶段结果，不是无限待办或逐条命令目标。它须写清六点：可观察的完成结果；批准依据与当前基线；允许范围；约束与排除项；必要验收证据；blocked 与完成条件。这些由 Packet/摘要已有的 `GOAL`、冻结源、`ALLOWED`、`FORBIDDEN`、`ACCEPTANCE`、`STOP` 字段和现有任务摘要承载，不另建账本。
+
+**创建与继续。**
 
 - 只有项目经理在固定经理线程创建 Goal；执行主管、作者和 Pro 收件 heartbeat 均不创建。
-- 今后获授权且可验证的实质阶段：没有未完成 Goal 时，经理自动 `create_goal`；已有 active Goal 时继续该 Goal；旧 Goal 只有在有证据的验收后才标记 complete，然后再创建新 Goal。问答、状态查询或没有真实剩余工作时不创建 Goal。
+- 没有未完成 Goal 且下一阶段已经批准、可验证时，经理启用（`create_goal`）；已有未完成 Goal 时继续该 Goal，不清除、不缩小，也不以修 Bug 替代原结果。旧 Goal 只有在有证据的验收后才标记 complete，然后再为下一已批准阶段创建新 Goal。问答、状态查询、未批准的想法或没有真实剩余工作时不创建 Goal。
+- 路径只能依据新证据调整，不得静默改变范围、验收标准或敏感契约。
 - 只有用户明确要求时才设置 token budget。
-- complete 仅限目标已达成、有证据且无必需剩余工作；blocked 仅限工具定义的连续不少于 3 个 Goal 回合重复且无进展的阈值；paused 仅限用户明确暂停。
+
+**续行、变化和新依赖。** 只检查三点：它对应哪项未满足的验收条件；是否在本角色和动作授权内；能否复用已有成果或走更小路径。必要且已获准的动作继续；必要但未获准的动作只提交最小决定；顺手或未来优化标为 `DEFERRED`，排除出 Goal。处理时依据新证据、做最小修复和相关验证，保留重试、停止线和预算上限。作者实施、自审、交付后停止写入；主管实际收件后做一次结果复核和材料报告，再续接下一已批准阶段，不等待经理 ACK 或用户“继续”；作者不得自行开始下一任务。必要独立审查和 CI 保留。
+
+**困难与阻断。**
+
+- 遇到困难先使用已批准的更高 effort（§2.4）；关键问题仍未解决才按 §1 路线咨询指定 Pro。请求值、实际值和结果分别记录；升档失败不等于更高档位的技术失败。不得以空 effort 回合、清除 Goal 或新建会话绕过。
+- 没有合法有效的下一动作时，保留目标、worktree 和所有权，说明受影响步骤、缺口、解除条件和负责人；只局部暂停，不维持无意义的 ACTIVE、不轮询、不转做无关任务。停止线和升级按 §1 执行。
+- Goal、Plan、effort 和权限分别判断；未证明的收件、唤醒、切换和恢复能力保持 `UNKNOWN`。
+
+**完成与状态。**
+
+- complete 仅限目标已达成、所有必需验收证据齐全且无必需剩余工作；缺证据为 `PARTIAL` 或实际 blocked。下一 Goal 只对应下一已批准阶段；验收不等于 Ready、merge 或 deploy。
+- 原生 blocked 仅限工具定义的同一阻断条件连续至少 3 个 Goal 回合陷入僵局；paused 仅限用户明确暂停。某一步暂时受影响不等于 Goal paused。
 - Goal 不扩大安装、费用、账户、交易、Git、release 或生产权限；暂停令和停止线继续有效。
 - 只使用原有效线程/进程内受支持的原生续行和材料事件；超时不是终态，不创建重复 Goal 或后台框架。实际运行能力以工具结果为准，不得编造。
+
+### 2.6 Plan 工作方式
+
+只有以下情况才使用 Plan 工作方式或原生 Plan：新阶段的范围或路径尚未确定；存在实质性的备选方案；证据推翻了关键前提；或需要改变敏感/公共契约。已冻结的方案直接复用；普通 Bug 留给原作者处理。
+
+- Plan 交付：首选路径及依据、关键前提与主要反例、最小范围、验收标准、缺失的决定及其负责人。高影响共同契约另按 §1 冻结前的前提/反例要求执行。
+- 局部未决时保留 Goal、作者、branch 和证据，其他独立且已获准的工作继续。由按角色有权的经理/主管裁决；用户保留的决定只提出最小的具体请求。
+- Plan 被接受、退出 Plan 或启用 Goal 都不增加写入或敏感权限。
+- 只使用实际支持的原生入口；不得假装切换，不新建管理线程，只读委派不得写入。仅处于 Plan 模式不保证 Goal 自动续行；不得停留在 Plan 中却声称实施仍在进行。
 
 ## 3. 目标、事实和裁决
 
