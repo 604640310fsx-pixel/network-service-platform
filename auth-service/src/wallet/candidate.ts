@@ -75,15 +75,71 @@ export function createTopupIntent(db: DatabaseConnection, actor: InternalActor, 
     authorize(actor);
     positive(amountFen);
     if (!orderRef) throw new WalletError("INVALID_ORDER_REF");
-    const old = one(db, "SELECT user_id,amount_fen,currency FROM wallet_topups WHERE order_ref=?", orderRef);
-    if (old) {
-      if (old.user_id !== actor.userId || old.amount_fen !== amountFen || old.currency !== "CNY") throw new WalletError("TOPUP_MISMATCH");
-      return "REPLAY";
-    }
-    db.prepare("INSERT INTO wallet_topups(user_id,order_ref,amount_fen,currency) VALUES (?,?,?,'CNY')")
-      .run(actor.userId, orderRef, amountFen);
-    return "CREATED";
+    return insertTopupIntent(db, actor.userId, orderRef, amountFen);
   });
+}
+function insertTopupIntent(db: DatabaseConnection, userId: number, orderRef: string, amountFen: number): "CREATED" | "REPLAY" {
+  const old = one(db, "SELECT user_id,amount_fen,currency FROM wallet_topups WHERE order_ref=?", orderRef);
+  if (old) {
+    if (old.user_id !== userId || old.amount_fen !== amountFen || old.currency !== "CNY") throw new WalletError("TOPUP_MISMATCH");
+    return "REPLAY";
+  }
+  db.prepare("INSERT INTO wallet_topups(user_id,order_ref,amount_fen,currency) VALUES (?,?,?,'CNY')")
+    .run(userId, orderRef, amountFen);
+  return "CREATED";
+}
+/** The binding and intent commit together under SQLite's immediate writer lock. */
+export function createIdempotentTopupIntent(db: DatabaseConnection, actor: InternalActor,
+  idempotencyKey: string, orderRef: string, amountFen: number): string {
+  return write(db, () => {
+    authorize(actor);
+    positive(amountFen);
+    if (!idempotencyKey || !orderRef) throw new WalletError("INVALID_REQUEST");
+    const old = one(db, `SELECT i.order_ref,i.amount_fen,t.user_id AS topup_user_id,
+        t.amount_fen AS topup_amount_fen,t.currency AS topup_currency
+      FROM wallet_topup_idempotency i JOIN wallet_topups t ON t.order_ref=i.order_ref
+      WHERE i.user_id=? AND i.idempotency_key=?`, actor.userId, idempotencyKey);
+    if (old) {
+      if (old.amount_fen !== amountFen) throw new WalletError("IDEMPOTENCY_CONFLICT");
+      if (old.topup_user_id !== actor.userId || old.topup_amount_fen !== amountFen || old.topup_currency !== "CNY") {
+        throw new WalletError("INVARIANT_FAILED");
+      }
+      return text(old.order_ref);
+    }
+    if (insertTopupIntent(db, actor.userId, orderRef, amountFen) !== "CREATED") {
+      throw new WalletError("TOPUP_MISMATCH");
+    }
+    db.prepare(`INSERT INTO wallet_topup_idempotency(user_id,idempotency_key,order_ref,amount_fen)
+      VALUES (?,?,?,?)`).run(actor.userId, idempotencyKey, orderRef, amountFen);
+    return orderRef;
+  });
+}
+
+export interface TopupSnapshot {
+  readonly topupId: string;
+  readonly status: "PENDING" | "SUCCEEDED";
+  readonly amountFen: number;
+  readonly currency: "CNY";
+  readonly succeededAt: string | null;
+}
+/** A succeeded projection requires the committed credit marker and immutable ledger. */
+export function readOwnedTopup(db: DatabaseConnection, userId: number, orderRef: string): TopupSnapshot | null {
+  const row = one(db, `SELECT t.order_ref,t.amount_fen,t.currency,t.credited_at,
+      l.id AS ledger_id,a.user_id AS account_user_id
+    FROM wallet_topups t
+    LEFT JOIN wallet_ledger l ON l.source_key='topup:' || t.order_ref AND l.user_id=t.user_id
+      AND l.kind='TOPUP' AND l.amount_fen=t.amount_fen
+    LEFT JOIN wallet_accounts a ON a.user_id=t.user_id
+    WHERE t.user_id=? AND t.order_ref=?`, userId, orderRef);
+  if (row === null) return null;
+  const credited = row.credited_at !== null;
+  if (row.currency !== "CNY" || credited !== (row.ledger_id !== null) ||
+      (credited && row.account_user_id !== userId)) throw new WalletError("INVARIANT_FAILED");
+  return {
+    topupId: text(row.order_ref), status: credited ? "SUCCEEDED" : "PENDING",
+    amountFen: positive(integer(row.amount_fen)), currency: "CNY",
+    succeededAt: credited ? text(row.credited_at) : null,
+  };
 }
 /** Raw notifications and browser returns must never call this without internal verification. */
 export function creditVerifiedTopup(db: DatabaseConnection, expectedMerchantId: string, event: VerifiedTopup, at: string): "CREDITED" | "REPLAY" {
