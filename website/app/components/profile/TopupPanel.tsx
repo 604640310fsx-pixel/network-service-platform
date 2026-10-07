@@ -42,6 +42,7 @@ export function TopupPanel({ onSucceeded }: { readonly onSucceeded: () => void }
         const snapshot = await getMyTopup(pendingId, controller.signal);
         if (!active || confirmed || snapshot.status !== "SUCCEEDED") return;
         confirmed = true;
+        attempt.current = null;
         setPhase({ kind: "success" });
         onSucceededRef.current();
       } catch {
@@ -66,7 +67,10 @@ export function TopupPanel({ onSucceeded }: { readonly onSucceeded: () => void }
     try {
       const intent = await createMyTopup(csrfToken, key, amountFen);
       setPhase(intent.status === "SUCCEEDED" ? { kind: "success" } : { kind: "waiting", intent });
-      if (intent.status === "SUCCEEDED") onSucceededRef.current();
+      if (intent.status === "SUCCEEDED") {
+        attempt.current = null;
+        onSucceededRef.current();
+      }
     } catch {
       setPhase({ kind: "error", message: t.unavailable });
     }

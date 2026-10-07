@@ -115,6 +115,11 @@ test("signed local callback rejects every invalid fact, credits once, and rolls 
     assert.deepEqual(status.json(), { topupId, status: "SUCCEEDED", amountFen: 1000, currency: "CNY", succeededAt: NOW.toISOString() });
     assert.equal((db.prepare("SELECT count(*) AS n FROM wallet_ledger WHERE kind='TOPUP'").all()[0] as { n: number }).n, 1);
     assert.equal((await app.inject({ method: "GET", url: "/api/me/wallet", headers: { cookie: owner.session.cookie } })).json().balanceFen, 1000);
+    const secondTopupId = (await create(app, owner.session, "key-3")).json().topupId as string;
+    assert.notEqual(secondTopupId, topupId, "the same amount with a fresh key creates a new intent");
+    assert.equal((await send(notice(secondTopupId))).json().result, "CREDITED");
+    assert.equal((db.prepare("SELECT count(*) AS n FROM wallet_ledger WHERE kind='TOPUP'").all()[0] as { n: number }).n, 2);
+    assert.equal((await app.inject({ method: "GET", url: "/api/me/wallet", headers: { cookie: owner.session.cookie } })).json().balanceFen, 2000);
   });
 });
 
