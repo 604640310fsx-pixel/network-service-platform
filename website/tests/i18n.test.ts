@@ -110,20 +110,19 @@ function strings(value: unknown, path = ""): Array<[string, string]> {
   return [];
 }
 
-test("initial language: stored choice wins, else zh* browsers get Chinese and the rest English", async () => {
+test("initial language: a saved zh/en choice wins, everything else is English", async () => {
   const { resolveInitialLang, htmlLangFor, LANG_STORAGE_KEY } = createTsxLoader().load("app/lib/i18n.tsx") as {
-    resolveInitialLang: (stored: string | null, language: string | null | undefined) => string;
+    resolveInitialLang: (stored: string | null) => string;
     htmlLangFor: (lang: string) => string;
     LANG_STORAGE_KEY: string;
   };
   assert.equal(LANG_STORAGE_KEY, "nsp.lang");
-  assert.equal(resolveInitialLang("en", "zh-CN"), "en");
-  assert.equal(resolveInitialLang("zh", "en-US"), "zh");
-  assert.equal(resolveInitialLang(null, "zh-CN"), "zh");
-  assert.equal(resolveInitialLang(null, "zh-TW"), "zh");
-  assert.equal(resolveInitialLang(null, "en-GB"), "en");
-  assert.equal(resolveInitialLang(null, "ja"), "en");
-  assert.equal(resolveInitialLang("fr", undefined), "zh");
+  assert.equal(resolveInitialLang("en"), "en");
+  assert.equal(resolveInitialLang("zh"), "zh");
+  assert.equal(resolveInitialLang(null), "en");
+  assert.equal(resolveInitialLang(""), "en");
+  assert.equal(resolveInitialLang("fr"), "en");
+  assert.equal(resolveInitialLang("zh-CN"), "en");
   assert.equal(htmlLangFor("zh"), "zh-CN");
   assert.equal(htmlLangFor("en"), "en");
 });
@@ -331,19 +330,61 @@ test("the provider reads and persists nsp.lang and switches the dictionary", () 
     assert.equal(store.get("nsp.lang"), "zh");
     store.delete("nsp.lang");
     renderToStaticMarkup(react.createElement(i18n.I18nProvider as never, null, react.createElement(Probe)));
-    assert.equal(captured?.lang, "zh");
+    assert.equal(captured?.lang, "en", "no storage defaults to English even for a zh-CN browser");
+    store.set("nsp.lang", "zh");
+    renderToStaticMarkup(react.createElement(i18n.I18nProvider as never, null, react.createElement(Probe)));
+    assert.equal(captured?.lang, "zh", "saved zh is retained");
+    store.set("nsp.lang", "fr");
+    renderToStaticMarkup(react.createElement(i18n.I18nProvider as never, null, react.createElement(Probe)));
+    assert.equal(captured?.lang, "en", "invalid saved value falls back to English");
+    assert.equal(store.get("nsp.lang"), "fr", "an invalid value is not cleared or rewritten");
   } finally {
     (globalThis as { window?: unknown }).window = previous;
   }
 });
 
-test("outside a provider components fall back to Chinese", () => {
+test("provider defaults to English for any navigator language, a failing store, and without a window", () => {
+  const previous = (globalThis as { window?: unknown }).window;
+  const loader = createTsxLoader();
+  const react = loader.requirePackage("react") as typeof import("react");
+  const { renderToStaticMarkup } = loader.requirePackage("react-dom/server") as typeof import("react-dom/server");
+  const i18n = loader.load("app/lib/i18n.tsx") as {
+    I18nProvider: unknown;
+    useI18n: () => { lang: string; setLang: (lang: "zh" | "en") => void };
+  };
+  let captured: ReturnType<typeof i18n.useI18n> | undefined;
+  const Probe = () => {
+    captured = i18n.useI18n();
+    return react.createElement("span");
+  };
+  const render = () => renderToStaticMarkup(react.createElement(i18n.I18nProvider as never, null, react.createElement(Probe)));
+  const emptyStore = { getItem: () => null, setItem: () => undefined };
+  const throwingStore = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } };
+  try {
+    for (const navigator of [{ language: "zh-CN" }, { language: "zh-TW" }, { language: "en-US" }, { language: "" }, undefined]) {
+      (globalThis as { window?: unknown }).window = { localStorage: emptyStore, navigator };
+      render();
+      assert.equal(captured?.lang, "en", JSON.stringify(navigator));
+    }
+    (globalThis as { window?: unknown }).window = { localStorage: throwingStore, navigator: { language: "zh-CN" } };
+    render();
+    assert.equal(captured?.lang, "en", "unreadable storage defaults to English");
+    assert.doesNotThrow(() => captured?.setLang("zh"), "a failing store must not block the switch");
+    (globalThis as { window?: unknown }).window = undefined;
+    render();
+    assert.equal(captured?.lang, "en", "no window (SSR) defaults to English");
+  } finally {
+    (globalThis as { window?: unknown }).window = previous;
+  }
+});
+
+test("outside a provider components fall back to English", () => {
   const loader = createTsxLoader();
   const react = loader.requirePackage("react") as typeof import("react");
   const { renderToStaticMarkup } = loader.requirePackage("react-dom/server") as typeof import("react-dom/server");
   const { LanguageToggle } = loader.load("app/components/common/LanguageToggle.tsx") as { LanguageToggle: () => unknown };
   const html = renderToStaticMarkup(react.createElement(LanguageToggle as never));
-  assert.match(html, /aria-label="界面语言"/);
-  assert.match(html, /<button type="button" lang="zh-CN" aria-pressed="true" aria-label="切换到中文" class="is-active">中文<\/button>/);
-  assert.match(html, /<button type="button" lang="en" aria-pressed="false" aria-label="Switch to English">EN<\/button>/);
+  assert.match(html, /aria-label="Interface language"/);
+  assert.match(html, /<button type="button" lang="zh-CN" aria-pressed="false" aria-label="切换到中文">中文<\/button>/);
+  assert.match(html, /<button type="button" lang="en" aria-pressed="true" aria-label="Switch to English" class="is-active">EN<\/button>/);
 });
