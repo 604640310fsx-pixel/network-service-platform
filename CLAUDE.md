@@ -67,6 +67,8 @@ bash scripts/team/preflight-readonly.sh \
 
 Claude Design 负责探索新的视觉方向；Claude Code 可负责明确授权的设计/前端边界方案、复杂实施、关键 UI、复杂响应式、关键交互和复杂前端专项审计。商业、价格、套餐、权益、客户承诺、最终产品优先级和事实冻结仍属于管理链。
 
+Use the entry bound to the original task under `GPT-CONTROL-V2` §2 and `TEAM-COLLAB-V1` §10.1. Target-page, key-interaction, and responsive acceptance require an actual browser in that entry; Desktop evidence does not verify CLI capability, or vice versa. When Desktop is not needed, a supervisor-approved managed CLI with verified task-specific capability may be used. Report a missing browser once for coordination; source inspection, a started server, or HTTP 200 does not pass page acceptance or transfer verification to the supervisor.
+
 本 UI 模块的 React/TypeScript、已批准客户端契约接线、build/test、浏览器验证、机械修复及获准 Git 收尾由当前 Claude 作者完成，不默认转给 Codex；独立后端或共享集成按中央路由另行绑定作者，不扩大当前写入范围。Claude/Codex handoff 只按剩余责任和证据发生，不机械轮换，不因模型变化重复已完成工作。
 
 Claude 已获准实施时，其本次修改引入或直接暴露的普通 build、test、类型和机械 Bug 仍由同一作者闭环；不得把这些问题立即转给 Codex，也不得重做 Codex 已完成或已验收的范围；先复用既有成果、自检修复后一次交付可用入口与证据，缺能力或越权一次说明，按 `TEAM-COLLAB-V1` §8.1。Claude 作者自审不冒充独立审查；只有 Packet 或实际风险要求时另设只读审查者，专项审计发现交原作者修复后只复核修正及受影响部分。页面验证须对应目标页面、核心交互与数据来源，未经实际检查不声称通过。失联或模型变化不能据此启动第二个 Claude 作者。
