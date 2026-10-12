@@ -77,14 +77,39 @@ type ConsoleView = {
   kind: "latency" | "route" | "stats";
 };
 
-/* 逐跳表结构对应真实路由追踪字段；跳序号仅为行号，其余一律 —，不展示任何真实 IP。 */
-const routeHops = [
-  { hop: "01", premium: false },
-  { hop: "02", premium: false },
-  { hop: "03", premium: true },
-  { hop: "04", premium: true },
-  { hop: "05", premium: false },
-] as const;
+/* 逐跳表结构对应真实路由追踪字段；以下为虚构演示数据（非实时）：节点名为虚构称谓，
+   ASN 取 RFC 5398 文档保留段，反向解析取 RFC 2606 保留域 example.net，不展示任何 IP。
+   延迟为累计 ms；去程末跳与网络状态页“广州电信”当前值一致。 */
+type DemoHopNode = "gateway" | "metro" | "premiumDomestic" | "premiumCross" | "landing";
+type DemoHop = { node: DemoHopNode; ms: number; region: "gz" | "hk" | "sg"; asn: string; rdns: string; premium?: boolean };
+const DEMO_ROUTES: Record<"outbound" | "return", readonly DemoHop[]> = {
+  outbound: [
+    { node: "gateway", ms: 1, region: "gz", asn: "AS64496", rdns: "gw1.access.example.net" },
+    { node: "metro", ms: 4, region: "gz", asn: "AS64496", rdns: "agg2.metro.example.net" },
+    { node: "premiumDomestic", ms: 7, region: "gz", asn: "AS64500", rdns: "pb-cn.backbone.example.net", premium: true },
+    { node: "premiumCross", ms: 31, region: "hk", asn: "AS64500", rdns: "pb-x.backbone.example.net", premium: true },
+    { node: "landing", ms: 38, region: "sg", asn: "AS64510", rdns: "edge1.landing.example.net" },
+  ],
+  return: [
+    { node: "landing", ms: 1, region: "sg", asn: "AS64510", rdns: "edge1.landing.example.net" },
+    { node: "premiumCross", ms: 30, region: "hk", asn: "AS64500", rdns: "pb-x.backbone.example.net", premium: true },
+    { node: "premiumDomestic", ms: 35, region: "gz", asn: "AS64500", rdns: "pb-cn.backbone.example.net", premium: true },
+    { node: "metro", ms: 38, region: "gz", asn: "AS64496", rdns: "agg2.metro.example.net" },
+    { node: "gateway", ms: 39, region: "gz", asn: "AS64496", rdns: "gw1.access.example.net" },
+  ],
+};
+
+/* 服务管理虚构演示数据（非实时）：用量 ≤ 总量，百分比由数值计算，不含价格或权益。 */
+const DEMO_SERVICE = {
+  services: { running: 3, total: 3 },
+  usage: { used: 412, total: 1000 },
+  expiryDays: 37,
+  tickets: { open: 1, alerts: 0 },
+  uptime: { days: 18, hours: 6 },
+  memory: { used: 2.1, total: 4 },
+  storage: { used: 23, total: 60 },
+} as const;
+const percentOf = (used: number, total: number) => Math.round((used / total) * 100);
 
 const consoleViews: ConsoleView[] = [
   { id: "network", kind: "latency" },
@@ -253,24 +278,26 @@ function RouteShowcase() {
   );
 }
 
-/* 三网示意曲线（产品预览，非实时数据）：纯形状，不对应任何真实毫秒值，不读取监控接口。
-   每条曲线是一个周期为 100 的平滑闭合波形（Catmull-Rom → 三次贝塞尔），路径画两个周期（0–200），
-   CSS 只把整条路径水平平移半宽即可无缝循环；动画完全由 CSS 驱动，无 JS 帧循环或监听器，
-   组件卸载即停止，prefers-reduced-motion 下静止。 */
-// y 为 viewBox 高 22 内的纵坐标（越小越高）；仅为示意起伏，不代表任何毫秒值。
-const LATENCY_SHAPES: readonly (readonly number[])[] = [
-  [13, 10, 12, 8, 11, 14, 9, 12, 7, 10, 13, 9, 11, 12, 8, 11],     // 电信：较平稳
-  [12, 8, 14, 9, 6, 13, 10, 16, 11, 7, 12, 15, 9, 13, 8, 11],      // 联通：起伏稍大
-  [9, 12, 8, 13, 11, 7, 12, 10, 14, 9, 11, 6, 12, 10, 13, 8],      // 移动：错峰
+/* 三网延迟虚构演示数据（非实时）：每条 17 个点 = 近 24 小时每 90 分钟一个点，末点即“现在”。
+   曲线、当前值、24 小时平均与提示文字都由同一组数值计算，保证一致；不读取任何监控接口。
+   曲线静态绘制（Catmull-Rom → 三次贝塞尔），横轴与 -24h…现在 刻度对齐。 */
+const LATENCY_AXIS = { min: 30, max: 70 } as const;
+const DEMO_LATENCY: readonly { samples: readonly number[]; loss: string; health: "ok" | "watch" }[] = [
+  { samples: [37, 36, 35, 37, 39, 41, 40, 38, 36, 35, 37, 42, 44, 41, 39, 37, 38], loss: "0.1%", health: "ok" },    // 电信
+  { samples: [48, 46, 44, 47, 50, 53, 55, 52, 49, 47, 48, 54, 58, 56, 52, 49, 47], loss: "0.3%", health: "ok" },    // 联通
+  { samples: [55, 52, 50, 55, 58, 61, 57, 54, 52, 56, 63, 66, 62, 59, 57, 55, 58], loss: "0.8%", health: "watch" }, // 移动
 ];
 
-function periodicCurvePath(values: readonly number[]): string {
-  const count = values.length;
-  const step = 100 / count;
-  // 第 i 个控制点（可越界、按周期取值），两个周期共 2 × count 段。
-  const at = (index: number): [number, number] => [index * step, values[((index % count) + count) % count]!];
-  let d = `M0,${values[0]}`;
-  for (let index = 0; index < 2 * count; index += 1) {
+// y 为 viewBox 高 22 内的纵坐标（越小越高），按 LATENCY_AXIS 线性映射。
+function latencyCurvePath(samples: readonly number[]): string {
+  const span = LATENCY_AXIS.max - LATENCY_AXIS.min;
+  const points = samples.map((ms, index): [number, number] => [
+    (index / (samples.length - 1)) * 100,
+    2 + ((LATENCY_AXIS.max - ms) / span) * 18,
+  ]);
+  const at = (index: number) => points[Math.min(Math.max(index, 0), points.length - 1)]!;
+  let d = `M${points[0]![0]},${points[0]![1].toFixed(2)}`;
+  for (let index = 0; index < points.length - 1; index += 1) {
     const [x0, y0] = at(index - 1);
     const [x1, y1] = at(index);
     const [x2, y2] = at(index + 1);
@@ -284,7 +311,12 @@ function periodicCurvePath(values: readonly number[]): string {
   return d;
 }
 
-const LATENCY_PATHS = LATENCY_SHAPES.map(periodicCurvePath);
+const LATENCY_ROWS = DEMO_LATENCY.map((row) => ({
+  ...row,
+  path: latencyCurvePath(row.samples),
+  now: row.samples[row.samples.length - 1]!,
+  avg: Math.round(row.samples.reduce((sum, ms) => sum + ms, 0) / row.samples.length),
+}));
 
 /* 控制台展示：Tabs + 慢速自动切换。hover / focus 暂停，键盘可操作，
    prefers-reduced-motion 下关闭自动切换。 */
@@ -293,6 +325,7 @@ function ConsoleShowcase() {
   const copy = t.home.observability;
   const [active, setActive] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [direction, setDirection] = useState<"outbound" | "return">("outbound");
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const onTabKeyDown = makeTabKeyDown(consoleViews.length, active, setActive, tabRefs);
 
@@ -320,7 +353,7 @@ function ConsoleShowcase() {
       <div className="home-showcase-bar">
         <span className="home-console-dots" aria-hidden="true"><i /><i /><i /></span>
         <span className="home-showcase-title">{copy.barTitle(viewCopy.label)}</span>
-        <span className="home-chip is-muted">{copy.previewChip}</span>
+        <span className="home-chip is-demo">{copy.previewChip}</span>
       </div>
 
       <div className="home-showcase-tabs" role="tablist" aria-label={copy.tabsLabel}>
@@ -351,40 +384,71 @@ function ConsoleShowcase() {
         aria-labelledby={`showcase-tab-${view.id}`}
         key={view.id}
       >
-        {/* 网络状态：三网延迟轨道 + 24h 窗口刻度，数值一律 — */}
+        {/* 网络状态：三网延迟曲线 + 24h 窗口刻度，虚构演示数据（非实时） */}
         {view.kind === "latency" ? (
           <div className="home-latency">
             <div className="home-latency-head">
               <b>{copy.latencyTitle}</b>
               <span>{copy.latencyWindow}</span>
             </div>
-            {copy.views.network.rows.map((row, index) => (
-              <div className="home-latency-row" key={row} data-line={index}>
-                <span className="home-latency-name"><i aria-hidden="true" />{row}</span>
-                <span className="home-latency-track" aria-hidden="true">
-                  <svg className="home-latency-curve" viewBox="0 0 200 22" preserveAspectRatio="none" focusable="false">
-                    <path d={LATENCY_PATHS[index % LATENCY_PATHS.length]} />
-                  </svg>
-                </span>
-                <b>—</b>
-              </div>
-            ))}
+            {copy.views.network.rows.map((row, index) => {
+              const data = LATENCY_ROWS[index % LATENCY_ROWS.length]!;
+              const health = copy.health[data.health];
+              return (
+                <div
+                  className="home-latency-row"
+                  key={row}
+                  data-line={index}
+                  title={copy.latencyTip(row, data.now, data.avg, data.loss, health)}
+                >
+                  <span className="home-latency-name">
+                    <i aria-hidden="true" />
+                    <span>
+                      {row}
+                      <em className={`home-latency-health is-${data.health}`}>{health}</em>
+                    </span>
+                  </span>
+                  <span className="home-latency-track" aria-hidden="true">
+                    <svg className="home-latency-curve" viewBox="0 0 100 22" preserveAspectRatio="none" focusable="false">
+                      <path d={data.path} />
+                    </svg>
+                  </span>
+                  <span className="home-latency-value">
+                    <b>{data.now} ms</b>
+                    <small>{copy.lossValue(data.loss)}</small>
+                  </span>
+                </div>
+              );
+            })}
             <div className="home-latency-axis" aria-hidden="true">
               <span>-24h</span><span>-18h</span><span>-12h</span><span>-6h</span><span>{copy.now}</span>
             </div>
+            <p className="home-latency-legend">{copy.latencyLegend(LATENCY_AXIS.min, LATENCY_AXIS.max)}</p>
           </div>
         ) : null}
 
-        {/* 线路质量：去/回程逐跳字段结构对应真实路由追踪；不展示任何真实 IP */}
+        {/* 线路质量：去/回程逐跳字段结构对应真实路由追踪；虚构演示数据，不展示任何 IP */}
         {view.kind === "route" ? (
           <div className="home-route">
             <div className="home-route-head">
-              <span className="home-chip">{copy.forward}</span>
-              <span className="home-chip">{copy.return}</span>
+              <span className="home-route-dir" role="group" aria-label={copy.directionLabel}>
+                {(["outbound", "return"] as const).map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    className={`home-chip${direction === item ? " is-accent" : ""}`}
+                    aria-pressed={direction === item}
+                    onClick={() => setDirection(item)}
+                  >
+                    {item === "outbound" ? copy.forward : copy.return}
+                  </button>
+                ))}
+              </span>
               <span className="home-chip is-muted">ICMP / TCP</span>
               <em>{copy.premiumHint}</em>
             </div>
-            <div className="home-route-table" role="table" aria-label={copy.routeTableLabel}>
+            <p className="home-route-sample">{copy.routeSample[direction]}</p>
+            <div className="home-route-table" role="table" aria-label={`${copy.routeTableLabel} · ${copy.routeSample[direction]}`}>
               <div className="home-route-row is-head" role="row">
                 <span role="columnheader">{copy.columns.hop}</span>
                 <span role="columnheader">{copy.columns.node}</span>
@@ -393,36 +457,53 @@ function ConsoleShowcase() {
                 <span role="columnheader">{copy.columns.asn}</span>
                 <span role="columnheader">{copy.columns.reverse}</span>
               </div>
-              {routeHops.map((hop) => (
-                <div className={`home-route-row${hop.premium ? " is-premium" : ""}`} role="row" key={hop.hop}>
-                  <span role="cell">{hop.hop}</span>
-                  <span role="cell">—</span>
-                  <span role="cell">—</span>
-                  <span role="cell">—</span>
-                  <span role="cell">—</span>
-                  <span role="cell">—</span>
+              {DEMO_ROUTES[direction].map((hop, index) => (
+                <div className={`home-route-row${hop.premium ? " is-premium" : ""}`} role="row" key={`${direction}-${hop.node}`}>
+                  <span role="cell">{String(index + 1).padStart(2, "0")}</span>
+                  <span role="cell">{copy.hopNodes[hop.node]}</span>
+                  <span role="cell">{hop.ms} ms</span>
+                  <span role="cell">{copy.hopRegions[hop.region]}</span>
+                  <span role="cell">{hop.asn}</span>
+                  <span role="cell">{hop.rdns}</span>
                 </div>
               ))}
             </div>
           </div>
         ) : null}
 
-        {/* 服务管理：对齐客户中心 Dashboard 的 OVERVIEW 概览 + SYSTEM 系统状态，值一律 — */}
+        {/* 服务管理：对齐客户中心 Dashboard 的 OVERVIEW 概览 + SYSTEM 系统状态，虚构演示数据（非实时） */}
         {view.kind === "stats" ? (
           <div className="home-showcase-split">
             <div className="home-showcase-stats">
-              {copy.views.service.stats.map((label) => (
-                <div className="home-preview-stat" key={label}>
-                  <span>{label}</span>
-                  <b>—</b>
+              {[
+                { value: copy.servicesValue(DEMO_SERVICE.services.total), sub: copy.servicesSub(DEMO_SERVICE.services.running, DEMO_SERVICE.services.total) },
+                {
+                  value: `${DEMO_SERVICE.usage.used} GB`,
+                  sub: copy.usageSub(DEMO_SERVICE.usage.total, percentOf(DEMO_SERVICE.usage.used, DEMO_SERVICE.usage.total)),
+                  meter: percentOf(DEMO_SERVICE.usage.used, DEMO_SERVICE.usage.total),
+                },
+                { value: copy.daysValue(DEMO_SERVICE.expiryDays), sub: copy.expirySub },
+                { value: `${DEMO_SERVICE.tickets.open} · ${DEMO_SERVICE.tickets.alerts}`, sub: copy.ticketsSub(DEMO_SERVICE.tickets.open, DEMO_SERVICE.tickets.alerts) },
+              ].map((stat, index) => (
+                <div className="home-preview-stat" key={copy.views.service.stats[index]}>
+                  <span>{copy.views.service.stats[index]}</span>
+                  <b>{stat.value}</b>
+                  {stat.meter !== undefined ? (
+                    <i className="home-preview-meter" aria-hidden="true"><i style={{ width: `${stat.meter}%` }} /></i>
+                  ) : null}
+                  <small>{stat.sub}</small>
                 </div>
               ))}
             </div>
             <div className="home-preview-panel">
               <b><em>SYSTEM</em>{copy.systemStatus}</b>
               <div className="home-preview-rows">
-                {copy.views.service.rows.map((row) => (
-                  <div key={row}><span>{row}</span><b>—</b></div>
+                {[
+                  copy.uptimeValue(DEMO_SERVICE.uptime.days, DEMO_SERVICE.uptime.hours),
+                  `${DEMO_SERVICE.memory.used.toFixed(1)} / ${DEMO_SERVICE.memory.total.toFixed(1)} GB · ${percentOf(DEMO_SERVICE.memory.used, DEMO_SERVICE.memory.total)}%`,
+                  `${DEMO_SERVICE.storage.used} / ${DEMO_SERVICE.storage.total} GB · ${percentOf(DEMO_SERVICE.storage.used, DEMO_SERVICE.storage.total)}%`,
+                ].map((value, index) => (
+                  <div key={copy.views.service.rows[index]}><span>{copy.views.service.rows[index]}</span><b>{value}</b></div>
                 ))}
               </div>
             </div>
@@ -478,7 +559,6 @@ export function HomePage() {
                 <div className="home-pipeline-head">
                   <span className="home-console-dots" aria-hidden="true"><i /><i /><i /></span>
                   <b>DIAGNOSTIC PIPELINE</b>
-                  <span className="home-pipeline-flag">{copy.pipeline.flag}</span>
                 </div>
 
                 <div className="home-pipeline-body">

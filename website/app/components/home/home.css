@@ -127,9 +127,10 @@
 .home-section.home-secondary { padding: calc(var(--home-section-y) * 0.68) 0; }
 .home-section.home-secondary h2 { font-size: clamp(21px, 1.8vw, 27px); }
 
-/* 深色技术带：在两种主题下都强制使用冻结的深色令牌值，形成 console 对比。
+/* 深色技术带：深色主题下使用冻结的深色令牌值，形成 console 对比；
+   浅色主题下不再强制深色，改为跟随浅色令牌的浅灰带（见文末浅色主题层次）。
    这里只复用 customer-center.css 已有的深色数值，不引入新配色体系。 */
-.home-section.is-console {
+.cc-home:not([data-theme="light"]) .home-section.is-console {
   --cc-panel: #161a20;
   --cc-card: #1a1e25;
   --cc-inset: #0c1016;
@@ -203,6 +204,7 @@
 }
 .home-chip.is-accent { border-color: var(--cc-accent-line); background: var(--cc-accent-tint); color: var(--cc-accent); }
 .home-chip.is-muted { color: var(--cc-text-4); }
+.home-chip.is-demo { border-style: dashed; color: var(--cc-text-2); }
 
 /* ===================== 按钮 ===================== */
 
@@ -274,11 +276,6 @@
 }
 .home-pipeline-head { display: flex; align-items: center; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid var(--cc-hairline); }
 .home-pipeline-head b { font-size: 12px; font-weight: 600; letter-spacing: 0.1em; white-space: nowrap; }
-.home-pipeline-flag {
-  margin-left: auto; padding: 3px 9px;
-  border: 1px solid var(--cc-accent-line); border-radius: 6px; background: var(--cc-accent-tint);
-  color: var(--cc-accent); font-size: 10.5px; letter-spacing: 0.08em; white-space: nowrap;
-}
 
 .home-pipeline-body { position: relative; padding: 4px 0; }
 
@@ -602,7 +599,10 @@
 
 /* ===================== 05 OBSERVABILITY ===================== */
 
+/* 演示数据中的时间、单位、表头与说明都是需要阅读的内容：卡片内辅助文字统一用 --cc-text-2，深浅主题都可读。 */
 .home-showcase {
+  --cc-text-3: var(--cc-text-2);
+  --cc-text-4: var(--cc-text-2);
   overflow: hidden; border: 1px solid var(--cc-line); border-radius: 18px;
   background: var(--cc-panel); box-shadow: var(--cc-shadow-raised);
 }
@@ -636,7 +636,7 @@
 .home-latency-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
 .home-latency-head b { font-size: 13px; font-weight: 600; }
 .home-latency-head span { color: var(--cc-text-4); font-size: 11.5px; }
-.home-latency-row { display: grid; grid-template-columns: 108px minmax(0, 1fr) 44px; gap: 14px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--cc-hairline); }
+.home-latency-row { display: grid; grid-template-columns: 124px minmax(0, 1fr) 84px; gap: 14px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--cc-hairline); }
 .home-latency-row:last-of-type { border-bottom: 0; }
 .home-latency-name { display: flex; align-items: center; gap: 8px; color: var(--cc-text-2); font-size: 13px; }
 /* 三网身份色以真实监控产品为唯一事实源（monitoring/dashboard-next/static/app.js）：
@@ -644,32 +644,38 @@
 .home-latency-row[data-line="0"] { --wan: #3867c5; } /* 广州电信 */
 .home-latency-row[data-line="1"] { --wan: #b03533; } /* 广州联通 */
 .home-latency-row[data-line="2"] { --wan: #5a9033; } /* 广州移动 */
-.home-latency-name i { width: 8px; height: 8px; border-radius: 50%; background: var(--wan, #3867c5); }
-.home-latency-track { position: relative; height: 22px; overflow: hidden; border-bottom: 1px dashed var(--cc-hairline); }
-/* 示意曲线：路径含两个相同周期（viewBox 宽 200），SVG 宽为轨道两倍，平移 -50% 恰好一个周期，无缝循环。
-   只动 transform（合成层），慢速匀速；三条错开相位，避免整齐划一。非实时数据，数值列仍为 —。 */
+.home-latency-name i { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--wan, #3867c5); }
+.home-latency-name > span { min-width: 0; line-height: 1.35; }
+.home-latency-health { display: block; margin-top: 2px; color: var(--cc-text-3); font-size: 11px; font-style: normal; }
+.home-latency-health.is-watch { color: var(--cc-text); font-weight: 600; }
+.home-latency-track { position: relative; height: 26px; overflow: hidden; border-bottom: 1px dashed var(--cc-hairline); }
+/* 演示曲线：17 个点铺满轨道宽度（viewBox 宽 100），与 -24h…现在 刻度对齐；静态绘制，
+   末点即右侧“当前值”。虚构演示数据，非实时。 */
 .home-latency-curve {
   position: absolute; left: 0; top: 0;
-  width: 200%; height: 100%;
+  width: 100%; height: 100%;
   overflow: visible;
-  animation: home-latency-drift 28s linear infinite;
-  will-change: transform;
 }
 .home-latency-curve path {
   fill: none; stroke: var(--wan, #3867c5); stroke-width: 1.6;
   stroke-linecap: round; stroke-linejoin: round;
-  vector-effect: non-scaling-stroke; opacity: 0.85;
+  vector-effect: non-scaling-stroke; opacity: 0.9;
 }
-.home-latency-row[data-line="1"] .home-latency-curve { animation-duration: 32s; animation-delay: -9s; }
-.home-latency-row[data-line="2"] .home-latency-curve { animation-duration: 36s; animation-delay: -17s; }
-@keyframes home-latency-drift { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-.home-latency-row > b { color: var(--cc-text-4); font-size: 13px; font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; }
-.home-latency-axis { display: flex; justify-content: space-between; margin-top: 10px; color: var(--cc-text-4); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.home-latency-value { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; font-variant-numeric: tabular-nums; }
+.home-latency-value b { color: var(--cc-text); font-size: 14px; font-weight: 600; white-space: nowrap; }
+.home-latency-value small { color: var(--cc-text-3); font-size: 11px; white-space: nowrap; }
+.home-latency-axis { display: flex; justify-content: space-between; margin: 10px 98px 0 138px; color: var(--cc-text-4); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.home-latency-legend { margin: 8px 0 0; color: var(--cc-text-3); font-size: 11.5px; line-height: 1.6; }
 
 /* --- 去回程路由视图：逐跳结构，精品跳金色标记 --- */
 .home-route { display: flex; flex-direction: column; gap: 12px; }
 .home-route-head { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .home-route-head em { margin-left: auto; color: var(--cc-text-4); font-size: 11.5px; font-style: normal; }
+.home-route-dir { display: inline-flex; gap: 6px; }
+.home-route-dir button { font: inherit; font-size: 11.5px; cursor: pointer; transition: border-color 0.14s, color 0.14s; }
+.home-route-dir button:hover { border-color: var(--cc-text-4); color: var(--cc-text); }
+.home-route-dir button.is-accent { font-weight: 600; }
+.home-route-sample { margin: -2px 0 0; color: var(--cc-text-2); font-size: 12.5px; }
 .home-route-table { border: 1px solid var(--cc-line); border-radius: 10px; overflow: hidden; }
 .home-route-row {
   display: grid; grid-template-columns: 52px minmax(0, 1.1fr) 72px minmax(0, 1fr) 72px minmax(0, 1.2fr);
@@ -678,6 +684,7 @@
   color: var(--cc-text-2); font-size: 12.5px; font-variant-numeric: tabular-nums;
 }
 .home-route-row:last-child { border-bottom: 0; }
+.home-route-row > span { min-width: 0; overflow-wrap: anywhere; }
 .home-route-row.is-head { background: var(--cc-inset); color: var(--cc-text-4); font-size: 11px; letter-spacing: 0.08em; }
 .home-route-row.is-premium { background: var(--cc-accent-tint); color: var(--cc-accent); }
 .home-route-row.is-premium > span:first-child { font-weight: 600; }
@@ -685,7 +692,10 @@
 .home-showcase-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .home-preview-stat { padding: 15px 15px 16px; border: 1px solid var(--cc-line); border-radius: 10px; background: var(--cc-card); }
 .home-preview-stat span { display: block; color: var(--cc-text-2); font-size: 12.5px; }
-.home-preview-stat b { display: block; margin-top: 8px; color: var(--cc-text-3); font-size: 25px; font-weight: 600; line-height: 1; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; }
+.home-preview-stat b { display: block; margin-top: 8px; color: var(--cc-text); font-size: 25px; font-weight: 600; line-height: 1; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.home-preview-stat small { display: block; margin-top: 8px; color: var(--cc-text-3); font-size: 11.5px; line-height: 1.5; }
+.home-preview-meter { display: block; height: 4px; margin-top: 10px; overflow: hidden; border-radius: 2px; background: var(--cc-inset); }
+.home-preview-meter i { display: block; height: 100%; border-radius: 2px; background: var(--cc-accent-line); }
 .home-preview-panel { padding: 17px 18px 18px; border: 1px solid var(--cc-line); border-radius: 10px; background: var(--cc-card); }
 .home-preview-panel > b { display: flex; align-items: baseline; gap: 8px; font-size: 13.5px; font-weight: 600; }
 .home-preview-panel > b em { color: var(--cc-text-4); font-size: 10.5px; font-style: normal; letter-spacing: 0.14em; }
@@ -696,9 +706,9 @@
   color: var(--cc-text-2); font-size: 13.5px;
 }
 .home-preview-rows > div:last-child { border-bottom: 0; }
-.home-preview-rows b { color: var(--cc-text-3); font-weight: 500; font-variant-numeric: tabular-nums; }
+.home-preview-rows b { color: var(--cc-text); font-weight: 500; font-variant-numeric: tabular-nums; text-align: right; }
 .home-preview-note { display: flex; align-items: center; gap: 8px; margin: auto 0 0; color: var(--cc-text-3); font-size: 12px; }
-.home-preview-note i { width: 6px; height: 6px; border-radius: 50%; background: var(--cc-text-4); }
+.home-preview-note i { flex: 0 0 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--cc-text-4); }
 
 /* ===================== 06 OPERATIONAL CHAIN ===================== */
 
@@ -815,9 +825,23 @@
 .cc-shell.cc-home[data-theme="light"] { background: #f7f8fa; }
 .cc-home[data-theme="light"] .home-pipeline { background: #eceff3; }
 .cc-home[data-theme="light"] .home-pipeline-inner { background: #fff; }
-/* 注意：PREMIUM ROUTING（.home-routes / .home-topo）与 OBSERVABILITY 都在 .is-console
-   强制深色技术带内，浅色主题下不得给它们改白底，否则近白文字（CN2 GIA / AS9929 / CMIN2）
-   会变成白字白底。此处只覆盖跟随主题的普通段（DIAGNOSIS / RESIDENTIAL / REGIONS / TYPES）。 */
+/* PREMIUM ROUTING 与 OBSERVABILITY（.is-console）在浅色主题下跟随浅色令牌：
+   浅灰带 + 白色面板，文字/描边/金色选中态全部走浅色 --cc-* 值，保证可读。
+   深色主题仍为上方强制深色技术带，不受影响。 */
+.cc-home[data-theme="light"] .home-section.is-console {
+  --cc-text-3: var(--cc-text-2);
+  --cc-text-4: var(--cc-text-2);
+  --cc-accent: var(--cc-monitor-ink);
+  background: var(--cc-bg);
+  border-top: 1px solid var(--cc-line);
+  border-bottom: 1px solid var(--cc-line);
+}
+.cc-home[data-theme="light"] .home-routes,
+.cc-home[data-theme="light"] .home-showcase { background: #fff; }
+.cc-home[data-theme="light"] .home-routing-lead { background: #fff; }
+.cc-home[data-theme="light"] .home-topo-node.is-premium .home-topo-dot { border-color: var(--cc-accent); background: var(--cc-accent); }
+.cc-home[data-theme="light"] .home-topo-signal.is-forward { background: linear-gradient(180deg, transparent, var(--cc-accent)); }
+.cc-home[data-theme="light"] .home-showcase-tabs button.is-active { border-bottom-color: var(--cc-accent); }
 .cc-home[data-theme="light"] .home-system,
 .cc-home[data-theme="light"] .home-coverage,
 .cc-home[data-theme="light"] .home-dossier,
@@ -908,11 +932,12 @@
   .home-types { grid-template-columns: minmax(0, 1fr); }
   .home-type:last-child { grid-column: auto; }
   .home-showcase-split { grid-template-columns: minmax(0, 1fr); }
-  .home-latency-row { grid-template-columns: 84px minmax(0, 1fr) 38px; gap: 10px; }
-  /* 手机端保留 ASN（最能体现路由判断能力），改隐藏延迟列 */
-  .home-route-row { grid-template-columns: 38px minmax(0, 1fr) 62px; }
-  .home-route-row > span:nth-child(3) { display: none; }
-  .home-route-row > span:nth-child(5) { display: block; }
+  .home-latency-row { grid-template-columns: 84px minmax(0, 1fr) 64px; gap: 10px; }
+  .home-latency-axis { margin: 10px 74px 0 94px; }
+  /* 手机端保留 跳数 / 节点 / 延迟（逐跳延迟是核心读数），地区、ASN、反向解析收起；不需要横向滚动 */
+  .home-route-row { grid-template-columns: 34px minmax(0, 1fr) 56px; gap: 10px; }
+  .home-route-row > span:nth-child(3) { text-align: right; white-space: nowrap; }
+  .home-route-row > span:nth-child(5) { display: none; }
   .home-route-head em { width: 100%; margin-left: 0; }
   .home-coverage { padding: 20px; }
   .home-regions { grid-template-columns: minmax(0, 1fr); gap: 10px; }
