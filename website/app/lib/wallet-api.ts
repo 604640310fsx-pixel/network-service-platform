@@ -261,3 +261,84 @@ export type WalletLoad =
   | { readonly kind: "ready"; readonly wallet: WalletBalance }
   | { readonly kind: "unauthorized" }
   | { readonly kind: "error"; readonly code: string };
+
+/* ———— 我的钱包读 / 刷新共享订阅 ————
+   所有消费方共享一份 GET /api/me/wallet 服务端快照：任一 refreshMyWallet 只触发一次
+   服务端重读并把结果广播给全部订阅者——服务端永远是唯一事实，不做乐观记账。
+   快照按会话身份（owner）分栏：登出/换号后立即废弃旧快照与旧在途请求，
+   迟到响应既不能发布也不能清掉新身份的请求；在途重试合并为一个紧随其后的新读。 */
+type WalletListener = () => void;
+let sharedWallet: WalletLoad = { kind: "loading" };
+let sharedWalletOwner: string | null = null;
+let walletInflight: Promise<void> | null = null;
+let walletInflightController: AbortController | null = null;
+let walletRefreshAfterInflight = false;
+const walletListeners = new Set<WalletListener>();
+
+function emitWallet(next: WalletLoad): void {
+  sharedWallet = next;
+  for (const listener of walletListeners) listener();
+}
+
+/** 快照只对发起身份可见——其他身份的缓存值（含首屏）一律不可见。 */
+export function getMyWalletSnapshotFor(owner: string): WalletLoad {
+  return sharedWalletOwner === owner ? sharedWallet : { kind: "loading" };
+}
+
+export function refreshMyWallet(owner: string): Promise<void> {
+  if (sharedWalletOwner !== owner) {
+    // Identity boundary: drop the prior owner's snapshot and displace its
+    // in-flight read; the displaced fetch can neither publish nor clear ours.
+    sharedWalletOwner = owner;
+    sharedWallet = { kind: "loading" };
+    walletRefreshAfterInflight = false;
+    walletInflightController?.abort();
+    walletInflight = null;
+    walletInflightController = null;
+  }
+  if (walletInflight !== null) {
+    walletRefreshAfterInflight = true;
+    return walletInflight;
+  }
+  const controller = new AbortController();
+  walletInflightController = controller;
+  emitWallet({ kind: "loading" });
+  const started: Promise<void> = getMyWallet(controller.signal)
+    .then((wallet) => {
+      if (walletInflight === started && sharedWalletOwner === owner) emitWallet({ kind: "ready", wallet });
+    })
+    .catch((error: unknown) => {
+      if (walletInflight !== started || sharedWalletOwner !== owner) return;
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (error instanceof WalletApiError && error.code === "unauthorized") emitWallet({ kind: "unauthorized" });
+      else emitWallet({ kind: "error", code: error instanceof WalletApiError ? error.code : "wallet_unavailable" });
+    })
+    .finally(() => {
+      if (walletInflight !== started) return;
+      walletInflight = null;
+      walletInflightController = null;
+      if (walletRefreshAfterInflight) {
+        walletRefreshAfterInflight = false;
+        void refreshMyWallet(owner);
+      }
+    });
+  walletInflight = started;
+  return started;
+}
+
+export function subscribeMyWallet(listener: WalletListener): () => void {
+  walletListeners.add(listener);
+  return () => {
+    walletListeners.delete(listener);
+  };
+}
+
+/** Test seam only: reset the shared cache between cases. */
+export function __resetMyWalletSharedForTest(): void {
+  walletInflightController?.abort();
+  sharedWallet = { kind: "loading" };
+  sharedWalletOwner = null;
+  walletInflight = null;
+  walletInflightController = null;
+  walletRefreshAfterInflight = false;
+}
