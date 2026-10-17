@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { randomBytes } from "node:crypto";
 
 import type { DatabaseConnection } from "../db.js";
 import type { AlipaySdkLike } from "../payment/alipay.js";
@@ -15,6 +16,8 @@ import {
   setNextBillingPeriod,
   setRenewalConsent,
   walletBalance,
+  createIdempotentTopupIntent,
+  readOwnedTopup,
   WalletError,
   type BillingPeriod,
   type InternalActor,
@@ -29,6 +32,13 @@ export interface WalletHttpDependencies {
   readonly tokenHmacKeyring: TokenHmacKeyring;
   readonly csrfSigningKey: Buffer;
   readonly now?: () => Date;
+  /** Explicit injection from an isolated local test entrypoint only. The
+      production server supplies no topup provider and fails closed. */
+  readonly topupCheckout?: {
+    readonly mode: "TEST_ONLY";
+    readonly runtime: "test";
+    checkoutUrl(topupId: string): string;
+  };
   /* Provider channel for unpaid-order close observation only; paid-order admin
      closure is internal and needs no provider. Absent → order-close routes 503. */
   readonly payment?: {
@@ -82,6 +92,7 @@ function sendFailure(reply: FastifyReply, error: unknown): FastifyReply {
     if (error.code === "QUOTE_CHANGED") return reply.code(409).send(errorBody("quote_changed"));
     if (error.code === "SERVICE_CLOSED") return reply.code(409).send(errorBody("service_closed"));
     if (error.code === "REVISION_CONFLICT") return reply.code(409).send(errorBody("revision_conflict"));
+    if (error.code === "IDEMPOTENCY_CONFLICT") return reply.code(409).send(errorBody("idempotency_conflict"));
     if (
       error.code === "NOT_CANCELLABLE" ||
       error.code === "SOURCE_UNAVAILABLE" ||
@@ -128,6 +139,9 @@ function ownsService(database: DatabaseConnection, serviceId: number, userId: nu
 }
 
 export function registerWalletHttpRoutes(app: FastifyInstance, dependencies: WalletHttpDependencies): void {
+  if (dependencies.topupCheckout !== undefined && process.env.NODE_ENV === "production") {
+    throw new Error("TEST_ONLY topup checkout is forbidden in production");
+  }
   const routeOptions = {
     bodyLimit: WALLET_BODY_LIMIT_BYTES,
     onRequest: async (_request: FastifyRequest, reply: FastifyReply) => setNoStore(reply),
@@ -138,6 +152,47 @@ export function registerWalletHttpRoutes(app: FastifyInstance, dependencies: Wal
     if (!gate.ok) return reply.code(gate.statusCode).send(errorBody(gate.code));
     try {
       return await reply.send({ balanceFen: walletBalance(dependencies.database, gate.session.principal.userId), currency: "CNY" });
+    } catch (error) {
+      return sendFailure(reply, error);
+    }
+  });
+
+  app.post("/api/me/wallet/topups", routeOptions, async (request, reply) => {
+    const gate = authorize(request, dependencies, { write: true });
+    if (!gate.ok) return reply.code(gate.statusCode).send(errorBody(gate.code));
+    const body = exactKeys(request.body, ["amountFen"]);
+    const amountFen = body?.amountFen;
+    const key = request.headers["idempotency-key"];
+    if (body === null || typeof amountFen !== "number" || !Number.isSafeInteger(amountFen) || amountFen <= 0 ||
+      typeof key !== "string" || !/^[\x21-\x7e]{1,128}$/.test(key)) {
+      return reply.code(400).send(errorBody("invalid_request"));
+    }
+    if (dependencies.topupCheckout === undefined) return reply.code(503).send(errorBody("wallet_unavailable"));
+    try {
+      const topupId = createIdempotentTopupIntent(
+        dependencies.database,
+        { userId: gate.session.principal.userId, sessionValid: true, csrfValid: true, isAdmin: gate.session.principal.role === "admin" },
+        key, `WT${randomBytes(24).toString("base64url")}`, amountFen,
+      );
+      const topup = readOwnedTopup(dependencies.database, gate.session.principal.userId, topupId);
+      if (topup === null) throw new WalletError("INVARIANT_FAILED");
+      const url = dependencies.topupCheckout.checkoutUrl(topupId);
+      return await reply.send({ ...topup, checkout: { kind: "REDIRECT", url } });
+    } catch (error) {
+      return sendFailure(reply, error);
+    }
+  });
+
+  app.get<{ Params: { topupId: string } }>("/api/me/wallet/topups/:topupId", routeOptions, async (request, reply) => {
+    const gate = authorize(request, dependencies, { write: false });
+    if (!gate.ok) return reply.code(gate.statusCode).send(errorBody(gate.code));
+    const topupId = request.params.topupId;
+    if (typeof topupId !== "string" || topupId.length === 0 || topupId.length > 128) {
+      return reply.code(404).send(errorBody("not_found"));
+    }
+    try {
+      const topup = readOwnedTopup(dependencies.database, gate.session.principal.userId, topupId);
+      return topup === null ? reply.code(404).send(errorBody("not_found")) : reply.send(topup);
     } catch (error) {
       return sendFailure(reply, error);
     }

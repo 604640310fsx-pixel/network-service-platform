@@ -18,6 +18,18 @@ export interface WalletBalance {
   readonly currency: "CNY";
 }
 
+export interface TopupSnapshot {
+  readonly topupId: string;
+  readonly status: "PENDING" | "SUCCEEDED";
+  readonly amountFen: number;
+  readonly currency: "CNY";
+  readonly succeededAt: string | null;
+}
+
+export interface TopupIntent extends TopupSnapshot {
+  readonly checkout: { readonly kind: "REDIRECT"; readonly url: string };
+}
+
 export interface RenewalQuote {
   readonly key: string;
   readonly priceFen: number;
@@ -103,6 +115,45 @@ function servicePath(serviceId: number): string {
 function parseWallet(value: unknown): WalletBalance {
   if (!isRecord(value) || !isNonNegativeInteger(value.balanceFen) || value.currency !== "CNY") invalid();
   return { balanceFen: value.balanceFen, currency: "CNY" };
+}
+
+function parseTopup(value: unknown): TopupSnapshot {
+  if (!isRecord(value) || typeof value.topupId !== "string" || value.topupId.length === 0 || value.topupId.length > 128 ||
+    (value.status !== "PENDING" && value.status !== "SUCCEEDED") ||
+    !isNonNegativeInteger(value.amountFen) || value.amountFen === 0 || value.currency !== "CNY" ||
+    !(value.succeededAt === null || isInstant(value.succeededAt)) ||
+    (value.status === "PENDING" && value.succeededAt !== null) ||
+    (value.status === "SUCCEEDED" && value.succeededAt === null)) invalid();
+  return { topupId: value.topupId, status: value.status, amountFen: value.amountFen,
+    currency: "CNY", succeededAt: value.succeededAt as string | null };
+}
+
+export async function createMyTopup(csrfToken: string, idempotencyKey: string, amountFen: number): Promise<TopupIntent> {
+  if (!Number.isSafeInteger(amountFen) || amountFen <= 0 || !/^[\x21-\x7e]{1,128}$/.test(idempotencyKey)) {
+    throw new WalletApiError("invalid_request", 400);
+  }
+  const value = await requestJson("/api/me/wallet/topups", {
+    method: "POST", headers: { ...writeHeaders(csrfToken), "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify({ amountFen }),
+  });
+  const snapshot = parseTopup(value);
+  if (!isRecord(value) || !isRecord(value.checkout) || value.checkout.kind !== "REDIRECT" ||
+    typeof value.checkout.url !== "string" || value.checkout.url.length === 0) invalid();
+  return { ...snapshot, checkout: { kind: "REDIRECT", url: value.checkout.url } };
+}
+
+export async function getMyTopup(topupId: string, signal?: AbortSignal): Promise<TopupSnapshot> {
+  if (typeof topupId !== "string" || topupId.length === 0 || topupId.length > 128) throw new WalletApiError("not_found", 404);
+  return parseTopup(await requestJson(`/api/me/wallet/topups/${encodeURIComponent(topupId)}`,
+    { method: "GET", headers: { Accept: "application/json" } }, signal));
+}
+
+export function parseTopupYuan(raw: string): number | null {
+  const value = raw.trim();
+  if (!/^\d+(?:\.\d{1,2})?$/.test(value)) return null;
+  const [yuan, decimal = ""] = value.split(".");
+  const amountFen = Number(yuan) * 100 + Number(decimal.padEnd(2, "0"));
+  return Number.isSafeInteger(amountFen) && amountFen > 0 ? amountFen : null;
 }
 
 function parseQuote(value: unknown): RenewalQuote {
@@ -261,3 +312,65 @@ export type WalletLoad =
   | { readonly kind: "ready"; readonly wallet: WalletBalance }
   | { readonly kind: "unauthorized" }
   | { readonly kind: "error"; readonly code: string };
+
+/* ———— 我的钱包读 / 刷新共享订阅 ————
+   所有消费方共享一份 GET /api/me/wallet 服务端快照：任一 refreshMyWallet 只触发一次
+   服务端重读并把结果广播给全部订阅者——服务端永远是唯一事实，不做乐观记账。
+   在途期间的重试合并为一个紧随其后的新读，保证“确认结果之后再读”仍拿到最新事实。 */
+type WalletListener = () => void;
+let sharedWallet: WalletLoad = { kind: "loading" };
+let walletInflight: Promise<void> | null = null;
+let walletInflightController: AbortController | null = null;
+let walletRefreshAfterInflight = false;
+const walletListeners = new Set<WalletListener>();
+
+function emitWallet(next: WalletLoad): void {
+  sharedWallet = next;
+  for (const listener of walletListeners) listener();
+}
+
+export function refreshMyWallet(): Promise<void> {
+  if (walletInflight !== null) {
+    walletRefreshAfterInflight = true;
+    return walletInflight;
+  }
+  const controller = new AbortController();
+  walletInflightController = controller;
+  emitWallet({ kind: "loading" });
+  walletInflight = getMyWallet(controller.signal)
+    .then((wallet) => emitWallet({ kind: "ready", wallet }))
+    .catch((error: unknown) => {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (error instanceof WalletApiError && error.code === "unauthorized") emitWallet({ kind: "unauthorized" });
+      else emitWallet({ kind: "error", code: error instanceof WalletApiError ? error.code : "wallet_unavailable" });
+    })
+    .finally(() => {
+      walletInflight = null;
+      walletInflightController = null;
+      if (walletRefreshAfterInflight) {
+        walletRefreshAfterInflight = false;
+        void refreshMyWallet();
+      }
+    });
+  return walletInflight;
+}
+
+export function getMyWalletSnapshot(): WalletLoad {
+  return sharedWallet;
+}
+
+export function subscribeMyWallet(listener: WalletListener): () => void {
+  walletListeners.add(listener);
+  return () => {
+    walletListeners.delete(listener);
+  };
+}
+
+/** Test seam only: reset the shared cache between cases. */
+export function __resetMyWalletSharedForTest(): void {
+  walletInflightController?.abort();
+  sharedWallet = { kind: "loading" };
+  walletInflight = null;
+  walletInflightController = null;
+  walletRefreshAfterInflight = false;
+}

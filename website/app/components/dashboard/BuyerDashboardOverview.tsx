@@ -12,6 +12,7 @@ import {
 import { useT, type Messages } from "../../lib/i18n";
 import { useMyWallet } from "../../lib/useWallet";
 import { formatWalletFen, type WalletLoad } from "../../lib/wallet-api";
+import { TopupPanel } from "../profile/TopupPanel";
 import { buyerPlanCounts, combineBuyerPlans, type BuyerPlan } from "./buyerPlans";
 import { getMyDeliveryLineListing } from "../../lib/payment-api";
 import { primaryLineStatusHref, type BuyerLineRef } from "../../lib/buyerStatusLink";
@@ -431,6 +432,7 @@ export function BuyerDashboardOverview() {
             </article>
           ))}
         </div>
+        <TopupPanel onSucceeded={wallet.retry} />
       </section>
 
       <div className="dash-split">

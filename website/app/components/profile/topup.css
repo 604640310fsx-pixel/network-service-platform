@@ -1,0 +1,23 @@
+.cc-topup {
+  margin-top: 1rem;
+  width: 100%;
+  max-width: 420px;
+  padding: 1rem;
+  border: 1px solid var(--cc-line);
+  border-radius: 12px;
+  background: var(--cc-card);
+  color: var(--cc-text);
+  font-size: 13px;
+  font-weight: 400;
+}
+.cc-profile-wallet .cc-topup { flex: 1 0 100%; }
+.cc-topup h3 { margin: 0 0 .75rem; font-size: 1rem; }
+.cc-topup label { display: block; margin-bottom: .4rem; color: var(--cc-text-3); }
+.cc-topup-entry { display: flex; flex-wrap: wrap; gap: .5rem; }
+.cc-topup-entry input { min-width: 9rem; flex: 1; padding: .55rem .7rem; border-radius: 8px; border: 1px solid var(--cc-line); background: var(--cc-panel); color: inherit; }
+.cc-topup-entry button, .cc-topup-state button { padding: .55rem .9rem; border: 0; border-radius: 8px; background: #f59e0b; color: var(--cc-accent-ink); font: inherit; font-weight: 600; cursor: pointer; }
+.cc-topup-entry button:disabled { opacity: .55; cursor: wait; }
+.cc-topup-state { margin-top: .75rem; }
+.cc-topup-state p { margin: 0 0 .5rem; }
+.cc-topup-state a { display: inline-block; margin-right: .75rem; color: var(--cc-accent); }
+.cc-topup-state small { display: block; margin-top: .5rem; color: var(--cc-text-3); }
