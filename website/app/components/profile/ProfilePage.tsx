@@ -1,14 +1,14 @@
-import { useAuth } from "../../lib/auth";
+import { useAuth, type AuthPrincipal } from "../../lib/auth";
 import { useT } from "../../lib/i18n";
 import { useMyWallet } from "../../lib/useWallet";
-import { formatWalletFen } from "../../lib/wallet-api";
+import { formatWalletFen, type WalletLoad } from "../../lib/wallet-api";
 import { EmailChangePanel, PasswordChangePanel } from "./AccountSecurityForms";
+import { TopupPanel } from "./TopupPanel";
 import "./profile.css";
 
 /* 钱包余额只读 GET /api/me/wallet：加载中 / 失败 / 未登录显示各自文案，从不显示成 ¥0.00。 */
-function WalletBalanceFact() {
+function WalletBalanceFact({ state, retry }: { readonly state: WalletLoad; readonly retry: () => void }) {
   const copy = useT().wallet;
-  const { state, retry } = useMyWallet();
   return (
     <div>
       <dt>{copy.balanceLabel}</dt>
@@ -99,6 +99,12 @@ export function ProfilePage() {
     return <UnavailableProfile />;
   }
 
+  return <AuthenticatedProfile principal={principal} />;
+}
+
+function AuthenticatedProfile({ principal }: { readonly principal: AuthPrincipal }) {
+  const copy = useT().profile;
+  const { state, retry } = useMyWallet();
   return (
     <PageFrame>
       <section className="cc-profile-panel" aria-labelledby="cc-profile-title">
@@ -120,8 +126,9 @@ export function ProfilePage() {
             <dt>{copy.accountType}</dt>
             <dd>{copy.roles[principal.role]}</dd>
           </div>
-          <WalletBalanceFact />
+          <WalletBalanceFact state={state} retry={retry} />
         </dl>
+        <TopupPanel onSucceeded={retry} />
       </section>
       <PasswordChangePanel />
       <EmailChangePanel currentEmail={principal.email} />
