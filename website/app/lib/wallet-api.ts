@@ -316,9 +316,11 @@ export type WalletLoad =
 /* ———— 我的钱包读 / 刷新共享订阅 ————
    所有消费方共享一份 GET /api/me/wallet 服务端快照：任一 refreshMyWallet 只触发一次
    服务端重读并把结果广播给全部订阅者——服务端永远是唯一事实，不做乐观记账。
-   在途期间的重试合并为一个紧随其后的新读，保证“确认结果之后再读”仍拿到最新事实。 */
+   快照按会话身份（owner）分栏：登出/换号后立即废弃旧快照与旧在途请求，
+   迟到响应既不能发布也不能清掉新身份的请求；在途重试合并为一个紧随其后的新读。 */
 type WalletListener = () => void;
 let sharedWallet: WalletLoad = { kind: "loading" };
+let sharedWalletOwner: string | null = null;
 let walletInflight: Promise<void> | null = null;
 let walletInflightController: AbortController | null = null;
 let walletRefreshAfterInflight = false;
@@ -329,7 +331,22 @@ function emitWallet(next: WalletLoad): void {
   for (const listener of walletListeners) listener();
 }
 
-export function refreshMyWallet(): Promise<void> {
+/** 快照只对发起身份可见——其他身份的缓存值（含首屏）一律不可见。 */
+export function getMyWalletSnapshotFor(owner: string): WalletLoad {
+  return sharedWalletOwner === owner ? sharedWallet : { kind: "loading" };
+}
+
+export function refreshMyWallet(owner: string): Promise<void> {
+  if (sharedWalletOwner !== owner) {
+    // Identity boundary: drop the prior owner's snapshot and displace its
+    // in-flight read; the displaced fetch can neither publish nor clear ours.
+    sharedWalletOwner = owner;
+    sharedWallet = { kind: "loading" };
+    walletRefreshAfterInflight = false;
+    walletInflightController?.abort();
+    walletInflight = null;
+    walletInflightController = null;
+  }
   if (walletInflight !== null) {
     walletRefreshAfterInflight = true;
     return walletInflight;
@@ -337,26 +354,27 @@ export function refreshMyWallet(): Promise<void> {
   const controller = new AbortController();
   walletInflightController = controller;
   emitWallet({ kind: "loading" });
-  walletInflight = getMyWallet(controller.signal)
-    .then((wallet) => emitWallet({ kind: "ready", wallet }))
+  const started: Promise<void> = getMyWallet(controller.signal)
+    .then((wallet) => {
+      if (walletInflight === started && sharedWalletOwner === owner) emitWallet({ kind: "ready", wallet });
+    })
     .catch((error: unknown) => {
+      if (walletInflight !== started || sharedWalletOwner !== owner) return;
       if (error instanceof DOMException && error.name === "AbortError") return;
       if (error instanceof WalletApiError && error.code === "unauthorized") emitWallet({ kind: "unauthorized" });
       else emitWallet({ kind: "error", code: error instanceof WalletApiError ? error.code : "wallet_unavailable" });
     })
     .finally(() => {
+      if (walletInflight !== started) return;
       walletInflight = null;
       walletInflightController = null;
       if (walletRefreshAfterInflight) {
         walletRefreshAfterInflight = false;
-        void refreshMyWallet();
+        void refreshMyWallet(owner);
       }
     });
-  return walletInflight;
-}
-
-export function getMyWalletSnapshot(): WalletLoad {
-  return sharedWallet;
+  walletInflight = started;
+  return started;
 }
 
 export function subscribeMyWallet(listener: WalletListener): () => void {
@@ -370,6 +388,7 @@ export function subscribeMyWallet(listener: WalletListener): () => void {
 export function __resetMyWalletSharedForTest(): void {
   walletInflightController?.abort();
   sharedWallet = { kind: "loading" };
+  sharedWalletOwner = null;
   walletInflight = null;
   walletInflightController = null;
   walletRefreshAfterInflight = false;
