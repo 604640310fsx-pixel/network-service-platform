@@ -1,4 +1,10 @@
 /** Isolated candidate schema. Only tests may apply this DDL; migration 025 is owned elsewhere. */
+/* States in which a renewal operation is still unresolved: occupies the live
+   uniqueness slot and blocks fresh attempts for its (service, prior expiry).
+   Shared by the fixture runner and the TEST_ONLY operations module so both
+   enforce the same set — a single literal source, not two copies. */
+export const WALLET_RENEWAL_LIVE_STATES_SQL =
+  "('HOLD_ACTIVE','DISPATCH_AUTHORIZED','EVIDENCE_RECORDED','CONFLICT')";
 export const WALLET_CANDIDATE_TEST_SCHEMA = `
 CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER,
   status TEXT NOT NULL CHECK(status IN ('pending','paid','closed')),
@@ -68,5 +74,56 @@ CREATE TABLE wallet_refund_cases (
 CREATE TABLE wallet_refund_reversals (
   refund_key TEXT PRIMARY KEY, cycle_id INTEGER NOT NULL, amount_fen INTEGER NOT NULL CHECK(amount_fen > 0),
   created_at TEXT NOT NULL
+);
+/* TEST_ONLY modeled renewal execution (hold-first, external-extension-confirmed).
+   Fixture-only like wallet_service_extensions: no production DDL, scheduler,
+   provider call, real hold or settlement is implied by these tables.
+   Operation intent columns are written once at reserve and never updated;
+   dispatch/evidence transition columns are the only mutable part. */
+CREATE TABLE wallet_renewal_operations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  service_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+  intended_previous_ends_at TEXT NOT NULL, intended_new_ends_at TEXT NOT NULL,
+  amount_fen INTEGER NOT NULL CHECK(amount_fen > 0),
+  currency TEXT NOT NULL DEFAULT 'CNY' CHECK(currency='CNY'),
+  duration_id TEXT NOT NULL, quote_key TEXT NOT NULL, consent_revision INTEGER NOT NULL,
+  state TEXT NOT NULL CHECK(state IN
+    ('HOLD_ACTIVE','DISPATCH_AUTHORIZED','EVIDENCE_RECORDED','COMPLETED','CANCELLED','RELEASED','CONFLICT')),
+  dispatch_id TEXT, dispatch_anchor_at TEXT,
+  evidence_id INTEGER, cycle_id INTEGER,
+  conflict_detail TEXT, escalation_due_at TEXT,
+  created_at TEXT NOT NULL, resolved_at TEXT
+);
+CREATE UNIQUE INDEX idx_wallet_renewal_ops_live
+  ON wallet_renewal_operations(service_id, intended_previous_ends_at)
+  WHERE state IN ('HOLD_ACTIVE','DISPATCH_AUTHORIZED','EVIDENCE_RECORDED','CONFLICT');
+CREATE UNIQUE INDEX idx_wallet_renewal_ops_dispatch
+  ON wallet_renewal_operations(dispatch_id) WHERE dispatch_id IS NOT NULL;
+CREATE TABLE wallet_renewal_holds (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  operation_id INTEGER NOT NULL UNIQUE,
+  user_id INTEGER NOT NULL, amount_fen INTEGER NOT NULL CHECK(amount_fen > 0),
+  state TEXT NOT NULL CHECK(state IN ('ACTIVE','CAPTURED','RELEASED')),
+  created_at TEXT NOT NULL, resolved_at TEXT
+);
+CREATE TABLE wallet_renewal_evidence (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  operation_id INTEGER NOT NULL UNIQUE,
+  dispatch_id TEXT NOT NULL, resource_key TEXT NOT NULL,
+  outcome TEXT NOT NULL CHECK(outcome IN ('APPLIED','NO_EFFECT','REJECTED')),
+  term_ends_at TEXT, source_ref TEXT NOT NULL, recorded_at TEXT NOT NULL
+);
+/* Append-only log of contradictory/late external claims. A claim against an
+   operation whose state is terminal must never resurrect that row into the
+   live-uniqueness set — the fact persists here while the operation keeps its
+   terminal state, and any later operation on the same (service, prior expiry)
+   is refused until owner reconciliation. No automatic money disposition. */
+CREATE TABLE wallet_renewal_contradictions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  operation_id INTEGER NOT NULL,
+  dispatch_id TEXT NOT NULL, resource_key TEXT NOT NULL,
+  outcome TEXT NOT NULL CHECK(outcome IN ('APPLIED','NO_EFFECT','REJECTED')),
+  term_ends_at TEXT, source_ref TEXT NOT NULL,
+  detail TEXT NOT NULL, recorded_at TEXT NOT NULL
 );
 `;
