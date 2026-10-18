@@ -1,4 +1,5 @@
 import type { DatabaseConnection } from "../db.js";
+import { WALLET_RENEWAL_LIVE_STATES_SQL } from "./schema.js";
 import { findSellablePlan } from "../payment/commerce.js";
 import { addUtcMonths, parseEndsAt } from "../payment/admin-services.js";
 import { CATALOG_VERSION } from "../payment/pricing.js";
@@ -48,6 +49,34 @@ function balanceInTransaction(db: DatabaseConnection, userId: number): number {
   const row = one(db, "SELECT balance_fen FROM wallet_accounts WHERE user_id=?", userId);
   return row === null ? 0 : integer(row.balance_fen);
 }
+/* Active renewal holds exist only in the TEST_ONLY fixture schema
+   (wallet_renewal_holds). The sum is reached exclusively from TEST_ONLY paths;
+   a missing table surfaces as a real SQL error, never a silent zero. */
+function activeHoldsFen(db: DatabaseConnection, userId: number): number {
+  const row = one(db, "SELECT COALESCE(SUM(amount_fen),0) AS held FROM wallet_renewal_holds WHERE user_id=? AND state='ACTIVE'", userId);
+  return row === null ? 0 : integer(row.held);
+}
+/** Spendable = settled balance minus active holds (B - H), evaluated inside the caller's transaction. */
+function spendableBalanceInTransaction(db: DatabaseConnection, userId: number): number {
+  return balanceInTransaction(db, userId) - activeHoldsFen(db, userId);
+}
+/* An external claim that contradicts an already-resolved operation is kept
+   append-only in wallet_renewal_contradictions; while one exists for a
+   (service, prior expiry), no later operation on that period may proceed. */
+function unresolvedRenewalContradiction(db: DatabaseConnection, serviceId: number, previousEndsAt: string): boolean {
+  const row = one(db, `SELECT EXISTS(SELECT 1 FROM wallet_renewal_contradictions c
+    JOIN wallet_renewal_operations o ON o.id=c.operation_id
+    WHERE o.service_id=? AND o.intended_previous_ends_at=?) AS blocked`, serviceId, previousEndsAt);
+  return row !== null && integer(row.blocked) === 1;
+}
+/* Internal helpers shared with the TEST_ONLY renewal-operations module. They are
+   package-internal primitives, not a new public surface: every exported entry
+   point keeps its own authorization and TEST_ONLY gate. */
+export {
+  assertLiveService, activeHoldsFen, balanceInTransaction, eligible, integer, ledger, one,
+  recordConsentHistory, serviceManagementClosed, spendableBalanceInTransaction, text, timestamp,
+  unresolvedRenewalContradiction, write,
+};
 /** A missing genuine account is zero; any SQL/invariant error propagates as UNKNOWN. */
 export function walletBalance(db: DatabaseConnection, userId: number): number {
   integer(userId, "INVALID_USER");
@@ -323,6 +352,13 @@ export function runRenewalFixture(db: DatabaseConnection, mode: "TEST_ONLY", ser
     if (!consent || consent.revision !== expectedRevision) throw new WalletError("REVISION_CONFLICT");
     const cycle = one(db, "SELECT id FROM wallet_renewal_cycles WHERE service_id=? AND previous_ends_at=?", service.serviceId, service.endsAt);
     if (cycle) return "DUPLICATE";
+    /* The modeled hold-first path owns the period while an operation is
+       unresolved or a contradiction stands — the legacy fixture must not run a
+       second parallel debit for the same service/prior expiry. */
+    const pending = one(db, `SELECT id FROM wallet_renewal_operations
+      WHERE service_id=? AND intended_previous_ends_at=? AND state IN ${WALLET_RENEWAL_LIVE_STATES_SQL}`,
+      service.serviceId, service.endsAt);
+    if (pending !== null || unresolvedRenewalContradiction(db, service.serviceId, service.endsAt!)) return "DUPLICATE";
     /* Re-derive the authoritative quote inside the deduction transaction and consume
        its fields for the debit/cycle/extension: a re-priced or deactivated plan,
        moved expiry or tuple change since consent invalidates the bound key, and a
@@ -348,9 +384,10 @@ export function runRenewalFixture(db: DatabaseConnection, mode: "TEST_ONLY", ser
     }
     if (state !== "READY" || !quote || !fresh) throw new WalletError(state);
     const account = one(db, "SELECT balance_fen FROM wallet_accounts WHERE user_id=?", service.ownerId);
-    if (!account || integer(account.balance_fen) < fresh.priceFen) throw new WalletError("INSUFFICIENT_FUNDS");
-    db.prepare("UPDATE wallet_accounts SET balance_fen=balance_fen-? WHERE user_id=? AND balance_fen>=?")
-      .run(fresh.priceFen, service.ownerId, fresh.priceFen);
+    if (!account || spendableBalanceInTransaction(db, service.ownerId!) < fresh.priceFen) throw new WalletError("INSUFFICIENT_FUNDS");
+    db.prepare(`UPDATE wallet_accounts SET balance_fen=balance_fen-? WHERE user_id=?
+      AND balance_fen - (SELECT COALESCE(SUM(amount_fen),0) FROM wallet_renewal_holds WHERE user_id=? AND state='ACTIVE') >= ?`)
+      .run(fresh.priceFen, service.ownerId, service.ownerId, fresh.priceFen);
     db.prepare(`INSERT INTO wallet_renewal_cycles (service_id,previous_ends_at,new_ends_at,user_id,amount_fen,quote_key,created_at)
       VALUES (?,?,?,?,?,?,?)`).run(service.serviceId, timestamp(fresh.previousEndsAt), timestamp(fresh.newEndsAt),
       service.ownerId, fresh.priceFen, fresh.key, timestamp(at));
