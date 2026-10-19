@@ -126,4 +126,85 @@ CREATE TABLE wallet_renewal_contradictions (
   term_ends_at TEXT, source_ref TEXT NOT NULL,
   detail TEXT NOT NULL, recorded_at TEXT NOT NULL
 );
+/* TEST_ONLY owner-alert queue (LOCAL synthetic notification modeling only —
+   no production DDL, scheduler, real mail or live recipient is implied).
+   Alert events/episodes are durable business records; an outbox row is the
+   delivery-tracking slot for one notice (initial notice = reminder_ordinal 0).
+   The event's recipient binding is the logical role ref + config version at
+   creation — never a plaintext address; drift quarantines pending notices,
+   and any retargeting is a future owner-approved contract. */
+CREATE TABLE owner_alert_events (
+  event_key TEXT PRIMARY KEY,
+  operation_id INTEGER NOT NULL,
+  reason TEXT NOT NULL CHECK(reason IN ('DISPATCH_UNKNOWN','CONTRADICTION')),
+  episode INTEGER NOT NULL CHECK(episode >= 0),
+  cause_fingerprint TEXT NOT NULL,
+  recipient_ref TEXT NOT NULL,
+  recipient_config_version INTEGER NOT NULL,
+  first_source_row_id INTEGER,
+  anchor_at TEXT NOT NULL,
+  due_at TEXT NOT NULL,
+  first_notice_accepted_at TEXT,
+  owner_ack_at TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE(operation_id, reason, episode)
+);
+CREATE TABLE owner_alert_outbox (
+  idempotency_key TEXT PRIMARY KEY,
+  event_key TEXT NOT NULL,
+  operation_id INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  episode INTEGER NOT NULL,
+  reminder_ordinal INTEGER NOT NULL DEFAULT 0 CHECK(reminder_ordinal >= 0),
+  recipient_ref TEXT NOT NULL,
+  recipient_config_version INTEGER NOT NULL,
+  key_version INTEGER NOT NULL,
+  nonce BLOB NOT NULL,
+  ciphertext BLOB NOT NULL,
+  tag BLOB NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('pending','sending','quarantined')),
+  attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+  next_attempt_at TEXT NOT NULL,
+  leased_until TEXT,
+  lease_token TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_owner_alert_outbox_status ON owner_alert_outbox(status, next_attempt_at);
+CREATE TABLE owner_alert_audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  idempotency_key TEXT NOT NULL,
+  event_key TEXT NOT NULL,
+  recipient_hmac TEXT NOT NULL,
+  outcome TEXT NOT NULL CHECK(outcome IN
+    ('sent','failed','unknown','dead_letter','delivered','quarantined')),
+  detail TEXT,
+  final_attempts INTEGER NOT NULL,
+  reminder_ordinal INTEGER NOT NULL,
+  recorded_at TEXT NOT NULL
+);
+/* LOCAL read-only case projection: unresolved business truth is derived from
+   the operation itself — exhaustion or ACK can never hide a still-unresolved
+   case, and ACK is never a business resolution or funds disposition. */
+CREATE VIEW owner_alert_case_view AS
+SELECT e.event_key, e.operation_id, e.reason, e.episode,
+  e.anchor_at, e.due_at, e.first_notice_accepted_at, e.owner_ack_at,
+  e.recipient_ref, e.recipient_config_version,
+  CASE WHEN e.reason = 'DISPATCH_UNKNOWN'
+    THEN (o.state = 'DISPATCH_AUTHORIZED')
+    ELSE (o.state = 'CONFLICT' OR o.conflict_detail IS NOT NULL) END AS unresolved,
+  (SELECT COUNT(*) FROM owner_alert_outbox x WHERE x.event_key = e.event_key
+    AND x.status IN ('pending','sending')) AS notices_in_flight,
+  (SELECT COUNT(*) FROM owner_alert_outbox x WHERE x.event_key = e.event_key
+    AND x.status = 'quarantined') AS notices_quarantined,
+  (SELECT COUNT(*) FROM owner_alert_audit a WHERE a.event_key = e.event_key
+    AND a.outcome = 'sent') AS notices_accepted,
+  (SELECT COUNT(*) FROM owner_alert_audit a WHERE a.event_key = e.event_key
+    AND a.outcome = 'delivered') AS notices_delivered,
+  (SELECT COUNT(*) FROM owner_alert_audit a WHERE a.event_key = e.event_key
+    AND a.outcome = 'dead_letter') AS dead_letters,
+  (SELECT MAX(a.recorded_at) FROM owner_alert_audit a
+    WHERE a.event_key = e.event_key) AS last_audit_at
+FROM owner_alert_events e
+JOIN wallet_renewal_operations o ON o.id = e.operation_id;
 `;
