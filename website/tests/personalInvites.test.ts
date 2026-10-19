@@ -91,3 +91,20 @@ test("the invites section is enabled in the shell and routed to its own page", (
   assert.match(dashboardShell, /section === "referrals"/);
   assert.match(dashboardShell, /<ReferralCenterAdapter \/>/);
 });
+
+test("the shell topbar never takes its own measured height as its minimum", () => {
+  // The shell writes the measured topbar height into --cc-top-height for sticky
+  // consumers. If .cc-topbar also used it as min-height, the height could only grow
+  // (e.g. phone landscape -> portrait kept the taller header until reload).
+  const shell = source("../app/components/customer/CustomerCenterShell.tsx");
+  const css = source("../app/components/customer/customer-center.css");
+  assert.match(shell, /root\.style\.setProperty\("--cc-top-height", `\$\{topbar\.offsetHeight\}px`\)/);
+  assert.match(shell, /new ResizeObserver\(syncTopbarHeight\)/);
+  const topbarRules = [...css.matchAll(/(^|\n)\s*\.cc-topbar\s*\{([^}]*)\}/g)].map((match) => match[2]);
+  assert.ok(topbarRules.length > 0);
+  for (const rule of topbarRules) assert.doesNotMatch(rule, /var\(--cc-top-height/);
+  assert.match(topbarRules[0] ?? "", /min-height: var\(--cc-top-min-height\)/);
+  assert.match(css, /--cc-top-min-height: 67px;/);
+  // The measured output keeps its design-minimum initial value for consumers.
+  assert.match(css, /--cc-top-height: 67px;/);
+});
