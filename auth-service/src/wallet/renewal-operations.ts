@@ -17,7 +17,7 @@ type Row = Record<string, unknown>;
    transaction, so external truth survives any later local rollback. Every
    function is inert unless called with mode "TEST_ONLY". */
 
-const ESCALATION_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const ESCALATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export type RenewalOperationState =
   "HOLD_ACTIVE" | "DISPATCH_AUTHORIZED" | "EVIDENCE_RECORDED" |
