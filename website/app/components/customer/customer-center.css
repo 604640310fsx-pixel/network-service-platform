@@ -95,6 +95,10 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
   /* 紧凑侧栏：250px 监控卡左右各保留约 10px。 */
   --cc-sidebar-width: 270px;
   --cc-gutter: 26px;
+  /* --cc-top-height 是 CustomerCenterShell 实测的顶栏高度（只供吸顶/偏移消费方读取），
+     初始值即设计最小值；顶栏自身的最小高度只用固定的 --cc-top-min-height，
+     不能读取 --cc-top-height，否则实测高度回写成自己的最小值后只增不减。 */
+  --cc-top-min-height: 67px;
   --cc-top-height: 67px;
   display: flex;
   min-height: 100vh;
@@ -179,7 +183,7 @@ body:has(.cc-shell[data-theme="dark"])::-webkit-scrollbar-track { background: #1
 .cc-monitor-card .cc-monitor-link:hover { background: var(--cc-monitor-fill-hover); border-color: var(--cc-monitor-line-hover); }
 
 .cc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.cc-topbar { position: sticky; top: 0; z-index: 30; min-height: var(--cc-top-height); display: flex; align-items: center; gap: 14px; padding: 15px var(--cc-gutter); border-bottom: 1px solid var(--cc-hairline); background: var(--cc-top); backdrop-filter: saturate(160%) blur(12px); }
+.cc-topbar { position: sticky; top: 0; z-index: 30; min-height: var(--cc-top-min-height); display: flex; align-items: center; gap: 14px; padding: 15px var(--cc-gutter); border-bottom: 1px solid var(--cc-hairline); background: var(--cc-top); backdrop-filter: saturate(160%) blur(12px); }
 .cc-page-title h1 { margin: 0; color: var(--cc-text); font-size: 18px; font-weight: 600; letter-spacing: 0.02em; }
 .cc-page-title p { margin: 2px 0 0; color: var(--cc-text-3); font-size: 13px; }
 .cc-top-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
