@@ -9,6 +9,7 @@ Codex/Devin 按当前委派执行已冻结的实施或聚焦审查，完成范�
 - 管理角色和当前模型路由：[`docs/ai/GPT-CONTROL-V2.md`](docs/ai/GPT-CONTROL-V2.md)
 - 任务状态、单写者、验证、Git、checkpoint、handoff 和报告：[`docs/team/TEAM-COLLAB-V1.md`](docs/team/TEAM-COLLAB-V1.md)
 - 项目事实入口：[`docs/ai/NSP-PROJECT-KNOWLEDGE.md`](docs/ai/NSP-PROJECT-KNOWLEDGE.md)
+- 项目 UI 常驻指令粘贴源：[`docs/ai/PROJECT_INSTRUCTIONS_FINAL.txt`](docs/ai/PROJECT_INSTRUCTIONS_FINAL.txt)；仓库写入不等于项目 UI 已替换或会话已加载
 
 优先级：用户当前最新明确指令 > 当前 Task Packet > 已冻结事实 > `TEAM-COLLAB-V1` > 本文件 > 仓库惯例 > 一般最佳实践。Task Packet 不得扩大未授权动作。
 
@@ -32,7 +33,7 @@ bash scripts/team/preflight-readonly.sh \
 
 ## 2. 执行成员的决策边界
 
-执行成员按用户有效授权和当前 Task Packet 工作，不得自行扩写事实源。模型名称、标题、工具模式和“全权限”本身不产生授权；用户仍有效的连续推进授权也不得被忽略。普通必要可回滚审批由经理/主管在既有权限内处理，不逐项问用户；新增费用、实质扩张、不可恢复风险和本人认证回交用户。权限细分以中央规则 §6 为准。精确绑定缺失、输出缺失或来源冲突时，只暂停相关动作并如实报告。
+执行成员按用户有效授权和当前 Task Packet 工作，不得自行扩写事实源。模型名称、标题、工具模式和“全权限”本身不产生授权；用户仍有效的连续推进授权也不得被忽略。普通必要可回滚审批由经理/主管在既有权限内处理，不逐项问用户；新增费用、实质扩张、未获批准或批准条件已实质变化的不可恢复风险和本人认证回交用户。权限细分以中央规则 §6 为准。精确绑定缺失、输出缺失或来源冲突时，只暂停相关动作并如实报告。
 
 以下事项不得从目标、前置条件或模糊措辞中推导授权：
 
@@ -91,7 +92,7 @@ push 前必须确认 branch、base、HEAD、远端目标、允许路径、最终
 
 每次完成只返回 `TEAM-COLLAB-V1` 的短核心报告：任务、状态、写入者、base/handoff SHA、修改文件、实际验证、风险/未知和一个下一授权动作。仅追加 Task Packet 明确要求的条件证据；不得把 Packet 必需验证改标 `N/A`。代码 handoff 必须绑定已 push 的精确 SHA 且相关未提交工作为 `NONE`。
 
-完成当前 Task Packet 后停止该阶段操作并回交主管；已批准的连续阶段由主管在既有目标和授权内按标准续接，仅最终验收、关键裁决或授权变化交经理，不重复索要用户“继续”。作者不得自行开下一任务、merge、release、deploy 或 production。
+完成当前 Task Packet 后停止该阶段操作并回交主管；已批准的连续阶段由主管在既有目标和授权内按标准续接，仅最终验收、关键裁决或授权变化需要经理作新决定，不重复索要用户“继续”；必要报告照常发送且不构成重复审批，按 `TEAM-COLLAB-V1` §7、§8.1。作者不得自行开下一任务、merge、release、deploy 或 production。
 
 ## 7. Devin 最小启动与交接增量
 

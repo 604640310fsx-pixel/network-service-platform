@@ -11,6 +11,9 @@ Claude 的优先职责是完整关键 UI/页面、复杂响应式、可访问性
 - 管理角色和当前模型路由：[`docs/ai/GPT-CONTROL-V2.md`](docs/ai/GPT-CONTROL-V2.md)
 - 任务状态、单写者、验证、Git、checkpoint、handoff 和报告：[`docs/team/TEAM-COLLAB-V1.md`](docs/team/TEAM-COLLAB-V1.md)
 - 项目事实入口：[`docs/ai/NSP-PROJECT-KNOWLEDGE.md`](docs/ai/NSP-PROJECT-KNOWLEDGE.md)
+- 项目 UI 常驻指令粘贴源：[`docs/ai/PROJECT_INSTRUCTIONS_FINAL.txt`](docs/ai/PROJECT_INSTRUCTIONS_FINAL.txt)；仓库写入不等于项目 UI 已替换或会话已加载
+
+与 Claude 的派发、增量指导、反馈和交接默认使用英文，向用户汇报使用中文，按 `TEAM-COLLAB-V1` §7.1。
 
 优先级：用户当前最新明确指令 > 当前 Task Packet > 已冻结事实 > `TEAM-COLLAB-V1` > 本文件 > 仓库惯例 > 一般最佳实践。Task Packet 不得扩大未授权动作。
 
@@ -80,7 +83,7 @@ Claude 已获准实施时，其本次修改引入或直接暴露的普通 build�
 
 ## 4. 授权、用户工作与 Git 硬边界
 
-用户连续推进授权有效时，普通必要可回滚审批由经理/主管按职责直接处理；不得逐项向用户重问，也不因此获得范围外动作。新增费用、实质扩张、不可恢复风险及本人认证仍回交用户，详细授权见中央规则 §6。
+用户连续推进授权有效时，普通必要可回滚审批由经理/主管按职责直接处理；不得逐项向用户重问，也不因此获得范围外动作。新增费用、实质扩张、未获批准或批准条件已实质变化的不可恢复风险及本人认证仍回交用户，详细授权见中央规则 §6。
 
 - 保留所有用户和其他任务改动；不得自动 stash、reset、clean、restore、覆盖、复制或检查无关私有内容。
 - 范围有白名单时只编辑和显式 stage 白名单路径；禁止 `git add .` 和 `git add -A`。
@@ -105,4 +108,4 @@ push 前必须确认 branch、base、HEAD、远端目标、允许路径、最终
 
 每次完成只返回 `TEAM-COLLAB-V1` 的短核心报告，并仅追加 Packet 明确要求的条件证据；不得把 Packet 必需验证改标 `N/A`。代码 handoff 绑定已 push 的精确 SHA；批准的设计或本地 artifact 使用自身版本/哈希，不伪装成 Git commit。相关未提交工作必须如实记录。
 
-完成当前 Task Packet 后停止该阶段操作并交主管；已批准的连续阶段由主管按标准续接，仅最终验收、关键裁决或授权变化交经理，作者不得自行启动其他执行器、下一任务或 merge/release/deploy/production。
+完成当前 Task Packet 后停止该阶段操作并交主管；已批准的连续阶段由主管按标准续接，仅最终验收、关键裁决或授权变化需要经理作新决定（必要报告照常发送且不构成重复审批，按 `TEAM-COLLAB-V1` §7、§8.1），作者不得自行启动其他执行器、下一任务或 merge/release/deploy/production。

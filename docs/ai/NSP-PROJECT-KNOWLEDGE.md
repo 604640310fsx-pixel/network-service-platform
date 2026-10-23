@@ -199,3 +199,14 @@ AI-team coordination
 - S3 来源认证、S4 完整无人值守授权链、后台/无提示 manager wake：`UNVERIFIED`。
 - 当前部署、生产 binding、真实流量、真实支付/订单、客户数据、外部服务和恢复资格：`UNKNOWN`，且本入口不授权连接确认。
 - 作者会话是否自动加载了最新规则、Claude 是否加载了本次 `CLAUDE.md`：`UNVERIFIED`。
+
+## 10. 2026-10-05 原生 effort 覆盖与 Goal 记录
+
+机制只在 [`GPT-CONTROL-V2.md`](GPT-CONTROL-V2.md) §2.4–2.6；这里只登记日期化授权、决定和能力事实，不复制机制或模型表。
+
+- `HISTORICAL_EVIDENCE`（2026-10-05，用户授权决定）：明确批准原 NSP 采用 Codex 原生 Goal。
+- `HISTORICAL_EVIDENCE`（2026-10-05，管理链记录，本记录任务未独立验证）：项目经理在原经理线程实际执行 `create_goal`，Goal 为 active，未设 token budget。
+- `HISTORICAL_EVIDENCE`（2026-10-05，跨项目外部观察）：NSP Lite 原经理线程在覆盖后的两个后续回合实际运行为 `gpt-6.1-sol`/`xhigh`，用户直接发起的回合为 `high`。这是 NSP Lite 的观察，不是 NSP 实验；不外推到其他模型或宿主，也不证明存在永久设置。
+- `HISTORICAL_EVIDENCE`（2026-10-05，用户授权决定）：用户明确授权由管理链批准、在原 NSP 写入 Goal 阶段定义与 Plan 工作方式规则（`GPT-CONTROL-V2` §2.5–2.6）。
+- `HISTORICAL_EVIDENCE`（2026-10-05，管理链记录，本记录任务未独立验证）：原 NSP 固定经理与执行主管均已通过实际消息采用上述 Goal/Plan 规则；经理/主管线程 ID 不变，不采用 NSP Lite 的 ID 或路线，不转移所有权、不扩大权限。采用规则不证明 Goal/Plan 的运行时能力。
+- `UNKNOWN`：原 NSP 线程中同线程 effort 覆盖的实际生效情况，以及 Goal 续行、blocked 阈值、Plan 退出后续行和超时后行为在本项目的运行表现；以后续工具结果为准，不从文档推导。
