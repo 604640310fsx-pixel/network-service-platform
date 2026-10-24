@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   completeRegistration,
@@ -18,9 +18,11 @@ import {
   registrationErrorNotice,
   REGISTRATION_SUCCESS_NAVIGATION,
   runRegistrationSubmission,
+  validateRegistrationStart,
   validateRegistrationSubmission,
   type RegistrationFieldErrors,
   type RegistrationPhase,
+  type RegistrationStage,
 } from "./registrationFlow";
 
 /* 注册流程严格接入既有服务端状态机。registration token 只保存在组件内存，
@@ -29,11 +31,46 @@ import {
 const VERIFICATION_COUNTDOWN_SECONDS = 60;
 
 type FormStatus = "idle" | "sending" | "submitting";
-type Notice = { tone: "danger" | "neutral"; text: string; loginLink?: boolean };
+// stage 记录提示来自哪一步请求，便于用户修改相关输入时只清除对应的过期提示。
+type Notice = {
+  tone: "danger" | "neutral";
+  text: string;
+  loginLink?: boolean;
+  restart?: boolean;
+  stage?: RegistrationStage | "local";
+};
+type FocusTarget = keyof RegistrationFieldErrors | "sendCode";
 
-function registrationErrorNoticeFor(error: unknown, messages: Messages["register"]["errors"]): Notice {
+// 与页面字段的 DOM 顺序一致，用于聚焦第一个有误的字段。
+const FIELD_ORDER: readonly (keyof RegistrationFieldErrors)[] = [
+  "email",
+  "verificationCode",
+  "password",
+  "confirmPassword",
+  "inviteCode",
+];
+
+function firstInvalidField(errors: RegistrationFieldErrors): keyof RegistrationFieldErrors | null {
+  return FIELD_ORDER.find((field) => errors[field] !== undefined) ?? null;
+}
+
+function registrationErrorNoticeFor(
+  error: unknown,
+  stage: RegistrationStage,
+  messages: Messages["register"]["errors"],
+): { notice: Notice; reset: boolean } {
   const code = error instanceof RegistrationApiError ? error.code : null;
-  return { tone: "danger", ...registrationErrorNotice(code, messages) };
+  const mapped = registrationErrorNotice(code, stage, messages);
+  return {
+    notice: {
+      tone: "danger",
+      text: mapped.text,
+      loginLink: mapped.loginLink,
+      restart: mapped.recovery === "restart",
+      stage,
+    },
+    reset: mapped.recovery === "reset",
+  };
 }
 
 export function RegisterPage() {
@@ -49,6 +86,19 @@ export function RegisterPage() {
   const confirmHintId = useId();
   const codeErrorId = useId();
   const passwordErrorId = useId();
+  const emailErrorId = useId();
+  const inviteErrorId = useId();
+
+  const emailRef = useRef<HTMLInputElement>(null);
+  const codeRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
+  const confirmRef = useRef<HTMLInputElement>(null);
+  const inviteRef = useRef<HTMLInputElement>(null);
+  const sendCodeRef = useRef<HTMLButtonElement>(null);
+  // 同步的在途标记：防止同一帧内的重复点击在 busy 状态生效前再次发请求。
+  const inFlight = useRef(false);
+  // 渲染后再聚焦，确保目标字段已解除 disabled。
+  const pendingFocus = useRef<FocusTarget | null>(null);
 
   const [email, setEmail] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
@@ -73,6 +123,62 @@ export function RegisterPage() {
   const confirmMismatch = confirmPassword.length > 0 && password !== confirmPassword;
   const confirmError = fieldErrors.confirmPassword ?? (confirmMismatch ? t.register.validation.confirmMismatch : null);
 
+  function requestFocus(target: FocusTarget | null) {
+    pendingFocus.current = target;
+  }
+
+  useEffect(() => {
+    const target = pendingFocus.current;
+    if (target === null) return;
+    pendingFocus.current = null;
+    const element = {
+      email: emailRef,
+      verificationCode: codeRef,
+      password: passwordRef,
+      confirmPassword: confirmRef,
+      inviteCode: inviteRef,
+      sendCode: sendCodeRef,
+    }[target].current;
+    element?.focus();
+  });
+
+  // 只清除由指定请求阶段产生的错误提示；中性提示（如验证码已发送）保留。
+  function clearNoticeFrom(stages: readonly (RegistrationStage | "local")[]) {
+    setNotice((current) =>
+      current !== null &&
+      current.tone === "danger" &&
+      current.stage !== undefined &&
+      stages.includes(current.stage)
+        ? null
+        : current,
+    );
+  }
+
+  // 回到发送验证码之前：丢弃已不可用的 token 与验证码，保留邮箱、邀请码和密码输入。
+  function resetToStart() {
+    setRegistrationToken(null);
+    setPhase("not_started");
+    setCountdown(0);
+    setVerificationCode("");
+    clearFieldError("verificationCode");
+  }
+
+  function showFailure(error: unknown, stage: RegistrationStage) {
+    const { notice: failure, reset } = registrationErrorNoticeFor(error, stage, t.register.errors);
+    if (reset) {
+      resetToStart();
+      requestFocus("sendCode");
+    }
+    setNotice(failure);
+  }
+
+  function handleRestart() {
+    if (inFlight.current) return;
+    resetToStart();
+    setNotice(null);
+    requestFocus("sendCode");
+  }
+
   function clearFieldError(field: keyof RegistrationFieldErrors) {
     setFieldErrors((current) => {
       if (current[field] === undefined) return current;
@@ -90,23 +196,46 @@ export function RegisterPage() {
 
   async function handleSendCode() {
     if (
+      inFlight.current ||
       countdown > 0 ||
-      busy ||
       phase === "verified" ||
       phase === "completed"
     ) {
       return;
     }
+    const stage: RegistrationStage = phase === "not_started" ? "start" : "resend";
+    let canonicalEmail = "";
+    let canonicalInvite = "";
+    if (stage === "start") {
+      // 发送验证码只校验邮箱和邀请码，不要求验证码或密码；格式不符时不发请求。
+      const errors = validateRegistrationStart({ email, inviteCode }, t.register.validation);
+      setFieldErrors((current) => {
+        const next = { ...current, ...errors };
+        if (errors.email === undefined) delete next.email;
+        if (errors.inviteCode === undefined) delete next.inviteCode;
+        return next;
+      });
+      if (hasFieldErrors(errors)) {
+        setNotice(null);
+        requestFocus(firstInvalidField(errors));
+        return;
+      }
+      canonicalEmail = email.trim();
+      canonicalInvite = canonicalInviteCode(inviteCode);
+    }
+    const resendToken = registrationToken;
+    if (stage === "resend" && resendToken === null) {
+      resetToStart();
+      setNotice({ tone: "danger", text: t.register.stateExpired, stage: "resend" });
+      requestFocus("sendCode");
+      return;
+    }
+
+    inFlight.current = true;
     setNotice(null);
     setStatus("sending");
     try {
-      if (phase === "not_started") {
-        const canonicalEmail = email.trim();
-        const canonicalInvite = canonicalInviteCode(inviteCode);
-        if (canonicalEmail === "" || canonicalInvite === "") {
-          setNotice({ tone: "danger", text: t.register.fillEmailAndInvite });
-          return;
-        }
+      if (stage === "start") {
         const token = await startRegistration(
           canonicalEmail,
           canonicalInvite,
@@ -116,28 +245,31 @@ export function RegisterPage() {
         setInviteCode(canonicalInvite);
         setRegistrationToken(token);
         setPhase("awaiting_verification");
-      } else {
-        if (registrationToken === null) {
-          setNotice({ tone: "danger", text: t.register.stateExpired });
-          return;
-        }
-        await resendRegistrationCode(registrationToken);
+        requestFocus("verificationCode");
+      } else if (resendToken !== null) {
+        await resendRegistrationCode(resendToken);
       }
       setCountdown(VERIFICATION_COUNTDOWN_SECONDS);
+      // 中性 200 不代表邮件已投递：文案保持“如果有效则发送”的条件表述。
       setNotice({ tone: "neutral", text: t.register.codeSent });
     } catch (error) {
-      setNotice(registrationErrorNoticeFor(error, t.register.errors));
+      showFailure(error, stage);
     } finally {
+      inFlight.current = false;
       setStatus("idle");
     }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy || completed) return;
+    if (inFlight.current || completed) return;
 
     if (phase === "not_started" || registrationToken === null) {
-      setNotice({ tone: "danger", text: t.register.sendCodeFirst });
+      // 尚未发送验证码：同时指出邮箱 / 邀请码的格式问题，其余字段此时不校验。
+      const errors = validateRegistrationStart({ email, inviteCode }, t.register.validation);
+      setFieldErrors(errors);
+      setNotice({ tone: "danger", text: t.register.sendCodeFirst, stage: "local" });
+      requestFocus(firstInvalidField(errors) ?? "sendCode");
       return;
     }
     // 请求前先做本地格式校验；不合格时不发出验证或完成请求。
@@ -149,20 +281,24 @@ export function RegisterPage() {
     setFieldErrors(errors);
     if (hasFieldErrors(errors)) {
       setNotice(null);
+      requestFocus(firstInvalidField(errors));
       return;
     }
 
+    inFlight.current = true;
     setStatus("submitting");
     setNotice(null);
     const result = await runRegistrationSubmission(
       { phase, registrationToken, verificationCode, password, confirmPassword },
       { verify: verifyRegistrationCode, complete: completeRegistration },
     );
+    inFlight.current = false;
     if (result.kind === "failed") {
       // 留在注册页：验证码已通过时保留新 token，下次只重试完成步骤。
       setRegistrationToken(result.registrationToken);
       setPhase(result.phase);
-      setNotice(registrationErrorNoticeFor(result.error, t.register.errors));
+      // 失败发生在哪一步由返回的 phase 决定：仍待验证即验证码步骤，否则是完成步骤。
+      showFailure(result.error, result.phase === "awaiting_verification" ? "verify" : "complete");
       setStatus("idle");
       return;
     }
@@ -178,6 +314,8 @@ export function RegisterPage() {
     navigate(REGISTRATION_SUCCESS_NAVIGATION.to, REGISTRATION_SUCCESS_NAVIGATION.options);
   }
 
+  const describedBy = (...ids: (string | false)[]) => ids.filter(Boolean).join(" ") || undefined;
+
   return (
     <AuthShell title={t.register.title} subtitle={t.register.subtitle} wide>
       {referralSourceCode !== null && (
@@ -187,6 +325,14 @@ export function RegisterPage() {
         <AuthNotice tone={notice.tone} id={noticeId}>
           {notice.text}
           {notice.loginLink && <> <Link to="/login">{t.common.toLogin}</Link></>}
+          {notice.restart && (
+            <>
+              {" "}
+              <button type="button" className="auth-notice-action" disabled={busy} onClick={handleRestart}>
+                {t.register.restart}
+              </button>
+            </>
+          )}
         </AuthNotice>
       )}
 
@@ -204,12 +350,26 @@ export function RegisterPage() {
               spellCheck={false}
               maxLength={254}
               placeholder={t.common.emailPlaceholder}
+              ref={emailRef}
               value={email}
               disabled={busy || identityLocked}
-              aria-describedby={notice ? noticeId : undefined}
-              onChange={(event) => setEmail(event.target.value)}
+              aria-invalid={fieldErrors.email !== undefined}
+              aria-describedby={describedBy(
+                fieldErrors.email !== undefined && emailErrorId,
+                notice !== null && noticeId,
+              )}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                clearFieldError("email");
+                clearNoticeFrom(["start", "local"]);
+              }}
             />
           </div>
+          {fieldErrors.email !== undefined && (
+            <p className="auth-hint is-danger" id={emailErrorId} aria-live="polite">
+              {fieldErrors.email}
+            </p>
+          )}
         </div>
 
         <div className="auth-field">
@@ -224,6 +384,7 @@ export function RegisterPage() {
                 autoComplete="one-time-code"
                 spellCheck={false}
                 placeholder={t.register.codePlaceholder}
+                ref={codeRef}
                 value={verificationCode}
                 maxLength={6}
                 disabled={busy || phase !== "awaiting_verification"}
@@ -232,10 +393,12 @@ export function RegisterPage() {
                 onChange={(event) => {
                   setVerificationCode(event.target.value);
                   clearFieldError("verificationCode");
+                  clearNoticeFrom(["verify", "resend"]);
                 }}
               />
             </div>
             <button
+              ref={sendCodeRef}
               type="button"
               className="auth-code-button"
               disabled={
@@ -278,6 +441,7 @@ export function RegisterPage() {
               autoComplete="new-password"
               maxLength={PASSWORD_MAX_LENGTH}
               placeholder={t.register.passwordPlaceholder}
+              ref={passwordRef}
               value={password}
               disabled={busy || completed}
               aria-invalid={fieldErrors.password !== undefined}
@@ -290,6 +454,7 @@ export function RegisterPage() {
                 setPassword(event.target.value);
                 clearFieldError("password");
                 clearFieldError("confirmPassword");
+                clearNoticeFrom(["complete"]);
               }}
             />
             <button
@@ -324,6 +489,7 @@ export function RegisterPage() {
               autoComplete="new-password"
               maxLength={PASSWORD_MAX_LENGTH}
               placeholder={t.register.confirmPlaceholder}
+              ref={confirmRef}
               value={confirmPassword}
               disabled={busy || completed}
               aria-invalid={confirmError !== null}
@@ -331,6 +497,7 @@ export function RegisterPage() {
               onChange={(event) => {
                 setConfirmPassword(event.target.value);
                 clearFieldError("confirmPassword");
+                clearNoticeFrom(["complete"]);
               }}
             />
             <button
@@ -363,11 +530,26 @@ export function RegisterPage() {
               spellCheck={false}
               maxLength={34}
               placeholder={t.register.invitePlaceholder}
+              ref={inviteRef}
               value={inviteCode}
               disabled={busy || identityLocked}
-              onChange={(event) => setInviteCode(event.target.value)}
+              aria-invalid={fieldErrors.inviteCode !== undefined}
+              aria-describedby={describedBy(
+                fieldErrors.inviteCode !== undefined && inviteErrorId,
+                notice !== null && notice.stage === "start" && noticeId,
+              )}
+              onChange={(event) => {
+                setInviteCode(event.target.value);
+                clearFieldError("inviteCode");
+                clearNoticeFrom(["start", "local"]);
+              }}
             />
           </div>
+          {fieldErrors.inviteCode !== undefined && (
+            <p className="auth-hint is-danger" id={inviteErrorId} aria-live="polite">
+              {fieldErrors.inviteCode}
+            </p>
+          )}
         </div>
 
         <button type="submit" className="auth-submit" disabled={busy || completed} aria-busy={status === "submitting"}>

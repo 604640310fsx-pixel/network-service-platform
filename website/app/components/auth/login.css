@@ -87,6 +87,10 @@
 
 /* 中性提示（“服务尚未接入”一类说明），复用 .auth-error 结构，仅换配色。 */
 .auth-error.is-neutral { border-color: var(--cc-line); background: var(--cc-inset); color: var(--cc-text-2); }
+/* 提示内的文字按钮（如“重新开始”）：沿用提示配色，仅加下划线与键盘焦点环。 */
+.auth-notice-action { padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.auth-notice-action:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 2px; }
+.auth-notice-action:disabled { cursor: default; opacity: 0.6; }
 
 /* 字段级提示：常驻占位，避免出现/消失时推动下方字段。 */
 .auth-hint { min-height: 18px; margin: 0; color: var(--cc-text-4); font-size: 12.5px; line-height: 18px; }
