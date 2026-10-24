@@ -62,8 +62,13 @@ test("registration copy keeps invite state indistinguishable until completion", 
     zhCopy,
     /codeSent: "如果邀请码有效且可用于该邮箱，验证码将发送到该邮箱，请注意查收。"/,
   );
-  assert.match(zhCopy, /invalidOrExpired: "注册信息无效或已过期，请重新开始。"/);
-  assert.match(flow, /case "invalid_or_expired":\s*return \{ text: messages\.invalidOrExpired/);
+  // invalid_or_expired is one combined server code: the copy keeps both readings.
+  assert.match(zhCopy, /codeInvalidOrExpired: "验证码不正确或已失效。/);
+  assert.match(zhCopy, /sessionExpired: "注册状态无效或已过期，/);
+  assert.match(
+    flow,
+    /case "invalid_or_expired":\s*if \(stage === "verify"\) return notice\(messages\.codeInvalidOrExpired, "restart"\);\s*return notice\(messages\.sessionExpired, "reset"\);/,
+  );
   for (const text of [register, flow, zhCopy]) {
     assert.doesNotMatch(text, /邀请码已撤销|邀请码已过期|邀请码已耗尽/);
   }
@@ -77,8 +82,8 @@ test("registration copy states invite-only policy without promising success", ()
   assert.equal(zhCopy.match(/请输入邀请码完成注册。/g)?.length, 1);
   assert.doesNotMatch(zhCopy, /当前仅开放邀请注册：|个人邀请码只用于注册，不能登录任何账户|仅限邀请注册，需使用管理员签发的邀请码/);
   // Personal codes are case-sensitive: never uppercase while typing, only legacy codes at submit.
-  assert.match(register, /const canonicalInvite = canonicalInviteCode\(inviteCode\);/);
-  assert.match(register, /onChange=\{\(event\) => setInviteCode\(event\.target\.value\)\}/);
+  assert.match(register, /canonicalInvite = canonicalInviteCode\(inviteCode\);/);
+  assert.match(register, /onChange=\{\(event\) => \{\s*setInviteCode\(event\.target\.value\);/);
   assert.doesNotMatch(register, /setInviteCode\(event\.target\.value\.toUpperCase\(\)\)/);
   assert.doesNotMatch(zhCopy, /注册暂未开放|注册暂不可用/);
   assert.doesNotMatch(zhCopy, /创建账号后进入服务管理页面|开放注册|自助注册/);

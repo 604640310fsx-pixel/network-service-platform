@@ -12,8 +12,11 @@ import {
   REGISTRATION_SUCCESS_NAVIGATION,
   registrationCompleteFromLocationState,
   runRegistrationSubmission,
+  validateRegistrationStart,
   validateRegistrationSubmission,
+  type RegistrationStage,
 } from "../app/components/auth/registrationFlow.ts";
+import { canonicalInviteCode } from "../app/lib/registration-api.ts";
 import { en } from "../app/i18n/en.ts";
 import { zh } from "../app/i18n/zh.ts";
 
@@ -21,6 +24,16 @@ const POLICY = { minLength: REGISTRATION_PASSWORD_MIN_LENGTH, maxLength: PASSWOR
 const GOOD = "correct-horse-12";
 const TOKEN_A = `v1.${"a".repeat(43)}`;
 const TOKEN_B = `v1.${"b".repeat(43)}`;
+const STAGES: readonly RegistrationStage[] = ["start", "resend", "verify", "complete"];
+// Synthetic local-only codes (not real invites).
+const PERSONAL = "aB3_dE6-gH9jK2mN5pQ8rS1t";
+const LEGACY = "ABCD-EFGH-JKMN-PQRS-TVWX-YZ23-4567";
+// Same shapes as the auth-service start schema (personal 24 or legacy 7x4).
+const SERVER_INVITE = /^(?:[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){6}|[A-Za-z0-9_-]{24})$/;
+
+function start(email: string, inviteCode: string, messages = zh.register.validation) {
+  return validateRegistrationStart({ email, inviteCode }, messages);
+}
 
 function source(relativePath: string): string {
   return readFileSync(new URL(relativePath, import.meta.url), "utf8");
@@ -147,7 +160,8 @@ test("the login notice only accepts the exact non-sensitive success flag", () =>
 });
 
 test("the register page validates before requests and navigates only after completion", () => {
-  const register = source("../app/components/auth/RegisterPage.tsx");
+  // Scoped to the submit handler: the send handler has its own early return.
+  const register = source("../app/components/auth/RegisterPage.tsx").split("async function handleSubmit(")[1];
   const validation = register.indexOf("validateRegistrationSubmission(");
   const earlyReturn = register.indexOf("if (hasFieldErrors(errors)) {");
   const request = register.indexOf("await runRegistrationSubmission(");
@@ -158,7 +172,7 @@ test("the register page validates before requests and navigates only after compl
   assert.ok(request < failedBranch && failedBranch < clear && clear < navigation);
   const failed = register.slice(failedBranch, register.indexOf("return;", failedBranch));
   assert.doesNotMatch(failed, /navigate\(/);
-  assert.match(failed, /registrationErrorNoticeFor\(result\.error, t\.register\.errors\)/);
+  assert.match(failed, /showFailure\(result\.error, result\.phase === "awaiting_verification" \? "verify" : "complete"\)/);
   assert.equal(register.match(/navigate\(/g)?.length, 1);
 });
 
@@ -173,16 +187,29 @@ test("registration secrets never travel through URL, router state or storage", (
   assert.match(login, /registrationCompleteFromLocationState\(location\.state\)/);
 });
 
-test("only an explicit email_taken error names the email as registered", () => {
-  assert.deepEqual(registrationErrorNotice("email_taken", zh.register.errors), { text: "该邮箱已注册，请直接登录。", loginLink: true });
-  for (const code of [null, "invalid_request", "invalid_or_expired", "request_failed", "invalid_response", "network_error", "anything_else"]) {
-    const notice = registrationErrorNotice(code, zh.register.errors);
-    assert.equal(notice.loginLink, false, String(code));
-    assert.doesNotMatch(notice.text, /已注册|已存在|邀请码/, String(code));
+test("only an explicit email_taken error at completion names the email as registered", () => {
+  assert.deepEqual(registrationErrorNotice("email_taken", "complete", zh.register.errors), {
+    text: "该邮箱已注册，请直接登录。",
+    loginLink: true,
+    recovery: "none",
+  });
+  for (const stage of STAGES) {
+    for (const code of [null, "invalid_request", "invalid_or_expired", "request_failed", "invalid_response", "network_error", "anything_else"]) {
+      const notice = registrationErrorNotice(code, stage, zh.register.errors);
+      assert.equal(notice.loginLink, false, `${stage}:${code}`);
+      assert.doesNotMatch(notice.text, /已注册|已存在|邀请码/, `${stage}:${code}`);
+    }
+    // The server only returns email_taken at completion; elsewhere it stays generic.
+    if (stage !== "complete") {
+      assert.deepEqual(registrationErrorNotice("email_taken", stage, zh.register.errors), {
+        text: zh.register.errors.generic,
+        loginLink: false,
+        recovery: "none",
+      });
+    }
   }
-  assert.equal(registrationErrorNotice(null, zh.register.errors).text, "注册服务暂时不可用，请稍后重试。");
-  assert.equal(registrationErrorNotice("request_failed", zh.register.errors).text, "暂时无法完成注册，请稍后重试。");
-  assert.equal(registrationErrorNotice("invalid_or_expired", zh.register.errors).text, "注册信息无效或已过期，请重新开始。");
+  assert.equal(registrationErrorNotice(null, "start", zh.register.errors).text, "暂时无法完成注册，请稍后重试。");
+  assert.equal(registrationErrorNotice("request_failed", "start", zh.register.errors).text, "暂时无法完成注册，请稍后重试。");
 });
 
 test("registration copy never claims a specific account or invite failure elsewhere", () => {
@@ -191,7 +218,10 @@ test("registration copy never claims a specific account or invite failure elsewh
   assert.doesNotMatch(register, /邮箱已注册|账号已存在|邀请码无效|邀请码已使用|邀请码已撤销|邀请码已过期|邀请码已耗尽/);
   const dictionary = source("../app/i18n/zh.ts");
   assert.equal(dictionary.match(/该邮箱已注册，请直接登录。/g)?.length, 1);
-  assert.match(flow, /case "email_taken":\s*return \{ text: messages\.emailTaken, loginLink: true \};/);
+  assert.match(
+    flow,
+    /case "email_taken":\s*return stage === "complete"\s*\? \{ text: messages\.emailTaken, loginLink: true, recovery: "none" \}\s*: notice\(messages\.generic\);/,
+  );
   for (const text of [flow, dictionary]) {
     assert.doesNotMatch(text, /账号已存在|邀请码无效|邀请码已使用|邀请码已撤销|邀请码已过期|邀请码已耗尽/);
   }
@@ -201,4 +231,126 @@ test("registration copy never claims a specific account or invite failure elsewh
     if (key === "emailTaken") assert.match(text, /already registered/);
     else assert.doesNotMatch(text, /registered|exists|invite/i, key);
   }
+});
+
+test("send-code validation checks only email and invite, with distinct empty and format messages", () => {
+  const v = zh.register.validation;
+  assert.deepEqual(start("invitee@example.test", PERSONAL), {});
+  assert.deepEqual(start("", ""), { email: v.emailRequired, inviteCode: v.inviteRequired });
+  assert.deepEqual(start("   ", "  "), { email: v.emailRequired, inviteCode: v.inviteRequired });
+  // Only email and invite are inputs: a send never needs a password or code.
+  assert.deepEqual(Object.keys(start("invitee@example.test", "")), ["inviteCode"]);
+  assert.deepEqual(Object.keys(start("", PERSONAL)), ["email"]);
+});
+
+test("email format mirrors the server: ASCII only, complete address", () => {
+  const v = zh.register.validation;
+  for (const email of ["  Invitee@Example.TEST  ", "a.b+tag@sub.example.test"]) {
+    assert.equal(start(email, PERSONAL).email, undefined, email);
+  }
+  for (const email of ["测试@example.test", "invitee＠example.test", "in vitee@example.test", "invitee​@example.test", "invitee@exämple.test"]) {
+    assert.equal(start(email, PERSONAL).email, v.emailCharacters, email);
+  }
+  for (const email of ["invitee", "invitee@", "invitee@example", "@example.test", "invitee@@example.test", `${"a".repeat(250)}@x.test`]) {
+    assert.equal(start(email, PERSONAL).email, v.emailFormat, email);
+  }
+});
+
+test("personal invite codes are 24 characters and case-preserving; both legacy cases are accepted", () => {
+  const v = zh.register.validation;
+  assert.equal(start("invitee@example.test", PERSONAL).inviteCode, undefined);
+  assert.equal(start("invitee@example.test", ` ${PERSONAL} `).inviteCode, undefined);
+  assert.equal(start("invitee@example.test", LEGACY).inviteCode, undefined);
+  assert.equal(start("invitee@example.test", LEGACY.toLowerCase()).inviteCode, undefined);
+  // 23 and 25 characters are rejected with the actual length, never padded or trimmed to fit.
+  assert.equal(start("invitee@example.test", PERSONAL.slice(0, 23)).inviteCode, v.inviteLength(23));
+  assert.equal(start("invitee@example.test", `${PERSONAL}x`).inviteCode, v.inviteLength(25));
+  assert.match(v.inviteLength(23), /当前 23 位/);
+  // Every accepted value is sent in a server-accepted shape; personal codes unchanged.
+  for (const value of [PERSONAL, ` ${PERSONAL} `, LEGACY, LEGACY.toLowerCase()]) {
+    assert.equal(start("invitee@example.test", value).inviteCode, undefined, value);
+    assert.match(canonicalInviteCode(value), SERVER_INVITE, value);
+  }
+  assert.equal(canonicalInviteCode(PERSONAL), PERSONAL);
+});
+
+test("malformed invite input gets format guidance without extraction or status claims", () => {
+  const v = zh.register.validation;
+  const link = `https://www.example.test/register?invite=${PERSONAL}`;
+  for (const value of [link, `/register?invite=${PERSONAL}`, `invite=${PERSONAL}`]) {
+    assert.equal(start("invitee@example.test", value).inviteCode, v.inviteLink, value);
+  }
+  for (const value of ["aB3_dE6 gH9jK2mN5pQ8rS1t", "aB3_dE6-gH9jK2mN5pQ8rS1！", `${PERSONAL.slice(0, 23)}​`]) {
+    assert.equal(start("invitee@example.test", value).inviteCode, v.inviteCharacters, value);
+  }
+  // Legacy shape but with letters the legacy alphabet never uses (I, L, O, U).
+  assert.equal(start("invitee@example.test", "ABCD-EFGH-IJKL-MNOP-QRST-UVWX-YZ23").inviteCode, v.inviteLegacyCharacters);
+  for (const text of Object.values(v).map((entry) => (typeof entry === "function" ? entry(23) : entry))) {
+    assert.doesNotMatch(text, /邀请码无效|已使用|已过期|已撤销|不存在|已注册/);
+  }
+});
+
+test("server error codes map by the stage that actually failed", () => {
+  const e = zh.register.errors;
+  const map = (code: string | null, stage: RegistrationStage) => registrationErrorNotice(code, stage, e);
+  for (const stage of STAGES) {
+    assert.deepEqual(map("network_error", stage), { text: e.network, loginLink: false, recovery: "none" });
+    assert.equal(map("auth_unavailable", stage).text, e.unavailable);
+    assert.equal(map("busy", stage).text, e.busy);
+    assert.equal(map("origin_rejected", stage).text, e.originRejected);
+    // invalid_request after local checks passed: request rejected, not "your invite is invalid".
+    assert.deepEqual(map("invalid_request", stage), { text: e.invalidRequest, loginLink: false, recovery: "none" });
+    for (const code of [null, "request_failed", "invalid_response", "some_new_code"]) {
+      assert.deepEqual(map(code, stage), { text: e.generic, loginLink: false, recovery: "none" }, `${stage}:${code}`);
+    }
+  }
+  assert.equal(map("rate_limited", "start").text, e.rateLimitedSend);
+  assert.equal(map("rate_limited", "resend").text, e.rateLimitedSend);
+  assert.equal(map("rate_limited", "verify").text, e.rateLimited);
+  assert.equal(map("rate_limited", "complete").text, e.rateLimited);
+  // The combined invalid_or_expired code: at verify the token may still be usable.
+  assert.deepEqual(map("invalid_or_expired", "verify"), { text: e.codeInvalidOrExpired, loginLink: false, recovery: "restart" });
+  assert.match(e.codeInvalidOrExpired, /不正确或已失效/);
+  for (const stage of ["start", "resend", "complete"] as const) {
+    assert.deepEqual(map("invalid_or_expired", stage), { text: e.sessionExpired, loginLink: false, recovery: "reset" });
+  }
+  assert.match(e.sessionExpired, /无效或已过期/);
+  assert.equal(map("password_policy_violation", "complete").text, e.passwordPolicy);
+  assert.equal(map("password_policy_violation", "verify").text, e.generic);
+  // Never echo a server-provided code or text.
+  assert.doesNotMatch(map("some_new_code", "start").text, /some_new_code/);
+});
+
+test("Chinese and English carry the same registration validation and error keys", () => {
+  for (const group of ["validation", "errors"] as const) {
+    assert.deepEqual(Object.keys(en.register[group]).sort(), Object.keys(zh.register[group]).sort(), group);
+    for (const [key, value] of Object.entries(en.register[group])) {
+      const text = typeof value === "function" ? (value as (n: number) => string)(23) : value;
+      assert.ok(text.length > 0 && !/[㐀-鿿]/.test(text), key);
+    }
+  }
+  assert.equal(start("", "", en.register.validation).email, "Enter your email.");
+  assert.match(en.register.validation.inviteLength(23), /\(23 characters\)/);
+  assert.ok(en.register.restart.length > 0 && zh.register.restart.length > 0);
+});
+
+test("the register page validates the send locally before any start request", () => {
+  const register = source("../app/components/auth/RegisterPage.tsx");
+  const send = register.slice(register.indexOf("async function handleSendCode()"), register.indexOf("async function handleSubmit("));
+  const validation = send.indexOf("validateRegistrationStart(");
+  const earlyReturn = send.indexOf("if (hasFieldErrors(errors)) {");
+  const request = send.indexOf("await startRegistration(");
+  assert.ok(validation > 0 && validation < earlyReturn && earlyReturn < request);
+  // A send never reads the password or code, and a synchronous guard blocks duplicates.
+  assert.doesNotMatch(send, /password|verificationCode,/);
+  assert.match(send, /inFlight\.current \|\|/);
+  assert.match(send, /inFlight\.current = true;[\s\S]*finally \{\s*inFlight\.current = false;/);
+  // Neutral 200 keeps conditional wording; no delivery claim.
+  assert.match(send, /setNotice\(\{ tone: "neutral", text: t\.register\.codeSent \}\)/);
+  assert.doesNotMatch(zh.register.codeSent, /已发送|已送达|已投递/);
+  // Fields are associated with their error text.
+  assert.match(register, /aria-invalid=\{fieldErrors\.email !== undefined\}/);
+  assert.match(register, /aria-invalid=\{fieldErrors\.inviteCode !== undefined\}/);
+  assert.match(register, /id=\{emailErrorId\} aria-live="polite"/);
+  assert.match(register, /id=\{inviteErrorId\} aria-live="polite"/);
 });
