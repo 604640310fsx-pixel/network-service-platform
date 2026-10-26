@@ -57,7 +57,7 @@ export type DocumentationArticle = {
   readonly en?: LocalizedArticleText;
 };
 
-// 获授权复用的四篇客户端教程。图片只引用已检查的本地素材。
+// 获授权的客户端教程、下载说明与环境指南；图片只引用已检查的本地素材。
 const ZH_GUIDE_ARTICLES: readonly DocumentationArticle[] = [
   {
     id: "flclash-import",
@@ -424,11 +424,106 @@ const ZH_GUIDE_ARTICLES: readonly DocumentationArticle[] = [
       },
     ],
   },
+  {
+    id: "social-ai-environment-setup",
+    category: "进阶教程",
+    title: "社媒、ChatGPT 与 Claude：电脑和手机环境设置",
+    summary: "按设备检查订阅、流量接入和应用可用性，并区分网络连接与平台账号问题。",
+    sections: [
+      {
+        heading: "开始前先确认",
+        paragraphs: [
+          "使用可信来源的客户端、本人有效的服务订阅和本人账号。先确认订阅能在客户端正常更新，再查目标平台的官方使用地区与账号要求。网络连通不等于具备账号资格，也不代表平台一定支持当前地区或功能。",
+          "没有适用于所有设备的节点、TUN 或全局模式设置；任何连接方式都不能保证平台解锁、账号不受限制或服务始终可用。请遵守各平台规则，不借助位置伪装、指纹伪装、共享账号或不可信证书处理访问限制。",
+        ],
+      },
+      {
+        heading: "Windows 与 macOS：先接入，再验证",
+        steps: [
+          {
+            text: "按本站现有的「Clash Verge：导入并选择配置」教程导入本人订阅，确认配置已选中，再从配置提供的列表选择节点。客户端显示节点或延迟，只能说明对应步骤有结果。",
+            images: [
+              { src: "/docs/social-ai-setup/desktop-subscriptions.png", alt: "Clash Verge 订阅页与配置卡片；原图含私密信息，仅本机查看", caption: "先确认订阅已导入并选中。原图未遮挡，仅限本机预览，请勿转发。" },
+              { src: "/docs/social-ai-setup/desktop-proxy.png", alt: "Clash Verge 代理组与当前选中节点；原图含私密信息，仅本机查看", caption: "在当前配置的代理组中查看节点；截图状态不是通用推荐。" },
+            ],
+          },
+          {
+            text: "先保留现有规则模式，按客户端说明开启系统代理，再用实际浏览器打开目标平台官网验证。若目标应用不遵循系统代理，才考虑客户端官方说明中的 TUN 模式；系统级授权提示由本人核对并决定，不为了初次连接去关闭防火墙或其他保护。",
+            images: [
+              { src: "/docs/social-ai-setup/desktop-home.png", alt: "Clash Verge 首页显示系统代理、虚拟网卡和路由模式；原图含私密信息，仅本机查看", caption: "分别核对流量接入与路由模式；图中开关只是原设备当时状态。" },
+              { src: "/docs/social-ai-setup/desktop-settings.png", alt: "Clash Verge 设置页显示系统代理、虚拟网卡与其他选项", caption: "到设置页核对现有开关，不照抄示例状态。" },
+            ],
+          },
+          "区分两件事：系统代理或 TUN 决定应用流量如何进入客户端；规则、全局或直连决定已进入客户端的流量如何出去。全局模式只作用于已接入的流量，系统代理绕过和 TUN 排除仍可能让部分请求不经过客户端。",
+        ],
+        paragraphs: [
+          "有的示例界面同时显示「TUN 已开、系统代理已关、全局已选」，它只是某台设备当时的状态，不是推荐所有人照抄的组合。以当前应用是否被接入、现有规则和实际页面结果为准。参考 Clash Verge Rev 官方《快速入门》《名词解释》《Bypass》。",
+        ],
+      },
+      {
+        heading: "iPhone 与 iPad：沿用已有订阅和配置",
+        steps: [
+          {
+            text: "已使用 Shadowrocket 的用户，先按本站「Shadowrocket：添加订阅 URL」教程导入本人地址、选择节点，再用首页连接开关连接。系统若要求添加 VPN 配置，由本人核对客户端及系统提示后决定。",
+            images: [{ src: "/docs/social-ai-setup/ios-home.png", alt: "Shadowrocket 首页显示连接开关、全局路由和节点列表；原图含私密信息，仅本机查看", caption: "首页用于核对连接与路由入口。原图未遮挡，仅限本机预览，请勿转发。" }],
+          },
+          {
+            text: "保留已有可用的「全局路由」配置；需要按现有配置规则分流时，可参照本站原教程查看「配置」模式。不要只凭示例截图推断其他模式或把某个开关状态当作通用答案。",
+            images: [{ src: "/docs/social-ai-setup/ios-general.png", alt: "Shadowrocket 通用设置页显示旁路系统、IPv6、私有 IP 应答和 DNS 选项；原图含私密信息，仅本机查看", caption: "这些是可核对的设置入口，图中的开关状态不适合直接照抄。" }],
+          },
+          {
+            text: "分别在 Wi-Fi 和蜂窝网络下用目标应用检查实际页面或请求。网络切换后重新确认连接状态；连接开关打开、节点测速成功或选了「始终开启」，都不等于永不掉线，也不证明每个请求都已进入客户端。",
+            images: [{ src: "/docs/social-ai-setup/ios-on-demand.png", alt: "Shadowrocket 按需求连接页显示始终开启、按需求连接与睡眠时断开", caption: "按设备需要审查这些选项，不把「始终开启」当成永不掉线保证。" }],
+          },
+        ],
+        paragraphs: [
+          "示例设置页可能出现「旁路系统、启用 IPv6、首选 IPv6、私有 IP 应答、DNS 覆写、备用 DNS、始终开启、按需求连接、睡眠时断开」等标签。它们仅是核对当前配置的入口，不代表截图中的开关状态适合你的设备；不要一律关闭 IPv6、强制第三方 DNS 或关闭旁路。参考 Shadowrocket 的官方 App Store 页面。",
+        ],
+      },
+      {
+        heading: "Android：核对 VPN 权限和应用范围",
+        steps: [
+          "使用已可信安装的客户端，按本站已有的 FlClash 导入教程取得本人订阅并选好配置与节点；不同 Android 客户端的菜单以实际版本为准。",
+          "首次启动时如出现 Android VPN 连接请求，由本人核对并批准。若客户端提供按应用分流，检查目标社媒或 AI 应用是否包含在需要的应用范围内，再用该应用本身验证。",
+          "「始终开启 VPN」和「阻止不使用 VPN 的连接」可能改变断线时的可用性，不是初次设置的必选项；先了解设备与客户端当前配置，再决定是否使用。",
+        ],
+        paragraphs: [
+          "参考 Android 官方 VPN 帮助；不要把系统的 VPN 标记当成目标应用已经成功访问的证明。",
+        ],
+      },
+      {
+        heading: "社媒、ChatGPT 与 Claude：以官方页面为准",
+        paragraphs: [
+          "从平台官方网站或官方应用商店进入，使用本人账号，完成平台要求的登录与多因素验证，并检查设备时间是否正确。单独的浏览器配置文件可以帮助区分日常会话，但不保证账号之间不会关联，也不能替代平台的使用资格。",
+          "用目标网页或应用的实际页面与请求判断是否可用。Ping、节点延迟或 YouTube 能打开，都不能证明社媒、ChatGPT 或 Claude 的账号和功能可用；网络正常而页面仍拒绝访问时，应查看平台官方状态、支持与账号提示。",
+          "聊天订阅与开发者 API 是不同的产品、认证和计费入口；不要为了排查网页或应用问题去开通 API 或付款。参考 ChatGPT 官方 Quickstart、Claude 官方入门与支持地区说明。",
+        ],
+      },
+      {
+        heading: "按层排查并保护私密资料",
+        steps: [
+          "先看订阅是否有效、配置是否已选中、节点与连接状态是否正常；再看目标浏览器或应用的流量是否进入客户端。不要靠不停换节点代替定位问题。",
+          "连接或 DNS 错误先核对本机连接与客户端提示；HTTP 403 可能涉及平台地区、账号或其他访问策略，HTTP 429 通常需要检查额度或请求频率；验证码与登录提示应按平台本人流程处理。不要把这些不同问题一概归为节点故障。",
+          "仍无法判断时查看目标平台官方状态或支持渠道，只提交脱敏后的错误文字、发生时间和设备/客户端版本。不要发送完整订阅 URL、验证码、账号凭据或包含真实地址与用量的截图；不要清空用户数据或关闭安全保护作为常规排障步骤。",
+        ],
+      },
+      {
+        heading: "参考资料",
+        paragraphs: [
+          "Clash Verge Rev 官方：快速入门 https://www.clashverge.dev/guide/quickstart.html；名词解释 https://www.clashverge.dev/guide/term.html；Bypass https://www.clashverge.dev/guide/bypass.html。",
+          "Apple App Store：Shadowrocket https://apps.apple.com/us/app/shadowrocket/id932747118；Android 官方 VPN 帮助 https://support.google.com/android/answer/9089766?hl=en。",
+          "ChatGPT 官方 Quickstart https://learn.chatgpt.com/docs/quickstart；Claude 官方入门 https://support.claude.com/en/articles/8114491-get-started-with-claude；支持地区 https://support.claude.com/en/articles/8461763-where-can-i-access-claude。",
+          "Claude 帮助中心：聊天订阅与 Console API 的区别 https://support.claude.com/en/articles/9876003-i-have-a-paid-claude-subscription-pro-max-team-or-enterprise-plans-why-is-claude-api-usage-billed-separately-from-my-paid-claude-plan。",
+        ],
+      },
+    ],
+  },
 ];
 
 const GUIDE_CATEGORY_IDS: Readonly<Record<string, DocumentationCategoryId>> = {
   订阅导入: "subscription-import",
   代理工具下载: "proxy-tool-downloads",
+  进阶教程: "advanced",
 };
 
 export const SUBSCRIPTION_IMPORT_ARTICLES: readonly DocumentationArticle[] = [
