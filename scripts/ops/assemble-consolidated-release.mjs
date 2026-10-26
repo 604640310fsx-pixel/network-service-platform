@@ -33,8 +33,8 @@ export const RELEASE_WORKFLOW_JOB = "consolidated-release-packet";
 export const RELEASE_ARTIFACT_PREFIX = "consolidated-release-";
 export const DIRECT14_RELEASE_ARTIFACT_PREFIX = "consolidated-release-direct14-";
 export const STANDARD19_RELEASE_ARTIFACT_PREFIX = "consolidated-release-standard19-";
-export const RELEASE_INTEGRATION_REF =
-  "refs/heads/integration/consolidate-project";
+export const RELEASE_FORMAL_REF =
+  "refs/heads/codex/nsp-article-only-release-20261026-01";
 // Historical routes (001-019) stay recognized so already-built 019 bundles
 // still validate; the current repository sequence is 001-020 (tickets).
 export const STANDARD16_19_RELEASE_SCHEMA_ROUTE = "standard16-19";
@@ -461,13 +461,14 @@ export function createReleaseProvenance({
 
   const isReleaseCandidateContext =
     eventName === "push" &&
-    ref === RELEASE_INTEGRATION_REF &&
+    ref === RELEASE_FORMAL_REF &&
+    workflowRef === `${RELEASE_REPOSITORY}/.github/workflows/ci.yml@${RELEASE_FORMAL_REF}` &&
     githubSha === sha;
   if (mode === "github-actions-test") {
     if (isReleaseCandidateContext) {
       throw new ReleaseAssemblyError(
         "PROVENANCE_REQUIRED",
-        "an integration push must use release-candidate provenance",
+        "a formal release push must use release-candidate provenance",
       );
     }
     return Object.freeze({
@@ -486,7 +487,7 @@ export function createReleaseProvenance({
   if (!isReleaseCandidateContext) {
     throw new ReleaseAssemblyError(
       "PROVENANCE_REQUIRED",
-      "release-candidate provenance requires an exact integration push SHA",
+      "release-candidate provenance requires the exact formal-branch push SHA",
     );
   }
 

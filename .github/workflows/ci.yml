@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - main
-      - integration/consolidate-project
+      - codex/nsp-article-only-release-20261026-01
 
 permissions:
   contents: read
@@ -96,9 +96,9 @@ jobs:
     timeout-minutes: 30
     env:
       EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      PROVENANCE_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'github-actions' || 'github-actions-test' }}
-      VALIDATION_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'ci-build' || 'ci-test' }}
-      MONITOR_ORIGIN_POLICY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'required' || 'optional' }}
+      PROVENANCE_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/codex/nsp-article-only-release-20261026-01' && 'github-actions' || 'github-actions-test' }}
+      VALIDATION_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/codex/nsp-article-only-release-20261026-01' && 'ci-build' || 'ci-test' }}
+      MONITOR_ORIGIN_POLICY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/codex/nsp-article-only-release-20261026-01' && 'required' || 'optional' }}
     steps:
       - name: Checkout exact task head
         uses: actions/checkout@v6
@@ -280,7 +280,7 @@ jobs:
 
       - name: Retain exact integration release candidate
         id: upload-release-candidate
-        if: github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && github.sha == env.EXPECTED_SHA
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/nsp-article-only-release-20261026-01' && github.sha == env.EXPECTED_SHA
         uses: actions/upload-artifact@v4
         with:
           name: consolidated-release-${{ env.EXPECTED_SHA }}
@@ -290,7 +290,7 @@ jobs:
           include-hidden-files: false
 
       - name: Record candidate artifact proof
-        if: github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && github.sha == env.EXPECTED_SHA
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/nsp-article-only-release-20261026-01' && github.sha == env.EXPECTED_SHA
         env:
           ARTIFACT_ID: ${{ steps.upload-release-candidate.outputs.artifact-id }}
           ARTIFACT_DIGEST: ${{ steps.upload-release-candidate.outputs.artifact-digest }}
@@ -310,7 +310,7 @@ jobs:
 
       - name: Retain exact integration direct14 release candidate
         id: upload-direct14-release-candidate
-        if: github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && github.sha == env.EXPECTED_SHA
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/nsp-article-only-release-20261026-01' && github.sha == env.EXPECTED_SHA
         uses: actions/upload-artifact@v4
         with:
           name: consolidated-release-direct14-${{ env.EXPECTED_SHA }}
@@ -320,7 +320,7 @@ jobs:
           include-hidden-files: false
 
       - name: Record direct14 candidate artifact proof
-        if: github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && github.sha == env.EXPECTED_SHA
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/nsp-article-only-release-20261026-01' && github.sha == env.EXPECTED_SHA
         env:
           ARTIFACT_ID: ${{ steps.upload-direct14-release-candidate.outputs.artifact-id }}
           ARTIFACT_DIGEST: ${{ steps.upload-direct14-release-candidate.outputs.artifact-digest }}
@@ -340,7 +340,7 @@ jobs:
 
       - name: Retain exact integration standard19 release candidate
         id: upload-standard19-release-candidate
-        if: github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && github.sha == env.EXPECTED_SHA
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/nsp-article-only-release-20261026-01' && github.sha == env.EXPECTED_SHA
         uses: actions/upload-artifact@v4
         with:
           name: consolidated-release-standard19-${{ env.EXPECTED_SHA }}
@@ -350,7 +350,7 @@ jobs:
           include-hidden-files: false
 
       - name: Record standard19 candidate artifact proof
-        if: github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && github.sha == env.EXPECTED_SHA
+        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/nsp-article-only-release-20261026-01' && github.sha == env.EXPECTED_SHA
         env:
           ARTIFACT_ID: ${{ steps.upload-standard19-release-candidate.outputs.artifact-id }}
           ARTIFACT_DIGEST: ${{ steps.upload-standard19-release-candidate.outputs.artifact-digest }}

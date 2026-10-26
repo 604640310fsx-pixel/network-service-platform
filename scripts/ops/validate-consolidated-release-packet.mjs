@@ -22,7 +22,7 @@ import {
   releaseMigrationsForRoute,
   RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE,
   RELEASE_BUNDLE_FORMAT,
-  RELEASE_INTEGRATION_REF,
+  RELEASE_FORMAL_REF,
   RELEASE_HTTP_CONTRACT_PATHS,
   RELEASE_MIGRATIONS,
   RELEASE_REPOSITORY,
@@ -748,9 +748,17 @@ export function validateRepository({
     join(sourceRoot, ".github/workflows/ci.yml"),
     "CI workflow",
   );
+  // Historical bundles retain the original exact integration ref. This isolated
+  // article release uses one other exact ref; no arbitrary branch is accepted.
+  const articleBranch = RELEASE_FORMAL_REF.slice("refs/heads/".length);
+  const sourceFormalBranch = workflow.includes(`      - ${articleBranch}\n`)
+    ? articleBranch
+    : "integration/consolidate-project";
+  const sourceFormalRef = `refs/heads/${sourceFormalBranch}`;
   assertFragments(
     workflow,
     [
+      `  push:\n    branches:\n      - main\n      - ${sourceFormalBranch}\n\npermissions:`,
       "validate-consolidated-release-packet.mjs",
       "validate-release-open-http-contract.mjs",
       "assemble-consolidated-release.mjs",
@@ -764,10 +772,11 @@ export function validateRepository({
       "npm --prefix website run check",
       "npm --prefix website run build",
       "VITE_MONITOR_URL: ${{ secrets.NSP_PUBLIC_MONITOR_ORIGIN }}",
-      "MONITOR_ORIGIN_POLICY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'required' || 'optional' }}",
+      `MONITOR_ORIGIN_POLICY: \${{ github.event_name == 'push' && github.ref == '${sourceFormalRef}' && 'required' || 'optional' }}`,
+      `VALIDATION_MODE: \${{ github.event_name == 'push' && github.ref == '${sourceFormalRef}' && 'ci-build' || 'ci-test' }}`,
       '--phase configured --policy "$MONITOR_ORIGIN_POLICY"',
       '--phase embedded --policy "$MONITOR_ORIGIN_POLICY" --dist website/dist',
-      'PROVENANCE_MODE: ${{ github.event_name == \'push\' && github.ref == \'refs/heads/integration/consolidate-project\' && \'github-actions\' || \'github-actions-test\' }}',
+      `PROVENANCE_MODE: \${{ github.event_name == 'push' && github.ref == '${sourceFormalRef}' && 'github-actions' || 'github-actions-test' }}`,
       '--provenance-mode "$PROVENANCE_MODE"',
       '--validation-mode "$VALIDATION_MODE"',
       "actions/upload-artifact@v4",
@@ -957,7 +966,7 @@ function validateProvenance({
     provenance.repository === RELEASE_REPOSITORY &&
     provenance.job === RELEASE_WORKFLOW_JOB &&
     provenance.eventName === "push" &&
-    provenance.ref === RELEASE_INTEGRATION_REF &&
+    provenance.ref === RELEASE_FORMAL_REF &&
     provenance.githubSha === expectedSha &&
     provenance.artifactName === releaseArtifactNameForRoute(expectedSha, schemaRoute) &&
     typeof provenance.runId === "string" &&
@@ -965,9 +974,8 @@ function validateProvenance({
     typeof provenance.runAttempt === "string" &&
     /^[1-9][0-9]*$/.test(provenance.runAttempt) &&
     typeof provenance.workflowRef === "string" &&
-    provenance.workflowRef.startsWith(
-      `${RELEASE_REPOSITORY}/.github/workflows/ci.yml@`,
-    );
+    provenance.workflowRef ===
+      `${RELEASE_REPOSITORY}/.github/workflows/ci.yml@${RELEASE_FORMAL_REF}`;
 
   if (validationMode === "local-dry-run") {
     if (!localShape) {
@@ -1186,7 +1194,7 @@ function validateGithubArtifactProof({
     workflowRun?.path !== ".github/workflows/ci.yml" ||
     workflowRun?.event !== "push" ||
     workflowRun?.head_branch !==
-      RELEASE_INTEGRATION_REF.slice("refs/heads/".length) ||
+      RELEASE_FORMAL_REF.slice("refs/heads/".length) ||
     workflowRun?.head_sha !== expectedSha ||
     workflowRun?.status !== "completed" ||
     workflowRun?.conclusion !== "success" ||

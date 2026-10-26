@@ -95,11 +95,11 @@ function githubEnvironment({ sha, candidate }) {
     GITHUB_RUN_ID: "123456789",
     GITHUB_RUN_ATTEMPT: "1",
     GITHUB_WORKFLOW_REF:
-      "604640310fsx-pixel/network-service-platform/.github/workflows/ci.yml@refs/heads/integration/consolidate-project",
+      "604640310fsx-pixel/network-service-platform/.github/workflows/ci.yml@refs/heads/codex/nsp-article-only-release-20261026-01",
     GITHUB_JOB: "consolidated-release-packet",
     GITHUB_EVENT_NAME: candidate ? "push" : "pull_request",
     GITHUB_REF: candidate
-      ? "refs/heads/integration/consolidate-project"
+      ? "refs/heads/codex/nsp-article-only-release-20261026-01"
       : "refs/pull/48/merge",
     GITHUB_SHA: candidate ? sha : "a".repeat(40),
   };
@@ -1623,6 +1623,40 @@ test("standard19-26 assembles exact 001-026 with its own boundary and rejects cr
   }
 });
 
+test("article-only formal provenance rejects other refs, PRs and SHA drift", () => {
+  const sha = "a".repeat(40);
+  const environment = githubEnvironment({ sha, candidate: true });
+  const formal = createReleaseProvenance({ mode: "github-actions", expectedSha: sha, environment });
+  assert.equal(formal.ref, "refs/heads/codex/nsp-article-only-release-20261026-01");
+  assert.equal(formal.githubSha, sha);
+  assert.equal(formal.releaseUse, "requires-github-artifact-verification");
+
+  for (const ref of ["refs/heads/integration/consolidate-project", "refs/heads/main", "refs/heads/codex/other"]) {
+    assert.throws(
+      () => createReleaseProvenance({ mode: "github-actions", expectedSha: sha, environment: { ...environment, GITHUB_REF: ref } }),
+      (error) => error?.code === "PROVENANCE_REQUIRED",
+      ref,
+    );
+  }
+  assert.throws(
+    () => createReleaseProvenance({ mode: "github-actions", expectedSha: sha, environment: { ...environment, GITHUB_SHA: "b".repeat(40) } }),
+    (error) => error?.code === "PROVENANCE_REQUIRED",
+  );
+  assert.throws(
+    () => createReleaseProvenance({ mode: "github-actions", expectedSha: sha, environment: { ...environment, GITHUB_WORKFLOW_REF: "604640310fsx-pixel/network-service-platform/.github/workflows/ci.yml@refs/heads/main" } }),
+    (error) => error?.code === "PROVENANCE_REQUIRED",
+  );
+  const pullRequest = { ...environment, GITHUB_EVENT_NAME: "pull_request", GITHUB_REF: "refs/pull/48/merge" };
+  assert.throws(
+    () => createReleaseProvenance({ mode: "github-actions", expectedSha: sha, environment: pullRequest }),
+    (error) => error?.code === "PROVENANCE_REQUIRED",
+  );
+  assert.equal(
+    createReleaseProvenance({ mode: "github-actions-test", expectedSha: sha, environment: pullRequest }).releaseUse,
+    "forbidden",
+  );
+});
+
 test("standard19-25 CI provenance binds its distinct artifact and PR builds stay test-only", () => {
   const parent = mkdtempSync(join(tmpdir(), "consolidated-release-standard19-ci-"));
   try {
@@ -2412,7 +2446,7 @@ test("ignored build replacement cannot pass candidate provenance", () => {
         },
         path: ".github/workflows/ci.yml",
         event: "push",
-        head_branch: "integration/consolidate-project",
+        head_branch: "codex/nsp-article-only-release-20261026-01",
         head_sha: fixture.sha,
         status: "completed",
         conclusion: "success",
@@ -2513,7 +2547,7 @@ test("candidate validation rejects ZIP payload tampering under the same manifest
         },
         path: ".github/workflows/ci.yml",
         event: "push",
-        head_branch: "integration/consolidate-project",
+        head_branch: "codex/nsp-article-only-release-20261026-01",
         head_sha: fixture.sha,
         status: "completed",
         conclusion: "success",
