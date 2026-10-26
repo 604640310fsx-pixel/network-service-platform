@@ -1451,6 +1451,7 @@ export const zh = {
     emptyBody: "当前没有可展示的已批准正文，本页不会生成或补写教程。",
     noMatchTitle: "没有匹配的文档",
     noMatchBody: "请调整搜索关键词。",
+    clearSearch: "清空搜索",
     groupHeading: (name: string, count: number) => `${name}（${count}）`,
     expand: "点击展开",
     collapse: "点击收起",

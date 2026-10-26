@@ -1452,6 +1452,7 @@ export const en: Messages = {
     emptyBody: "There is no approved content to show yet; this page does not generate or fill in guides.",
     noMatchTitle: "No matching docs",
     noMatchBody: "Try different search terms.",
+    clearSearch: "Clear search",
     groupHeading: (name: string, count: number) => `${name} (${count})`,
     expand: "Expand",
     collapse: "Collapse",
