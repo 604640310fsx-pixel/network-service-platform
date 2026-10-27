@@ -66,6 +66,7 @@ test("subscription import articles remain searchable by their real reader conten
       "clash-verge-import",
       "clash-meta-import",
       "proxy-tool-downloads",
+      "social-ai-environment-setup",
       "home-ip-quality",
       "proxy-detection-risk",
       "network-lines-overview",
@@ -117,7 +118,7 @@ test("existing advanced articles retain approved text and original image positio
 
 test("personal-advice article remains searchable without changing existing notes", () => {
   const advanced = SUBSCRIPTION_IMPORT_ARTICLES.filter((item) => item.category === "进阶教程");
-  assert.equal(advanced.length, 5);
+  assert.equal(advanced.length, 6);
   const article = advanced.find((item) => item.id === "claude-gpt-account-advice");
   assert.ok(article?.note);
   assert.equal(article.title, "Claude封号与GPT降智的问题");
@@ -129,6 +130,32 @@ test("personal-advice article remains searchable without changing existing notes
   assert.deepEqual(
     filterDocumentationArticles(SUBSCRIPTION_IMPORT_ARTICLES, "KYC认证", "进阶教程").map((item) => item.id),
     ["claude-gpt-account-advice"],
+  );
+});
+
+test("social and AI setup guide registers seven local screenshot paths", () => {
+  const article = SUBSCRIPTION_IMPORT_ARTICLES.find((item) => item.id === "social-ai-environment-setup");
+  assert.ok(article);
+  assert.equal(article.categoryId, "advanced");
+  assert.equal(article.sections.length, 7);
+  const imagePaths = article.sections.flatMap((section) => [
+    ...(section.images ?? []).map((image) => image.src),
+    ...(section.paragraphs ?? []).flatMap((item) => typeof item === "string" ? [] : item.images.map((image) => image.src)),
+    ...(section.steps ?? []).flatMap((item) => typeof item === "string" ? [] : item.images.map((image) => image.src)),
+  ]);
+  assert.deepEqual(imagePaths, [
+    "/docs/social-ai-setup/desktop-subscriptions.png",
+    "/docs/social-ai-setup/desktop-proxy.png",
+    "/docs/social-ai-setup/desktop-home.png",
+    "/docs/social-ai-setup/desktop-settings.png",
+    "/docs/social-ai-setup/ios-home.png",
+    "/docs/social-ai-setup/ios-general.png",
+    "/docs/social-ai-setup/ios-on-demand.png",
+  ]);
+  assert.ok(imagePaths.every((src) => existsSync(new URL(`../../../public${src}`, import.meta.url))));
+  assert.deepEqual(
+    filterDocumentationArticles(SUBSCRIPTION_IMPORT_ARTICLES, "旁路系统", null).map((item) => item.id),
+    ["social-ai-environment-setup"],
   );
 });
 

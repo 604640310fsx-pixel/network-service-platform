@@ -172,12 +172,12 @@ test("categories are bilingual and grouping keys stay stable across languages", 
   assert.deepEqual(directory(ZH), [
     ["subscription-import", "订阅导入", 4],
     ["proxy-tool-downloads", "代理工具下载", 1],
-    ["advanced", "进阶教程", 5],
+    ["advanced", "进阶教程", 6],
   ]);
   assert.deepEqual(directory(EN), [
     ["subscription-import", "Subscription import", 4],
     ["proxy-tool-downloads", "Proxy tool downloads", 1],
-    ["advanced", "Advanced guides", 5],
+    ["advanced", "Advanced guides", 6],
   ]);
 });
 
@@ -187,9 +187,30 @@ test("search only matches the current language", () => {
   assert.deepEqual(ids(ZH, "Get profile from URL"), []);
   assert.deepEqual(ids(EN, "通过 URL 获取配置文件"), []);
   assert.deepEqual(ids(EN, "KYC"), ["claude-gpt-account-advice"]);
-  assert.deepEqual(ids(EN, "advanced guides").length, 5);
+  assert.equal(ids(EN, "advanced guides").length, 6);
+  assert.deepEqual(ids(ZH, "社媒、ChatGPT 与 Claude"), ["social-ai-environment-setup"]);
+  assert.deepEqual(ids(EN, "Social platforms, ChatGPT and Claude: computer and phone setup"), ["social-ai-environment-setup"]);
   assert.deepEqual(ids(EN, "kill switch"), ["tk-fb-environment-guide"]);
   assert.deepEqual(ids(EN, "WebRTC Leak Prevent"), ["proxy-detection-risk"]);
+});
+
+test("social and AI guide preserves bilingual sections and official references", () => {
+  const id = "social-ai-environment-setup";
+  const zhArticle = byId(ZH, id);
+  const enArticle = byId(EN, id);
+  assert.deepEqual(enArticle.sections.map(sectionShape), zhArticle.sections.map(sectionShape));
+  assert.equal(enArticle.sections.length, 7);
+  assert.match(zhArticle.title, /社媒、ChatGPT 与 Claude/);
+  assert.match(enArticle.title, /Social platforms, ChatGPT and Claude/);
+  for (const article of [zhArticle, enArticle]) {
+    const body = article.sections.flatMap((section) => [
+      ...(section.paragraphs ?? []).map(textOf),
+      ...(section.steps ?? []).map(textOf),
+    ]).join("\n");
+    assert.match(body, /https:\/\/www\.clashverge\.dev\/guide\/term\.html/);
+    assert.match(body, /https:\/\/learn\.chatgpt\.com\/docs\/quickstart/);
+    assert.match(body, /https:\/\/support\.claude\.com\/en\/articles\/8114491/);
+  }
 });
 
 test("docs UI copy exists in both dictionaries", () => {
