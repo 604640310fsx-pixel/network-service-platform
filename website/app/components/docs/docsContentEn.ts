@@ -1,4 +1,4 @@
-// English versions of the client tutorials and the download guide.
+// English versions of the client tutorials, download guide, and setup guide.
 // Each entry mirrors the Chinese article in docsModel.ts section by section: the same
 // image src order, link URLs and video id (tests enforce the parity). The screenshots
 // show the Chinese client UI, so the steps name the English label first and the
@@ -362,6 +362,99 @@ export const SUBSCRIPTION_IMPORT_ARTICLES_EN: Readonly<Record<string, LocalizedA
           { label: "v2rayNG · arm64-v8a", url: "https://99data.qqx.me/f/WATj/v2rayNG_2.1.8-fdroid_arm64-v8a.apk" },
           { label: "Clash Meta · arm64-v8a", url: "https://99data.qqx.me/f/VRIl/cmfa-2.11.28-meta-arm64-v8a-release.apk" },
           { label: "FlClash · Android", url: "https://99data.qqx.me/s/2Yie" },
+        ],
+      },
+    ],
+  },
+  "social-ai-environment-setup": {
+    category: "Advanced guides",
+    title: "Social platforms, ChatGPT and Claude: computer and phone setup",
+    summary: "Check your subscription, traffic capture and target app separately from account or platform access.",
+    sections: [
+      {
+        heading: "Before you begin",
+        paragraphs: [
+          "Use a client from a trusted source, your own valid service subscription and your own account. First check that the subscription updates in the client, then check the target platform's official supported locations and account requirements. A working connection does not establish account eligibility or availability of a platform or feature in your location.",
+          "There is no node, TUN or Global setting that suits every device. A connection cannot guarantee platform access, an unrestricted account or uninterrupted service. Follow each platform's rules; do not use location or fingerprint spoofing, shared accounts or untrusted certificates to handle access restrictions.",
+        ],
+      },
+      {
+        heading: "Windows and macOS: connect, then verify",
+        steps: [
+          {
+            text: "Use the existing “Clash Verge: import and select a profile” guide to import your own subscription. Confirm the profile is selected, then choose a node from that profile. A listed node or latency result only confirms that part of the setup.",
+            images: [
+              { src: "/docs/social-ai-setup/desktop-subscriptions.png", alt: "Clash Verge subscription page and profile card; original contains private details and is for local viewing only", caption: "Check that your subscription is imported and selected. This original image is unredacted, for local preview only; do not share it." },
+              { src: "/docs/social-ai-setup/desktop-proxy.png", alt: "Clash Verge proxy groups and selected node; original contains private details and is for local viewing only", caption: "Find a node in the current profile; the shown selection is not a universal recommendation." },
+            ],
+          },
+          {
+            text: "Keep your existing Rule mode at first. Enable System Proxy as the client describes, then open the target platform's official page in your actual browser. Only if the target app ignores System Proxy should you consider the client's official TUN instructions. Review and decide on any system permission prompt yourself; do not disable a firewall or other protection just to make an initial connection.",
+            images: [
+              { src: "/docs/social-ai-setup/desktop-home.png", alt: "Clash Verge home page showing System Proxy, TUN and routing mode; original contains private details and is for local viewing only", caption: "Check traffic capture and routing separately; these switches show one device's state." },
+              { src: "/docs/social-ai-setup/desktop-settings.png", alt: "Clash Verge settings page showing System Proxy, TUN and other options", caption: "Review the existing settings; do not copy the example switch positions." },
+            ],
+          },
+          "Separate two decisions: System Proxy or TUN determines how app traffic reaches the client; Rule, Global or Direct determines how traffic that reached the client leaves it. Global applies only to captured traffic. System Proxy bypasses and TUN exclusions can still leave some requests outside the client.",
+        ],
+        paragraphs: [
+          "An example screen may show TUN on, System Proxy off and Global selected at the same time. It shows one device's state, not a universal recommendation. Check which app traffic is captured, your existing rules and the real page result. See Clash Verge Rev's official Quickstart, Terms and Bypass guides.",
+        ],
+      },
+      {
+        heading: "iPhone and iPad: keep your working subscription and settings",
+        steps: [
+          {
+            text: "If you already use Shadowrocket, follow the existing “Shadowrocket: add a subscription URL” guide to import your own URL and choose a node, then use the home-screen connection switch. If the system asks to add a VPN configuration, review the client and system prompt and decide yourself.",
+            images: [{ src: "/docs/social-ai-setup/ios-home.png", alt: "Shadowrocket home screen with connection switch, Global Routing and node list; original contains private details and is for local viewing only", caption: "Use the home screen to find connection and routing controls. This original image is unredacted, for local preview only; do not share it." }],
+          },
+          {
+            text: "Keep a working Global Routing configuration. If you need the existing profile's rules to decide traffic routes, consult the original guide's “Config” mode. Do not infer the meaning of other modes, or treat a screenshot's switch positions as a universal answer.",
+            images: [{ src: "/docs/social-ai-setup/ios-general.png", alt: "Shadowrocket General settings with Bypass System, IPv6, Private IP Reply and DNS options; original contains private details and is for local viewing only", caption: "These are settings to review, not switch positions to copy." }],
+          },
+          {
+            text: "Check the target app's real page or request on both Wi-Fi and cellular. After switching networks, confirm the connection again. An enabled switch, a successful latency test or “Always On” does not mean the connection can never drop or that every request is captured.",
+            images: [{ src: "/docs/social-ai-setup/ios-on-demand.png", alt: "Shadowrocket On Demand page showing Always On, Connect on Demand and Disconnect on Sleep", caption: "Review these options for your device; Always On does not guarantee a connection can never drop." }],
+          },
+        ],
+        paragraphs: [
+          "A sample settings page may show Bypass System, Enable IPv6, Prefer IPv6, Private IP Reply, DNS Override, Fallback DNS, Always On, Connect on Demand and Disconnect on Sleep. These labels only help you locate and review your current settings; the sample states may not fit your device. Do not routinely disable IPv6 or bypasses or force a third-party DNS. See Shadowrocket's official App Store listing.",
+        ],
+      },
+      {
+        heading: "Android: check VPN permission and app coverage",
+        steps: [
+          "Use an already trusted client and the existing FlClash import guide to add your own subscription and choose a profile and node. Android client menus vary by version.",
+          "If Android asks to establish a VPN connection on first start, review and approve it yourself. If the client offers per-app routing, check that each target social or AI app is included in the intended app set, then verify in the app itself.",
+          "Always-on VPN and Block connections without VPN can affect availability when the connection drops. Neither is mandatory for initial setup; understand the current device and client settings before using them.",
+        ],
+        paragraphs: [
+          "See Android's official VPN help. A VPN indicator alone does not prove that the target app is working.",
+        ],
+      },
+      {
+        heading: "Social platforms, ChatGPT and Claude: use official entry points",
+        paragraphs: [
+          "Use the platform's official website or official app-store listing and your own account. Complete its login and multi-factor checks and verify that the device time is correct. A separate browser profile can keep ordinary sessions apart, but does not guarantee that accounts cannot be associated or replace account eligibility.",
+          "Judge availability by the target website or app's real page and requests. Ping, node latency or a working YouTube page cannot prove that a social platform, ChatGPT or Claude account and its features work. If the network works but the platform still refuses access, check its official status, support and account messages.",
+          "Chat subscriptions and developer APIs are different product, authentication and billing paths. Do not activate an API or make a payment to troubleshoot a website or app. See the official ChatGPT Quickstart and Claude's getting-started and supported-location guidance.",
+        ],
+      },
+      {
+        heading: "Troubleshoot in layers and protect private details",
+        steps: [
+          "Check subscription validity, the selected profile, node and connection state first. Then check whether the target browser or app's traffic reaches the client. Repeatedly switching nodes does not identify the fault.",
+          "For a connection or DNS error, check the local connection and client message. HTTP 403 may involve location, account or another platform access policy. HTTP 429 usually calls for checking usage limits or request frequency. Handle CAPTCHA and login prompts through the platform's own user flow. Do not label all of these as node failures.",
+          "If the cause remains unclear, check the platform's official status or support. Share only redacted error text, the time and the device/client version. Do not send a full subscription URL, verification code, credentials or screenshots containing real addresses or usage. Do not clear user data or disable protections as routine troubleshooting.",
+        ],
+      },
+      {
+        heading: "References",
+        paragraphs: [
+          "Clash Verge Rev: Quickstart https://www.clashverge.dev/guide/quickstart.html; Terms https://www.clashverge.dev/guide/term.html; Bypass https://www.clashverge.dev/guide/bypass.html.",
+          "Apple App Store: Shadowrocket https://apps.apple.com/us/app/shadowrocket/id932747118; Android VPN help https://support.google.com/android/answer/9089766?hl=en.",
+          "ChatGPT Quickstart https://learn.chatgpt.com/docs/quickstart; Claude getting started https://support.claude.com/en/articles/8114491-get-started-with-claude; supported locations https://support.claude.com/en/articles/8461763-where-can-i-access-claude.",
+          "Claude Help Center: chat subscriptions and Console API https://support.claude.com/en/articles/9876003-i-have-a-paid-claude-subscription-pro-max-team-or-enterprise-plans-why-is-claude-api-usage-billed-separately-from-my-paid-claude-plan.",
         ],
       },
     ],
