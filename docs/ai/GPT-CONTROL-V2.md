@@ -16,6 +16,7 @@
 | 工作 | 首选路线 | 限制 |
 | --- | --- | --- |
 | 普通及已冻结工程、Bug、测试、文档工程、获准 Git | Devin / SWE-2 Max | 默认主力，原作者完整交付；首次在具体入口调用前核实模型/档位/计费 |
+| 知识研究、官方来源核查、教程/FAQ/文章/脚本/内容候选；适合的独立功能、局部修复和模块 | Antigravity / Gemini 4 Argon | 研究、写作、自检到交付由唯一作者闭环；适合的工程可直接由其单独实施，不以 Devin 先失败为前提 |
 | 较复杂多文件、已冻结后端/API、局部重构 | Devin / SWE-2 Max | 不因“复杂”自动换高级模型，具体能力不足才升级 |
 | 已冻结支付/Auth/权限/事务/Migration 仓库代码 | 经理指定 Devin / SWE-2 Max 或已批准 OpenAI 工程路线 | 单作者，安全契约先冻结，保留必要独立审查；不附带真实交易/迁移/生产权 |
 | 关键 UI、交互、复杂响应式、可访问性、复杂前端专项审计 | Claude Code / Opus 5.5 (`claude-opus-5-5`) medium | 完成实施、自审、验证及获准 Git；专项审查默认只读 |
@@ -26,6 +27,8 @@
 | Claude Design | 当前 Packet 指定模型/档位 | 视觉提案默认 `PROPOSAL`，不扩张后端/安全职责 |
 | 明确单页面/组件、局部修复或聚焦审查 | Claude Sonnet 5.5 / medium | high 需具体理由，不作默认 Claude 路线 |
 | 有证据的异常困难专项 | Claude Fable 5.1，精确 ID/档位按批准 | 不自动提档；既有 Haiku 特殊路线不扩大 |
+
+Gemini 路线依据用户对速度、步骤和文案的实际体验，不是普遍能力、隐私或费用证明；没有统一获准的 Gemini effort，具体界面档位不固化为默认。每项 NSP 任务须按需核实私有仓库、工具/浏览器、审批、失败与完整结果回传及费用，不能从 NSP Lite、OpenCode Contributor 或其他项目推断；不因此自动开 API/BYOK、切账户、增加费用或新建轮询、hook、监控和连接框架。Packet 可将其指定为唯一作者，或独立只读纠偏观察者，二者在同一任务中互斥；观察者遵守 [TEAM §8.1](../team/TEAM-COLLAB-V1.md#81-作者一次交付与主管节流)。
 
 路由是政策目标，不证明客户端已切换。高级模型只用于具体需要；不试跑全部目录、推断不同平台互通或使用漂移短别名。SWE-2 Max 的免费待遇是日期化账户证据，不代表永久免费或无限额度；`cost_tier`、included、on-demand、auto-reload 与实际扣量分开。不自动充值、开 auto-reload、换账号、改套餐或切 Cloud/API/BYOK。Claude 沿用已购套餐，新增费用由用户决定。额度风险已有可用备用路线才在 Packet 预写；未预写由主管在既有路由授权内作一次增量决定。同一作者切换先确认旧调用停写，保留 session、任务、branch/worktree、dirty、已验收工作和动作限额，不强行 commit/push；跨作者按 [TEAM §6](../team/TEAM-COLLAB-V1.md#6-handoff)。
 
