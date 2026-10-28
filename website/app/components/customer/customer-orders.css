@@ -1,0 +1,360 @@
+/* 「订单」页视觉完全继承 customer-center.css 的 --cc-* 令牌，
+   与 /dashboard、/services 同一体系，不引入新的配色、圆角、阴影或间距。 */
+
+.cc-shell .cc-ord-page {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--cc-bg);
+  color: var(--cc-text);
+}
+.cc-ord-layout {
+  width: 100%;
+  max-width: 1680px;
+  margin: 0 auto;
+  padding: 20px var(--cc-gutter) 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* 概览统计 */
+.cc-ord-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(198px, 1fr));
+}
+.cc-ord-summary article {
+  min-width: 0;
+  padding: 14px 15px;
+  border: 1px solid var(--cc-line);
+  border-radius: 12px;
+  background: var(--cc-card);
+  box-shadow: var(--cc-shadow);
+}
+.cc-ord-summary span {
+  display: block;
+  color: var(--cc-text-3);
+  font-size: 12.5px;
+}
+.cc-ord-summary strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--cc-text);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+}
+.cc-ord-summary small {
+  display: block;
+  margin-top: 9px;
+  color: var(--cc-text-4);
+  font-size: 11.5px;
+}
+
+/* 面板 */
+.cc-ord-panel {
+  padding: 17px 20px 20px;
+  border: 1px solid var(--cc-hairline);
+  border-radius: 14px;
+  background: var(--cc-panel);
+  box-shadow: var(--cc-shadow);
+}
+.cc-ord-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.cc-ord-panel-head em {
+  color: var(--cc-text-4);
+  font-size: 11px;
+  font-style: normal;
+  letter-spacing: 0.14em;
+}
+.cc-ord-panel-head h2 {
+  margin: 4px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--cc-text);
+}
+.cc-ord-tag {
+  margin-left: auto;
+  align-self: flex-start;
+  padding: 2px 8px;
+  border: 1px solid var(--cc-line);
+  border-radius: 5px;
+  background: var(--cc-inset);
+  color: var(--cc-text-3);
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+/* 加载骨架 */
+.cc-ord-skeleton {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cc-ord-skeleton li {
+  height: 96px;
+  border: 1px solid var(--cc-line);
+  border-radius: 10px;
+  background: linear-gradient(100deg, var(--cc-card) 30%, var(--cc-inset) 50%, var(--cc-card) 70%);
+  background-size: 220% 100%;
+  animation: cc-ord-shimmer 1.3s ease-in-out infinite;
+}
+.cc-ord-skeleton li:nth-child(2) { animation-delay: 0.15s; }
+.cc-ord-skeleton li:nth-child(3) { animation-delay: 0.3s; }
+@keyframes cc-ord-shimmer {
+  0% { background-position: 180% 0; }
+  100% { background-position: -80% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cc-ord-skeleton li { animation: none; }
+}
+.cc-ord-status-text {
+  margin: 12px 0 0;
+  color: var(--cc-text-4);
+  font-size: 12px;
+}
+
+/* 提示态：空 / 错误 / 登录失效 */
+.cc-ord-notice {
+  padding: 18px 16px 4px;
+}
+.cc-ord-notice-title {
+  margin: 0;
+  color: var(--cc-text);
+  font-size: 15px;
+  font-weight: 600;
+}
+.cc-ord-notice-hint {
+  margin: 8px 0 0;
+  color: var(--cc-text-3);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.cc-ord-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+/* 订单列表 */
+.cc-ord-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cc-ord-item {
+  min-width: 0;
+  padding: 15px 16px 16px;
+  border: 1px solid var(--cc-line);
+  border-radius: 10px;
+  background: var(--cc-card);
+}
+.cc-ord-item-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid var(--cc-hairline);
+}
+.cc-ord-item-id {
+  min-width: 0;
+}
+.cc-ord-item-id strong {
+  display: block;
+  color: var(--cc-text);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.cc-ord-item-id small {
+  display: block;
+  margin-top: 3px;
+  color: var(--cc-text-3);
+  font-size: 12.5px;
+}
+
+/* 状态徽章：三态均取自 --cc-* 令牌，不引入体系外配色 */
+.cc-ord-badge {
+  margin-left: auto;
+  align-self: flex-start;
+  padding: 3px 9px;
+  border: 1px solid var(--cc-line);
+  border-radius: 6px;
+  background: var(--cc-inset);
+  color: var(--cc-text-3);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.cc-ord-badge.is-paid {
+  border-color: var(--cc-accent-line);
+  background: var(--cc-accent-tint);
+  color: var(--cc-accent);
+  font-weight: 600;
+}
+.cc-ord-badge.is-pending {
+  border-color: var(--cc-line);
+  background: var(--cc-inset);
+  color: var(--cc-text-2);
+}
+.cc-ord-badge.is-closed {
+  border-color: var(--cc-hairline);
+  background: transparent;
+  color: var(--cc-text-4);
+}
+
+.cc-ord-facts {
+  display: grid;
+  gap: 12px 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 14px 0 0;
+}
+.cc-ord-facts > div { min-width: 0; }
+.cc-ord-facts dt {
+  color: var(--cc-text-3);
+  font-size: 12.5px;
+}
+.cc-ord-facts dd {
+  margin: 4px 0 0;
+  color: var(--cc-text-2);
+  font-size: 14.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* pending 付款保留截止时间 */
+.cc-ord-reserved {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--cc-accent-line);
+  border-radius: 9px;
+  background: var(--cc-accent-tint);
+}
+.cc-ord-reserved span {
+  color: var(--cc-text-3);
+  font-size: 12.5px;
+}
+.cc-ord-reserved b {
+  color: var(--cc-accent);
+  font-size: 13.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.cc-ord-item-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 15px;
+  border-top: 1px solid var(--cc-hairline);
+}
+
+/* 未付款订单取消：行内二次确认；结果提示放在列表上方，随列表刷新保留。 */
+.cc-ord-cancel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  flex-basis: 100%;
+}
+.cc-ord-cancel-prompt { color: var(--cc-text-2); font-size: 13px; }
+.cc-ord-cancel-confirm { border-color: var(--cc-accent-line); color: var(--cc-accent); }
+.cc-ord-cancel-error { flex-basis: 100%; margin: 0; color: #e0575b; font-size: 12.5px; }
+.cc-ord-cancel-notice {
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--cc-accent-line);
+  border-radius: 10px;
+  background: var(--cc-accent-tint);
+  color: var(--cc-text-2);
+  font-size: 13px;
+}
+.cc-ord-item-foot button:disabled { cursor: not-allowed; opacity: 0.5; }
+.cc-ord-item-foot button:focus-visible { outline: 2px solid var(--cc-accent-line); outline-offset: 2px; }
+
+/* 操作按钮：沿用 dash-primary-link / ghost 语言 */
+.cc-ord-primary {
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 10px;
+  background: #f59e0b;
+  color: var(--cc-accent-ink);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.cc-ord-primary:hover { filter: brightness(1.05); }
+.cc-ord-ghost {
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  border: 1px solid var(--cc-line);
+  border-radius: 10px;
+  background: var(--cc-card);
+  color: var(--cc-text-2);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.cc-ord-ghost:hover {
+  border-color: var(--cc-accent-line);
+  color: var(--cc-accent);
+}
+
+@media (min-width: 821px) and (max-width: 980px) {
+  .cc-ord-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 620px) {
+  .cc-ord-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 820px) {
+  .cc-ord-layout { padding-top: 14px; gap: 11px; }
+  .cc-ord-panel { padding: 15px 14px 16px; border-radius: 12px; }
+  .cc-ord-panel-head { margin-bottom: 12px; }
+  .cc-ord-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cc-ord-summary strong { font-size: 21px; }
+  .cc-ord-item { padding: 13px 14px 14px; }
+  .cc-ord-item-id strong { font-size: 15px; }
+  .cc-ord-primary,
+  .cc-ord-ghost { flex: 1; min-width: 132px; }
+}

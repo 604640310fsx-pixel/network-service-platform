@@ -1,0 +1,25 @@
+# CANDIDATE ONLY. Applying or testing an assembled production configuration
+# requires separate production authorization.
+
+# Plain HTTP bare-domain entry point.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name __OPEN_BARE_HOST__;
+
+    return 308 https://__OPEN_CANONICAL_HOST__$request_uri;
+}
+
+# TLS bare-domain entry point. The authorized operator must assemble this block
+# with the environment's existing TLS directives. Certificate paths and other
+# production-specific values are intentionally absent from this repository.
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name __OPEN_BARE_HOST__;
+
+    __OPEN_EXISTING_TLS_DIRECTIVES__
+    __OPEN_HSTS_DIRECTIVE__
+
+    return 308 https://__OPEN_CANONICAL_HOST__$request_uri;
+}

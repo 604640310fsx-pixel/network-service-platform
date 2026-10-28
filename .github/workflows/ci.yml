@@ -1,0 +1,369 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - integration/consolidate-project
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  website:
+    name: Website check and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22.13.0"
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install website dependencies
+        working-directory: website
+        run: npm ci
+
+      - name: Test website
+        working-directory: website
+        run: npm test
+
+      - name: Check website
+        working-directory: website
+        run: npm run check
+
+      - name: Build website
+        working-directory: website
+        run: npm run build
+
+      - name: Verify website lockfile is unchanged
+        run: git diff --exit-code -- website/package-lock.json
+
+  auth-service:
+    name: Auth service build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22.x"
+          cache: npm
+          cache-dependency-path: auth-service/package-lock.json
+
+      - name: Report auth CI runtime
+        run: |
+          node --version
+          npm --version
+          uname -a
+          ldd --version
+
+      - name: Install auth service dependencies
+        working-directory: auth-service
+        run: npm ci
+
+      - name: Build auth service
+        working-directory: auth-service
+        run: npm run build
+
+      - name: Run SQLite smoke test
+        working-directory: auth-service
+        run: node dist/test/db.test.js
+
+      - name: Run full auth service test suite
+        working-directory: auth-service
+        run: npm test
+
+      - name: Verify auth service lockfile is unchanged
+        run: git diff --exit-code -- auth-service/package-lock.json
+
+  consolidated-release-packet:
+    name: Consolidated release packet
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      PROVENANCE_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'github-actions' || 'github-actions-test' }}
+      VALIDATION_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'ci-build' || 'ci-test' }}
+      MONITOR_ORIGIN_POLICY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'required' || 'optional' }}
+    steps:
+      - name: Checkout exact task head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22.x"
+          cache: npm
+          cache-dependency-path: |
+            auth-service/package-lock.json
+            website/package-lock.json
+
+      - name: Validate release packet source
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          node scripts/ops/validate-release-open-http-contract.mjs \
+            --source "$GITHUB_WORKSPACE"
+          node scripts/ops/validate-consolidated-release-packet.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --expected-sha "$EXPECTED_SHA"
+
+      - name: Run monitor gateway offline tests
+        run: |
+          python3 -m unittest discover -s monitoring/gateway/tests -v
+          python3 -m unittest discover -s monitoring/dashboard-next/tests -v
+          python3 -m py_compile monitoring/gateway/*.py
+          python3 -m py_compile monitoring/dashboard-next/server.py
+          node --test monitoring/gateway/tests/static-app.test.cjs
+          node --check monitoring/gateway/static/app.js
+
+      - name: Install build dependencies
+        run: |
+          npm --prefix auth-service ci
+          npm --prefix website ci
+
+      - name: Validate and build candidate artifacts
+        env:
+          # Approved public monitor origin; a secret so the value is masked in logs.
+          VITE_MONITOR_URL: ${{ secrets.NSP_PUBLIC_MONITOR_ORIGIN }}
+        run: |
+          node scripts/ops/verify-website-monitor-origin.mjs \
+            --phase configured --policy "$MONITOR_ORIGIN_POLICY"
+          npm --prefix auth-service test
+          node auth-service/dist/test/db.test.js
+          node auth-service/dist/test/diagnosis/migration.test.js
+          npm --prefix website test
+          npm --prefix website run check
+          npm --prefix website run build
+          node scripts/ops/verify-website-monitor-origin.mjs \
+            --phase embedded --policy "$MONITOR_ORIGIN_POLICY" --dist website/dist
+
+      - name: Test release tooling
+        run: node --test scripts/ops/consolidated-release-packet.test.mjs scripts/ops/release-safety-guards.test.mjs
+
+      - name: Assemble twice and validate inventories
+        env:
+          BUNDLE_PARENT: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          test ! -e "$BUNDLE_PARENT"
+          mkdir -p "$BUNDLE_PARENT"
+          node scripts/ops/assemble-consolidated-release.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --destination "$BUNDLE_PARENT/first" \
+            --expected-sha "$EXPECTED_SHA" \
+            --provenance-mode "$PROVENANCE_MODE" \
+            --schema-route standard16-26
+          node scripts/ops/assemble-consolidated-release.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --destination "$BUNDLE_PARENT/second" \
+            --expected-sha "$EXPECTED_SHA" \
+            --provenance-mode "$PROVENANCE_MODE" \
+            --schema-route standard16-26
+          cmp "$BUNDLE_PARENT/first/release-manifest.json" \
+            "$BUNDLE_PARENT/second/release-manifest.json"
+          node scripts/ops/validate-release-open-http-contract.mjs \
+            --source "$BUNDLE_PARENT/first"
+          node scripts/ops/validate-release-open-http-contract.mjs \
+            --source "$BUNDLE_PARENT/second"
+          node scripts/ops/validate-consolidated-release-packet.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --expected-sha "$EXPECTED_SHA" \
+            --bundle "$BUNDLE_PARENT/first" \
+            --validation-mode "$VALIDATION_MODE" \
+            --schema-route standard16-26
+          node scripts/ops/validate-consolidated-release-packet.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --expected-sha "$EXPECTED_SHA" \
+            --bundle "$BUNDLE_PARENT/second" \
+            --validation-mode "$VALIDATION_MODE" \
+            --schema-route standard16-26
+          node scripts/ops/assemble-consolidated-release.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --destination "$BUNDLE_PARENT/direct14-first" \
+            --expected-sha "$EXPECTED_SHA" \
+            --provenance-mode "$PROVENANCE_MODE" \
+            --schema-route direct14-26
+          node scripts/ops/assemble-consolidated-release.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --destination "$BUNDLE_PARENT/direct14-second" \
+            --expected-sha "$EXPECTED_SHA" \
+            --provenance-mode "$PROVENANCE_MODE" \
+            --schema-route direct14-26
+          cmp "$BUNDLE_PARENT/direct14-first/release-manifest.json" \
+            "$BUNDLE_PARENT/direct14-second/release-manifest.json"
+          node scripts/ops/validate-release-open-http-contract.mjs \
+            --source "$BUNDLE_PARENT/direct14-first"
+          node scripts/ops/validate-consolidated-release-packet.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --expected-sha "$EXPECTED_SHA" \
+            --bundle "$BUNDLE_PARENT/direct14-first" \
+            --validation-mode "$VALIDATION_MODE" \
+            --schema-route direct14-26
+          node scripts/ops/validate-consolidated-release-packet.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --expected-sha "$EXPECTED_SHA" \
+            --bundle "$BUNDLE_PARENT/direct14-second" \
+            --validation-mode "$VALIDATION_MODE" \
+            --schema-route direct14-26
+          if find "$BUNDLE_PARENT/first" \
+            \( -type l -o -name node_modules -o -name '.env*' \
+               -o -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
+               -o -name '*.pem' -o -name '*.key' \) \
+            -print -quit | grep -q .; then
+            echo "forbidden release bundle entry detected" >&2
+            exit 1
+          fi
+          if find "$BUNDLE_PARENT/direct14-first" \
+            \( -type l -o -name node_modules -o -name '.env*' \
+               -o -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
+               -o -name '*.pem' -o -name '*.key' \) \
+            -print -quit | grep -q .; then
+            echo "forbidden direct14 release bundle entry detected" >&2
+            exit 1
+          fi
+          node scripts/ops/assemble-consolidated-release.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --destination "$BUNDLE_PARENT/standard19-first" \
+            --expected-sha "$EXPECTED_SHA" \
+            --provenance-mode "$PROVENANCE_MODE" \
+            --schema-route standard19-26
+          node scripts/ops/assemble-consolidated-release.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --destination "$BUNDLE_PARENT/standard19-second" \
+            --expected-sha "$EXPECTED_SHA" \
+            --provenance-mode "$PROVENANCE_MODE" \
+            --schema-route standard19-26
+          cmp "$BUNDLE_PARENT/standard19-first/release-manifest.json" \
+            "$BUNDLE_PARENT/standard19-second/release-manifest.json"
+          node scripts/ops/validate-release-open-http-contract.mjs \
+            --source "$BUNDLE_PARENT/standard19-first"
+          node scripts/ops/validate-consolidated-release-packet.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --expected-sha "$EXPECTED_SHA" \
+            --bundle "$BUNDLE_PARENT/standard19-first" \
+            --validation-mode "$VALIDATION_MODE" \
+            --schema-route standard19-26
+          node scripts/ops/validate-consolidated-release-packet.mjs \
+            --source "$GITHUB_WORKSPACE" \
+            --expected-sha "$EXPECTED_SHA" \
+            --bundle "$BUNDLE_PARENT/standard19-second" \
+            --validation-mode "$VALIDATION_MODE" \
+            --schema-route standard19-26
+          if find "$BUNDLE_PARENT/standard19-first" \
+            \( -type l -o -name node_modules -o -name '.env*' \
+               -o -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
+               -o -name '*.pem' -o -name '*.key' \) \
+            -print -quit | grep -q .; then
+            echo "forbidden standard19 release bundle entry detected" >&2
+            exit 1
+          fi
+
+      - name: Verify lockfiles are unchanged
+        run: |
+          git diff --exit-code -- auth-service/package-lock.json
+          git diff --exit-code -- website/package-lock.json
+
+      - name: Retain exact integration release candidate
+        id: upload-release-candidate
+        if: github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && github.sha == env.EXPECTED_SHA
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-release-${{ env.EXPECTED_SHA }}
+          path: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}/first/
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Record candidate artifact proof
+        if: github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && github.sha == env.EXPECTED_SHA
+        env:
+          ARTIFACT_ID: ${{ steps.upload-release-candidate.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload-release-candidate.outputs.artifact-digest }}
+          ARTIFACT_URL: ${{ steps.upload-release-candidate.outputs.artifact-url }}
+        run: |
+          test "$GITHUB_SHA" = "$EXPECTED_SHA"
+          test -n "$ARTIFACT_ID"
+          test -n "$ARTIFACT_URL"
+          printf '%s\n' "$ARTIFACT_DIGEST" | grep -Eq '^[a-f0-9]{64}$'
+          {
+            printf 'Release candidate SHA: `%s`\n' "$EXPECTED_SHA"
+            printf 'Artifact name: `consolidated-release-%s`\n' "$EXPECTED_SHA"
+            printf 'Artifact ID: `%s`\n' "$ARTIFACT_ID"
+            printf 'Artifact digest: `sha256:%s`\n' "$ARTIFACT_DIGEST"
+            printf 'Workflow run: `%s`, attempt `%s`\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain exact integration direct14 release candidate
+        id: upload-direct14-release-candidate
+        if: github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && github.sha == env.EXPECTED_SHA
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-release-direct14-${{ env.EXPECTED_SHA }}
+          path: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}/direct14-first/
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Record direct14 candidate artifact proof
+        if: github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && github.sha == env.EXPECTED_SHA
+        env:
+          ARTIFACT_ID: ${{ steps.upload-direct14-release-candidate.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload-direct14-release-candidate.outputs.artifact-digest }}
+          ARTIFACT_URL: ${{ steps.upload-direct14-release-candidate.outputs.artifact-url }}
+        run: |
+          test "$GITHUB_SHA" = "$EXPECTED_SHA"
+          test -n "$ARTIFACT_ID"
+          test -n "$ARTIFACT_URL"
+          printf '%s\n' "$ARTIFACT_DIGEST" | grep -Eq '^[a-f0-9]{64}$'
+          {
+            printf 'Direct14 release candidate SHA: `%s`\n' "$EXPECTED_SHA"
+            printf 'Artifact name: `consolidated-release-direct14-%s`\n' "$EXPECTED_SHA"
+            printf 'Artifact ID: `%s`\n' "$ARTIFACT_ID"
+            printf 'Artifact digest: `sha256:%s`\n' "$ARTIFACT_DIGEST"
+            printf 'Workflow run: `%s`, attempt `%s`\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain exact integration standard19 release candidate
+        id: upload-standard19-release-candidate
+        if: github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && github.sha == env.EXPECTED_SHA
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-release-standard19-${{ env.EXPECTED_SHA }}
+          path: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}/standard19-first/
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Record standard19 candidate artifact proof
+        if: github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && github.sha == env.EXPECTED_SHA
+        env:
+          ARTIFACT_ID: ${{ steps.upload-standard19-release-candidate.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload-standard19-release-candidate.outputs.artifact-digest }}
+          ARTIFACT_URL: ${{ steps.upload-standard19-release-candidate.outputs.artifact-url }}
+        run: |
+          test "$GITHUB_SHA" = "$EXPECTED_SHA"
+          test -n "$ARTIFACT_ID"
+          test -n "$ARTIFACT_URL"
+          printf '%s\n' "$ARTIFACT_DIGEST" | grep -Eq '^[a-f0-9]{64}$'
+          {
+            printf 'Standard19 release candidate SHA: `%s`\n' "$EXPECTED_SHA"
+            printf 'Artifact name: `consolidated-release-standard19-%s`\n' "$EXPECTED_SHA"
+            printf 'Artifact ID: `%s`\n' "$ARTIFACT_ID"
+            printf 'Artifact digest: `sha256:%s`\n' "$ARTIFACT_DIGEST"
+            printf 'Workflow run: `%s`, attempt `%s`\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+          } >> "$GITHUB_STEP_SUMMARY"

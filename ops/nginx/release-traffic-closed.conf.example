@@ -1,0 +1,35 @@
+# FULL PUBLIC TRAFFIC CLOSED CANDIDATE ONLY.
+#
+# This is a standalone replacement for every public bare-domain and www server
+# during an approved release window. Do not include it inside an open-state
+# server. The assembled configuration must contain no proxy, static-file, or
+# application route, so every method and path on either public hostname ends at
+# the server-level 503 response.
+#
+# RUNTIME_TLS_DIRECTIVES_REQUIRED: before nginx -t, an authorized operator must
+# insert the environment's existing TLS directives into the marked TLS server.
+# Certificate paths and other production-specific values must not enter Git.
+#
+# Internal loopback GET /health is intentionally outside this public Nginx gate.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name siqiapparel.com www.siqiapparel.com;
+
+    add_header Cache-Control "no-store" always;
+    add_header Retry-After "300" always;
+    return 503;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name siqiapparel.com www.siqiapparel.com;
+
+    # Insert the existing environment TLS directives here for runtime assembly.
+
+    add_header Cache-Control "no-store" always;
+    add_header Retry-After "300" always;
+    return 503;
+}

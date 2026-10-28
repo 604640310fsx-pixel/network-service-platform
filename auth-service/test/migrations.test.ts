@@ -1,0 +1,1695 @@
+import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+
+import {
+  initializeDatabase,
+  MIGRATION_FILES,
+  openAndVerifyDatabase,
+  readPragmaState,
+  runMigrations,
+  type DatabaseConnection,
+} from "../src/db.js";
+
+const NOW = "2026-08-17T12:00:00.000Z";
+const LATER = "2026-08-18T12:00:00.000Z";
+
+async function withTemporaryDatabase(
+  operation: (database: DatabaseConnection) => void,
+): Promise<void> {
+  const temporaryDirectory = await mkdtemp(
+    join(tmpdir(), "auth-service-migrations-"),
+  );
+  const databasePath = join(temporaryDirectory, "auth.sqlite");
+  let database: DatabaseConnection | undefined;
+
+  try {
+    database = initializeDatabase(databasePath);
+    operation(database);
+  } finally {
+    database?.close();
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+}
+
+function objectNames(database: DatabaseConnection, type: "table" | "index"): string[] {
+  const rows = database
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type = ? AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    )
+    .all(type) as Array<{ readonly name: string }>;
+
+  return rows.map((row) => row.name);
+}
+
+function columnNames(database: DatabaseConnection, table: string): string[] {
+  const rows = database.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+    readonly name: string;
+  }>;
+
+  return rows.map((row) => row.name);
+}
+
+function firstNumber(
+  database: DatabaseConnection,
+  source: string,
+  ...parameters: readonly unknown[]
+): number {
+  const rows = database.prepare(source).all(...parameters) as Array<
+    Record<string, unknown>
+  >;
+  const row = rows[0];
+  const value = row === undefined ? undefined : Object.values(row)[0];
+
+  if (typeof value !== "number") {
+    throw new TypeError("query did not return a number");
+  }
+
+  return value;
+}
+
+function applyMigrationPrefix(
+  database: DatabaseConnection,
+  lastVersion: number,
+): void {
+  database.exec(`
+    CREATE TABLE schema_migrations (
+      version INTEGER PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    );
+  `);
+  const record = database.prepare(
+    "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+  );
+  for (const file of MIGRATION_FILES.slice(0, lastVersion)) {
+    const version = Number.parseInt(file.slice(0, 3), 10);
+    const migrationPath = [
+      new URL(`../src/migrations/${file}`, import.meta.url),
+      new URL(`../../src/migrations/${file}`, import.meta.url),
+    ]
+      .map((url) => fileURLToPath(url))
+      .find(existsSync);
+    if (migrationPath === undefined) {
+      throw new Error(`test migration fixture is missing ${file}`);
+    }
+    const source = readFileSync(migrationPath, "utf8");
+    const apply = database.transaction(() => {
+      database.exec(source);
+      record.run(version, NOW);
+    });
+    apply();
+  }
+}
+
+function createBootstrapUser(database: DatabaseConnection): {
+  readonly inviteCodeId: number;
+  readonly userId: number;
+} {
+  database
+    .prepare(
+      `INSERT INTO invite_codes (
+        code_hash, is_bootstrap, created_by_admin_id, max_uses, used_count,
+        expires_at, revoked_at, note, created_at
+      ) VALUES (?, 1, NULL, 1, 0, ?, ?, NULL, ?)`,
+    )
+    .run("B".repeat(43), LATER, NOW, NOW);
+  const inviteCodeId = firstNumber(
+    database,
+    "SELECT id FROM invite_codes WHERE code_hash = ?",
+    "B".repeat(43),
+  );
+
+  database
+    .prepare(
+      `INSERT INTO users (
+        email, password_hash, role, status, invited_by_code_id, created_at, updated_at
+      ) VALUES (?, ?, 'admin', 'active', ?, ?, ?)`,
+    )
+    .run("admin@example.com", "argon2id-hash", inviteCodeId, NOW, NOW);
+  const userId = firstNumber(
+    database,
+    "SELECT id FROM users WHERE email = ?",
+    "admin@example.com",
+  );
+
+  return { inviteCodeId, userId };
+}
+
+test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", async () => {
+  await withTemporaryDatabase((database) => {
+    assert.equal(
+      MIGRATION_FILES.at(-1),
+      "026_wallet.sql",
+    );
+    const migrationRows = database
+      .prepare("SELECT version, applied_at FROM schema_migrations ORDER BY version")
+      .all() as Array<{ readonly version: number; readonly applied_at: string }>;
+
+    assert.deepEqual(
+      migrationRows.map((row) => row.version),
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
+    );
+    for (const row of migrationRows) {
+      assert.match(row.applied_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    }
+
+    runMigrations(database);
+    assert.equal(
+      firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"),
+      MIGRATION_FILES.length,
+    );
+    assert.deepEqual(readPragmaState(database), {
+      foreignKeys: 1,
+      journalMode: "wal",
+      busyTimeout: 5_000,
+      synchronous: 1,
+    });
+  });
+});
+
+test("rejects applied migration histories that are not a prefix starting at 001", async () => {
+  for (const history of [[1, 3], [2]]) {
+    const temporaryDirectory = await mkdtemp(
+      join(tmpdir(), "auth-service-migration-gap-"),
+    );
+    const database = openAndVerifyDatabase(
+      join(temporaryDirectory, "auth.sqlite"),
+    );
+
+    try {
+      database.exec(`
+        CREATE TABLE schema_migrations (
+          version INTEGER PRIMARY KEY,
+          applied_at TEXT NOT NULL
+        );
+      `);
+      const insertMigration = database.prepare(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+      );
+      for (const version of history) {
+        insertMigration.run(version, NOW);
+      }
+
+      assert.throws(
+        () => runMigrations(database),
+        /continuous prefix starting at version 1/,
+      );
+      assert.deepEqual(
+        (
+          database
+            .prepare("SELECT version FROM schema_migrations ORDER BY version")
+            .all() as Array<{ readonly version: number }>
+        ).map((row) => row.version),
+        history,
+      );
+    } finally {
+      database.close();
+      await rm(temporaryDirectory, { recursive: true, force: true });
+    }
+  }
+});
+
+test("creates every frozen table and named index", async () => {
+  await withTemporaryDatabase((database) => {
+    assert.deepEqual(objectNames(database, "table"), [
+      "admin_grant_delivery_items",
+      "admin_grants",
+      "audit_log",
+      "coupon_plans",
+      "coupon_redemptions",
+      "coupons",
+      "diagnosis_request_idempotency",
+      "diagnosis_requests",
+      "invite_code_redemptions",
+      "invite_codes",
+      "mail_outbox",
+      "mail_outbox_audit",
+      "order_access_tokens",
+      "orders",
+      "password_reset_tokens",
+      "payment_notifications",
+      "payments",
+      "pending_registrations",
+      "rate_limit_buckets",
+      "referral_attribution_candidates",
+      "referral_profiles",
+      "schema_migrations",
+      "sellable_plan_price_history",
+      "sellable_plans",
+      "service_delivery_items",
+      "services",
+      "session_families",
+      "sessions",
+      "sso_codes",
+      "sso_states",
+      "ticket_attachments",
+      "ticket_messages",
+      "tickets",
+      "users",
+      "wallet_accounts",
+      "wallet_consent_history",
+      "wallet_consents",
+      "wallet_ledger",
+      "wallet_order_closures",
+      "wallet_order_settlements",
+      "wallet_refund_cases",
+      "wallet_refund_reversals",
+      "wallet_renewal_cycles",
+      "wallet_termination_cases",
+      "wallet_topups",
+    ]);
+
+    assert.deepEqual(objectNames(database, "index"), [
+      "idx_admin_grants_user",
+      "idx_coupon_plans_plan",
+      "idx_coupon_redemptions_coupon",
+      "idx_coupons_active",
+      "idx_diagnosis_requests_status_created",
+      "idx_invite_codes_bootstrap_unique",
+      "idx_invite_codes_open_recipient_unique",
+      "idx_notifications_payment",
+      "idx_order_access_tokens_expiry",
+      "idx_orders_status",
+      "idx_orders_user",
+      "idx_outbox_leased",
+      "idx_outbox_pending",
+      "idx_payments_status",
+      "idx_pending_email",
+      "idx_pending_expiry",
+      "idx_plan_price_history_plan",
+      "idx_rate_limit_window",
+      "idx_redemptions_code",
+      "idx_redemptions_user",
+      "idx_referral_candidate_owner_page",
+      "idx_reset_tokens_expiry",
+      "idx_reset_tokens_user",
+      "idx_sellable_plans_active",
+      "idx_sellable_plans_unique_combo",
+      "idx_service_delivery_items_service",
+      "idx_services_status",
+      "idx_session_families_user",
+      "idx_sessions_family",
+      "idx_sessions_user",
+      "idx_sso_codes_state",
+      "idx_ticket_attachments_message",
+      "idx_ticket_messages_ticket",
+      "idx_tickets_grant",
+      "idx_tickets_owner_updated",
+      "idx_tickets_status_updated",
+      "idx_users_invited_by_user",
+    ]);
+  });
+});
+
+test("Migration 022 adds nullable service columns and admin_grants on a 021 database", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "auth-admin-services-"));
+  const database = openAndVerifyDatabase(join(directory, "auth.sqlite"));
+  try {
+    applyMigrationPrefix(database, 21);
+    const { userId } = createBootstrapUser(database);
+    const servicesBefore = columnNames(database, "services");
+    assert.equal(objectNames(database, "table").includes("admin_grants"), false);
+
+    runMigrations(database);
+    runMigrations(database);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 26);
+    assert.deepEqual(columnNames(database, "services"), [...servicesBefore, "ends_at", "plan_override", "admin_note"]);
+    // Running to the latest schema also applies 023/024, which append the structured/delivery columns.
+    assert.deepEqual(columnNames(database, "admin_grants").slice(0, 10), [
+      "id", "user_id", "granted_by_admin_id", "label", "starts_at", "ends_at",
+      "status", "reason", "created_at", "updated_at",
+    ]);
+    assert.equal(objectNames(database, "index").includes("idx_admin_grants_user"), true);
+    const insertGrant = database.prepare(
+      `INSERT INTO admin_grants (user_id, granted_by_admin_id, label, starts_at, ends_at, status, reason, created_at, updated_at)
+       VALUES (?, ?, 'Gift', ?, NULL, ?, NULL, ?, ?)`,
+    );
+    insertGrant.run(userId, userId, NOW, "active", NOW, NOW);
+    assert.throws(() => insertGrant.run(userId, userId, NOW, "expired", NOW, NOW), /CHECK constraint failed/);
+    assert.throws(() => insertGrant.run(999_999, userId, NOW, "active", NOW, NOW), /FOREIGN KEY constraint failed/);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM admin_grants"), 1);
+  } finally {
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Migration 023 structures admin_grants and adds encrypted grant delivery items on a 022 database", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "auth-admin-grant-delivery-"));
+  const database = openAndVerifyDatabase(join(directory, "auth.sqlite"));
+  try {
+    applyMigrationPrefix(database, 22);
+    const { userId } = createBootstrapUser(database);
+    database.prepare(
+      `INSERT INTO admin_grants (user_id, granted_by_admin_id, label, starts_at, ends_at, status, reason, created_at, updated_at)
+       VALUES (?, ?, 'Legacy gift', ?, NULL, 'active', 'internal', ?, ?)`,
+    ).run(userId, userId, NOW, NOW, NOW);
+    assert.equal(objectNames(database, "table").includes("admin_grant_delivery_items"), false);
+
+    runMigrations(database);
+    runMigrations(database);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 26);
+    assert.deepEqual(columnNames(database, "admin_grants"), [
+      "id", "user_id", "granted_by_admin_id", "label", "starts_at", "ends_at",
+      "status", "reason", "created_at", "updated_at",
+      "type_id", "region_id", "isp_id", "spec_id", "duration_id", "months", "value_fen",
+      "delivery_status", "opened_at",
+    ]);
+    // The 022 row keeps every value; new columns are NULL and delivery is pending.
+    assert.deepEqual(
+      database.prepare(
+        `SELECT label, status, reason, type_id, region_id, isp_id, spec_id, duration_id, months, value_fen, delivery_status, opened_at
+         FROM admin_grants`,
+      ).all(),
+      [{
+        label: "Legacy gift", status: "active", reason: "internal", type_id: null, region_id: null, isp_id: null,
+        spec_id: null, duration_id: null, months: null, value_fen: null, delivery_status: "pending_open", opened_at: null,
+      }],
+    );
+    assert.throws(() => database.prepare("UPDATE admin_grants SET delivery_status = 'delivered'").run(), /CHECK constraint failed/);
+    assert.deepEqual(columnNames(database, "admin_grant_delivery_items"), [
+      "id", "grant_id", "position", "label", "key_version", "nonce", "ciphertext", "tag", "created_at", "updated_at",
+      "monitor_target",
+    ]);
+    const grantId = firstNumber(database, "SELECT id FROM admin_grants");
+    const insertItem = database.prepare(
+      `INSERT INTO admin_grant_delivery_items (grant_id, position, label, key_version, nonce, ciphertext, tag, created_at, updated_at)
+       VALUES (?, ?, 'Line', 1, X'00', X'00', X'00', ?, ?)`,
+    );
+    insertItem.run(grantId, 1, NOW, NOW);
+    assert.throws(() => insertItem.run(grantId, 1, NOW, NOW), /UNIQUE constraint failed/);
+    assert.throws(() => insertItem.run(grantId, 0, NOW, NOW), /CHECK constraint failed/);
+    assert.throws(() => insertItem.run(999_999, 2, NOW, NOW), /FOREIGN KEY constraint failed/);
+    assert.throws(() => database.prepare("DELETE FROM admin_grants").run(), /FOREIGN KEY constraint failed/);
+  } finally {
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Migration 024 adds a nullable monitor_target to gift delivery lines on a 023 database", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "auth-grant-delivery-target-"));
+  const database = openAndVerifyDatabase(join(directory, "auth.sqlite"));
+  try {
+    applyMigrationPrefix(database, 23);
+    const { userId } = createBootstrapUser(database);
+    database.prepare(
+      `INSERT INTO admin_grants (user_id, granted_by_admin_id, label, starts_at, ends_at, status, reason, created_at, updated_at, delivery_status, opened_at)
+       VALUES (?, ?, 'Opened gift', ?, NULL, 'active', NULL, ?, ?, 'open', ?)`,
+    ).run(userId, userId, NOW, NOW, NOW, NOW);
+    const grantId = firstNumber(database, "SELECT id FROM admin_grants");
+    database.prepare(
+      `INSERT INTO admin_grant_delivery_items (grant_id, position, label, key_version, nonce, ciphertext, tag, created_at, updated_at)
+       VALUES (?, 1, 'Existing line', 1, X'01', X'02', X'03', ?, ?)`,
+    ).run(grantId, NOW, NOW);
+    assert.equal(columnNames(database, "admin_grant_delivery_items").includes("monitor_target"), false);
+
+    runMigrations(database);
+    runMigrations(database);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 26);
+    assert.equal(columnNames(database, "admin_grant_delivery_items").at(-1), "monitor_target");
+    // The 023 line keeps every value and is unbound.
+    assert.deepEqual(
+      database.prepare("SELECT position, label, key_version, hex(nonce) AS nonce, hex(ciphertext) AS ciphertext, hex(tag) AS tag, monitor_target FROM admin_grant_delivery_items").all(),
+      [{ position: 1, label: "Existing line", key_version: 1, nonce: "01", ciphertext: "02", tag: "03", monitor_target: null }],
+    );
+    database.prepare("UPDATE admin_grant_delivery_items SET monitor_target = 'DMIT Premium'").run();
+    assert.deepEqual(database.prepare("SELECT monitor_target FROM admin_grant_delivery_items").all(), [{ monitor_target: "DMIT Premium" }]);
+  } finally {
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Migration 025 adds ticket attachments and the grant link on a 024 database", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "auth-ticket-attachments-"));
+  const database = openAndVerifyDatabase(join(directory, "auth.sqlite"));
+  try {
+    applyMigrationPrefix(database, 24);
+    const { userId } = createBootstrapUser(database);
+    database.prepare(
+      `INSERT INTO admin_grants (user_id, granted_by_admin_id, label, starts_at, ends_at, status, reason, created_at, updated_at)
+       VALUES (?, ?, 'Gift', ?, NULL, 'active', NULL, ?, ?)`,
+    ).run(userId, userId, NOW, NOW, NOW);
+    const grantId = firstNumber(database, "SELECT id FROM admin_grants");
+    database.prepare(
+      `INSERT INTO tickets (ticket_ref, user_id, service_id, subject, status, created_at, updated_at)
+       VALUES ('TK0123456789ABCDEF', ?, NULL, 'Before', 'open', ?, ?)`,
+    ).run(userId, NOW, NOW);
+    const ticketId = firstNumber(database, "SELECT id FROM tickets");
+    database.prepare(
+      `INSERT INTO ticket_messages (ticket_id, author_role, author_user_id, body, created_at)
+       VALUES (?, 'customer', ?, 'hi', ?)`,
+    ).run(ticketId, userId, NOW);
+    const messageId = firstNumber(database, "SELECT id FROM ticket_messages");
+    assert.equal(objectNames(database, "table").includes("ticket_attachments"), false);
+    assert.equal(columnNames(database, "tickets").includes("grant_id"), false);
+
+    runMigrations(database);
+    runMigrations(database);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 26);
+    assert.deepEqual(columnNames(database, "ticket_attachments"), [
+      "id", "attachment_ref", "message_id", "content_type", "byte_size", "content", "created_at",
+    ]);
+    assert.equal(columnNames(database, "tickets").at(-1), "grant_id");
+    assert.equal(objectNames(database, "index").includes("idx_ticket_attachments_message"), true);
+    assert.equal(objectNames(database, "index").includes("idx_tickets_grant"), true);
+    // The pre-025 ticket keeps every value and the grant link is NULL.
+    assert.deepEqual(
+      database.prepare("SELECT ticket_ref, user_id, service_id, grant_id, subject, status FROM tickets").all(),
+      [{ ticket_ref: "TK0123456789ABCDEF", user_id: userId, service_id: null, grant_id: null, subject: "Before", status: "open" }],
+    );
+
+    // grant_id references admin_grants and stays mutually exclusive with service_id.
+    const grantFk = (database.prepare("PRAGMA foreign_key_list(tickets)").all() as Array<Record<string, unknown>>)
+      .find((entry) => entry.from === "grant_id");
+    assert.equal(grantFk?.table, "admin_grants");
+    const insertTicket = database.prepare(
+      `INSERT INTO tickets (ticket_ref, user_id, service_id, grant_id, subject, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'x', 'open', ?, ?)`,
+    );
+    assert.throws(
+      () => insertTicket.run("TK1111111111111111", userId, 1, grantId, NOW, NOW),
+      /CHECK constraint failed/,
+    );
+    insertTicket.run("TK2222222222222222", userId, null, grantId, NOW, NOW);
+    insertTicket.run("TK3333333333333333", userId, null, null, NOW, NOW);
+    assert.throws(
+      () => insertTicket.run("TK4444444444444444", userId, null, 999_999, NOW, NOW),
+      /FOREIGN KEY constraint failed/,
+    );
+    assert.throws(
+      () => database.prepare("UPDATE tickets SET service_id = 1 WHERE grant_id IS NOT NULL").run(),
+      /CHECK constraint failed/,
+    );
+
+    // Attachment rows are BLOB-bound to their message and byte size.
+    const insertAttachment = database.prepare(
+      `INSERT INTO ticket_attachments (attachment_ref, message_id, content_type, byte_size, content, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    insertAttachment.run("TA0123456789ABCDEF", messageId, "image/png", 3, Buffer.from([1, 2, 3]), NOW);
+    for (const bad of [
+      () => insertAttachment.run("TAX123456789ABCDEF", messageId, "image/png", 1, Buffer.from([0]), NOW),
+      () => insertAttachment.run("TA1111111111111111", messageId, "image/gif", 1, Buffer.from([0]), NOW),
+      () => insertAttachment.run("TA2222222222222222", messageId, "image/png", 0, Buffer.alloc(0), NOW),
+      () => insertAttachment.run("TA3333333333333333", messageId, "image/png", 2, Buffer.from([0]), NOW),
+      () => insertAttachment.run("TA4444444444444444", 999_999, "image/png", 1, Buffer.from([0]), NOW),
+      () => insertAttachment.run("TA5555555555555555", messageId, "image/png", 5_242_881, Buffer.alloc(5_242_881), NOW),
+    ]) {
+      assert.throws(bad, /constraint failed/);
+    }
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM ticket_attachments"), 1);
+  } finally {
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Migration 026 adds the wallet accounting tables on a 025 database", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "auth-wallet-"));
+  const database = openAndVerifyDatabase(join(directory, "auth.sqlite"));
+  try {
+    applyMigrationPrefix(database, 25);
+    const { userId } = createBootstrapUser(database);
+    const tablesBefore = objectNames(database, "table");
+    assert.equal(tablesBefore.includes("wallet_ledger"), false);
+
+    runMigrations(database);
+    runMigrations(database);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 26);
+    assert.deepEqual(
+      objectNames(database, "table").filter((name) => name.startsWith("wallet_")).sort(),
+      [
+        "wallet_accounts",
+        "wallet_consent_history",
+        "wallet_consents",
+        "wallet_ledger",
+        "wallet_order_closures",
+        "wallet_order_settlements",
+        "wallet_refund_cases",
+        "wallet_refund_reversals",
+        "wallet_renewal_cycles",
+        "wallet_termination_cases",
+        "wallet_topups",
+      ],
+    );
+    // No existing table gains a column.
+    assert.equal(columnNames(database, "orders").includes("catalog_version"), true);
+    assert.equal(columnNames(database, "services").includes("user_id"), false);
+
+    // Ledger rows are integer-fen, sign-checked, and append-only.
+    database.prepare("INSERT INTO wallet_accounts (user_id, balance_fen) VALUES (?, 100)").run(userId);
+    assert.throws(
+      () => database.prepare("INSERT INTO wallet_accounts (user_id, balance_fen) VALUES (?, -1)").run(userId + 1),
+      /constraint failed/,
+    );
+    database.prepare(
+      "INSERT INTO wallet_ledger (user_id, kind, amount_fen, source_key, created_at) VALUES (?, 'TOPUP', 100, 't1', ?)",
+    ).run(userId, NOW);
+    assert.throws(
+      () => database.prepare("INSERT INTO wallet_ledger (user_id, kind, amount_fen, source_key, created_at) VALUES (?, 'TOPUP', -1, 't2', ?)").run(userId, NOW),
+      /CHECK constraint failed/,
+    );
+    assert.throws(
+      () => database.prepare("INSERT INTO wallet_ledger (user_id, kind, amount_fen, source_key, created_at) VALUES (?, 'RENEWAL_DEBIT', 1, 't3', ?)").run(userId, NOW),
+      /CHECK constraint failed/,
+    );
+    assert.throws(
+      () => database.prepare("INSERT INTO wallet_ledger (user_id, kind, amount_fen, source_key, created_at) VALUES (?, 'TOPUP', 1, 't1', ?)").run(userId, NOW),
+      /UNIQUE constraint failed/,
+    );
+    assert.throws(
+      () => database.prepare("UPDATE wallet_ledger SET amount_fen = 1").run(),
+      /immutable ledger/,
+    );
+    assert.throws(
+      () => database.prepare("DELETE FROM wallet_ledger").run(),
+      /immutable ledger/,
+    );
+
+    // Consent history is append-only; the consent row is FK-bound to a real service.
+    const consentFk = (database.prepare("PRAGMA foreign_key_list(wallet_consents)").all() as Array<Record<string, unknown>>)
+      .find((entry) => entry.from === "service_id");
+    assert.equal(consentFk?.table, "services");
+    database.prepare(
+      `INSERT INTO orders (
+         order_ref, idempotency_key, request_fingerprint, user_id,
+         type_id, region_id, isp_id, spec_id, duration_id, catalog_version,
+         amount_fen, currency, contact, scenarios, notes, status, created_at, updated_at
+       ) VALUES ('WDMIG026001', 'wi-026', 'wf-026', ?, 'local-isp', 'us', 'us-verizon', NULL, 'month-1',
+         'SUBSCRIBE-CATALOG-V1', 7900, 'CNY', 'w@example.test', '[]', NULL, 'paid', ?, ?)`,
+    ).run(userId, NOW, NOW);
+    const orderId = firstNumber(database, "SELECT id FROM orders WHERE idempotency_key = 'wi-026'");
+    database.prepare(
+      `INSERT INTO payments (
+         order_id, out_trade_no, channel, app_id, amount_fen, currency, status,
+         trade_no, alipay_trade_status, paid_at, created_at, updated_at
+       ) VALUES (?, 'wt-026', 'alipay_page', 'w-app', 7900, 'CNY', 'paid',
+         'wt-026', 'TRADE_SUCCESS', ?, ?, ?)`,
+    ).run(orderId, NOW, NOW, NOW);
+    const paymentId = firstNumber(database, "SELECT id FROM payments WHERE order_id = ?", orderId);
+    database.prepare(
+      `INSERT INTO services (payment_id, status, opened_by_admin_id, opened_at, ends_at, created_at, updated_at)
+       VALUES (?, 'open', ?, ?, ?, ?, ?)`,
+    ).run(paymentId, userId, NOW, LATER, NOW, NOW);
+    const serviceId = firstNumber(database, "SELECT id FROM services");
+    database.prepare(
+      `INSERT INTO wallet_consents (service_id, user_id, state, revision, quote_key, price_fen, duration_id, next_billing_period, updated_at)
+       VALUES (?, ?, 'DISABLED', 0, NULL, NULL, NULL, NULL, ?)`,
+    ).run(serviceId, userId, NOW);
+    assert.throws(
+      () => database.prepare(
+        `INSERT INTO wallet_consents (service_id, user_id, state, revision, updated_at)
+         VALUES (?, ?, 'BOGUS', 0, ?)`,
+      ).run(serviceId, userId, NOW),
+      /CHECK constraint failed/,
+    );
+    assert.throws(
+      () => database.prepare(
+        `INSERT INTO wallet_consents (service_id, user_id, state, revision, next_billing_period, updated_at)
+         VALUES (?, ?, 'DISABLED', 0, 'WEEKLY', ?)`,
+      ).run(999_999, userId, NOW),
+      /constraint failed/,
+    );
+
+    // Renewal cycles dedupe per (service, previous expiry); refund cases per source.
+    database.prepare(
+      `INSERT INTO wallet_renewal_cycles (service_id, previous_ends_at, new_ends_at, user_id, amount_fen, quote_key, created_at)
+       VALUES (?, ?, ?, ?, 100, 'k', ?)`,
+    ).run(serviceId, NOW, LATER, userId, NOW);
+    assert.throws(
+      () => database.prepare(
+        `INSERT INTO wallet_renewal_cycles (service_id, previous_ends_at, new_ends_at, user_id, amount_fen, quote_key, created_at)
+         VALUES (?, ?, ?, ?, 100, 'k2', ?)`,
+      ).run(serviceId, NOW, LATER, userId, NOW),
+      /UNIQUE constraint failed/,
+    );
+
+    // Refund cases: ORIGINAL_PAYMENT may bind a verified paid order without a
+    // services row (service_id NULL); WALLET_RENEWAL always needs a real service.
+    database.prepare(
+      "INSERT INTO wallet_refund_cases (service_id, refund_state, source_kind, source_id) VALUES (NULL, 'AWAITING_POLICY', 'ORIGINAL_PAYMENT', ?)",
+    ).run(paymentId);
+    assert.throws(
+      () => database.prepare(
+        "INSERT INTO wallet_refund_cases (service_id, refund_state, source_kind, source_id) VALUES (NULL, 'AWAITING_POLICY', 'ORIGINAL_PAYMENT', ?)",
+      ).run(paymentId),
+      /UNIQUE constraint failed/,
+    );
+    assert.throws(
+      () => database.prepare(
+        "INSERT INTO wallet_refund_cases (service_id, refund_state, source_kind, source_id) VALUES (NULL, 'AWAITING_POLICY', 'WALLET_RENEWAL', ?)",
+      ).run(999),
+      /CHECK constraint failed/,
+    );
+    assert.equal((database.pragma("foreign_key_check") as unknown[]).length, 0);
+  } finally {
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("payments gains a nullable reserved_until column", async () => {
+  await withTemporaryDatabase((database) => {
+    assert.ok(columnNames(database, "payments").includes("reserved_until"));
+  });
+});
+
+test("Migration 017 creates only the minimal user-bound referral identity", async () => {
+  await withTemporaryDatabase((database) => {
+    assert.deepEqual(columnNames(database, "referral_profiles"), [
+      "id",
+      "user_id",
+      "public_code",
+      "created_at",
+    ]);
+    const { userId } = createBootstrapUser(database);
+    database
+      .prepare(
+        `INSERT INTO referral_profiles (user_id, public_code, created_at)
+         VALUES (?, ?, ?)`,
+      )
+      .run(userId, "A".repeat(24), NOW);
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            `INSERT INTO referral_profiles (user_id, public_code, created_at)
+             VALUES (?, ?, ?)`,
+          )
+          .run(userId, "B".repeat(24), NOW),
+      /UNIQUE constraint failed: referral_profiles.user_id/,
+    );
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            `INSERT INTO referral_profiles (user_id, public_code, created_at)
+             VALUES (?, ?, ?)`,
+          )
+          .run(999999, "C".repeat(24), NOW),
+      /FOREIGN KEY constraint failed/,
+    );
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            `INSERT INTO referral_profiles (user_id, public_code, created_at)
+             VALUES (?, ?, ?)`,
+          )
+          .run(userId + 1, "contains.invalid.code!!", NOW),
+      /CHECK constraint failed/,
+    );
+  });
+});
+
+test("Migration 018 adds only a server-linked pending referral candidate", async () => {
+  await withTemporaryDatabase((database) => {
+    assert.ok(
+      columnNames(database, "pending_registrations").includes(
+        "referral_source_profile_id",
+      ),
+    );
+    assert.deepEqual(columnNames(database, "referral_attribution_candidates"), [
+      "referred_user_id",
+      "source_profile_id",
+      "status",
+      "created_at",
+    ]);
+
+    const { inviteCodeId, userId: sourceUserId } = createBootstrapUser(database);
+    database
+      .prepare(
+        `INSERT INTO users (
+           email, password_hash, role, status, invited_by_code_id, created_at, updated_at
+         ) VALUES (?, ?, 'user', 'active', ?, ?, ?)`,
+      )
+      .run("referred@example.com", "argon2id-hash", inviteCodeId, NOW, NOW);
+    const referredUserId = firstNumber(
+      database,
+      "SELECT id FROM users WHERE email = ?",
+      "referred@example.com",
+    );
+    database
+      .prepare(
+        `INSERT INTO referral_profiles (user_id, public_code, created_at)
+         VALUES (?, ?, ?)`,
+      )
+      .run(sourceUserId, "R".repeat(24), NOW);
+    const sourceProfileId = firstNumber(
+      database,
+      "SELECT id FROM referral_profiles WHERE user_id = ?",
+      sourceUserId,
+    );
+    database
+      .prepare(
+        `INSERT INTO referral_attribution_candidates (
+           referred_user_id, source_profile_id, status, created_at
+         ) VALUES (?, ?, 'pending', ?)`,
+      )
+      .run(referredUserId, sourceProfileId, NOW);
+
+    assert.deepEqual(
+      database
+        .prepare(
+          `SELECT referred_user_id, source_profile_id, status, created_at
+           FROM referral_attribution_candidates`,
+        )
+        .all(),
+      [
+        {
+          referred_user_id: referredUserId,
+          source_profile_id: sourceProfileId,
+          status: "pending",
+          created_at: NOW,
+        },
+      ],
+    );
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            `INSERT INTO referral_attribution_candidates (
+               referred_user_id, source_profile_id, status, created_at
+             ) VALUES (?, ?, 'pending', ?)`,
+          )
+          .run(referredUserId, sourceProfileId, LATER),
+      /UNIQUE constraint failed: referral_attribution_candidates.referred_user_id/,
+    );
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            `INSERT INTO referral_attribution_candidates (
+               referred_user_id, source_profile_id, status, created_at
+             ) VALUES (?, ?, 'bound', ?)`,
+          )
+          .run(sourceUserId + 99, sourceProfileId, NOW),
+      /CHECK constraint failed/,
+    );
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            `INSERT INTO referral_attribution_candidates (
+               referred_user_id, source_profile_id, status, created_at
+             ) VALUES (?, ?, 'pending', ?)`,
+          )
+          .run(sourceUserId, sourceProfileId, NOW),
+      /referral_candidate_self_attribution/,
+    );
+  });
+});
+
+test("Migration 019 upgrades an 018 database with the bounded owner-page query index", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "auth-referral-index-"));
+  const database = openAndVerifyDatabase(join(directory, "auth.sqlite"));
+  try {
+    applyMigrationPrefix(database, 18);
+    assert.equal(objectNames(database, "index").includes("idx_referral_candidate_owner_page"), false);
+    runMigrations(database);
+    runMigrations(database);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 26);
+    assert.equal(objectNames(database, "index").filter((name) => name === "idx_referral_candidate_owner_page").length, 1);
+    const queryPlan = database.prepare(
+      `EXPLAIN QUERY PLAN
+       SELECT candidates.referred_user_id, candidates.source_profile_id, candidates.created_at
+       FROM referral_attribution_candidates AS candidates
+       JOIN referral_profiles AS profiles ON profiles.id = candidates.source_profile_id
+       WHERE profiles.user_id = ? AND candidates.status = 'pending'
+       ORDER BY candidates.created_at DESC, candidates.referred_user_id DESC
+       LIMIT ? OFFSET ?`,
+    ).all(1, 21, 0) as Array<{ readonly detail: string }>;
+    const details = queryPlan.map((row) => row.detail);
+    assert.ok(details.some((detail) => detail.includes("SEARCH candidates USING COVERING INDEX idx_referral_candidate_owner_page")), details.join("; "));
+    assert.equal(details.some((detail) => detail.includes("SCAN candidates")), false);
+    assert.equal(details.some((detail) => detail.includes("USE TEMP B-TREE")), false);
+  } finally {
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Migration 020 adds only ticket tables on a 019 database and enforces its constraints", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "auth-tickets-020-"));
+  const database = openAndVerifyDatabase(join(directory, "auth.sqlite"));
+  try {
+    applyMigrationPrefix(database, 19);
+    const { userId } = createBootstrapUser(database);
+    const tablesBefore = objectNames(database, "table");
+    const usersBefore = firstNumber(database, "SELECT COUNT(*) FROM users");
+    assert.equal(tablesBefore.includes("tickets"), false);
+
+    runMigrations(database);
+    runMigrations(database);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 26);
+    assert.deepEqual(
+      objectNames(database, "table").filter((name) => !tablesBefore.includes(name)),
+      // Running to the latest schema also applies 022/023/025, which add admin_grants, its delivery items, ticket attachments, and the wallet tables.
+      [
+        "admin_grant_delivery_items", "admin_grants", "ticket_attachments", "ticket_messages", "tickets",
+        "wallet_accounts", "wallet_consent_history", "wallet_consents", "wallet_ledger",
+        "wallet_order_closures", "wallet_order_settlements", "wallet_refund_cases",
+        "wallet_refund_reversals", "wallet_renewal_cycles", "wallet_termination_cases", "wallet_topups",
+      ],
+    );
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM users"), usersBefore);
+
+    const insertTicket = database.prepare(
+      `INSERT INTO tickets (ticket_ref, user_id, service_id, subject, status, created_at, updated_at, closed_at, closed_by_admin_id)
+       VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
+    );
+    const ref = "TK0123456789ABCDEF";
+    insertTicket.run(ref, userId, "subject", "open", NOW, NOW, null, null);
+    const ticketId = firstNumber(database, "SELECT id FROM tickets WHERE ticket_ref = ?", ref);
+    for (const [label, args] of [
+      ["duplicate ref", [ref, userId, "s", "open", NOW, NOW, null, null]],
+      ["lowercase ref", ["tk0123456789abcdef", userId, "s", "open", NOW, NOW, null, null]],
+      ["short ref", ["TK0123", userId, "s", "open", NOW, NOW, null, null]],
+      ["unknown status", ["TK0000000000000001", userId, "s", "pending", NOW, NOW, null, null]],
+      ["closed without close fields", ["TK0000000000000002", userId, "s", "closed", NOW, NOW, null, null]],
+      ["open with close fields", ["TK0000000000000003", userId, "s", "open", NOW, NOW, NOW, userId]],
+      ["empty subject", ["TK0000000000000004", userId, "", "open", NOW, NOW, null, null]],
+      ["long subject", ["TK0000000000000005", userId, "x".repeat(121), "open", NOW, NOW, null, null]],
+      ["unknown owner", ["TK0000000000000006", 999_999, "s", "open", NOW, NOW, null, null]],
+    ] as const) {
+      assert.throws(() => insertTicket.run(...args), /constraint failed/, label);
+    }
+    database
+      .prepare("UPDATE tickets SET status = 'closed', closed_at = ?, closed_by_admin_id = ? WHERE id = ?")
+      .run(NOW, userId, ticketId);
+
+    const insertMessage = database.prepare(
+      `INSERT INTO ticket_messages (ticket_id, author_role, author_user_id, body, created_at) VALUES (?, ?, ?, ?, ?)`,
+    );
+    insertMessage.run(ticketId, "customer", userId, "hello", NOW);
+    for (const [label, args] of [
+      ["unknown role", [ticketId, "system", userId, "hello", NOW]],
+      ["empty body", [ticketId, "admin", userId, "", NOW]],
+      ["long body", [ticketId, "admin", userId, "x".repeat(4001), NOW]],
+      ["unknown ticket", [999_999, "admin", userId, "hello", NOW]],
+      ["unknown author", [ticketId, "admin", 999_999, "hello", NOW]],
+    ] as const) {
+      assert.throws(() => insertMessage.run(...args), /constraint failed/, label);
+    }
+  } finally {
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Migration 012 seeds exactly 255 sellable plans with 29 initialized off-sale above the single-transaction cap", async () => {
+  await withTemporaryDatabase((database) => {
+    assert.equal(
+      firstNumber(database, "SELECT COUNT(*) FROM sellable_plans"),
+      255,
+    );
+    assert.equal(
+      firstNumber(database, "SELECT COUNT(*) FROM sellable_plans WHERE is_active = 0"),
+      29,
+    );
+    assert.equal(
+      firstNumber(database, "SELECT COUNT(*) FROM sellable_plans WHERE is_active = 1"),
+      226,
+    );
+    assert.equal(
+      firstNumber(
+        database,
+        "SELECT COUNT(*) FROM sellable_plans WHERE is_active = 0 AND price_fen <= 200000",
+      ),
+      0,
+    );
+    assert.equal(
+      firstNumber(
+        database,
+        "SELECT COUNT(*) FROM sellable_plans WHERE is_active = 1 AND price_fen > 200000",
+      ),
+      0,
+    );
+    assert.equal(
+      firstNumber(database, "SELECT COUNT(*) FROM sellable_plans WHERE total_slots IS NOT NULL"),
+      0,
+    );
+  });
+});
+
+test("seeded plan prices exactly match pricing.ts's current resolvePriceFen for every tuple", async () => {
+  const { enumeratePriceTuples } = await import("../src/payment/pricing.js");
+  await withTemporaryDatabase((database) => {
+    for (const tuple of enumeratePriceTuples()) {
+      const rows = database
+        .prepare(
+          `SELECT price_fen FROM sellable_plans
+           WHERE type_id = ? AND region_id = ? AND isp_id = ?
+             AND spec_id IS ? AND duration_id = ?`,
+        )
+        .all(
+          tuple.typeId,
+          tuple.regionId,
+          tuple.ispId,
+          tuple.specId,
+          tuple.durationId,
+        ) as ReadonlyArray<{ readonly price_fen: number }>;
+      assert.equal(rows.length, 1, `missing seed row for ${JSON.stringify(tuple)}`);
+      const [row] = rows;
+      if (row === undefined) {
+        throw new Error("unreachable: length check above guarantees one row");
+      }
+      assert.equal(row.price_fen, tuple.priceFen, JSON.stringify(tuple));
+    }
+  });
+});
+
+test("the NULL-safe unique index rejects a duplicate fixed-price plan (spec_id IS NULL)", async () => {
+  await withTemporaryDatabase((database) => {
+    const now = "2026-08-21T00:00:00.000Z";
+    assert.throws(() => {
+      database
+        .prepare(
+          `INSERT INTO sellable_plans (
+             type_id, region_id, isp_id, spec_id, duration_id,
+             price_fen, is_active, total_slots, occupied_slots, created_at, updated_at
+           ) VALUES ('us-local-carrier','us','ntt',NULL,'month-1',5900,1,NULL,0,?,?)`,
+        )
+        .run(now, now);
+    }, /UNIQUE constraint failed/);
+  });
+});
+
+test("continuous Schema 14 upgrades directly through 15-26 with legacy rows", async () => {
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), "auth-direct14-upgrade-"));
+  const database = openAndVerifyDatabase(join(temporaryDirectory, "auth.sqlite"));
+  try {
+    applyMigrationPrefix(database, 14);
+    database.prepare(
+      `INSERT INTO invite_codes (
+         id, code_hash, is_bootstrap, created_by_admin_id, max_uses,
+         used_count, expires_at, revoked_at, note, created_at
+       ) VALUES (1, ?, 1, NULL, 1, 0, ?, NULL, NULL, ?)`,
+    ).run("D".repeat(43), LATER, NOW);
+    database.prepare(
+      `INSERT INTO pending_registrations (
+         id, email, registration_token_hash, registration_token_key_version,
+         invite_code_id, otp_hash, otp_key_version, otp_generation, phase,
+         verified_at, attempts, resend_count, last_sent_at, expires_at,
+         consumed_at, superseded_at, created_at
+       ) VALUES (1, 'direct14@example.com', 'direct14-token', 1, 1,
+                 'direct14-otp', 1, 1, 'awaiting_verification',
+                 NULL, 0, 1, ?, ?, NULL, NULL, ?)`,
+    ).run(NOW, LATER, NOW);
+    database.prepare(
+      `INSERT INTO mail_outbox (
+         idempotency_key, to_email, template, key_version, nonce,
+         ciphertext, tag, status, attempts, next_attempt_at, created_at
+       ) VALUES ('register-otp-v1:1:1', 'direct14@example.com',
+                 'verification_code', 1, X'00', X'00', X'00',
+                 'pending', 0, ?, ?)`,
+    ).run(NOW, NOW);
+
+    runMigrations(database);
+    assert.deepEqual(
+      (database.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as Array<{ readonly version: number }>).map((row) => row.version),
+      Array.from({ length: 26 }, (_, index) => index + 1),
+    );
+    assert.equal(objectNames(database, "table").includes("diagnosis_request_idempotency"), true);
+    assert.equal(objectNames(database, "index").includes("idx_referral_candidate_owner_page"), true);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM pending_registrations WHERE id = 1 AND superseded_at IS NOT NULL"), 1);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM mail_outbox"), 0);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM invite_codes WHERE id = 1 AND revoked_at IS NOT NULL"), 1);
+    runMigrations(database);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 26);
+  } finally {
+    database.close();
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("Migration 016 revokes legacy codes without guessing email and preserves historical users and redemptions", async () => {
+  const temporaryDirectory = await mkdtemp(
+    join(tmpdir(), "auth-service-migration-016-upgrade-"),
+  );
+  const database = openAndVerifyDatabase(
+    join(temporaryDirectory, "auth.sqlite"),
+  );
+  try {
+    applyMigrationPrefix(database, 15);
+    database
+      .prepare(
+        `INSERT INTO invite_codes (
+           id, code_hash, is_bootstrap, created_by_admin_id, max_uses,
+           used_count, expires_at, revoked_at, note, created_at
+         ) VALUES (1, ?, 1, NULL, 1, 0, ?, NULL, NULL, ?)`,
+      )
+      .run("L".repeat(43), LATER, NOW);
+    database
+      .prepare(
+        `INSERT INTO users (
+           id, email, password_hash, role, status, invited_by_code_id,
+           created_at, updated_at
+         ) VALUES (1, 'legacy-admin@example.com', 'hash', 'admin', 'active', 1, ?, ?)`,
+      )
+      .run(NOW, NOW);
+    database
+      .prepare(
+        `INSERT INTO invite_codes (
+           id, code_hash, is_bootstrap, created_by_admin_id, max_uses,
+           used_count, expires_at, revoked_at, note, created_at
+         ) VALUES (2, ?, 0, 1, 5, 2, ?, NULL, NULL, ?)`,
+      )
+      .run("M".repeat(43), LATER, NOW);
+    const insertHistoricalUser = database.prepare(
+      `INSERT INTO users (
+         id, email, password_hash, role, status, invited_by_code_id,
+         created_at, updated_at
+       ) VALUES (?, ?, 'hash', 'user', 'active', 2, ?, ?)`,
+    );
+    insertHistoricalUser.run(2, "legacy-one@example.com", NOW, NOW);
+    insertHistoricalUser.run(3, "legacy-two@example.com", NOW, NOW);
+    const insertRedemption = database.prepare(
+      `INSERT INTO invite_code_redemptions (
+         invite_code_id, user_id, redeemed_at, ip_address
+       ) VALUES (2, ?, ?, '192.0.2.1')`,
+    );
+    insertRedemption.run(2, NOW);
+    insertRedemption.run(3, NOW);
+    const insertPending = database.prepare(
+      `INSERT INTO pending_registrations (
+         id, email, registration_token_hash, registration_token_key_version,
+         invite_code_id, otp_hash, otp_key_version, otp_generation, phase,
+         verified_at, attempts, resend_count, last_sent_at, expires_at,
+         consumed_at, superseded_at, created_at
+       ) VALUES (?, ?, ?, 1, 2, ?, 1, 1, 'awaiting_verification',
+                 NULL, 0, 1, ?, ?, ?, NULL, ?)`,
+    );
+    insertPending.run(
+      41,
+      "pending@example.com",
+      "token-41",
+      "otp-41",
+      NOW,
+      LATER,
+      null,
+      NOW,
+    );
+    insertPending.run(
+      42,
+      "consumed@example.com",
+      "token-42",
+      "otp-42",
+      NOW,
+      LATER,
+      NOW,
+      NOW,
+    );
+    const insertOutbox = database.prepare(
+      `INSERT INTO mail_outbox (
+         idempotency_key, to_email, template, key_version, nonce, ciphertext,
+         tag, status, attempts, next_attempt_at, created_at
+       ) VALUES (?, 'pending@example.com', 'verification_code', 1,
+                 X'00', X'00', X'00', 'pending', 0, ?, ?)`,
+    );
+    insertOutbox.run("register-otp-v1:41:1", NOW, NOW);
+    insertOutbox.run("register-otp-v1:42:1", NOW, NOW);
+    insertOutbox.run("unrelated:41:1", NOW, NOW);
+    const insertAudit = database.prepare(
+      `INSERT INTO audit_log (actor, action, target_ref, created_at)
+       VALUES (?, ?, ?, ?)`,
+    );
+    insertAudit.run(
+      "legacy-admin@example.com",
+      "invite_code.create",
+      "invite_code:2",
+      NOW,
+    );
+    insertAudit.run(
+      "legacy-admin@example.com",
+      "invite_code.revoke",
+      "invite_code:1",
+      NOW,
+    );
+    insertAudit.run("legacy-admin@example.com", "auth.login", "user:1", NOW);
+
+    runMigrations(database);
+    assert.deepEqual(
+      (
+        database
+          .prepare("SELECT version FROM schema_migrations ORDER BY version")
+          .all() as Array<{ readonly version: number }>
+      ).map((row) => row.version),
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
+    );
+    assert.deepEqual(
+      database
+        .prepare(
+          `SELECT id, recipient_email, revoked_at
+           FROM invite_codes ORDER BY id`,
+        )
+        .all()
+        .map((row) => ({
+          id: (row as { readonly id: number }).id,
+          recipient_email: (row as { readonly recipient_email: unknown })
+            .recipient_email,
+          revoked: typeof (row as { readonly revoked_at: unknown }).revoked_at === "string",
+        })),
+      [
+        { id: 1, recipient_email: null, revoked: true },
+        { id: 2, recipient_email: null, revoked: true },
+      ],
+    );
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM users"), 3);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM invite_code_redemptions"), 2);
+    assert.equal(
+      firstNumber(
+        database,
+        "SELECT COUNT(*) FROM pending_registrations WHERE id = 41 AND superseded_at IS NOT NULL",
+      ),
+      1,
+    );
+    assert.equal(
+      firstNumber(
+        database,
+        "SELECT COUNT(*) FROM pending_registrations WHERE id = 42 AND superseded_at IS NULL",
+      ),
+      1,
+    );
+    assert.deepEqual(
+      database
+        .prepare("SELECT idempotency_key FROM mail_outbox ORDER BY idempotency_key")
+        .all(),
+      [{ idempotency_key: "unrelated:41:1" }],
+    );
+    assert.deepEqual(
+      database
+        .prepare(
+          `SELECT actor, action, target_ref, invite_code_id, result_class,
+                  recipient_hmac
+           FROM audit_log
+           WHERE action GLOB 'invite_code.*'
+           ORDER BY id`,
+        )
+        .all(),
+      [
+        {
+          actor: "system:invite",
+          action: "invite_code.create",
+          target_ref: "invite_code:2",
+          invite_code_id: null,
+          result_class: "legacy_redacted",
+          recipient_hmac: null,
+        },
+        {
+          actor: "system:invite",
+          action: "invite_code.revoke",
+          target_ref: "invite_code:1",
+          invite_code_id: null,
+          result_class: "legacy_redacted",
+          recipient_hmac: null,
+        },
+      ],
+    );
+    assert.deepEqual(
+      database
+        .prepare("SELECT actor, result_class FROM audit_log WHERE action = 'auth.login'")
+        .all(),
+      [{ actor: "legacy-admin@example.com", result_class: null }],
+    );
+
+    runMigrations(database);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 26);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM invite_code_redemptions"), 2);
+  } finally {
+    database.close();
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("Migration 016 triggers enforce prebinding, immutability, single use, and safe audit payloads", async () => {
+  await withTemporaryDatabase((database) => {
+    const { userId } = createBootstrapUser(database);
+    const insertInvite = database.prepare(
+      `INSERT INTO invite_codes (
+         code_hash, is_bootstrap, created_by_admin_id, max_uses, used_count,
+         expires_at, revoked_at, note, created_at, recipient_email
+       ) VALUES (?, 0, ?, 1, 0, ?, NULL, NULL, ?, ?)`,
+    );
+    insertInvite.run("C".repeat(43), userId, LATER, NOW, "bound@example.com");
+    const inviteCodeId = firstNumber(
+      database,
+      "SELECT id FROM invite_codes WHERE code_hash = ?",
+      "C".repeat(43),
+    );
+
+    assert.throws(
+      () => insertInvite.run("D".repeat(43), userId, LATER, NOW, "bound@example.com"),
+      /UNIQUE constraint failed: invite_codes.recipient_email/,
+    );
+    assert.throws(
+      () => insertInvite.run("short", userId, LATER, NOW, "other@example.com"),
+      /invite_code_prebound_single_use_required/,
+    );
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            `INSERT INTO invite_codes (
+               code_hash, is_bootstrap, created_by_admin_id, max_uses,
+               used_count, expires_at, revoked_at, created_at, recipient_email
+             ) VALUES (?, 1, NULL, 1, 0, ?, NULL, ?, NULL)`,
+          )
+          .run("E".repeat(43), LATER, NOW),
+      /invite_code_prebound_single_use_required/,
+    );
+    assert.throws(
+      () =>
+        database
+          .prepare("UPDATE invite_codes SET recipient_email = ? WHERE id = ?")
+          .run("changed@example.com", inviteCodeId),
+      /invite_code_binding_is_immutable/,
+    );
+
+    const insertPending = database.prepare(
+      `INSERT INTO pending_registrations (
+         email, registration_token_hash, registration_token_key_version,
+         invite_code_id, otp_hash, otp_key_version, otp_generation, phase,
+         attempts, resend_count, last_sent_at, expires_at, created_at
+       ) VALUES (?, ?, 1, ?, 'otp-hash', 1, 1, 'awaiting_verification',
+                 0, 1, ?, ?, ?)`,
+    );
+    insertPending.run(
+      "bound@example.com",
+      "registration-token-1",
+      inviteCodeId,
+      NOW,
+      LATER,
+      NOW,
+    );
+    assert.throws(
+      () =>
+        insertPending.run(
+          "mismatch@example.com",
+          "registration-token-2",
+          inviteCodeId,
+          NOW,
+          LATER,
+          NOW,
+        ),
+      /pending_registration_invite_binding_mismatch/,
+    );
+    assert.throws(
+      () =>
+        database
+          .prepare("UPDATE pending_registrations SET email = ?")
+          .run("changed@example.com"),
+      /pending_registration_binding_is_immutable/,
+    );
+
+    database
+      .prepare("UPDATE invite_codes SET used_count = 1 WHERE id = ?")
+      .run(inviteCodeId);
+    assert.throws(
+      () =>
+        database
+          .prepare("UPDATE invite_codes SET used_count = 0 WHERE id = ?")
+          .run(inviteCodeId),
+      /invite_code_single_use_violation/,
+    );
+    database
+      .prepare(
+        `INSERT INTO users (
+           email, password_hash, role, status, invited_by_code_id,
+           created_at, updated_at
+         ) VALUES ('bound@example.com', 'hash', 'user', 'active', ?, ?, ?)`,
+      )
+      .run(inviteCodeId, NOW, NOW);
+    const invitedUserId = firstNumber(
+      database,
+      "SELECT id FROM users WHERE email = 'bound@example.com'",
+    );
+    database
+      .prepare(
+        `INSERT INTO invite_code_redemptions (
+           invite_code_id, user_id, redeemed_at, ip_address
+         ) VALUES (?, ?, ?, '192.0.2.1')`,
+      )
+      .run(inviteCodeId, invitedUserId, NOW);
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            `INSERT INTO invite_code_redemptions (
+               invite_code_id, user_id, redeemed_at, ip_address
+             ) VALUES (?, ?, ?, '192.0.2.2')`,
+          )
+          .run(inviteCodeId, invitedUserId, NOW),
+      /invite_code_redemption_single_use_violation/,
+    );
+
+    insertInvite.run("F".repeat(43), userId, LATER, NOW, "revoke@example.com");
+    const revokeId = firstNumber(
+      database,
+      "SELECT id FROM invite_codes WHERE code_hash = ?",
+      "F".repeat(43),
+    );
+    database
+      .prepare("UPDATE invite_codes SET revoked_at = ? WHERE id = ?")
+      .run(NOW, revokeId);
+    assert.throws(
+      () =>
+        database
+          .prepare("UPDATE invite_codes SET revoked_at = NULL WHERE id = ?")
+          .run(revokeId),
+      /invite_code_revocation_is_final/,
+    );
+
+    const recipientHmac = `v2.${"A".repeat(43)}`;
+    database
+      .prepare(
+        `INSERT INTO audit_log (
+           actor, action, target_ref, created_at, invite_code_id,
+           result_class, recipient_hmac
+         ) VALUES ('system:invite', 'invite_code.create', NULL, ?, ?,
+                   'issued', ?)`,
+      )
+      .run(NOW, revokeId, recipientHmac);
+    const auditId = firstNumber(
+      database,
+      "SELECT id FROM audit_log WHERE action = 'invite_code.create'",
+    );
+    assert.throws(
+      () =>
+        database
+          .prepare(
+            `INSERT INTO audit_log (
+               actor, action, target_ref, created_at, invite_code_id,
+               result_class, recipient_hmac
+             ) VALUES ('admin@example.com', 'invite_code.create',
+                       'raw@example.com', ?, ?, 'issued', 'raw@example.com')`,
+          )
+          .run(NOW, revokeId),
+      /invite_audit_payload_is_unsafe/,
+    );
+    assert.throws(
+      () =>
+        database
+          .prepare("UPDATE audit_log SET result_class = 'changed' WHERE id = ?")
+          .run(auditId),
+      /invite_audit_is_immutable/,
+    );
+  });
+});
+
+test("enforces frozen UNIQUE, CHECK, enum, and foreign-key constraints", async () => {
+  await withTemporaryDatabase((database) => {
+    const { userId } = createBootstrapUser(database);
+
+    assert.throws(() => {
+      database
+        .prepare(
+          `INSERT INTO users (
+            email, password_hash, role, status, invited_by_code_id, created_at, updated_at
+          ) VALUES (?, ?, 'user', 'active', 1, ?, ?)`,
+        )
+        .run("admin@example.com", "another-hash", NOW, NOW);
+    }, /UNIQUE constraint failed/);
+
+    assert.throws(() => {
+      database
+        .prepare(
+          `INSERT INTO invite_codes (
+            code_hash, is_bootstrap, created_by_admin_id, max_uses, used_count,
+            expires_at, created_at, recipient_email
+          ) VALUES (?, 0, ?, 0, 0, ?, ?, ?)`,
+        )
+        .run("C".repeat(43), userId, LATER, NOW, "max@example.com");
+    }, /invite_code_prebound_single_use_required/);
+
+    assert.throws(() => {
+      database
+        .prepare(
+          `INSERT INTO invite_codes (
+            code_hash, is_bootstrap, created_by_admin_id, max_uses, used_count,
+            expires_at, created_at, recipient_email
+          ) VALUES (?, 0, ?, 1, -1, ?, ?, ?)`,
+        )
+        .run("D".repeat(43), userId, LATER, NOW, "used@example.com");
+    }, /invite_code_prebound_single_use_required/);
+
+    assert.throws(() => {
+      database
+        .prepare(
+          "INSERT INTO session_families (id, user_id, created_at) VALUES (?, ?, ?)",
+        )
+        .run("orphan-family", 999_999, NOW);
+    }, /FOREIGN KEY constraint failed/);
+
+    database
+      .prepare(
+        "INSERT INTO session_families (id, user_id, created_at) VALUES (?, ?, ?)",
+      )
+      .run("family-1", userId, NOW);
+
+    assert.throws(() => {
+      database
+        .prepare(
+          `INSERT INTO sessions (
+            token_hash, hmac_key_version, user_id, session_family_id, audience,
+            created_at, expires_at, last_seen_at
+          ) VALUES (?, 1, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run("session-hash", userId, "family-1", "invalid", NOW, LATER, NOW);
+    }, /CHECK constraint failed/);
+
+    assert.throws(() => {
+      database
+        .prepare(
+          `INSERT INTO invite_code_redemptions (
+            invite_code_id, user_id, redeemed_at, ip_address
+          ) VALUES (?, ?, ?, ?)`,
+        )
+        .run(999_999, userId, NOW, "127.0.0.1");
+    }, /invite_code_redemption_single_use_violation/);
+  });
+});
+
+test("keeps token, OTP, invite, reset, and outbox storage boundaries", async () => {
+  await withTemporaryDatabase((database) => {
+    const users = columnNames(database, "users");
+    const invites = columnNames(database, "invite_codes");
+    const sessions = columnNames(database, "sessions");
+    const pending = columnNames(database, "pending_registrations");
+    const resets = columnNames(database, "password_reset_tokens");
+    const states = columnNames(database, "sso_states");
+    const codes = columnNames(database, "sso_codes");
+    const outbox = columnNames(database, "mail_outbox");
+    const deliveryItems = columnNames(database, "service_delivery_items");
+    const diagnosisIdempotency = columnNames(
+      database,
+      "diagnosis_request_idempotency",
+    );
+
+    assert.ok(users.includes("password_hash"));
+    assert.ok(!users.includes("password"));
+    assert.ok(invites.includes("code_hash"));
+    assert.ok(invites.includes("revoked_at"));
+    assert.ok(invites.includes("recipient_email"));
+    assert.ok(!invites.includes("code"));
+    assert.ok(!invites.includes("disabled_at"));
+    assert.ok(sessions.includes("token_hash"));
+    assert.ok(sessions.includes("hmac_key_version"));
+    assert.ok(!sessions.includes("token"));
+    assert.ok(pending.includes("registration_token_hash"));
+    assert.ok(pending.includes("otp_hash"));
+    assert.ok(!pending.includes("registration_token"));
+    assert.ok(!pending.includes("otp"));
+    assert.ok(!pending.includes("code_hash"));
+    assert.ok(resets.includes("token_hash"));
+    assert.ok(resets.includes("hmac_key_version"));
+    assert.ok(resets.includes("used_at"));
+    assert.ok(resets.includes("superseded_at"));
+    assert.ok(!resets.includes("token"));
+    assert.ok(!resets.includes("consumed_at"));
+    assert.ok(states.includes("state_hash"));
+    assert.ok(states.includes("browser_nonce_hash"));
+    assert.ok(!states.includes("state"));
+    assert.ok(!states.includes("browser_nonce"));
+    assert.ok(codes.includes("code_hash"));
+    assert.ok(!codes.includes("code"));
+    for (const encryptedField of ["nonce", "ciphertext", "tag", "key_version"]) {
+      assert.ok(outbox.includes(encryptedField));
+    }
+    for (const forbiddenField of ["recipient", "payload", "sent_at"]) {
+      assert.ok(!outbox.includes(forbiddenField));
+    }
+    for (const encryptedField of ["nonce", "ciphertext", "tag", "key_version"]) {
+      assert.ok(deliveryItems.includes(encryptedField));
+    }
+    assert.ok(deliveryItems.includes("monitor_target_key"));
+    assert.ok(!deliveryItems.includes("subscription_url"));
+    assert.deepEqual(diagnosisIdempotency, [
+      "idempotency_key",
+      "diagnosis_request_id",
+      "created_at",
+    ]);
+  });
+});
+
+test("rolls back a failing migration without leaving its table or record", async () => {
+  const temporaryDirectory = await mkdtemp(
+    join(tmpdir(), "auth-service-failing-migration-"),
+  );
+  const migrationsDirectory = join(temporaryDirectory, "migrations");
+  const databasePath = join(temporaryDirectory, "auth.sqlite");
+  let database: DatabaseConnection | undefined;
+
+  try {
+    await mkdir(migrationsDirectory);
+    for (const file of MIGRATION_FILES) {
+      const version = Number.parseInt(file.slice(0, 3), 10);
+      const sql =
+        version === 9
+          ? "CREATE TABLE migration_failure_probe (id INTEGER); INVALID SQL;"
+          : `CREATE TABLE migration_step_${version} (id INTEGER);`;
+      await writeFile(join(migrationsDirectory, file), sql, "utf8");
+    }
+
+    assert.throws(
+      () => initializeDatabase(databasePath, migrationsDirectory),
+      /near "INVALID": syntax error/,
+    );
+
+    database = openAndVerifyDatabase(databasePath);
+    assert.deepEqual(
+      (
+        database
+          .prepare("SELECT version FROM schema_migrations ORDER BY version")
+          .all() as Array<{ readonly version: number }>
+      ).map((row) => row.version),
+      [1, 2, 3, 4, 5, 6, 7, 8],
+    );
+    assert.ok(!objectNames(database, "table").includes("migration_failure_probe"));
+    assert.deepEqual(readPragmaState(database), {
+      foreignKeys: 1,
+      journalMode: "wal",
+      busyTimeout: 5_000,
+      synchronous: 1,
+    });
+  } finally {
+    database?.close();
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("a failing Migration 016 is atomic and does not record schema version 16", async () => {
+  const temporaryDirectory = await mkdtemp(
+    join(tmpdir(), "auth-service-failing-migration-016-"),
+  );
+  const migrationsDirectory = join(temporaryDirectory, "migrations");
+  const databasePath = join(temporaryDirectory, "auth.sqlite");
+  const database = openAndVerifyDatabase(databasePath);
+  try {
+    applyMigrationPrefix(database, 15);
+    await mkdir(migrationsDirectory);
+    for (const file of MIGRATION_FILES) {
+      await writeFile(
+        join(migrationsDirectory, file),
+        file.startsWith("016_")
+          ? "CREATE TABLE migration_016_probe (id INTEGER); INVALID SQL;"
+          : "SELECT 1;",
+        "utf8",
+      );
+    }
+    assert.throws(
+      () => runMigrations(database, migrationsDirectory),
+      /near "INVALID": syntax error/,
+    );
+    assert.equal(
+      firstNumber(database, "SELECT MAX(version) FROM schema_migrations"),
+      15,
+    );
+    assert.equal(
+      firstNumber(
+        database,
+        `SELECT COUNT(*) FROM sqlite_master
+         WHERE type = 'table' AND name = 'migration_016_probe'`,
+      ),
+      0,
+    );
+  } finally {
+    database.close();
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("missing, extra, and unknown migration registry states fail closed", async () => {
+  for (const scenario of ["missing", "extra"] as const) {
+    const temporaryDirectory = await mkdtemp(
+      join(tmpdir(), `auth-service-migration-files-${scenario}-`),
+    );
+    const migrationsDirectory = join(temporaryDirectory, "migrations");
+    const database = openAndVerifyDatabase(
+      join(temporaryDirectory, "auth.sqlite"),
+    );
+    try {
+      await mkdir(migrationsDirectory);
+      for (const file of MIGRATION_FILES) {
+        if (scenario === "missing" && file.startsWith("019_")) continue;
+        await writeFile(join(migrationsDirectory, file), "SELECT 1;", "utf8");
+      }
+      if (scenario === "extra") {
+        await writeFile(
+          join(migrationsDirectory, "027_unexpected.sql"),
+          "SELECT 1;",
+          "utf8",
+        );
+      }
+      assert.throws(
+        () => runMigrations(database, migrationsDirectory),
+        /migration files do not match the frozen sequence/,
+      );
+      assert.equal(
+        firstNumber(
+          database,
+          `SELECT COUNT(*) FROM sqlite_master
+           WHERE type = 'table' AND name = 'schema_migrations'`,
+        ),
+        0,
+      );
+    } finally {
+      database.close();
+      await rm(temporaryDirectory, { recursive: true, force: true });
+    }
+  }
+
+  const temporaryDirectory = await mkdtemp(
+    join(tmpdir(), "auth-service-migration-unknown-"),
+  );
+  const database = openAndVerifyDatabase(
+    join(temporaryDirectory, "auth.sqlite"),
+  );
+  try {
+    database.exec(`
+      CREATE TABLE schema_migrations (
+        version INTEGER PRIMARY KEY,
+        applied_at TEXT NOT NULL
+      );
+      INSERT INTO schema_migrations (version, applied_at)
+      VALUES (27, '${NOW}');
+    `);
+    assert.throws(
+      () => runMigrations(database),
+      /database contains unknown migration version 27/,
+    );
+    assert.deepEqual(
+      database.prepare("SELECT version FROM schema_migrations").all(),
+      [{ version: 27 }],
+    );
+  } finally {
+    database.close();
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+});

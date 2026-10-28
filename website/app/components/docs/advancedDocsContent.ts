@@ -1,0 +1,189 @@
+// 既有三篇 Notes 与用户新增稿按正文次序呈现；原始导出不入仓。
+// Node's strip-types test runner needs the extension; Vite resolves the same module during build.
+// @ts-ignore TS5097: the website tsconfig does not enable allowImportingTsExtensions.
+import { ADVANCED_NOTES_EN, type AdvancedNoteText } from "./advancedDocsContentEn.ts";
+
+export type { AdvancedNoteText };
+
+export type AdvancedNote = {
+  readonly id: string;
+  readonly title: string;
+  readonly summary: string;
+  readonly body: string;
+  readonly imageSlots: readonly (readonly string[])[];
+  readonly structured?: boolean;
+  readonly editorNote?: string;
+  /** English title/summary/body; the body mirrors the Chinese one line by line (same image placeholders). */
+  readonly en: AdvancedNoteText;
+};
+
+export const ADVANCED_NOTES: readonly AdvancedNote[] = [
+  {
+    id: "home-ip-quality",
+    en: ADVANCED_NOTES_EN["home-ip-quality"],
+    title: "家宽IP质量检测指南",
+    summary: "查看 IP2Location、Scamalytics、Whoer 与 IPQuality 的检测说明",
+    body: "**家宽IP质量检测指南**\n\nIP2Location平台\n主要检测是否双 ISP（主要看**Region**+**Usage Type**+**AS Usage Type**+**ASN）**\n现在可以看到这个ip是HK的，AS为zouter，类型为(DCH) Data Center/Web Hosting/Transit，显著的机房ip，\n再看右边的**Proxy Data**，可以看到几乎无数据， **Fraud Score**为3，这个是正常的，\nDCH基本都是**Fraud Score**=3，应该是个固定分数。\nip2location的**Proxy Data**基本没什么参考性，灵敏度很低，\n[attachment: MZrnYExMCM.png, 图像附件, 大]\n**\nScamalytics平台\n主要检测是否代理（最好显示都是NO）**\n这个库是专门查垃圾邮件/abuse，低分不一定好，高分基本烂完，特别容易被cf骑脸的。\n一般家宽分数其实不是0，反而是在5~25分左右(用过不下10个家里云和100+家宽ip得出的结论)，\n然后记得拉到下面去看滥用情况，分数低≠没有滥用。\n[attachment: External Blacklists, 图像附件, 大]\n**\nWhoer平台\n主要检测DNS解析（主要看是否与IP地址一致）\n\n[attachment: 1996a180-d2bf-4677-8a66-3fd3835956d5.png, 图像附件, 大]\n\nIPQuality「IP 质量体检脚本」\n检测整体是否为真实家宽与欺诈分高不高。**\n[attachment: Hps://chock. place/22.2578,114. 1657, 15.cn, 图像附件, 大]",
+    imageSlots: [
+      ["/docs/advanced/home-ip-quality/01.png"],
+      ["/docs/advanced/home-ip-quality/02.png"],
+      ["/docs/advanced/home-ip-quality/03.png"],
+      ["/docs/advanced/home-ip-quality/04.png"],
+    ],
+  },
+  {
+    id: "proxy-detection-risk",
+    en: ADVANCED_NOTES_EN["proxy-detection-risk"],
+    title: "简谈代理检测与风控科普",
+    summary: "了解代理检测、IP 信誉与常见风控信号",
+    body: "**简谈代理检测与风控科普**\n很多人之所以接触代理(其实大家更熟知的名词应该是VPN)的最初目的就是为了绕过部分网站的地理位置限制，比如说：claude/gemini会因为你是中国IP而拒绝为你提供服务，金融网站也很因为你的IP而给你风控拒绝提供服务等\n插句话：代理和VPN差别其实挺大的\n* VPN 通常是 **系统级隧道**（把流量封装进虚拟网卡/隧道），对应用透明\n* 代理（HTTP/SOCKS）通常是 **应用层转发**（浏览器/应用显式使用）\n* 二者都可能改变出口 IP，但在 **DNS/WebRTC/分流/IPv6** 等细节上行为差异很大\n本文着重探讨代理而非VPN，除非特别指出，否则就是指代理。\n这非常麻烦，很多人为了跨境电商、数字移民、隐私保护的需求，会考虑使用代理服务，帮助自己绕过简单的地理限制，从而使用相关的服务。\n但，这结束了吗？\n当然没有，使用代理服务后，很多人还是会遇到下面的问题：\n**ChatGPT检测到VPN**\n[attachment: StwOXH22iF.png, 图像附件, 大]\n**Netflix检测到代理**\n[attachment: 抱歉，服务中断, 图像附件, 大]\n这其实是网站通过你的一些行为，检测出你正在使用代理，而不是正常用户，所以对你进行了封锁。\n而我要讲的代理检测，就是站在网站方的角度，告诉你网站到底是怎么进行代理检测的，我们又该如何防护？\n（当然了，网站方的具体检测手段我们是不得而知的，因为这些都会因具体的网站而变化，网站也不会公开它们的检测策略，而且很多检测都是相互关联的，通过算法来进行推断结果的，我们只能从最常见的检测方法入手，告诉大家基本的检测原理和防护方法）\n**记住**：风控看的是**一致性**，不是单一指标。一个指标不匹配可能没事，但多个指标都矛盾就很危险了\n\n**1、IP检测**\n最基础也是最直接的检测方式\n**IP 黑名单/信誉库**\n绝大多数网站最常使用的方式，对于网站方而言也是最方便的方式，直接查看用户的IP到底是不是滥用IP/机房IP，对于绝大多数用户而言，正常情况下IP要么是家宽/商宽/移动，而不会是机房IP，同时有无滥用也是一个很直接的判定手段，所以直接选择一个优质的IP对于减少风控是个非常重要的事情。\n\n商家常用的商业 IP 信誉数据库为[MaxMind](maxmind.com/en/home)、[IP2Location](ip2location.com/)、[ipinfo](ipinfo.io/)、[IPQS](ipqualityscore.com/)。\n* MaxMind是老牌 IP 地理定位和欺诈检测服务商，GeoIP 数据库几乎是行业标准，大量网站默认使用\n* IP2Location正如其名字所言，主要提供IP 地理定位服务，代理检测不太灵敏，常作为 MaxMind 的替代或补充\n* ipinfo则是中小型项目常用的数据库，开发者友好的 IP 信息 API，提供 ASN、公司、隐私检测等数据\n* IPQS专注于欺诈检测和风险评分，对代理/VPN/机器人检测特别激进，金融和电商风控首选\nMaxMind 和 IPQS 是目前最常见的商业 IP 情报数据库，也是很多网站、风控系统和欺诈检测平台的重要数据来源。——前者几乎无处不在，后者对代理检测最严格。如果你的 IP 在这两家的数据库里被标记为”数据中心”或”高风险”，大概率会被各种网站风控。\n\n（对于个人用户而言，MaxMind的数据库你大概是没办法知道结果了，因为这个库付费才能用(动辄300刀以上的价格，人家根本不在乎散户，专注商业)，而IP2Location是最常用于判定是否为家宽的方法，ipinfo的参考性也不错，IPQS个人用户可以随便查，不过这个库误报率较高，过于激进，只要有一点苗头就会被标记，主打一个宁可错杀1000也不放过1个。另外须知：ISP不等于家宽，很多“看起来像ISP”的网段也可能被风控标成“商业宽带/托管/滥用高发”甚至干脆其实就是机房。）\n\n示范一下最常用的两个方法：\n**IP2Location检查IP地址类型**\n打开[IP2Location](ip2location.com/demo)，你会看到这个页面\n￼\n左侧是基础信息，右侧是代理数据，左侧关注**Usage Type**和 **Category**即可，此图中就是(DCH) Data Center/Web Hosting/Transit和(IAB19-11) Data Centers，即为明确的机房；右侧的话一般无数据(因为IP2这个库确实比较迟钝，不怎么关注代理数据，如果有数据那就要警惕了，连IP2都给你标注了，这个代理真的很明显了)，大部分机房就是默认这个样子\n\n家宽的话一般就会显示\n￼\n明确的(ISP) Fixed Line ISP和(IAB19-18) Internet Technology，以及下方你也可以看到**AS Usage Type**为(ISP) Fixed Line ISP，如果你是移动5G数据这类用户还会看到 MOB等类型。\n\n**IPQS查看滥用情况**\n打开[IPQS](ipqualityscore.com/user/search)即可看到大量我们需要参考的数据\n￼\n左侧可以选择严格程度，一般这个**Strictness Level**就是默认即可，当然你也可以看看历史情况；右侧你可以看到很多值，这个是标准家宽的情况，如果你是机房的话，那就是这样\n￼\n这两个方法的筛选很齐全了，一个看IP类型，一个看滥用，这两个库能过其他库不会差的，当然，这两个库表现较差不等于其他库差，这两个库算是最严格的库了，表现差不等于不可用，毕竟网站到底用没用这两个库也不一定，可能用的其他库而你在其他库表现良好。\n其他诸如Scamalytics/AbuseIPDB/Shodan/IPHub/DB-IP/IPRegistry/Proxycheck.io/Spur.us/iphub.info/BigDataCloud等也是不错的专业库，不一一介绍了\n\n\n**反例**：我为什么不用国人数据库？\n首先，国人数据库根本没有国外网站使用，它的准确度和你擦屁股的手纸没什么区别，而且，这玩意准确度更是逆天\n随便拿一个住宅双ISP的IP，它的测试IP为38.34.14.1，来看看国人数据库的数据\n￼\n￼\n￼\n很多人看到国内检测平台全部显示”住宅”，就认为这个 IP 一定没有风险。\n****\n我们来看看国外库（检测平台）\n￼\n￼\n￼\n￼\n然而结果恰恰相反。****\n更多关于这方面，你可以查看家宽IP质量检测指南来看看更深入关于IP的事情。\n\n\n**2、IP 地理位置一致性**\n（你不会以为选择了一个完美的IP就好了吧？这才刚刚开始）\n**1.浏览器时区 vs IP 归属时区\n原理**：网站可以通过浏览器端获取你的系统时区，同时，网站通过你的 IP 地址查询地理位置，得到该 IP 所属的时区，二者直接对比是否一致即可\n**矛盾场景**\n**￼\n检测手段：**你可以查看[ipleak](ipleak.net/)和[browserleaks](browserleaks.com/)的检测结果。\n￼\n**防护手段**：\n很简单，在自己的操作系统上改成与你 IP 对应的时区或者使用浏览器更改时区插件，或者干脆使用指纹浏览器，指纹浏览器会直接设置IP对应时区，这都能很好的防护。\n￼\n**2.浏览器语言 vs IP 所在国家**\n\n**原理**：浏览器会向网站发送你的语言偏好，给你返回合适的语言，比如你是美国人，当然希望网站给你返回英文页面\n**矛盾场景**\n￼\n**2.浏览器语言 vs IP 所在国家\n原理**：浏览器会向网站发送你的语言偏好，给你返回合适的语言，比如你是美国人，当然希望网站给你返回英文页面\n**矛盾场景**\n￼\n**但要注意**：这个检测有一定的容错空间，因为：\n* 国外有大量华人/留学生，用中文浏览器不奇怪\n* 很多人会设置多语言\n所以单独语言不匹配不一定触发风控，所以往往会作为一个**加权信号**。\n**检测手段：**\n你可以查看[browserleaks](browserleaks.com/)来简要查看结果\n* 未伪装的\n￼\n* 伪装后的\n￼\n**防护方法**\n浏览器修改首选语言即可，如果是指纹浏览器直接配置语言列表也很方便。\n￼\n**3.系统区域设置的矛盾\n原理：除了时区和语言，还有一些更隐蔽的系统级信息可以被 JavaScript 读取，例如日期格式习惯**(“zh-CN”)、**数字格式**(千分位、小数点)、**货币格式偏好**(US$/￥)、**键盘布局**(中国用户通常是 QWERTY + 中文输入法)、**系统字体**(中文系统有宋体、微软雅黑；美国系统没有)、**默认搜索引擎**(中国用户可能用百度、夸克)、**剪贴板内容语言**(粘贴的是中文还是英文)等等诸如此类。\n**矛盾场景**\n你挂了美国代理，但是：\n* 系统字体列表里有”微软雅黑\"\"宋体”\n* 日期格式是 “2025年1月20日” 而不是 “1/20/2025”\n* 键盘布局检测到中文输入法\n这些细节组合起来，就很容易暴露你是中国用户。\n**防护方法：**这类检测非常隐蔽，几乎不可能躲过，除非你愿意真的使用英文版操作系统，用便利去换隐蔽，如果不是的话，一定会有暴露的痕迹的，符合你个人需求方便便利的一定会暴露你的地区信息，这个很难躲过的。\n（安全还是便利？这是个问题）\n\n\n**WebRTC \n泄露**WebRTC 泄露是代理用户最容易忽视、也是最致命的隐私漏洞之一。很多人一键配置了代理，IP 检测网站显示一切正常，却不知道自己的真实 IP 早已通过 WebRTC 暴露给了网站。\n**1 、什么是 WebRTC\nWebRTC(Web Real-Time Communication)** 是一套浏览器内置的实时通信技术，让网页可以直接进行音视频通话、屏幕共享、文件传输，而不需要安装任何插件。日常使用的很多服务都依赖它：Google Meet、Zoom 网页版、Discord 语音、微信网页版视频通话等等。**\n为什么它会暴露真实 IP？**\nWebRTC 的设计目标是建立**点对点（P2P）连接**。为了让两个用户能直接通信（而不是所有数据都经过服务器中转），浏览器需要知道”我在网络中的真实位置”——也就是你的 IP 地址。\n关键问题在于：**WebRTC 获取 IP 的过程发生在操作系统的网络层，而不是浏览器的代理层**。\n**正常用户访问网站**\n￼\n￼\n￼\n红色路径是WebRTC启动时的流量路径，蓝色是普通网页应用的流量路径(上图)。当你代理配置不当时，就会出现这种红色路径情况，这种红色路径向STUN发起请求时(下图)，压根没经过你的代理。\nWebRTC 的 ICE 收集会通过浏览器发起 STUN 交互（UDP 为主），而**很多代理配置只代理 HTTP(S)** 或只覆盖部分出站路径，导致 STUN UDP 直连。\n此时网页实际上获取了你的真实IP，而且这个步骤并不复杂(只需要几行代码就可以启动这个检测)，大量网站都开启了这个检测，实际上，你的真实IP一览无余。\n￼\n**2.2 STUN 服务器与 ICE Candidate\nSTUN 服务器是什么**\nSTUN(Session Traversal Utilities for NAT)服务器的作用很简单：**看看我的IP是啥？**。\n大多数用户都在 NAT（网络地址转换）后面，比如家里的路由器。你的电脑可能是 192.168.1.100（内网 IP），但外界看到的是路由器的公网 IP。STUN 服务器就是帮你发现这个公网 IP 的。\n常见的公共 STUN 服务器：\n* [stun.l.google.com:19302](stun.l.google.com:19302)（Google）\n* [stun.cloudflare.com:3478](stun.cloudflare.com:3478)（Cloudflare）\n* [stun.services.mozilla.com:3478](stun.services.mozilla.com:3478)（Mozilla）\n如上图，浏览器可以向公共STUN服务器发起请求，询问STUN服务：我的ip是啥？STUN服务器就会返回它所能看到的IP地址。\n**ICE Candidate 收集过程**\n当网页使用 WebRTC 时，浏览器会收集所有可能的连接方式，这些叫做 **ICE Candidate**(候选地址)。\n收集过程大致如下：\n* 收集本地地址：192.168.1.100(内网 IP)\n* 向 STUN 服务器查询\n* 如果则询问有TURN 服务器\n问题就出在第二步上：浏览器向 STUN 服务器发送 UDP 请求时，这个请求不走浏览器的 HTTP 代理设置，而是**直接通过系统socket 在传输层发起**发出，这个时候就会暴露你的真实IP。\n**2.3 防护建议**\n上面的流量图其实已经可以看出来怎么防止WebRTC检测了\n**1.利用插件要求WebRTC强制走代理流量**\n￼\n下载google扩展 WebRTC Leak Prevent，选择Disable non-proxied UDP (force proxy)即可，这会强制所有 WebRTC 流量通过代理，可以防止真实 IP 泄露。\n￼\n然后，这么做是有代价的：\n* 可能导致各种需要webRTC的应用异常或性能下降，如各种视频通话/Google Meet/Zoom/Discord等\n* 部分在线游戏和云游戏卡顿异常\n* 文件传输服务卡顿异常\n**开启后效果**\n￼\n哎，不是说WebRTC被设置成了走代理吗？是因为我的分流没设置好吗？我就开个全局吧\n￼\n为什么启用插件后 WebRTC 检测不到任何 IP？\n上面我们提到了，你的电脑向STUN服务器询问IP时是调用网络层来发起请求的，但是代理软件工作在应用层，无论你怎么设置分流，都无法控制网络层的事情，电脑此时直接调用网络层来发起请求，而上面我们设置 Disable non-proxied UDP 后，这个选项本质上是：**宁可让 WebRTC 不工作，也不要让它用直连 UDP 把真实地址暴露出去**。所以检测页会出现“拿不到任何 WebRTC IP”。这个时候实时视频等功能完全无法使用，这个方法最绝对，可以绝对防止WebRTC泄露，代价是部分应用无法使用。\n\n**2.系统代理全部UDP/TCP流量**\n￼\n这个方案就简单了，而且也是最常用的方式：不单独处理webrtc的问题，直接让整个电脑所有流量都走代理，也就是我们的**TUN模式**。\n什么是 TUN 模式？\nTUN 是一种虚拟网络设备，工作在网络层(Layer 3)，当你的代理软件开启 TUN 模式时，它会：\n* 创建一个虚拟网卡（比如 utun0 或 tun0）\n* 接管系统的所有网络流量(包括 TCP 和 UDP)\n* 在操作系统网络栈层面就把流量导向代理\n* 系统级代理，所有软件自动走代理(再按分流规则分流)\n注意，这需要：\n* 管理员/root 权限(所以系统可能会问你是否以管理员权限运行这个程序)\n* 可能与某些 VPN 冲突\n* 部分杀毒软件会拦截虚拟网卡创建\n一句话：TUN 更像是“系统级接管”，它通过虚拟网卡把系统的出站流量（包括 TCP/UDP）统一纳入同一套转发/规则体系。这样 WebRTC 的 UDP 出站就不容易绕过代理路径，从而降低泄露概率。\n **开启后效果**\n￼\nIPV4的WebRTC泄露就彻底解决了，但你会发现：我的IPV6怎么还在泄露？\n这个其实是因为很多代理软件默认只处理 IPv4，根本就不会去动IPV6的路由表，而且很多代理不支持 IPv6，更关键的是：大多数时候系统压根就不用stun，因为IPV6直接就写在设备网卡上了，无需询问stun”我的IP是多少”而是直接一看网卡，就知道IPV6是啥，直接就发送了，不需要向任何外部服务器查询，自然也无所谓什么代理。\n想要防护很简单，只要开启这个设置使用默认网络接口，这个选项主要是在浏览器层面减少/限制 WebRTC 暴露的候选地址来源（例如不暴露非默认接口、减少本地地址候选），从而降低泄露概率。\n￼\n这个方案同样会降低性能，无可避免的影响体验。\n有没有既要隐私又要性能的方案：没有的，兄弟，没有的，因为你要知道，网站想要和你建立最佳的沟通，只能通过UDP二者直连，任何其他方案都会增加延时，而二者直连的，网站是一定要知道你的IP的，这二者根本无法调和。\n隐私和实时性通常要做取舍：P2P/直连 UDP 延迟最低，但最容易暴露网络信息；走中继/隧道更隐私，但延迟和稳定性可能变差。最佳实践往往是“按用途分开”：需要实时通话的场景放宽限制，日常浏览则优先隐私。\n\n**3.DNS 泄露**\nDNS 泄露是一个经常被忽视、但非常致命的隐私漏洞。很多人以为配置好代理、IP 检测通过就万事大吉了，却不知道自己的 DNS 查询请求正在”告密”——直接暴露你的真实位置、ISP 信息，甚至浏览记录\n**3.1 什么是 DNS 泄露**\nDNS(Domain Name System，域名系统)就像互联网的”电话簿”。当你在浏览器输入 114514.homo 时，电脑需要把这个域名翻译成 IP 地址（比如 114.51.4.191）才能真正访问网站。这个翻译过程就是 **DNS 查询**。\n什么是 DNS 泄露？\n**DNS 泄露**指的是：你明明挂着代理，浏览器流量走的是代理 IP，但 DNS 查询请求却**绕过代理**，直接发送到你的本地 ISP 的 DNS 服务器。\n**无代理正常访问流程**\n￼\n用户的DNS请求发送到ISP的DNS服务器(比如中国电信的DNS)，DNS服务器返回域名对应的IP地址，用户通过这个IP访问网站。这很正常，因为你本来就是中国电信的用户。\n**使用代理但DNS没有泄露的情况**\n￼\n**使用代理但DNS泄露的情况**\n￼\n看起来你在使用美国的代理，网站看到的IP是美国的，但是：\n* 你的DNS请求仍然发送到中国电信的DNS服务器\n* 网站可以通过特殊手段检测到你的DNS服务器IP\n* DNS服务器的归属地是中国，但你的出口IP是美国\n**矛盾了！** 网站会想：你明明是美国IP，为什么DNS查询来自中国电信？一眼丁真鉴定为代理。\n\n**3.2 检测原理**\n打开[ipleak](ipleak.net/)来确认自己是否出现DNS泄露，只要出现DNS服务器中出现任何一个中国大陆地区的，那就是发生了DNS泄露。\nDNS泄露检测的核心原理是：让你的浏览器查询一个特殊的域名，然后看看是哪个DNS服务器来查询的。\n**EDNS Client Subnet (ECS)**\n检测通常基于权威 DNS 看到的递归解析器来源；ECS 在部分情况下会进一步暴露客户端子网信息。这是DNS协议的一个扩展，原本是为了优化CDN性能而设计的，但也可以被用来检测DNS泄露。\n**工作流程：**\n1. 网站生成一个唯一的随机子域名，比如：[dnstest1234567890.edns.ip-api.com](dnstest1234567890.edns.ip-api.com)\n2. 你的浏览器尝试访问这个域名\n3. 你的DNS服务器向 [ip-api.com](ip-api.com) 的权威DNS服务器查询这个域名\n4. 权威DNS服务器记录下：**谁来查询的**（你的DNS服务器IP）\n5. 网站通过API获取这个DNS服务器的IP和地理位置信息\n**关键点：**浏览器查询的域名是随机生成的，所以不可能被缓存，必然会触发真实的DNS查询。\n￼\n￼\n**3.3 什么原因会出现DNS泄露？\n代理软件配置不当**：\n大部分HTTP/SOCKS代理默认**只代理应用层流量**，不代理DNS查询。DNS查询发生在更底层，所以会直接从你的本地网络发出。\n\nHTTP请求 → 走代理\nDNS查询  → 不走代理，直接用系统DNS //DNS泄露\n**操作系统DNS缓存**:\nWindows/macOS/Linux都有DNS缓存机制。即使你配置了代理，操作系统可能仍然使用之前缓存的本地ISP DNS服务器。\n**IPv6 DNS泄露**：\n很多代理只处理IPv4流量，但如果你的网络支持IPv6，DNS查询可能通过IPv6直接泄露。\n**3.4 防护手段**\nV2RAYN：无需进行任何防护，V2RAYN会自动配置，大部分情况下不会出现DNS泄露的情况，但默认配置不一定能完全防止泄露\nClash系列：选择合适的分流规则和DNS覆写规则。\n当然我也知道有些人比较暴力，直接进行TUN+全局代理的方式来进行DNS泄露防护，这有点暴力但确实有效，只要你能接受全机流量代理引起的各种小麻烦(国内网站卡顿，微信登录IP变成国外等)…\n\n**4. TCP/IP 协议栈指纹**\n操作系统级别的”身份证”\n** 什么是 TCP/IP 指纹**\nTCP/IP 指纹是一种通过分析网络数据包中的协议栈特征来识别操作系统的技术。就像每个人的指纹都是独一无二的，不同操作系统在实现 TCP/IP 协议时，会在数据包头部字段中留下独特的”指纹”。\n￼\n￼\n**核心原理：**\n每个操作系统在处理 TCP/IP 连接时，会在数据包头部设置不同的默认值，包括但不限于：\n* **TTL（生存时间）**：Windows 通常为 128，Linux 为 64，macOS 为 64\n* **窗口大小（Window Size）**：不同 OS 的初始 TCP 窗口大小各异\n* **TCP 选项字段**：如 MSS、SACK、时间戳等的排列顺序和值\n* **DF 标志位**：Don’t Fragment 标志的设置策略\n* **IP 头部的 ID 字段**：递增方式不同\n这些细微差异在正常网络通信中不影响功能，但可以作为识别操作系统的依据。\n当你使用代理时，浏览器声称的操作系统（通过 User-Agent）可能是 Windows 10，但实际发出 TCP 数据包的却是代理服务器的 Linux 系统。这种不一致性会暴露代理的存在。\n\n\n**4.2 检测逻辑**\n网站方会获取两个信息\n**信息1：UA 声称(可控)**\n浏览器中的UA 声称信息，这个可以由用户设置，比如指纹浏览器中就可以设置\n￼\n比如如果我设置为Mac OS，进入检测页面就会是这样\nUser-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \n            AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36\n￼\nUA声称是你的浏览器告诉网站方的，你可以随意修改，想要什么就是什么。\n**信息2：指纹推断(难以伪装)**\n这是通过分析 TCP 数据包推断出的系统，**只和你的出口节点机器有关**。\n* **内核级别**的泄露\n* 与用户客户端配置**无关**\n* 理论上可以调节出口机器的系统指纹，但需要：\n    * 修改内核参数（需要 root 权限）\n    * 专业的网络知识\n    * 操作不当可能影响网络连接\n当网站方获取了你的这两个信息后，简单对比即可，如果你没有使用代理，那么二者推断应当是一致的。\n**4.3 防护建议**\n无需防护，不是因为OS指纹识别不准，而是因为防护代价太高了，完全不在日常使用的防护手段内。即使p0f、Nmap 等工具的 OS 指纹识别准确率相当高，但在网页风控场景中确实较少直接使用（因为需要原始数据包访问权限）。",
+    imageSlots: [
+      ["/docs/advanced/proxy-detection-risk/01.png"],
+      ["/docs/advanced/proxy-detection-risk/02.png"],
+      ["/docs/advanced/proxy-detection-risk/03.png"],
+      ["/docs/advanced/proxy-detection-risk/04.png"],
+      ["/docs/advanced/proxy-detection-risk/05.png"],
+      ["/docs/advanced/proxy-detection-risk/06.png"],
+      ["/docs/advanced/proxy-detection-risk/07.png"],
+      ["/docs/advanced/proxy-detection-risk/08.png"],
+      ["/docs/advanced/proxy-detection-risk/09.png"],
+      ["/docs/advanced/proxy-detection-risk/10.png"],
+      ["/docs/advanced/proxy-detection-risk/11.png"],
+      ["/docs/advanced/proxy-detection-risk/12.png"],
+      ["/docs/advanced/proxy-detection-risk/13.png"],
+      ["/docs/advanced/proxy-detection-risk/14.png"],
+      ["/docs/advanced/proxy-detection-risk/15.png"],
+      ["/docs/advanced/proxy-detection-risk/16.png"],
+      ["/docs/advanced/proxy-detection-risk/17.png"],
+      ["/docs/advanced/proxy-detection-risk/18.png", "/docs/advanced/proxy-detection-risk/14.png"],
+      ["/docs/advanced/proxy-detection-risk/19.png"],
+      ["/docs/advanced/proxy-detection-risk/20.png"],
+      ["/docs/advanced/proxy-detection-risk/21.png"],
+      ["/docs/advanced/proxy-detection-risk/22.png"],
+      ["/docs/advanced/proxy-detection-risk/23.png"],
+      ["/docs/advanced/proxy-detection-risk/24.png"],
+      ["/docs/advanced/proxy-detection-risk/25.png"],
+      ["/docs/advanced/proxy-detection-risk/26.png"],
+      ["/docs/advanced/proxy-detection-risk/27.png"],
+      ["/docs/advanced/proxy-detection-risk/28.png"],
+      ["/docs/advanced/proxy-detection-risk/29.png"],
+      ["/docs/advanced/proxy-detection-risk/30.png"],
+      ["/docs/advanced/proxy-detection-risk/31.png"],
+      ["/docs/advanced/proxy-detection-risk/32.png"],
+      ["/docs/advanced/proxy-detection-risk/33.png"],
+      ["/docs/advanced/proxy-detection-risk/34.png"],
+      ["/docs/advanced/proxy-detection-risk/35.png"],
+      ["/docs/advanced/proxy-detection-risk/36.png"],
+      ["/docs/advanced/proxy-detection-risk/37.png"],
+      ["/docs/advanced/proxy-detection-risk/38.png"],
+      ["/docs/advanced/proxy-detection-risk/39.png"],
+      ["/docs/advanced/proxy-detection-risk/40.png"],
+      ["/docs/advanced/proxy-detection-risk/41.png"],
+    ],
+  },
+  {
+    id: "network-lines-overview",
+    en: ADVANCED_NOTES_EN["network-lines-overview"],
+    title: "常见各种线路和网络的科普",
+    summary: "了解线路指标和三网网络的差异",
+    body: "**常见各种线路和网络的科普\n网络线路是什么？**\n简单来说,网络线路就是你的数据从本地电脑到远程服务器所经过的”道路”。\n你的数据包就会顺着网络线路一路来到你的远程服务器，然后经过服务器处理再发回给你。\n可以粗略的看为\n****\n你设备发送->本地网络->国内线路->国际线路->你的远程服务器->访问各大平台与网站\n你设备接收<-本地网络<-国内线路<-国际线路<-你的远程服务器<-访问各大平台与网站\n\n数据包在这些节点流动的快慢，就可以理解为网络质量。****\n数据包在互联网上传输时,需要经过多个网络节点(路由器)的转发,每一跳都可能影响最终的网络质量。\n线路质量主要体现在以下几个方面：****\n* **延迟(Ping)**: 数据往返所需的时间（真实使用要看TCP延迟）\n* **带宽**: 单位时间内能传输的数据量\n* **丢包率**: 数据包丢失的比例\n* **稳定性**: 网络质量的波动程度\n这几个指标可以大致的反馈出一个网络链路的质量。\n**\n线路对使用体验的影响**\n* 延时主要影响打开网页的速度，也就是我们平时说的秒开网页不转圈。\n* 带宽主要影响传输数据的速度，也就是我们说的上下行速度，比如speedtest/youtube的connection speed指标。\n* 前面两者都是建立在不丢包的前提下，当丢包率比较高时，打开网页就会转圈/测试速度也会很低，很多时候还会引起断流。\n* 稳定性一般就是指晚高峰速率，晚高峰大家都在看视频刷手机，网络链路变得拥挤，大家的速度就会下降，有的网络线路白天闲时随便跑1000Mbps，而晚高峰只有个位数的速度，而有的线路可以做到全天24小时1000Mbps，这就是稳定性的区别。\n**\n\n\n\n1、中国三大运营商线路\n\n电信线路（163/CN2 GT/CN2 GIA）**\n* [AS4134](x-apple-data-detectors://embedded-result/717)：国内骨干网，俗称4134或163骨干网，ip常以202.97开头. 定位于承载普通质量的互联网业务, 基建早, 带宽大, 便宜，多次扩容后拥挤情况有改善，绝大部分普通家宽的出境路线。\n* [AS4809](x-apple-data-detectors://embedded-result/816)：国内精品网，俗称CN2，ip常以59.43开头. CN2 相比较 163 网络, 带宽小, 稳定高速。\n* AS23764：境外网，俗称CTGNet，用于面向企业客户提供定制化的国际互联网专线接入服务。\n（CN2实际上分为CN2GT和CN2GIA两种。CN2GT又称半程CN2，Global Transit，因为其国内走163骨干网，跨境和163挤在一个段里(那我要你有何用)，国外和CN2一样；CN2GIA是全程CN2，跨境段不用和163挤在一起，拥有自己的带宽，国内国外都走CN2网络）\n（亚太还有个比较流行的163pp，俗称高q163，其实就是拥有跨境段高qos保障的163，相当于单独购买了带宽的163骨干网，大部分163跨境都是共享的，导致晚高峰互相抢带宽，卡的半死，高q163贵的夸张…）\n\n**联通线路（4837/9929）**\n* [AS4837](x-apple-data-detectors://embedded-result/1189)：国内骨干网，俗称4837或联通169网络，IP以219.158开头，相当于电信中的163骨干网，大部分联通家宽的线路 。\n* [AS9929](x-apple-data-detectors://embedded-result/1257)：国内老骨干网，俗称A网或者9929或者CUII，定位类似于电信中的CN2，实际上这玩意和优化度很高的CN2没得比，这只是使用人数很少的普通网络，承载力和质量远远不如CN2，而且9929的口子普遍不大。\n* AS10099：境外网，俗称联通国际CUG，提供至大陆方向的差异化接入。\n线路组合有以下几种：\n* 内地 [AS4837](x-apple-data-detectors://embedded-result/1416) + 境外 [AS4837](x-apple-data-detectors://embedded-result/1428)：最普通、最常见的联通 169 网络\n* 内地 [AS4837](x-apple-data-detectors://embedded-result/1456) + 境外 AS10099：联通的优化线路。\n* 内地 [AS9929](x-apple-data-detectors://embedded-result/1488) + 境外 AS10099：联通高端线线路。\n\n**移动线路（CMI/CMIN2）**\n* [AS9808](x-apple-data-detectors://embedded-result/1534)：国内网，俗称CMNET，对标电信普通网。\n* AS58453：境外网，俗称CMI，最常见的网段，负载均衡做的极其差劲，而且由于带宽被灌满，而且万物走香港出口，骨干疯狂丢包。\n* AS58807：境外网，俗称CMI N2，移动精品网。\n* [AS3356](x-apple-data-detectors://embedded-result/1654)：Tier1，俗称lumen，实际上，lumen并不是移动管辖的网络，但是lumen-cmi的传输方式让移动用户用起来相当舒服，lumen也成了实际上更受欢迎的移动快乐机器，大家看到lumen都知道移动基本快乐，所以把lumen并入移动线路。~~个人分类纯属娱乐，这种传输方式哪天就被移动干爆~~\n（你可以发现，移动的国内网都是一样的，只有跨境段和境外段才区分CMI还是CMIN2，也就是说，移动用户哪怕用的是CMIN2，国内段也照样和CMI的用户一起挤，这也导致移动的晚高峰qos格外严重）\n\n**三网对比**\n综合的说，就是CN2GIA≈CN2CTG>9929≈CMIN2>CN2GT>4837≈163≈CMI\n电信用户：CN2GIA≈CN2CTG>CN2GT>163\n联通用户：9929>4837\n移动用户：CMIN2>CMI",
+    imageSlots: [
+    ],
+  },
+  {
+    id: "claude-gpt-account-advice",
+    en: ADVANCED_NOTES_EN["claude-gpt-account-advice"],
+    title: "Claude封号与GPT降智的问题",
+    summary: "个人经验与建议，不代表平台官方规则或效果保证",
+    body: `长期使用 Claude、ChatGPT 及相关工具，建议从账号、付款、网络、设备和任务设置几个方面做好检查。
+
+1.帐号注册：Gmail、Outlook、ProtonMail、拥有企业域名的自定义邮箱或苹果ID注册帐号。
+2.付款方式：优先选择官网订阅或者礼品卡兑换，其次App Store和Google Play订阅。
+3.身份与手机号验证：KYC认证，并使用正规实体运营商 SIM 卡接码。
+4.网络环境：使用干净的真住宅家宽IP（更像真实本地人，详细查看“[家宽IP质量检测指南](article:home-ip-quality)”)
+5.设备防泄漏：地区与时间/本地IPv4/IPv6/DNS/WebRTC泄漏（保持长期固定运营商/IP地区/设备登陆帐号。）
+另外在终端后台与操作系统层面配置应用防火墙或网络过滤规则，限制客户端的非必要后台探测与遥测（Telemetry）行为；
+阻断未经授权的 TCP 旁路上报连接，防止本地真实局域网 IP、硬件特征及设备环境数据被静默收集与回传。
+被封的帐号的设备请重装系统或者重新换设备。（详细查看“[简谈代理检测与风控科普](article:proxy-detection-risk)”）
+6.请勿使用共享GPT/Claude帐号，不能保证使用共同一致IP与设备泄漏。
+7.新号使用，需要过渡，不要一上来就把额度干完。需要循序渐进。
+8.若想要再谨慎点可以使用指纹浏览器登陆使用。（如AdsPower等。）
+
+如需专业指导与配置服务，可[提交诊断申请](/diagnosis)。（人工技术服务费另行收取。）`,
+    imageSlots: [],
+  },
+  {
+    id: "tk-fb-environment-guide",
+    en: ADVANCED_NOTES_EN["tk-fb-environment-guide"],
+    title: "TK、FB等的底层环境搭建与指南",
+    summary: "不同设备和客户端版本的设置可能不同，请以实际界面与测试结果为准。",
+    structured: true,
+    body: `布局 TikTok、Facebook、Instagram 等海外社交媒体时，新号开通受限、主页进沙盒或新发视频持续 0 播放，大部分非内容性质的异常，本质均源于设备物理环境、网络出口画像、防泄漏策略与客户端行为模式之间的断层。
+
+建立长期稳定的出海运营环境，核心在于将“硬件隔离”、“网络拓扑”、“工具防漏”、“出站控制”与“起号节奏”做成闭环。完整配置标准与排查流程如下：
+
+一、 硬件设备隔离与系统初始化
+
+⚬ 专机物理隔离：准备专用备用机（推荐 iPhone 或原生 Android），与日常国内通讯、生活类 App 彻底物理隔离，严禁同一台设备交叉登录境内外应用。
+⚬ 硬件级拔卡与清零：
+  ⚬ 拔出国内 SIM 卡：拔除国内运营商 SIM 卡（若需要接码验证，仅插入合规的海外正规实体 SIM 卡）。
+  ⚬ 抹掉所有内容与设置：彻底恢复出厂设置，抹除底层残留的硬件标识符、缓存指纹与历史设备痕迹。
+  ⚬ 关闭定位与隐私追踪：停用系统定位服务（Location Services），关闭个性化广告追踪与跨应用跟踪。
+  ⚬ 底层参数对齐：系统语言、地区（Region）、系统时区、键盘首选输入法全部调整为目标运营国（例如运营美区，系统语言设为 English (US)，时区匹配目标城市，关闭“自动设置时区”）。
+
+二、 网络画像与出口拓扑稳定性
+
+⚬ IP 属性与纯净度核实：优先选用 ASN 类型为真实住宅宽带（ISP / Residential）的静态出口，坚决规避公网黑名单频发、易被判定为机房流量的广播 IP（Data Center）。
+⚬ 抑制高频跳变：长期运营应保持相对固定的出口城市与网络服务商，严禁短时间内跨大区、跨国家频繁切换节点；更换网络环境或更新节点后，必须先行验证出口状态再开启平台 App。
+
+三、 小火箭（Shadowrocket）防泄漏核心配置
+
+在专机上使用小火箭，核心目标是强制全量流量走代理、阻断协议级数据泄露，并防止意外断线导致本地真实网络裸连暴露：
+
+1. 全局路由模式：
+  ⚬ 打开主界面，点击顶部“全局路由”，选择 “代理”模式。
+  ⚬ 原因：专机已无国内流量需求，开启全局代理可避免规则集未及时更新导致部分社媒 CDN 走本地直连。
+2. 彻底阻断 IPv6 泄漏：
+  ⚬ 进入 设置 -> 延迟测试方法 / TCP，找到 IPv6。
+  ⚬ 操作：彻底关闭 IPv6 开关。
+  ⚬ 原因：国内蜂窝网络和宽带普遍下发公网 IPv6，若未严格接管阻断，App 访问边缘节点时会直接暴露真实国内公网 IPv6。
+3. DNS 远程解析与防污染：
+  ⚬ 进入 设置 -> DNS。
+  ⚬ 开启 DoH/DoT：填入受信任的公共 DNS（如 [https://1.1.1.1/dns-query](https://1.1.1.1/dns-query) 或 [https://8.8.8.8/dns-query](https://8.8.8.8/dns-query)）。
+  ⚬ 开启远程解析：确保勾选“通过代理服务器解析域名”，强制域名解析由远端代理节点发起，杜绝本地系统向国内运营商 DNS 查询目标平台域名。
+4. 开启按需连接（On Demand / 熔断保护）：
+  ⚬ 进入 设置 -> 按需连接。
+  ⚬ 操作：打开总开关，网络类型同时勾选“蜂窝网络”与“Wi-Fi”。
+  ⚬ 原因：充当移动端的 Kill-Switch 保护机制。一旦代理连接异常中断，系统自动切断网络访问，防止 App 在后台静默走真实网络裸连上报。
+5. 协议高级参数检查：
+  ⚬ 开启 UDP 转发：确保节点配置中启用了 UDP 转发（保障直播推流、连麦及音视频实时通话正常）。
+  ⚬ 严禁开启 HTTPS 解密（MitM）：日常运营严禁开启 MitM 抓包证书。主流社媒 App 普遍内置严格的 SSL Pinning 机制，解密伪造证书会导致 App 直接报错、断网或触发安全风控告警。
+
+四、 终端出站控制与数据防探测
+
+⚬ 出站遥测与本地数据阻断：在终端后台与操作系统层面配置应用防火墙或流量过滤规则，限制客户端非必要的后台硬件探测与遥测（Telemetry）行为。
+⚬ 切断旁路上报链路：阻断未经授权的 TCP 旁路上报连接，防止本地真实局域网 IP、Wi-Fi BSSID 广播信息及底层硬件特征被应用静默收集并回传至平台服务器。
+
+五、 落地验证闭环（打开 App 前必检）
+
+配置完成后，开启代理连接，在系统自带 Safari 浏览器中依次回溯检测：
+
+⚬ IP 归属与 ASN 类型：访问 ipinfo.io 或 whoer.net，确认公网 IP 处于目标国，类型显示为 ISP 且伪装度达到规范要求。
+⚬ DNS 泄漏测试：访问 dnsleaktest.com 运行 Extended Test，检测到的所有 DNS 节点严禁出现国内三大运营商（China Telecom/Unicom/Mobile）。
+⚬ IPv6 穿透测试：访问 test-ipv6.com，确认未检测到 IPv6 地址，或显示的 IPv6 属地与代理出口完全一致。
+
+六、 账号资产与长期控制权
+
+⚬ 邮箱信誉体系：优先选用长期自持、收发信誉稳定的原生邮箱服务（如 Gmail、Outlook、Proton Mail 或维护合规的企业域名邮箱）；苹果设备可采用美区独立 Apple ID 授权注册。严禁使用批量接码的临时邮箱或采购现成批量成品号。
+⚬ 手机验证控制权：平台要求手机验证时，重点在于合规的归属地区与长期的独立控制权。优先选用海外实体 SIM 卡漫游或可长期续费的合规号码，杜绝公共平台接码及一次性虚拟 VoIP 号。
+
+七、 新号冷启动与交互过渡纪律
+
+⚬ 避免机械化高频操作：新账号开通首日切忌批量修改资料、频繁更换头像或连续密集发布视频。
+⚬ 自然用户画像沉淀：初期按正常用户习惯搜索目标垂类关键词，完整观看同赛道优质内容并产生适度自然互动，让算法建立基础标签。
+⚬ 梯级发布与 0 播排障：初期保持每天 1-2 条的稳定测试节奏。出现 0 播放时，先使用系统“分享”功能检查视频在外部链路中是否处于审核中或受限状态，严禁在未排查环境前盲目删视频、频繁重装应用或反复更换设备。
+
+底层环境与网络防漏是出海业务的基础设施。只有确保底层链路无穿透、数据画像真实合规，上层的内容运营与流量转化才能持续沉淀。`,
+    imageSlots: [],
+  },
+];
