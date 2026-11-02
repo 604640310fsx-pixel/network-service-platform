@@ -16,11 +16,15 @@ export type NetworkTypeOption = {
   // 不需要选规格的网络类型（requiresSpec: false）本身只有单一档位，
   // 摘要面板用这个标签代替生硬的"不适用"，说明这一档实际是什么。
   specLabel?: string;
+  // 每个地区只有唯一一个"运营商"项（纯净原生独享 IP 的原生IP / 广播IP）：选地区即自动带上该项，不单独设确认步骤。
+  impliedIsp?: boolean;
 };
 
 export type RegionOption = {
   id: string;
   name: string;
+  // 仅地区卡显示的名称（纯净原生独享 IP 不带"（原生IP）/（广播IP）"）；摘要等其余位置仍用 name。
+  cardName?: string;
   flagClass: string;
   startingPrice?: number | null;
   badge?: string;
@@ -32,6 +36,8 @@ export type IspOption = {
   name: string;
   description: string;
   routeInfo?: string;
+  // 纯净原生独享 IP 用"IP 类型"占运营商这一环（原生IP / 广播IP），摘要的 IP 类型取这里。
+  ipType?: string;
 };
 
 export type SpecOption = {
@@ -44,6 +50,25 @@ export type SpecOption = {
   features: string[];
   description: string;
   badge?: string;
+  // 线路 × 流量选配项（NSP-PACKAGE-COPY-20261101-01）才有以下字段；真住宅宽带规格没有。
+  lineId?: string;
+  trafficId?: string;
+  // 本地ISP运营商选配项：批准加价表中该线路 × 流量档的月费加价（元/月），仅用于展示；最终价仍由服务端核定。
+  surcharge?: number;
+};
+
+export type LineOption = {
+  id: string;
+  name: string;
+  description: string;
+  notice?: string;
+  // 仅展示：选中该线路的现有套餐（specId 为 null）时，摘要 / 确认页"规格"显示此文案，不影响订单快照或价格。
+  summaryLabel?: string;
+};
+
+export type TrafficOption = {
+  id: string;
+  name: string;
 };
 
 export type DurationOption = {
@@ -54,10 +79,26 @@ export type DurationOption = {
   badge?: string;
 };
 
+// 展示顺序与标题（用户 2026-11-02 确认）：真住宅宽带 → 独享双ISP静态原生 → 本地住宅原生静态IP → 纯净静态独享IP。
+// 只改展示名称与顺序；type id、价格、默认选择与下单快照不变。
 export const networkTypes: NetworkTypeOption[] = [
   {
+    id: "residential",
+    name: "真住宅宽带",
+    startingPrice: 89,
+    description: "按国家、住宅 ISP 与共享规格配置",
+    features: ["UDP", "IPv4 / IPv6", "DNS一致", "线路稳定", "低延迟", "电信 CN2 GIA", "联通 9929", "移动 CMIN2"],
+    requiresSpec: true,
+    traffic: null,
+    bandwidth: null,
+    ipType: "IPv4 / IPv6",
+    udp: "完整支持",
+    dns: "一致",
+    badge: "推荐",
+  },
+  {
     id: "us-local-carrier",
-    name: "美区本地运营商",
+    name: "独享双ISP静态原生",
     startingPrice: 59,
     description: "美国本地运营商网络方案",
     features: ["双 ISP 独享静态原生 IP", "美国直连优化路线", "500G 流量", "200M 带宽"],
@@ -73,7 +114,7 @@ export const networkTypes: NetworkTypeOption[] = [
   },
   {
     id: "local-isp",
-    name: "本地ISP运营商",
+    name: "本地住宅原生静态IP",
     startingPrice: 79,
     description: "精品本地运营商网络",
     features: ["精品本地运营商网络", "原生静态住宅IP", "200G 流量", "100M 带宽"],
@@ -86,18 +127,18 @@ export const networkTypes: NetworkTypeOption[] = [
     specLabel: "优享",
   },
   {
-    id: "residential",
-    name: "真住宅宽带",
-    startingPrice: 89,
-    description: "按国家、住宅 ISP 与共享规格配置",
-    features: ["UDP", "IPv4 / IPv6", "DNS一致", "线路稳定", "低延迟", "电信 CN2 GIA", "联通 9929", "移动 CMIN2"],
+    id: "pure-native-ip",
+    name: "纯净静态独享IP",
+    startingPrice: 19,
+    description: "纯净独享 · 支持 ChatGPT / Claude · 流媒体全解锁",
+    features: ["200G / 500G / 1T 流量", "按月计费"],
     requiresSpec: true,
     traffic: null,
     bandwidth: null,
-    ipType: "IPv4 / IPv6",
-    udp: "完整支持",
-    dns: "一致",
-    badge: "推荐",
+    ipType: null,
+    udp: null,
+    dns: null,
+    impliedIsp: true,
   },
 ];
 
@@ -128,6 +169,13 @@ export const regionsByType: Record<string, RegionOption[]> = {
     { id: "kr", name: "韩国", flagClass: "kr", startingPrice: 118, configured: true },
     { id: "tw", name: "台湾", flagClass: "tw", startingPrice: 159, configured: true },
     { id: "us", name: "美国", flagClass: "us", startingPrice: 129, configured: true },
+  ],
+  "pure-native-ip": [
+    { id: "us", name: "美国（原生IP）", cardName: "美国", flagClass: "us", startingPrice: 19, configured: true },
+    { id: "tw", name: "台湾（广播IP）", cardName: "台湾", flagClass: "tw", startingPrice: 19, configured: true },
+    { id: "jp", name: "日本（广播IP）", cardName: "日本", flagClass: "jp", startingPrice: 19, configured: true },
+    { id: "sg", name: "新加坡（广播IP）", cardName: "新加坡", flagClass: "sg", startingPrice: 19, configured: true },
+    { id: "my", name: "马来西亚（广播IP）", cardName: "马来西亚", flagClass: "my", startingPrice: 49, configured: true },
   ],
 };
 
@@ -212,59 +260,81 @@ export const ispsByTypeAndRegion: Record<string, Record<string, IspOption[]>> = 
       { id: "comcast", name: "Comcast", description: "美国住宅 ISP" },
     ],
   },
+  "pure-native-ip": {
+    us: [{ id: "native-ip", name: "原生IP", description: "美国（原生IP）", ipType: "原生IP" }],
+    tw: [{ id: "broadcast-ip", name: "广播IP", description: "台湾（广播IP）", ipType: "广播IP" }],
+    jp: [{ id: "broadcast-ip", name: "广播IP", description: "日本（广播IP）", ipType: "广播IP" }],
+    sg: [{ id: "broadcast-ip", name: "广播IP", description: "新加坡（广播IP）", ipType: "广播IP" }],
+    my: [{ id: "broadcast-ip", name: "广播IP", description: "马来西亚（广播IP）", ipType: "广播IP" }],
+  },
 };
 
-// 真住宅宽带的有效期折扣：1 个月原价，3 个月 9 折，6 个月 8.5 折，12 个月 8 折。
-// 统一按月价 × 月数 × 折扣率四舍五入计算，不对 13 个 ISP × 3 档手工填 117 个数字。
-const RESIDENTIAL_DURATION_DISCOUNTS: Record<string, number> = {
-  "month-3": 0.9,
-  "month-6": 0.85,
-  "month-12": 0.8,
+// 周期价（用户 2026-11-01 确认，仅本地ISP运营商与纯净原生独享 IP）：周期总价 = 最终月价 × 月数 × 折扣，月付不变。
+// 半年 × 6 × 0.85 = × 51/10，年付 × 12 × 0.74 = × 222/25。
+// 美区本地运营商保持原固定价；真住宅宽带保持原折扣：3 个月 9 折、半年 8.5 折、年付 8 折。
+// 用整数分数计算并四舍五入到整元，与 auth-service pricing.ts 的 periodPriceFen 逐值一致（避免浮点误差）。
+type PeriodRatio = readonly [numerator: number, denominator: number];
+
+const STANDARD_PERIOD_RATIOS: Record<string, PeriodRatio> = {
+  "month-6": [51, 10],
+  "month-12": [222, 25],
 };
+
+const RESIDENTIAL_PERIOD_RATIOS: Record<string, PeriodRatio> = {
+  "month-3": [27, 10],
+  "month-6": [51, 10],
+  "month-12": [48, 5],
+};
+
+function periodPrice(monthlyPrice: number, [numerator, denominator]: PeriodRatio): number {
+  return Math.floor((2 * monthlyPrice * numerator + denominator) / (2 * denominator));
+}
+
+function periodPrices(monthlyPrice: number, ratios: Record<string, PeriodRatio>): Partial<Record<string, number>> {
+  const prices: Partial<Record<string, number>> = { "month-1": monthlyPrice };
+  for (const [id, ratio] of Object.entries(ratios)) prices[id] = periodPrice(monthlyPrice, ratio);
+  return prices;
+}
 
 function residentialPricesByDuration(monthlyPrice: number): Partial<Record<string, number>> {
-  const prices: Partial<Record<string, number>> = { "month-1": monthlyPrice };
-  const months: Record<string, number> = { "month-3": 3, "month-6": 6, "month-12": 12 };
-  for (const [id, discount] of Object.entries(RESIDENTIAL_DURATION_DISCOUNTS)) {
-    prices[id] = Math.round(monthlyPrice * months[id] * discount);
-  }
-  return prices;
+  return periodPrices(monthlyPrice, RESIDENTIAL_PERIOD_RATIOS);
 }
 
 // 三档流量/带宽为真实住宅宽带套餐的统一规格（5人拼车 200G、3人拼车 300G、独享 1000G，
 // 均为 100M 带宽），跨地区/ISP 一致，不随价格变化。
 function createResidentialSpecs(prices: { shared5: number; shared3: number; dedicated: number }): SpecOption[] {
   return [
+    // 展示名称只用该档的流量（用户 2026-11-02：不显示共享人数，也不显示共享 / 独享字样）；
+    // 规格 id（shared-5 / shared-3 / dedicated）、价格、容量与权益均不变，展示名不代表接入方式变化。
     {
       id: "shared-5",
-      name: "5人",
+      name: "200G",
       monthlyPrice: prices.shared5,
       pricesByDuration: residentialPricesByDuration(prices.shared5),
       traffic: "200G",
       bandwidth: "100M",
       features: ["200G 流量", "100M 带宽"],
-      description: "5 人共享",
+      description: "",
     },
     {
       id: "shared-3",
-      name: "3人",
+      name: "300G",
       monthlyPrice: prices.shared3,
       pricesByDuration: residentialPricesByDuration(prices.shared3),
       traffic: "300G",
       bandwidth: "100M",
       features: ["300G 流量", "100M 带宽"],
-      description: "3 人共享",
-      badge: "推荐",
+      description: "",
     },
     {
       id: "dedicated",
-      name: "独享",
+      name: "1000G",
       monthlyPrice: prices.dedicated,
       pricesByDuration: residentialPricesByDuration(prices.dedicated),
       traffic: "1000G",
       bandwidth: "100M",
       features: ["1000G 流量", "100M 带宽"],
-      description: "独享接入",
+      description: "",
     },
   ];
 }
@@ -285,6 +355,179 @@ export const specsByIsp: Record<string, SpecOption[]> = {
   comcast: createResidentialSpecs({ shared5: 159, shared3: 239, dedicated: 659 }),
 };
 
+// ===== 线路 × 流量选配（NSP-PACKAGE-COPY-20261101-01，全部按月、人民币元/月） =====
+// specId 编码为 `${lineId}-${trafficId}`，沿用既有五元组的 spec 字段，不新增下单字段。
+// 选配价为最终月价；半年 / 年付按统一周期规则由月价计算（不提供 3 个月）。
+
+export const trafficOptions: TrafficOption[] = [
+  { id: "200g", name: "200G" },
+  { id: "500g", name: "500G" },
+  { id: "1t", name: "1T" },
+];
+
+type TrafficPrices = Partial<Record<string, number>>;
+
+function trafficName(trafficId: string): string {
+  return trafficOptions.find((option) => option.id === trafficId)?.name ?? trafficId;
+}
+
+function packagePeriodPrices(price: number | null): Partial<Record<string, number>> {
+  return price === null ? {} : periodPrices(price, STANDARD_PERIOD_RATIOS);
+}
+
+function packageSpec(
+  line: LineOption,
+  trafficId: string,
+  monthlyPrice: number | null,
+  description: string,
+  bandwidth: string | null = null,
+): SpecOption {
+  const traffic = trafficName(trafficId);
+  return {
+    id: `${line.id}-${trafficId}`,
+    name: `${line.name} · ${traffic}`,
+    monthlyPrice,
+    pricesByDuration: packagePeriodPrices(monthlyPrice),
+    traffic,
+    bandwidth,
+    features: bandwidth ? [`${traffic} 流量`, `${bandwidth} 带宽`] : [`${traffic} 流量`],
+    description,
+    lineId: line.id,
+    trafficId,
+  };
+}
+
+// --- 大类 A：本地ISP运营商 = 所选地区现有套餐月价 + 所选线路 × 流量档的月费加价 ---
+// 加价已对应所选流量档，不另收流量档基础费。现有套餐月价为月付 ¥79（本地ISP运营商全部地区一致，
+// 即下方 durationsByType["local-isp"] 的月付价）。"普通线路/现有线路 + 200G"就是现有套餐本身
+// （specId 为 null），提供月付 / 半年 / 年付（周期价按统一规则）；只有美国普通线路另有 500G / 1T 加价，
+// 其他地区的现有线路只有 200G。
+export const LOCAL_ISP_BASE_LINE_ID = "ordinary";
+export const LOCAL_ISP_BASE_TRAFFIC_ID = "200g";
+const LOCAL_ISP_EXISTING_MONTHLY_PRICE = 79;
+
+type LocalIspLineGroup = {
+  baseLine: LineOption;
+  // 普通线路 / 现有线路在 200G 之外的流量档加价（200G 即现有套餐本身，不在此列）。
+  baseLineSurcharges?: TrafficPrices;
+  surcharges: { line: LineOption; byTraffic: TrafficPrices; bandwidth?: string }[];
+};
+
+// 线路卡只放线路名与必要的流量 / 带宽限制；加价金额只在下方流量档显示，不在卡片重复说明。
+const HALF_OPTIMIZED: LineOption = { id: "half", name: "半优化线路", description: "" };
+const HIGH_SPEED: LineOption = { id: "high", name: "高速线路", description: "" };
+
+const LOCAL_ISP_LINE_GROUPS: Record<string, LocalIspLineGroup> = {
+  us: {
+    baseLine: { id: LOCAL_ISP_BASE_LINE_ID, name: "默认路线", description: "", summaryLabel: "默认路线 · 200G" },
+    baseLineSurcharges: { "500g": 10, "1t": 20 },
+    surcharges: [
+      { line: HALF_OPTIMIZED, byTraffic: { "200g": 10, "500g": 20, "1t": 30 } },
+      { line: HIGH_SPEED, byTraffic: { "200g": 20, "500g": 40, "1t": 70 } },
+      { line: { id: "live", name: "直播专线", description: "" }, byTraffic: { "200g": 30, "500g": 60, "1t": 100 } },
+    ],
+  },
+  "southeast-asia": {
+    baseLine: { id: LOCAL_ISP_BASE_LINE_ID, name: "默认路线", description: "", summaryLabel: "默认路线 · 200G" },
+    surcharges: [
+      { line: HALF_OPTIMIZED, byTraffic: { "200g": 10, "500g": 20, "1t": 30 } },
+      { line: HIGH_SPEED, byTraffic: { "200g": 30, "500g": 60, "1t": 100 } },
+      { line: { id: "live", name: "直播专线", description: "仅限 1T 档位，带宽 20Mbps" }, byTraffic: { "1t": 200 }, bandwidth: "20Mbps" },
+    ],
+  },
+  "asia-europe-brazil": {
+    baseLine: { id: LOCAL_ISP_BASE_LINE_ID, name: "默认路线", description: "", summaryLabel: "默认路线 · 200G" },
+    surcharges: [
+      { line: HALF_OPTIMIZED, byTraffic: { "200g": 10, "500g": 20, "1t": 30 } },
+      { line: HIGH_SPEED, byTraffic: { "200g": 30, "500g": 60, "1t": 100 } },
+      { line: { id: "live", name: "直播专线", description: "仅限 1T 档位，带宽 100Mbps" }, byTraffic: { "1t": 250 }, bandwidth: "100Mbps" },
+    ],
+  },
+};
+
+const LOCAL_ISP_GROUP_BY_REGION: Record<string, string> = {
+  us: "us",
+  sg: "southeast-asia",
+  my: "southeast-asia",
+  vn: "southeast-asia",
+  id: "southeast-asia",
+  th: "southeast-asia",
+  tw: "asia-europe-brazil",
+  jp: "asia-europe-brazil",
+  fr: "asia-europe-brazil",
+  de: "asia-europe-brazil",
+  br: "asia-europe-brazil",
+  gb: "asia-europe-brazil",
+};
+
+function localIspSpecs(group: LocalIspLineGroup): SpecOption[] {
+  const specs: SpecOption[] = [];
+  const lines = group.baseLineSurcharges
+    ? [{ line: group.baseLine, byTraffic: group.baseLineSurcharges, bandwidth: undefined }, ...group.surcharges]
+    : group.surcharges;
+  for (const { line, byTraffic, bandwidth } of lines) {
+    for (const { id: trafficId } of trafficOptions) {
+      const surcharge = byTraffic[trafficId];
+      if (surcharge === undefined) continue;
+      const description = `现有月价 ¥${LOCAL_ISP_EXISTING_MONTHLY_PRICE} + ${trafficName(trafficId)} 线路加价 ¥${surcharge}/月`;
+      specs.push({
+        ...packageSpec(line, trafficId, LOCAL_ISP_EXISTING_MONTHLY_PRICE + surcharge, description, bandwidth ?? null),
+        surcharge,
+      });
+    }
+  }
+  return specs;
+}
+
+// --- 大类 B：纯净原生独享 IP，表内金额即最终套餐月价，不叠加 A 类价格 ---
+const PURE_NATIVE_LINES: Record<string, LineOption> = {
+  ordinary: { id: "ordinary", name: "普通路线", description: "" },
+  half: { id: "half", name: "半优化线路", description: "" },
+  high: { id: "high", name: "高速线路", description: "" },
+  "three-net": { id: "three-net", name: "三网专线", description: "" },
+};
+
+const PURE_NATIVE_PRICES: Record<string, Record<string, [number, number, number]>> = {
+  us: { ordinary: [19, 29, 39], half: [29, 39, 59], high: [39, 59, 89], "three-net": [49, 79, 119] },
+  tw: { ordinary: [19, 29, 39] },
+  jp: { ordinary: [19, 29, 39], high: [79, 119, 209] },
+  sg: { ordinary: [19, 29, 39], high: [89, 139, 229] },
+  my: { ordinary: [49, 69, 119], high: [169, 289, 479] },
+};
+
+function pureNativeSpecs(prices: Record<string, [number, number, number]>): SpecOption[] {
+  return Object.entries(prices).flatMap(([lineId, tiers]) =>
+    trafficOptions.map((traffic, index) =>
+      packageSpec(PURE_NATIVE_LINES[lineId]!, traffic.id, tiers[index]!, PURE_NATIVE_LINES[lineId]!.description),
+    ),
+  );
+}
+
+function mapRegions<T>(regionIds: string[], build: (regionId: string) => T): Record<string, T> {
+  return Object.fromEntries(regionIds.map((regionId) => [regionId, build(regionId)]));
+}
+
+const localIspRegionIds = Object.keys(LOCAL_ISP_GROUP_BY_REGION);
+
+export const packageLinesByTypeAndRegion: Record<string, Record<string, LineOption[]>> = {
+  "local-isp": mapRegions(localIspRegionIds, (regionId) => {
+    const group = LOCAL_ISP_LINE_GROUPS[LOCAL_ISP_GROUP_BY_REGION[regionId]!]!;
+    return [group.baseLine, ...group.surcharges.map((item) => item.line)];
+  }),
+  "pure-native-ip": mapRegions(Object.keys(PURE_NATIVE_PRICES), (regionId) =>
+    Object.keys(PURE_NATIVE_PRICES[regionId]!).map((lineId) => PURE_NATIVE_LINES[lineId]!),
+  ),
+};
+
+export const packageSpecsByTypeAndRegion: Record<string, Record<string, SpecOption[]>> = {
+  "local-isp": mapRegions(localIspRegionIds, (regionId) =>
+    localIspSpecs(LOCAL_ISP_LINE_GROUPS[LOCAL_ISP_GROUP_BY_REGION[regionId]!]!),
+  ),
+  "pure-native-ip": mapRegions(Object.keys(PURE_NATIVE_PRICES), (regionId) =>
+    pureNativeSpecs(PURE_NATIVE_PRICES[regionId]!),
+  ),
+};
+
 const residentialDurations: DurationOption[] = [
   { id: "month-1", name: "月付", months: 1, price: null },
   { id: "month-3", name: "3个月", months: 3, price: null, badge: "9折" },
@@ -292,18 +535,26 @@ const residentialDurations: DurationOption[] = [
   { id: "month-12", name: "年付", months: 12, price: null, badge: "8折" },
 ];
 
+/* 本地ISP运营商现有套餐与纯净原生独享 IP：price 为该周期总价；
+   price 为 null 的周期（纯净原生独享 IP、选配项）取所选规格自身的周期价。 */
+function standardDurations(monthlyPrice: number | null): DurationOption[] {
+  const price = (id: string) => (monthlyPrice === null ? null : periodPrice(monthlyPrice, STANDARD_PERIOD_RATIOS[id]!));
+  return [
+    { id: "month-1", name: "月付", months: 1, price: monthlyPrice },
+    { id: "month-6", name: "半年", months: 6, price: price("month-6"), badge: "8.5折" },
+    { id: "month-12", name: "年付", months: 12, price: price("month-12"), badge: "7.4折" },
+  ];
+}
+
 export const durationsByType: Record<string, DurationOption[]> = {
   "us-local-carrier": [
     { id: "month-1", name: "月付", months: 1, price: 59 },
     { id: "month-6", name: "半年", months: 6, price: 299 },
     { id: "month-12", name: "年付", months: 12, price: 499 },
   ],
-  "local-isp": [
-    { id: "month-1", name: "月付", months: 1, price: 79 },
-    { id: "month-6", name: "半年", months: 6, price: 399 },
-    { id: "month-12", name: "年付", months: 12, price: 699 },
-  ],
+  "local-isp": standardDurations(LOCAL_ISP_EXISTING_MONTHLY_PRICE),
   residential: residentialDurations,
+  "pure-native-ip": standardDurations(null),
 };
 
 export const defaultCatalogSelection = {

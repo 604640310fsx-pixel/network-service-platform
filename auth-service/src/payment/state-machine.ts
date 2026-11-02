@@ -135,7 +135,19 @@ function audit(
     .run(action, targetRef, now);
 }
 
+function hasServiceChangeTable(database: DatabaseConnection): boolean {
+  if (database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='service_changes'").all().length === 1) return true;
+  const hasRegistry = database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").all().length === 1;
+  if (hasRegistry && database.prepare("SELECT version FROM schema_migrations WHERE version>=30 LIMIT 1").all().length !== 0) {
+    throw new Error("Service change schema invariant failed");
+  }
+  return false;
+}
+
 function serviceExists(database: DatabaseConnection, paymentId: number): boolean {
+  if (hasServiceChangeTable(database) && database.prepare(`SELECT sc.id FROM service_changes sc JOIN orders o ON o.id=sc.order_id
+      JOIN payments p ON p.order_id=o.id WHERE p.id=? AND sc.status IN
+      ('pending_fulfillment','fulfillment_failed','paid_conflict','applied')`).all(paymentId).length === 1) return true;
   return (
     database.prepare("SELECT id FROM services WHERE payment_id = ?").all(paymentId)
       .length === 1
@@ -318,18 +330,30 @@ export function finalizePaid(
     dependencies.database
       .prepare("UPDATE orders SET status = 'paid', updated_at = ? WHERE id = ?")
       .run(now, payment.order_id);
-    dependencies.database
-      .prepare(
-        `INSERT INTO services (
-           payment_id, status, opened_by_admin_id, opened_at, created_at, updated_at
-         ) VALUES (?, 'pending_open', NULL, NULL, ?, ?)`,
-      )
-      .run(payment.id, now, now);
+    const linked = hasServiceChangeTable(dependencies.database)
+      ? dependencies.database.prepare("SELECT id,service_id,status FROM service_changes WHERE order_id = ?")
+        .all(payment.order_id) as Array<{id:number;service_id:number;status:string}>
+      : [];
+    if (linked.length === 1) {
+      const competing = dependencies.database.prepare(`SELECT id FROM service_changes WHERE service_id=? AND id!=?
+        AND status IN ('pending_payment','pending_fulfillment','fulfillment_failed','scheduled')`)
+        .all(linked[0]!.service_id,linked[0]!.id);
+      const nextStatus = competing.length === 0 ? "pending_fulfillment" : "paid_conflict";
+      dependencies.database.prepare(`UPDATE service_changes SET status=?,updated_at=?
+        WHERE order_id=? AND status IN ('pending_payment','closed')`).run(nextStatus,now,payment.order_id);
+    } else if (linked.length === 0) {
+      dependencies.database.prepare(
+        `INSERT INTO services (payment_id,status,opened_by_admin_id,opened_at,created_at,updated_at)
+         VALUES (?,'pending_open',NULL,NULL,?,?)`,
+      ).run(payment.id,now,now);
+    } else {
+      throw new Error("Service change database invariant failed");
+    }
     /* A signed paid landing on a locally closed payment (notify, sweep query or a
        management observation all converge here) owes a pending-refund record in
        the same transaction: the settlement marker plus a real AWAITING_POLICY
        refund case bound to the verified payment. Both writes are replay-safe. */
-    if (payment.status === "closed") {
+    if (payment.status === "closed" && linked.length === 0) {
       const settled = dependencies.database
         .prepare("SELECT order_id FROM wallet_order_settlements WHERE order_id = ?")
         .all(payment.order_id)[0];
@@ -421,11 +445,22 @@ export function finalizeClosed(
     // 未付款订单关闭时的唯一库存/优惠券释放点；已付款（上面 paid 分支）永不释放。
     // releasePlanAndCouponForOrder 自身的 WHERE 守卫保证重复调用幂等，
     // 这里始终只在"首次转 closed"这一支调用一次。
-    releasePlanAndCouponForOrder(
-      dependencies.database,
-      payment.order_id,
-      dependencies.now ?? (() => new Date()),
-    );
+    const change = hasServiceChangeTable(dependencies.database)
+      ? dependencies.database.prepare("SELECT id FROM service_changes WHERE order_id=? AND status='pending_payment'")
+        .all(payment.order_id)
+      : [];
+    if (change.length === 1) {
+      dependencies.database.prepare("UPDATE service_changes SET status='closed',updated_at=? WHERE order_id=? AND status='pending_payment'")
+        .run(now,payment.order_id);
+    } else if (change.length === 0) {
+      releasePlanAndCouponForOrder(
+        dependencies.database,
+        payment.order_id,
+        dependencies.now ?? (() => new Date()),
+      );
+    } else {
+      throw new Error("Service change database invariant failed");
+    }
     insertNotification(dependencies.database, payment.id, input, now);
     return "finalized" as const;
   });

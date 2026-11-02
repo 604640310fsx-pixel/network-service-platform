@@ -143,7 +143,7 @@ test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", 
   await withTemporaryDatabase((database) => {
     assert.equal(
       MIGRATION_FILES.at(-1),
-      "026_wallet.sql",
+      "030_service_change_local.sql",
     );
     const migrationRows = database
       .prepare("SELECT version, applied_at FROM schema_migrations ORDER BY version")
@@ -151,7 +151,7 @@ test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", 
 
     assert.deepEqual(
       migrationRows.map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
+      Array.from({ length: 30 }, (_, index) => index + 1),
     );
     for (const row of migrationRows) {
       assert.match(row.applied_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
@@ -240,7 +240,10 @@ test("creates every frozen table and named index", async () => {
       "schema_migrations",
       "sellable_plan_price_history",
       "sellable_plans",
+      "service_change_quotes",
+      "service_changes",
       "service_delivery_items",
+      "service_entitlements",
       "services",
       "session_families",
       "sessions",
@@ -289,7 +292,11 @@ test("creates every frozen table and named index", async () => {
       "idx_reset_tokens_user",
       "idx_sellable_plans_active",
       "idx_sellable_plans_unique_combo",
+      "idx_service_change_one_active",
+      "idx_service_change_quotes_service",
+      "idx_service_changes_user",
       "idx_service_delivery_items_service",
+      "idx_service_entitlements_user",
       "idx_services_status",
       "idx_session_families_user",
       "idx_sessions_family",
@@ -316,7 +323,7 @@ test("Migration 022 adds nullable service columns and admin_grants on a 021 data
 
     runMigrations(database);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 26);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 30);
     assert.deepEqual(columnNames(database, "services"), [...servicesBefore, "ends_at", "plan_override", "admin_note"]);
     // Running to the latest schema also applies 023/024, which append the structured/delivery columns.
     assert.deepEqual(columnNames(database, "admin_grants").slice(0, 10), [
@@ -352,7 +359,7 @@ test("Migration 023 structures admin_grants and adds encrypted grant delivery it
 
     runMigrations(database);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 26);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 30);
     assert.deepEqual(columnNames(database, "admin_grants"), [
       "id", "user_id", "granted_by_admin_id", "label", "starts_at", "ends_at",
       "status", "reason", "created_at", "updated_at",
@@ -410,7 +417,7 @@ test("Migration 024 adds a nullable monitor_target to gift delivery lines on a 0
 
     runMigrations(database);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 26);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 30);
     assert.equal(columnNames(database, "admin_grant_delivery_items").at(-1), "monitor_target");
     // The 023 line keeps every value and is unbound.
     assert.deepEqual(
@@ -451,7 +458,7 @@ test("Migration 025 adds ticket attachments and the grant link on a 024 database
 
     runMigrations(database);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 26);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 30);
     assert.deepEqual(columnNames(database, "ticket_attachments"), [
       "id", "attachment_ref", "message_id", "content_type", "byte_size", "content", "created_at",
     ]);
@@ -521,7 +528,7 @@ test("Migration 026 adds the wallet accounting tables on a 025 database", async 
 
     runMigrations(database);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 26);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 30);
     assert.deepEqual(
       objectNames(database, "table").filter((name) => name.startsWith("wallet_")).sort(),
       [
@@ -651,6 +658,137 @@ test("Migration 026 adds the wallet accounting tables on a 025 database", async 
   } finally {
     database.close();
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("populated synthetic 026 upgrades to 030 preserving relations, admin catalog edits and startup idempotence", async () => {
+  const { resolvePriceFen } = await import("../src/payment/pricing.js");
+  const directory = await mkdtemp(join(tmpdir(), "auth-populated-026-030-"));
+  const databasePath = join(directory, "synthetic.sqlite");
+  const database = openAndVerifyDatabase(databasePath);
+  try {
+    applyMigrationPrefix(database, 26);
+    const { userId: adminId, inviteCodeId } = createBootstrapUser(database);
+    database.prepare(`INSERT INTO users(email,password_hash,role,status,invited_by_code_id,created_at,updated_at)
+      VALUES ('synthetic-026@example.invalid','synthetic-fixture-only','user','active',?,?,?)`).run(inviteCodeId,NOW,NOW);
+    const buyerId = firstNumber(database,"SELECT id FROM users WHERE email='synthetic-026@example.invalid'");
+    database.prepare(`INSERT INTO orders(order_ref,idempotency_key,request_fingerprint,user_id,type_id,region_id,isp_id,
+      spec_id,duration_id,catalog_version,amount_fen,currency,contact,scenarios,notes,status,created_at,updated_at)
+      VALUES ('SYNTHETIC026','synthetic-026-order','synthetic-026-fingerprint',?,'local-isp','us','us-verizon',NULL,
+      'month-1','SUBSCRIBE-CATALOG-V1',7900,'CNY','演示数据 · 非报价','[]',NULL,'paid',?,?)`).run(buyerId,NOW,NOW);
+    const orderId = firstNumber(database,"SELECT id FROM orders WHERE order_ref='SYNTHETIC026'");
+    database.prepare(`INSERT INTO payments(order_id,out_trade_no,channel,app_id,amount_fen,currency,status,
+      trade_no,alipay_trade_status,paid_at,created_at,updated_at)
+      VALUES (?,'synthetic-026-payment','alipay_page','synthetic-app',7900,'CNY','paid','synthetic-026-trade',
+      'TRADE_SUCCESS',?,?,?)`).run(orderId,NOW,NOW,NOW);
+    const paymentId = firstNumber(database,"SELECT id FROM payments WHERE order_id=?",orderId);
+    database.prepare(`INSERT INTO services(payment_id,status,opened_by_admin_id,opened_at,ends_at,admin_note,created_at,updated_at)
+      VALUES (?,'open',?,?,'2026-12-01T00:00:00.000Z','synthetic-existing',?,?)`).run(paymentId,adminId,NOW,NOW,NOW);
+    const serviceId = firstNumber(database,"SELECT id FROM services WHERE payment_id=?",paymentId);
+    database.prepare(`INSERT INTO service_delivery_items(service_id,position,label,key_version,nonce,ciphertext,tag,created_at,updated_at)
+      VALUES (?,1,'演示交付 · 非报价',1,x'00',x'0102',x'03',?,?)`).run(serviceId,NOW,NOW);
+    database.prepare(`INSERT INTO admin_grants(user_id,granted_by_admin_id,label,starts_at,ends_at,status,reason,created_at,
+      updated_at,type_id,region_id,isp_id,spec_id,duration_id,months,value_fen,delivery_status,opened_at)
+      VALUES (?,?,'演示赠送 · 非报价',?,NULL,'active','synthetic',?,?,'local-isp','us','us-verizon',NULL,
+      'month-1',1,7900,'open',?)`).run(buyerId,adminId,NOW,NOW,NOW,NOW);
+    const grantId = firstNumber(database,"SELECT id FROM admin_grants WHERE user_id=?",buyerId);
+    database.prepare(`INSERT INTO admin_grant_delivery_items(grant_id,position,label,key_version,nonce,ciphertext,tag,created_at,updated_at)
+      VALUES (?,1,'演示赠送交付 · 非报价',1,x'00',x'0102',x'03',?,?)`).run(grantId,NOW,NOW);
+    database.prepare("INSERT INTO wallet_accounts(user_id,balance_fen) VALUES (?,12345)").run(buyerId);
+    database.prepare("INSERT INTO wallet_ledger(user_id,kind,amount_fen,source_key,created_at) VALUES (?,'TOPUP',12345,'synthetic-existing-ledger',?)").run(buyerId,NOW);
+    database.prepare(`INSERT INTO wallet_consents(service_id,user_id,state,revision,quote_key,price_fen,duration_id,next_billing_period,updated_at)
+      VALUES (?,?,'ENABLED',2,'synthetic-existing-consent',7900,'month-1','MONTHLY',?)`).run(serviceId,buyerId,NOW);
+    database.prepare(`INSERT INTO wallet_consent_history(service_id,revision,user_id,state,quote_key,price_fen,duration_id,next_billing_period,created_at)
+      VALUES (?,2,?,'ENABLED','synthetic-existing-consent',7900,'month-1','MONTHLY',?)`).run(serviceId,buyerId,NOW);
+
+    const monthlyId = firstNumber(database,`SELECT id FROM sellable_plans WHERE type_id='local-isp' AND region_id='us'
+      AND isp_id='us-verizon' AND spec_id IS NULL AND duration_id='month-1'`);
+    const halfYearId = firstNumber(database,`SELECT id FROM sellable_plans WHERE type_id='local-isp' AND region_id='us'
+      AND isp_id='us-verizon' AND spec_id IS NULL AND duration_id='month-6'`);
+    const adminStamp = "2026-10-15T00:00:00.000Z";
+    database.prepare("UPDATE sellable_plans SET price_fen=8800,is_active=0,total_slots=9,occupied_slots=2,updated_at=? WHERE id=?").run(adminStamp,monthlyId);
+    database.prepare("UPDATE sellable_plans SET price_fen=50001,updated_at=? WHERE id=?").run(adminStamp,halfYearId);
+    // Both a changed-price cap row and an intentional off-sale edit with its seed
+    // price must survive 029; untouched seed cap rows may be re-enabled.
+    database.prepare("UPDATE sellable_plans SET price_fen=211111,updated_at=? WHERE id=107").run(adminStamp);
+    database.prepare("UPDATE sellable_plans SET updated_at=? WHERE id=110").run(adminStamp);
+    const adminIds = new Set([monthlyId,halfYearId,107,110]);
+    const oldPlans = database.prepare("SELECT * FROM sellable_plans ORDER BY id").all() as Array<Record<string,unknown>>;
+    const legacyTables = ["users","orders","payments","services","service_delivery_items","admin_grants",
+      "admin_grant_delivery_items","wallet_accounts","wallet_ledger","wallet_consents","wallet_consent_history"];
+    const legacySnapshot = legacyTables.map(table => database.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all());
+    const oldSchema = database.prepare("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name").all() as Array<Record<string,unknown>>;
+    const oldHistory = database.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
+    assert.equal(oldPlans.length,255);
+    assert.equal(firstNumber(database,"SELECT MAX(version) FROM schema_migrations"),26);
+
+    // Upgrade through the real current runner; no hand replay of 027-030 SQL.
+    runMigrations(database);
+    assert.deepEqual(legacyTables.map(table => database.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()),legacySnapshot);
+    assert.deepEqual(database.prepare("SELECT * FROM schema_migrations WHERE version<=26 ORDER BY version").all(),oldHistory);
+    assert.deepEqual(database.prepare("SELECT version FROM schema_migrations ORDER BY version").all(),
+      Array.from({length:30},(_,index)=>({version:index+1})));
+    for (const before of oldPlans) {
+      const expected = {...before};
+      if (!adminIds.has(before.id as number)) {
+        if (before.type_id==='local-isp' && ['month-6','month-12'].includes(before.duration_id as string)) {
+          expected.price_fen = resolvePriceFen({typeId:before.type_id,regionId:before.region_id as string,
+            ispId:before.isp_id as string,specId:before.spec_id as string|null,durationId:before.duration_id as string});
+          expected.updated_at = "2026-11-01T00:00:00.000Z";
+        } else if (before.is_active===0 && (before.price_fen as number)>200000) {
+          expected.is_active=1;expected.updated_at="2026-11-02T00:00:00.000Z";
+        }
+      }
+      assert.deepEqual(database.prepare("SELECT * FROM sellable_plans WHERE id=?").all(before.id)[0],expected,`legacy plan ${before.id}`);
+    }
+    assert.equal(firstNumber(database,"SELECT COUNT(*) FROM sellable_plans WHERE id>255 AND duration_id='month-1' AND type_id IN ('local-isp','pure-native-ip') AND is_active=1"),253);
+    assert.equal(firstNumber(database,"SELECT COUNT(*) FROM sellable_plans WHERE id>255 AND duration_id IN ('month-6','month-12') AND type_id IN ('local-isp','pure-native-ip') AND is_active=1"),506);
+    assert.equal(firstNumber(database,"SELECT COUNT(*) FROM sellable_plans"),1014);
+    const newSchema = database.prepare("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name").all() as Array<Record<string,unknown>>;
+    for (const before of oldSchema) assert.deepEqual(newSchema.find(row=>row.name===before.name),before);
+    assert.deepEqual(newSchema.filter(row=>!oldSchema.some(old=>old.name===row.name)).map(row=>row.name).sort(),
+      ["service_entitlements","service_change_quotes","service_changes","idx_service_entitlements_user",
+        "idx_service_change_quotes_service","idx_service_change_one_active","idx_service_changes_user"].sort());
+    for (const table of ["service_entitlements","service_change_quotes","service_changes"])
+      assert.equal(firstNumber(database,`SELECT COUNT(*) FROM ${table}`),0);
+
+    // Probe 030's FK/CHECK/one-active boundaries, then roll back every probe row.
+    database.exec("SAVEPOINT synthetic_030_constraints");
+    const highPlan = firstNumber(database,"SELECT id FROM sellable_plans WHERE type_id='local-isp' AND region_id='us' AND isp_id='us-verizon' AND spec_id='high-200g' AND duration_id='month-1'");
+    const halfPlan = firstNumber(database,"SELECT id FROM sellable_plans WHERE type_id='local-isp' AND region_id='us' AND isp_id='us-verizon' AND spec_id='half-200g' AND duration_id='month-1'");
+    const insertEntitlement = database.prepare(`INSERT INTO service_entitlements(service_id,user_id,plan_id,monthly_plan_id,
+      monthly_price_fen,period_start,period_end,period_months,discount_numerator,discount_denominator,usage_start,usage_end,
+      usage_used_gb,usage_quota_gb,provider_binding_ref,binding_provenance,created_at,updated_at)
+      VALUES (?,?,?,?,9900,'2026-11-01T00:00:00.000Z','2026-12-01T00:00:00.000Z',1,1,1,
+      '2026-11-01T00:00:00.000Z','2026-12-01T00:00:00.000Z',80,?,'synthetic-binding','synthetic',?,?)`);
+    assert.throws(()=>insertEntitlement.run(999999,buyerId,highPlan,highPlan,200,NOW,NOW),/FOREIGN KEY constraint failed/);
+    assert.throws(()=>insertEntitlement.run(serviceId,buyerId,highPlan,highPlan,0,NOW,NOW),/CHECK constraint failed/);
+    insertEntitlement.run(serviceId,buyerId,highPlan,highPlan,200,NOW,NOW);
+    const insertChange = database.prepare(`INSERT INTO service_changes(service_id,user_id,kind,status,from_version,
+      target_plan_id,target_monthly_plan_id,target_monthly_fen,amount_fen,effective_at,created_at,updated_at)
+      VALUES (?,?,'downgrade',?,1,?,?,8900,?,'2026-12-01T00:00:00.000Z',?,?)`);
+    assert.throws(()=>insertChange.run(serviceId,buyerId,'scheduled',halfPlan,halfPlan,1,NOW,NOW),/CHECK constraint failed/);
+    assert.throws(()=>insertChange.run(serviceId,buyerId,'applied',halfPlan,halfPlan,0,NOW,NOW),/CHECK constraint failed/);
+    insertChange.run(serviceId,buyerId,'scheduled',halfPlan,halfPlan,0,NOW,NOW);
+    assert.throws(()=>insertChange.run(serviceId,buyerId,'scheduled',halfPlan,halfPlan,0,NOW,NOW),/UNIQUE constraint failed/);
+    database.exec("ROLLBACK TO synthetic_030_constraints; RELEASE synthetic_030_constraints");
+    assert.deepEqual(database.pragma("foreign_key_check"),[]);
+    assert.deepEqual(database.pragma("integrity_check"),[{integrity_check:"ok"}]);
+    const historyAfter = database.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
+    const plansAfter = database.prepare("SELECT * FROM sellable_plans ORDER BY id").all();
+    const reopened = initializeDatabase(databasePath);
+    try {
+      assert.deepEqual(reopened.prepare("SELECT * FROM schema_migrations ORDER BY version").all(),historyAfter);
+      assert.deepEqual(reopened.prepare("SELECT * FROM sellable_plans ORDER BY id").all(),plansAfter);
+      assert.deepEqual(legacyTables.map(table=>reopened.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()),legacySnapshot);
+      for (const table of ["service_entitlements","service_change_quotes","service_changes"])
+        assert.equal(firstNumber(reopened,`SELECT COUNT(*) FROM ${table}`),0);
+      assert.deepEqual(reopened.pragma("foreign_key_check"),[]);
+      assert.deepEqual(reopened.pragma("integrity_check"),[{integrity_check:"ok"}]);
+    } finally { reopened.close(); }
+  } finally {
+    database.close();
+    await rm(directory,{recursive:true,force:true});
   }
 });
 
@@ -814,7 +952,7 @@ test("Migration 019 upgrades an 018 database with the bounded owner-page query i
     assert.equal(objectNames(database, "index").includes("idx_referral_candidate_owner_page"), false);
     runMigrations(database);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 26);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 30);
     assert.equal(objectNames(database, "index").filter((name) => name === "idx_referral_candidate_owner_page").length, 1);
     const queryPlan = database.prepare(
       `EXPLAIN QUERY PLAN
@@ -847,12 +985,13 @@ test("Migration 020 adds only ticket tables on a 019 database and enforces its c
 
     runMigrations(database);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 26);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 30);
     assert.deepEqual(
       objectNames(database, "table").filter((name) => !tablesBefore.includes(name)),
       // Running to the latest schema also applies 022/023/025, which add admin_grants, its delivery items, ticket attachments, and the wallet tables.
       [
-        "admin_grant_delivery_items", "admin_grants", "ticket_attachments", "ticket_messages", "tickets",
+        "admin_grant_delivery_items", "admin_grants", "service_change_quotes", "service_changes",
+        "service_entitlements", "ticket_attachments", "ticket_messages", "tickets",
         "wallet_accounts", "wallet_consent_history", "wallet_consents", "wallet_ledger",
         "wallet_order_closures", "wallet_order_settlements", "wallet_refund_cases",
         "wallet_refund_reversals", "wallet_renewal_cycles", "wallet_termination_cases", "wallet_topups",
@@ -903,19 +1042,19 @@ test("Migration 020 adds only ticket tables on a 019 database and enforces its c
   }
 });
 
-test("Migration 012 seeds exactly 255 sellable plans with 29 initialized off-sale above the single-transaction cap", async () => {
+test("Migration 012 rows remain 255; local package additions and cap removal are additive", async () => {
   await withTemporaryDatabase((database) => {
     assert.equal(
-      firstNumber(database, "SELECT COUNT(*) FROM sellable_plans"),
+      firstNumber(database, "SELECT COUNT(*) FROM sellable_plans WHERE id <= 255"),
       255,
     );
     assert.equal(
-      firstNumber(database, "SELECT COUNT(*) FROM sellable_plans WHERE is_active = 0"),
-      29,
+      firstNumber(database, "SELECT COUNT(*) FROM sellable_plans"),
+      1014,
     );
     assert.equal(
-      firstNumber(database, "SELECT COUNT(*) FROM sellable_plans WHERE is_active = 1"),
-      226,
+      firstNumber(database, "SELECT COUNT(*) FROM sellable_plans WHERE is_active = 0"),
+      0,
     );
     assert.equal(
       firstNumber(
@@ -927,9 +1066,9 @@ test("Migration 012 seeds exactly 255 sellable plans with 29 initialized off-sal
     assert.equal(
       firstNumber(
         database,
-        "SELECT COUNT(*) FROM sellable_plans WHERE is_active = 1 AND price_fen > 200000",
+        "SELECT COUNT(*) FROM sellable_plans WHERE id <= 255 AND is_active = 1 AND price_fen > 200000",
       ),
-      0,
+      29,
     );
     assert.equal(
       firstNumber(database, "SELECT COUNT(*) FROM sellable_plans WHERE total_slots IS NOT NULL"),
@@ -1014,7 +1153,7 @@ test("continuous Schema 14 upgrades directly through 15-26 with legacy rows", as
     runMigrations(database);
     assert.deepEqual(
       (database.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as Array<{ readonly version: number }>).map((row) => row.version),
-      Array.from({ length: 26 }, (_, index) => index + 1),
+      Array.from({ length: 30 }, (_, index) => index + 1),
     );
     assert.equal(objectNames(database, "table").includes("diagnosis_request_idempotency"), true);
     assert.equal(objectNames(database, "index").includes("idx_referral_candidate_owner_page"), true);
@@ -1022,7 +1161,7 @@ test("continuous Schema 14 upgrades directly through 15-26 with legacy rows", as
     assert.equal(firstNumber(database, "SELECT COUNT(*) FROM mail_outbox"), 0);
     assert.equal(firstNumber(database, "SELECT COUNT(*) FROM invite_codes WHERE id = 1 AND revoked_at IS NOT NULL"), 1);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 26);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 30);
   } finally {
     database.close();
     await rm(temporaryDirectory, { recursive: true, force: true });
@@ -1141,7 +1280,7 @@ test("Migration 016 revokes legacy codes without guessing email and preserves hi
           .prepare("SELECT version FROM schema_migrations ORDER BY version")
           .all() as Array<{ readonly version: number }>
       ).map((row) => row.version),
-      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
+      Array.from({ length: 30 }, (_, index) => index + 1),
     );
     assert.deepEqual(
       database
@@ -1220,7 +1359,7 @@ test("Migration 016 revokes legacy codes without guessing email and preserves hi
     );
 
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 26);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 30);
     assert.equal(firstNumber(database, "SELECT COUNT(*) FROM invite_code_redemptions"), 2);
   } finally {
     database.close();
@@ -1642,7 +1781,7 @@ test("missing, extra, and unknown migration registry states fail closed", async 
       }
       if (scenario === "extra") {
         await writeFile(
-          join(migrationsDirectory, "027_unexpected.sql"),
+          join(migrationsDirectory, "031_unexpected.sql"),
           "SELECT 1;",
           "utf8",
         );
@@ -1678,15 +1817,15 @@ test("missing, extra, and unknown migration registry states fail closed", async 
         applied_at TEXT NOT NULL
       );
       INSERT INTO schema_migrations (version, applied_at)
-      VALUES (27, '${NOW}');
+      VALUES (31, '${NOW}');
     `);
     assert.throws(
       () => runMigrations(database),
-      /database contains unknown migration version 27/,
+      /database contains unknown migration version 31/,
     );
     assert.deepEqual(
       database.prepare("SELECT version FROM schema_migrations").all(),
-      [{ version: 27 }],
+      [{ version: 31 }],
     );
   } finally {
     database.close();
