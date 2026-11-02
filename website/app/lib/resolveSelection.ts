@@ -167,7 +167,7 @@ export function resolveSelection(
     }
     const plan =
       availability![planAvailabilityKey(typeId!, regionId!, ispId!, specIdForLookup, duration.id)];
-    if (plan === undefined || !plan.isActive) {
+    if (plan === undefined || !plan.isActive || !Number.isSafeInteger(plan.priceFen) || plan.priceFen <= 0) {
       durationPrices[duration.id] = null;
       durationAvailability[duration.id] = "unavailable";
     } else if (plan.soldOut) {

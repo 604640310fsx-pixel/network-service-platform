@@ -721,7 +721,7 @@ export function CustomerServicesPage() {
                     <p>{t.services.pendingNotice}</p>
                   </div>
                 )}
-                <ExistingServiceSection title={isOpen ? "订阅交付与续费设置" : "开通状态与说明"}>
+                <ExistingServiceSection title={isOpen ? t.services.deliveryRenewalTitle : t.services.activationDetailsTitle}>
                     {isOpen && <ServiceSubscription item={item} />}
                     {!isOpen && <p className="cc-svc-import-state">{t.services.awaitingDelivery}</p>}
                     {isOpen && item.serviceId !== null
@@ -747,7 +747,7 @@ export function CustomerServicesPage() {
                     <TermBadge endsAt={grant.endsAt} />
                   </div>
                 </div>
-                <ExistingServiceSection title="赠送交付与说明">
+                <ExistingServiceSection title={t.services.giftDeliveryTitle}>
                   {grant.deliveryStatus === "open"
                     ? <GiftSubscription grant={grant} />
                     : <p className="cc-svc-import-state">{grant.typeId === null ? t.services.giftHint : t.services.giftAwaiting}</p>}

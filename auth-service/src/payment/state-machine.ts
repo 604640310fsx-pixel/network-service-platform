@@ -135,8 +135,17 @@ function audit(
     .run(action, targetRef, now);
 }
 
+function hasServiceChangeTable(database: DatabaseConnection): boolean {
+  if (database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='service_changes'").all().length === 1) return true;
+  const hasRegistry = database.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").all().length === 1;
+  if (hasRegistry && database.prepare("SELECT version FROM schema_migrations WHERE version>=30 LIMIT 1").all().length !== 0) {
+    throw new Error("Service change schema invariant failed");
+  }
+  return false;
+}
+
 function serviceExists(database: DatabaseConnection, paymentId: number): boolean {
-  if (database.prepare(`SELECT sc.id FROM service_changes sc JOIN orders o ON o.id=sc.order_id
+  if (hasServiceChangeTable(database) && database.prepare(`SELECT sc.id FROM service_changes sc JOIN orders o ON o.id=sc.order_id
       JOIN payments p ON p.order_id=o.id WHERE p.id=? AND sc.status IN
       ('pending_fulfillment','fulfillment_failed','paid_conflict','applied')`).all(paymentId).length === 1) return true;
   return (
@@ -321,8 +330,10 @@ export function finalizePaid(
     dependencies.database
       .prepare("UPDATE orders SET status = 'paid', updated_at = ? WHERE id = ?")
       .run(now, payment.order_id);
-    const linked = dependencies.database.prepare("SELECT id,service_id,status FROM service_changes WHERE order_id = ?")
-      .all(payment.order_id) as Array<{id:number;service_id:number;status:string}>;
+    const linked = hasServiceChangeTable(dependencies.database)
+      ? dependencies.database.prepare("SELECT id,service_id,status FROM service_changes WHERE order_id = ?")
+        .all(payment.order_id) as Array<{id:number;service_id:number;status:string}>
+      : [];
     if (linked.length === 1) {
       const competing = dependencies.database.prepare(`SELECT id FROM service_changes WHERE service_id=? AND id!=?
         AND status IN ('pending_payment','pending_fulfillment','fulfillment_failed','scheduled')`)
@@ -434,8 +445,10 @@ export function finalizeClosed(
     // 未付款订单关闭时的唯一库存/优惠券释放点；已付款（上面 paid 分支）永不释放。
     // releasePlanAndCouponForOrder 自身的 WHERE 守卫保证重复调用幂等，
     // 这里始终只在"首次转 closed"这一支调用一次。
-    const change = dependencies.database.prepare("SELECT id FROM service_changes WHERE order_id=? AND status='pending_payment'")
-      .all(payment.order_id);
+    const change = hasServiceChangeTable(dependencies.database)
+      ? dependencies.database.prepare("SELECT id FROM service_changes WHERE order_id=? AND status='pending_payment'")
+        .all(payment.order_id)
+      : [];
     if (change.length === 1) {
       dependencies.database.prepare("UPDATE service_changes SET status='closed',updated_at=? WHERE order_id=? AND status='pending_payment'")
         .run(now,payment.order_id);

@@ -314,6 +314,19 @@ test("authenticated local demo routes reject anonymous, other owner and CSRF mis
   });
 });
 
+test("schema 030 missing its change table fails closed instead of using legacy fulfillment", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const owner = insertAuthenticationUser(database,{email:"missing-table@example.test",passwordHash:"synthetic",status:"active"});
+    const seeded = seedService(database,owner);
+    database.exec("DROP TABLE service_changes");
+    assert.throws(()=>finalizePaid(seeded.dependencies,{outTradeNo:seeded.order.orderRef,tradeNo:`trade-original-${owner}`,
+      tradeStatus:"TRADE_SUCCESS",totalAmount:"79.00",totalAmountFen:7900,
+      appId:seeded.dependencies.appId,sellerId:seeded.dependencies.sellerId}),/Service change schema invariant failed/);
+    assert.equal(firstValue(database,"SELECT COUNT(*) FROM services"),1);
+    assert.equal(firstValue(database,"SELECT COUNT(*) FROM payments"),1);
+  });
+});
+
 test("quote rejects stale usage/version, missing binding and nonstandard discount; six-month calendar snapshot is honored", async () => {
   await withAuthenticationDatabase(async (database) => {
     const userId = insertAuthenticationUser(database,{email:"change-e@example.test",passwordHash:"synthetic",status:"active"});
@@ -334,6 +347,7 @@ test("quote rejects stale usage/version, missing binding and nonstandard discoun
       period_end='2026-08-28T00:00:00.000Z',period_months=6,discount_numerator=85,discount_denominator=100,
       usage_start='2026-07-28T00:00:00.000Z',usage_end='2026-08-28T00:00:00.000Z' WHERE service_id=?`)
       .run(periodPlan.id,seeded.serviceId);
+    database.prepare("UPDATE services SET ends_at='2026-08-28T00:00:00.000Z' WHERE id=?").run(seeded.serviceId);
     database.prepare(`UPDATE service_entitlements SET usage_start='2026-02-28T00:00:00.000Z' WHERE service_id=?`)
       .run(seeded.serviceId);
     assert.throws(() => quoteServiceUpgrade(database,userId,seeded.serviceId,"high-200g",NOW),/service_not_quotable/);
@@ -353,6 +367,7 @@ test("quote rejects stale usage/version, missing binding and nonstandard discoun
       period_end='2027-01-31T00:00:00.000Z',period_months=12,discount_numerator=74,discount_denominator=100,
       usage_start='2026-07-31T00:00:00.000Z',usage_end='2026-08-31T00:00:00.000Z' WHERE service_id=?`)
       .run(yearPlan.id,seeded.serviceId);
+    database.prepare("UPDATE services SET ends_at='2027-01-31T00:00:00.000Z' WHERE id=?").run(seeded.serviceId);
     const year = quoteServiceUpgrade(database,userId,seeded.serviceId,"half-200g",NOW);
     assert.equal(year.amountFen,proratedUpgradeFen(1000,12,74,100,
       new Date("2027-01-31T00:00:00.000Z").getTime()-NOW.getTime(),

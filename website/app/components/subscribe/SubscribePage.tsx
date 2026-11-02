@@ -256,14 +256,14 @@ export function SubscribePage() {
             </div>
             {selection.availableLines.length > 0 ? (
               <div className="sub-package-choice">
-                <div><h3>选择线路</h3><div className="sub-grid sub-package-lines" role="radiogroup" aria-label="选择线路" onKeyDown={handleRadioGroupKeyDown}>
+                <div><h3>{copy.specSection.lineTitle}</h3><div className="sub-grid sub-package-lines" role="radiogroup" aria-label={copy.specSection.lineTitle} onKeyDown={handleRadioGroupKeyDown}>
                   {selection.availableLines.map((line) => <OptionCard key={line.id} selected={selection.selectedLine?.id === line.id}
                     onSelect={() => selection.selectLine(line.id)} label={ct(line.name)} className="sub-package-option"
                     tabIndex={optionTabIndex(selection.availableLines, selection.selectedLine?.id ?? null, line.id)}>
                     <strong>{ct(line.name)}</strong>{line.notice && <small>{ct(line.notice)}</small>}
                   </OptionCard>)}
                 </div></div>
-                <div><h3>月流量</h3><div className="sub-grid sub-package-traffic" role="radiogroup" aria-label="选择月流量" onKeyDown={handleRadioGroupKeyDown}>
+                <div><h3>{copy.specSection.trafficTitle}</h3><div className="sub-grid sub-package-traffic" role="radiogroup" aria-label={copy.specSection.trafficGroupLabel} onKeyDown={handleRadioGroupKeyDown}>
                   {trafficOptions.filter((traffic) => selection.selectedLine &&
                     selection.packageSpecId(selection.selectedLine.id, traffic.id) !== undefined).map((traffic) =>
                     <OptionCard key={traffic.id} selected={selection.selectedTrafficId === traffic.id}
