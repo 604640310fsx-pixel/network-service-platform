@@ -473,7 +473,7 @@ export const zh = {
     },
     specSection: {
       title: "选择使用规格",
-      lead: "按共享方式、流量与使用场景确认接入规格。",
+      lead: "按流量与使用场景确认接入规格。",
       count: (n: number) => `${n} 个规格`,
       chooseIspFirst: "请先选择 ISP",
       groupLabel: "套餐规格",

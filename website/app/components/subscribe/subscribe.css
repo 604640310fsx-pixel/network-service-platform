@@ -40,6 +40,13 @@
 .sub-grid > * { min-width: 0; }
 .sub-grid-three { grid-template-columns: repeat(auto-fit, minmax(268px, 1fr)); }
 .sub-grid-four { grid-template-columns: repeat(auto-fit, minmax(198px, 1fr)); }
+.sub-package-choice { display: grid; gap: 16px; }
+.sub-package-choice h3 { margin: 0 0 8px; color: var(--cc-text-2); font-size: 14px; }
+.sub-package-lines { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.sub-package-traffic { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.sub-package-option { min-height: 58px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.sub-package-option strong { font-size: 15px; }
+.sub-package-option small { color: var(--cc-text-3); font-size: 12px; }
 .sub-isp-grid { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
 /* auto-fit 按容器实际宽度响应，而不是整窗宽度——侧边栏/摘要面板会吃掉横向空间，
    固定断点在 1280px 这类常见笔记本宽度下会误判（实测内容区只剩 577px，

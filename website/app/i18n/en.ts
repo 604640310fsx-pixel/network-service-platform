@@ -474,7 +474,7 @@ export const en: Messages = {
     },
     specSection: {
       title: "Choose a spec",
-      lead: "Pick sharing level, traffic and use case.",
+      lead: "Pick traffic and use case.",
       count: (n: number) => `${n} specs`,
       chooseIspFirst: "Choose an ISP first",
       groupLabel: "Plan spec",
