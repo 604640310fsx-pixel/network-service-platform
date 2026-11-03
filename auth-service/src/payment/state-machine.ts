@@ -338,7 +338,7 @@ export function finalizePaid(
       const competing = dependencies.database.prepare(`SELECT id FROM service_changes WHERE service_id=? AND id!=?
         AND status IN ('pending_payment','pending_fulfillment','fulfillment_failed','scheduled')`)
         .all(linked[0]!.service_id,linked[0]!.id);
-      const nextStatus = competing.length === 0 ? "pending_fulfillment" : "paid_conflict";
+      const nextStatus = competing.length === 0 && payment.status !== "closed" ? "pending_fulfillment" : "paid_conflict";
       dependencies.database.prepare(`UPDATE service_changes SET status=?,updated_at=?
         WHERE order_id=? AND status IN ('pending_payment','closed')`).run(nextStatus,now,payment.order_id);
     } else if (linked.length === 0) {

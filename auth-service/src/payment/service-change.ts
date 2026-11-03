@@ -156,6 +156,214 @@ function entitlement(database: DatabaseConnection, serviceId: number, userId: nu
   return row;
 }
 
+/** Manual mode trusts an authenticated administrator's recorded opening facts,
+ * not a provider ACK. This legacy-named opaque column is NEVER dispatched. */
+export function assertManualServiceFacts(database: DatabaseConnection, serviceId: number, userId: number) {
+  const current = boundEntitlement(database,serviceId,userId);
+  if (current.binding_provenance !== "verified_opening" || current.provider_binding_ref !== `manual-service:${serviceId}`) {
+    throw new PaymentDomainError(409,"admin_service_facts_required");
+  }
+}
+
+function manualAdmin(database: DatabaseConnection, actor: {id:number;email:string}) {
+  const admin = one(database,"SELECT id FROM users WHERE id=? AND email=? AND role='admin' AND status='active'",actor.id,actor.email);
+  if (admin === null) throw new PaymentDomainError(403,"forbidden");
+}
+
+function manualAudit(database: DatabaseConnection, actor: {id:number;email:string}, action: string, facts: object, now: Date) {
+  database.prepare("INSERT INTO audit_log(actor,action,target_ref,created_at) VALUES (?,?,?,?)")
+    .run(actor.email,action,JSON.stringify({operatorId:actor.id,...facts}),now.toISOString());
+}
+
+export interface ManualServiceFacts {
+  readonly expectedVersion: number;
+  readonly specId: string|null;
+  readonly monthlyPriceFen: number;
+  readonly periodStart: string;
+  readonly usageStart: string;
+  readonly usageUsedGb: number;
+}
+
+export function readManualServiceFacts(database: DatabaseConnection, serviceId: number) {
+  const service = one(database,`SELECT s.id,s.status,s.opened_at,s.ends_at,o.user_id,o.order_ref,o.status AS order_status,
+    p.status AS payment_status,o.type_id,o.region_id,o.isp_id,o.spec_id,o.duration_id,o.amount_fen
+    FROM services s JOIN payments p ON p.id=s.payment_id JOIN orders o ON o.id=p.order_id WHERE s.id=?`,serviceId);
+  if (service === null) throw new PaymentDomainError(404,"not_found");
+  const facts = one(database,"SELECT * FROM service_entitlements WHERE service_id=?",serviceId);
+  return {serviceId,ownerId:number(service,"user_id"),orderRef:string(service,"order_ref"),
+    typeId:string(service,"type_id"),regionId:string(service,"region_id"),ispId:string(service,"isp_id"),
+    specId:(facts === null ? service.spec_id : one(database,"SELECT spec_id FROM sellable_plans WHERE id=?",number(facts,"plan_id"))?.spec_id) as string|null,
+    durationId:string(service,"duration_id"),openedAt:service.opened_at as string|null,endsAt:service.ends_at as string|null,
+    amountFen:number(service,"amount_fen"),version:facts === null ? 0 : number(facts,"version"),
+    confirmed:facts?.binding_provenance === "verified_opening" && facts.provider_binding_ref === `manual-service:${serviceId}`,
+    monthlyPriceFen:facts === null ? null : number(facts,"monthly_price_fen"),
+    periodStart:facts?.period_start as string|undefined ?? null,usageStart:facts?.usage_start as string|undefined ?? null,
+    usageUsedGb:facts === null ? null : number(facts,"usage_used_gb"),
+    usageQuotaGb:facts === null ? null : number(facts,"usage_quota_gb"),
+    source:"管理员人工核实（非服务商验证）"};
+}
+
+export function confirmManualServiceFacts(database: DatabaseConnection, serviceId:number,
+  actor:{id:number;email:string}, input:ManualServiceFacts, now:Date) {
+  return database.transaction(() => {
+    manualAdmin(database,actor);
+    const service = readManualServiceFacts(database,serviceId);
+    if(one(database,"SELECT service_id FROM wallet_termination_cases WHERE service_id=?",serviceId)!==null ||
+      one(database,`SELECT c.order_id FROM wallet_order_closures c JOIN payments p ON p.order_id=c.order_id
+        JOIN services s ON s.payment_id=p.id WHERE s.id=?`,serviceId)!==null)
+      throw new PaymentDomainError(409,"service_not_quotable");
+    const row=one(database,`SELECT s.status,p.status AS payment_status,o.status AS order_status FROM services s
+      JOIN payments p ON p.id=s.payment_id JOIN orders o ON o.id=p.order_id WHERE s.id=?`,serviceId)!;
+    const months=Number(service.durationId.replace("month-","")); const ratio=discount(months);
+    if (row.status!=="open" || row.payment_status!=="paid" || row.order_status!=="paid" || ratio===null ||
+      !["local-isp","pure-native-ip"].includes(service.typeId) || service.endsAt===null ||
+      !Number.isSafeInteger(input.expectedVersion) || input.expectedVersion<0 ||
+      !Number.isSafeInteger(input.monthlyPriceFen) || input.monthlyPriceFen<=0 ||
+      !Number.isSafeInteger(input.usageUsedGb) || input.usageUsedGb<0 || !Number.isFinite(now.getTime()))
+      throw new PaymentDomainError(409,"admin_service_facts_required");
+    const start=instant(input.periodStart),usage=instant(input.usageStart),end=instant(service.endsAt);
+    const windows=Array.from({length:months},(_,i)=>addCalendarMonths(start,i).toISOString());
+    const window=windows.indexOf(usage.toISOString());
+    if (addCalendarMonths(start,months).getTime()!==end.getTime() || window<0 ||
+      now<usage || now>=addCalendarMonths(start,window+1) || now>=end || start>now)
+      throw new PaymentDomainError(409,"admin_service_facts_required");
+    if (activeChange(database,serviceId)!==null || hasPaidConflict(database,serviceId)) throw new PaymentDomainError(409,"change_already_pending");
+    const selection={typeId:service.typeId,regionId:service.regionId,ispId:service.ispId,specId:input.specId,durationId:service.durationId};
+    const plan=findSellablePlan(database,selection),monthly=findSellablePlan(database,{...selection,durationId:"month-1"});
+    const quota=quotaGb(input.specId,service.typeId);
+    if (plan===null || monthly===null || quota===null) throw new PaymentDomainError(409,"invalid_change_target");
+    if (service.confirmed && service.specId===input.specId && service.monthlyPriceFen===input.monthlyPriceFen &&
+      service.periodStart===input.periodStart && service.usageStart===input.usageStart && service.usageUsedGb===input.usageUsedGb)
+      return {status:"confirmed" as const,replay:true};
+    if(service.version!==input.expectedVersion) throw new PaymentDomainError(409,"stale_change");
+    const at=now.toISOString();const usageEnd=addCalendarMonths(start,window+1).toISOString();
+    if(service.version===0) database.prepare(`INSERT INTO service_entitlements(service_id,user_id,plan_id,monthly_plan_id,
+      monthly_price_fen,period_start,period_end,period_months,discount_numerator,discount_denominator,
+      usage_start,usage_end,usage_used_gb,usage_quota_gb,provider_binding_ref,binding_provenance,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'verified_opening',?,?)`).run(serviceId,service.ownerId,plan.id,monthly.id,
+      input.monthlyPriceFen,input.periodStart,service.endsAt,months,ratio[0],ratio[1],input.usageStart,usageEnd,input.usageUsedGb,quota,`manual-service:${serviceId}`,at,at);
+    else {
+      const changed=database.prepare(`UPDATE service_entitlements SET user_id=?,plan_id=?,monthly_plan_id=?,monthly_price_fen=?,
+        period_start=?,period_end=?,period_months=?,discount_numerator=?,discount_denominator=?,usage_start=?,usage_end=?,
+        usage_used_gb=?,usage_quota_gb=?,provider_binding_ref=?,binding_provenance='verified_opening',
+        version=version+1,usage_version=usage_version+1,updated_at=? WHERE service_id=? AND version=?`).run(service.ownerId,
+        plan.id,monthly.id,input.monthlyPriceFen,input.periodStart,service.endsAt,months,ratio[0],ratio[1],input.usageStart,usageEnd,
+        input.usageUsedGb,quota,`manual-service:${serviceId}`,at,serviceId,input.expectedVersion);
+      if(changed.changes!==1) throw new PaymentDomainError(409,"stale_change");
+    }
+    // Validate owner/paid/open/management-closed/term/catalog in this same tx.
+    assertManualServiceFacts(database,serviceId,service.ownerId);
+    manualAudit(database,actor,"service.facts.admin_confirmed",{serviceId,ownerId:service.ownerId,
+      ...input,periodEnd:service.endsAt,periodMonths:months,discount:ratio,usageQuotaGb:quota,source:"operator_confirmed_not_provider_verified"},now);
+    return {status:"confirmed" as const,replay:false};
+  }).immediate();
+}
+
+export function confirmManualServiceChange(database:DatabaseConnection, serviceId:number, changeId:number,
+  actor:{id:number;email:string}, input:{ownerId:number;expectedVersion:number;configured:true},now:Date) {
+  return database.transaction(()=>{
+    manualAdmin(database,actor);
+    if(input.configured!==true || !Number.isSafeInteger(input.expectedVersion) || !Number.isFinite(now.getTime()))
+      throw new PaymentDomainError(400,"invalid_manual_confirmation");
+    const change=one(database,"SELECT * FROM service_changes WHERE id=? AND service_id=? AND user_id=?",changeId,serviceId,input.ownerId);
+    if(change===null) throw new PaymentDomainError(404,"not_found");
+    assertManualServiceFacts(database,serviceId,input.ownerId);
+    const current=boundEntitlement(database,serviceId,input.ownerId);
+    const receipt=`ADMIN-CONFIGURED-${changeId}-${number(change,"from_version")}`;
+    const plan=one(database,"SELECT * FROM sellable_plans WHERE id=?",number(change,"target_plan_id"));
+    const monthly=one(database,"SELECT * FROM sellable_plans WHERE id=?",number(change,"target_monthly_plan_id"));
+    if(plan===null || monthly===null || plan.type_id!==current.type_id || plan.region_id!==current.region_id ||
+      plan.isp_id!==current.isp_id || plan.duration_id!==current.duration_id || monthly.type_id!==plan.type_id ||
+      monthly.region_id!==plan.region_id || monthly.isp_id!==plan.isp_id || monthly.spec_id!==plan.spec_id ||
+      monthly.duration_id!=="month-1" || monthly.price_fen!==change.target_monthly_fen)
+      throw new PaymentDomainError(409,"stale_change");
+    if(change.kind==="upgrade") {
+      const paid=one(database,`SELECT o.user_id,o.status AS order_status,o.amount_fen,p.status,p.amount_fen AS paid_fen,
+        o.type_id,o.region_id,o.isp_id,o.spec_id,o.duration_id FROM orders o JOIN payments p ON p.order_id=o.id WHERE o.id=?`,change.order_id);
+      if(paid===null || paid.user_id!==input.ownerId || paid.status!=="paid" || paid.order_status!=="paid" ||
+        paid.amount_fen!==change.amount_fen || paid.paid_fen!==change.amount_fen ||
+        paid.type_id!==plan.type_id || paid.region_id!==plan.region_id || paid.isp_id!==plan.isp_id ||
+        paid.spec_id!==plan.spec_id || paid.duration_id!==plan.duration_id)
+        throw new PaymentDomainError(409,"change_not_paid");
+      const quote=one(database,"SELECT * FROM service_change_quotes WHERE quote_ref=?",change.quote_ref);
+      if(quote===null || quote.service_id!==serviceId || quote.user_id!==input.ownerId || quote.service_version!==change.from_version ||
+        quote.target_plan_id!==change.target_plan_id || quote.target_monthly_plan_id!==change.target_monthly_plan_id ||
+        quote.target_monthly_fen!==change.target_monthly_fen || quote.amount_fen!==change.amount_fen || quote.consumed_at===null ||
+        one(database,"SELECT order_id FROM wallet_order_closures WHERE order_id=?",change.order_id)!==null)
+        throw new PaymentDomainError(409,"stale_change");
+    } else if(change.kind!=="downgrade" || change.order_id!==null || change.amount_fen!==0 ||
+      change.effective_at!==current.period_end || now<instant(string(change,"effective_at")))
+      throw new PaymentDomainError(409,"change_not_due");
+    if(change.status==="applied") {
+      const evidence=database.prepare(`SELECT 1 FROM audit_log WHERE action='service.change.admin_configured'
+        AND json_extract(CASE WHEN json_valid(target_ref) THEN target_ref ELSE '{}' END,'$.serviceId')=?
+        AND json_extract(CASE WHEN json_valid(target_ref) THEN target_ref ELSE '{}' END,'$.changeId')=?
+        AND json_extract(CASE WHEN json_valid(target_ref) THEN target_ref ELSE '{}' END,'$.fromVersion')=? LIMIT 1`)
+        .all(serviceId,changeId,change.from_version).length===1;
+      if(change.receipt_ref!==receipt || current.version!==number(change,"from_version")+1 ||
+        current.plan_id!==change.target_plan_id || current.monthly_plan_id!==change.target_monthly_plan_id ||
+        current.monthly_price_fen!==change.target_monthly_fen || input.expectedVersion!==change.from_version || !evidence)
+        throw new PaymentDomainError(409,"stale_change");
+      return {status:"applied" as const,replay:true};
+    }
+    if(hasPaidConflict(database,serviceId) || input.expectedVersion!==change.from_version || current.version!==change.from_version ||
+      (change.kind==="upgrade" && !["pending_fulfillment","fulfillment_failed"].includes(string(change,"status"))) ||
+      (change.kind==="downgrade" && change.status!=="scheduled")) throw new PaymentDomainError(409,"stale_change");
+    if(change.kind==="upgrade") entitlement(database,serviceId,input.ownerId,now); // late paid remains pending, not lost/reopened
+    const next=target(database,current,plan.spec_id as string|null,change.kind as ChangeKind);
+    if(next.planId!==change.target_plan_id || next.monthlyPlanId!==change.target_monthly_plan_id || next.monthlyFen!==change.target_monthly_fen)
+      throw new PaymentDomainError(409,"stale_change");
+    const at=now.toISOString();
+    const applied=database.prepare(`UPDATE service_entitlements SET plan_id=?,monthly_plan_id=?,monthly_price_fen=?,
+      usage_quota_gb=?,version=version+1,updated_at=? WHERE service_id=? AND user_id=? AND version=?`).run(next.planId,
+      next.monthlyPlanId,next.monthlyFen,next.quota,at,serviceId,input.ownerId,input.expectedVersion);
+    if(applied.changes!==1) throw new PaymentDomainError(409,"stale_change");
+    const changed=database.prepare(`UPDATE service_changes SET status='applied',receipt_ref=?,effective_at=COALESCE(effective_at,?),
+      failure_reason=NULL,updated_at=? WHERE id=? AND from_version=? AND status=?`).run(receipt,at,at,changeId,input.expectedVersion,change.status);
+    if(changed.changes!==1) throw new PaymentDomainError(409,"stale_change");
+    manualAudit(database,actor,"service.change.admin_configured",{serviceId,changeId,ownerId:input.ownerId,
+      fromVersion:input.expectedVersion,targetPlanId:next.planId,evidence:"operator_confirmed_not_provider_verified",
+      periodEnd:current.period_end,usageUsedGb:current.usage_used_gb},now);
+    return {status:"applied" as const,replay:false};
+  }).immediate();
+}
+
+export function listManualServiceChanges(database:DatabaseConnection,now:Date) {
+  const rows=database.prepare(`SELECT sc.*,u.email,o.order_ref,p.paid_at,p.status AS payment_status,o.status AS order_status,
+    e.version,e.usage_used_gb,e.usage_quota_gb,e.period_end,sp.spec_id AS current_spec,tp.spec_id AS target_spec,
+    original.type_id,original.region_id,original.isp_id FROM service_changes sc
+    JOIN users u ON u.id=sc.user_id JOIN services s ON s.id=sc.service_id
+    JOIN payments op ON op.id=s.payment_id JOIN orders original ON original.id=op.order_id
+    LEFT JOIN service_entitlements e ON e.service_id=sc.service_id
+    LEFT JOIN sellable_plans sp ON sp.id=e.plan_id JOIN sellable_plans tp ON tp.id=sc.target_plan_id
+    LEFT JOIN orders o ON o.id=sc.order_id LEFT JOIN payments p ON p.order_id=o.id
+    WHERE sc.status IN ('pending_fulfillment','fulfillment_failed','paid_conflict','scheduled') ORDER BY sc.id`).all() as DbRow[];
+  const items=rows.filter(r=>r.kind==="downgrade" || (r.payment_status==="paid" && r.order_status==="paid")).map(r=>{
+    const category=r.kind==="downgrade" ? (typeof r.effective_at==="string" && now>=instant(r.effective_at) ? "due_downgrade":"scheduled") : "paid_pending";
+    let reason:string|null=null;
+    try {
+      assertManualServiceFacts(database,number(r,"service_id"),number(r,"user_id"));
+      const current=boundEntitlement(database,number(r,"service_id"),number(r,"user_id"));
+      if(r.from_version!==current.version || hasPaidConflict(database,number(r,"service_id"))) reason="stale_change";
+      else if(r.kind==="upgrade" && now>=instant(string(current,"period_end"))) reason="service_expired";
+      else {
+        if(r.kind==="upgrade")entitlement(database,number(r,"service_id"),number(r,"user_id"),now);
+        const next=target(database,current,r.target_spec as string|null,r.kind as ChangeKind);
+        if(next.planId!==r.target_plan_id||next.monthlyPlanId!==r.target_monthly_plan_id||next.monthlyFen!==r.target_monthly_fen)reason="stale_change";
+      }
+    } catch(error) { reason=error instanceof PaymentDomainError ? error.code : "service_facts_invalid"; }
+    return {id:number(r,"id"),serviceId:number(r,"service_id"),ownerId:number(r,"user_id"),customer:string(r,"email"),
+      typeId:string(r,"type_id"),regionId:string(r,"region_id"),ispId:string(r,"isp_id"),currentSpecId:r.current_spec as string|null,
+      targetSpecId:r.target_spec as string|null,expectedVersion:number(r,"from_version"),kind:string(r,"kind"),status:string(r,"status"),category,
+      orderRef:r.order_ref as string|null,paidAt:r.paid_at as string|null,amountFen:number(r,"amount_fen"),
+      effectiveAt:r.effective_at as string|null,periodEnd:r.period_end as string|null,usageUsedGb:r.usage_used_gb as number|null,
+      usageQuotaGb:r.usage_quota_gb as number|null,reason};
+  });
+  const paidPending=items.filter(x=>x.category==="paid_pending").length;
+  const dueDowngrade=items.filter(x=>x.category==="due_downgrade").length;
+  return {items,counts:{paidPending,dueDowngrade,total:paidPending+dueDowngrade},serverNow:now.toISOString()};
+}
+
 function activeChange(database: DatabaseConnection, serviceId: number): DbRow | null {
   return one(database, `SELECT id, kind, status FROM service_changes WHERE service_id = ?
     AND status IN ('pending_payment','pending_fulfillment','fulfillment_failed','scheduled')`, serviceId);
@@ -309,7 +517,7 @@ export function createServiceUpgradeOrder(dependencies: OrderServiceDependencies
       return paymentResponse(createStoredOrder(dependencies,{idempotencyKey:input.idempotencyKey,rawAccessToken:input.rawAccessToken,
         selection:{typeId:string(targetPlan,"type_id"),regionId:string(targetPlan,"region_id"),ispId:string(targetPlan,"isp_id"),
           specId:targetPlan.spec_id as string|null,durationId:string(targetPlan,"duration_id")},
-        contact:"LOCAL DEMO",scenarios:[],notes:null,amountFen:input.acknowledgedAmountFen,userId:input.userId,
+        contact:"套餐变更",scenarios:[],notes:null,amountFen:input.acknowledgedAmountFen,userId:input.userId,
         fingerprint,planId:number(quote,"target_plan_id"),couponId:null,discountFen:0,skipPlanOccupancy:true}));
     }
     const now = (dependencies.now ?? (() => new Date()))();
@@ -332,7 +540,7 @@ export function createServiceUpgradeOrder(dependencies: OrderServiceDependencies
     })).digest("hex");
     const result = createStoredOrder(dependencies, {
       idempotencyKey: input.idempotencyKey, rawAccessToken: input.rawAccessToken,
-      selection: next.selection, contact: "LOCAL DEMO", scenarios: [], notes: null,
+      selection: next.selection, contact: "套餐变更", scenarios: [], notes: null,
       amountFen: input.acknowledgedAmountFen, userId: input.userId, fingerprint: requestFingerprint,
       planId: next.planId, couponId: null, discountFen: 0, skipPlanOccupancy: true,
     });
@@ -410,9 +618,10 @@ export function acknowledgeServiceFulfillment(database: DatabaseConnection, user
   return operation.immediate();
 }
 
-export function serviceChangeSnapshot(database: DatabaseConnection, serviceId: number, userId: number, now: Date) {
+export function serviceChangeSnapshot(database: DatabaseConnection, serviceId: number, userId: number, now: Date, manual = false) {
   let current: DbRow;
-  try { current = entitlement(database,serviceId,userId,now); }
+  try { if(manual)assertManualServiceFacts(database,serviceId,userId);
+    current = manual ? boundEntitlement(database,serviceId,userId) : entitlement(database,serviceId,userId,now); }
   catch (error) {
     if (error instanceof PaymentDomainError) return null;
     throw error;
@@ -432,6 +641,8 @@ export function serviceChangeSnapshot(database: DatabaseConnection, serviceId: n
     usageWindowEnd: string(current,"usage_end"), version: number(current,"version"),
     periodMonths: number(current,"period_months"),
     bindingProvenance: string(current,"binding_provenance"),
+    ...(manual ? { manualFulfillment: true, canChange: now >= instant(string(current,"period_start")) &&
+      now < instant(string(current,"period_end")) && now >= instant(string(current,"usage_start")) && now < instant(string(current,"usage_end")) } : {}),
     paidConflict: hasPaidConflict(database,serviceId),
     change: change === null ? null : { id: number(change,"id"), kind: string(change,"kind"), status: string(change,"status"),
       amountFen:number(change,"amount_fen"),targetSpecId:change.target_spec_id as string|null,

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
-  PaymentApiError, cancelServiceDowngrade, createOrderCredentials,
+  PaymentApiError, bindOrderAccess, cancelServiceDowngrade, createOrderCredentials,
   getServiceChangeOptions, orderServiceUpgrade, quoteServiceUpgrade,
   scheduleServiceDowngrade, simulateServiceFulfillment, simulateServicePayment,
   type MyServiceItem, type OrderCredentials, type ServiceChangeOption,
@@ -116,6 +116,7 @@ export function ServiceChangeCard({ item, entitlement, csrfToken, reload, openSe
   reload: () => void; children?: ReactNode;
   openServiceId: number | null; setOpenServiceId: (serviceId: number | null) => void;
 }) {
+  const navigate=useNavigate();
   const current = splitSpec(entitlement.specId);
   const editorOpen = openServiceId === entitlement.serviceId;
   const [target, setTarget] = useState<Target>(current);
@@ -220,7 +221,11 @@ export function ServiceChangeCard({ item, entitlement, csrfToken, reload, openSe
         if (attemptRef.current?.quoteRef !== quote.quoteRef) {
           attemptRef.current = { quoteRef: quote.quoteRef, credentials: createOrderCredentials() };
         }
-        await orderServiceUpgrade(entitlement.serviceId, quote, csrfToken, attemptRef.current.credentials);
+        const result=await orderServiceUpgrade(entitlement.serviceId, quote, csrfToken, attemptRef.current.credentials);
+        if(entitlement.manualFulfillment){
+          bindOrderAccess(result.orderRef,attemptRef.current.credentials);
+          closeEditor();navigate(`/subscribe/request?orderRef=${encodeURIComponent(result.orderRef)}`,{state:{paymentResult:result}});return;
+        }
       } else if (selectedOption.direction === "downgrade" && selectedSpecId !== undefined) {
         await scheduleServiceDowngrade(entitlement.serviceId, selectedSpecId, csrfToken);
       } else return;
@@ -285,10 +290,10 @@ export function ServiceChangeCard({ item, entitlement, csrfToken, reload, openSe
           本期补差 <strong>{fen(quote.amountFen)}</strong><small>报价有效至 {dateTime(quote.expiresAt)}</small>
         </> : "等待服务器报价"}</p>
         <p className="cc-svc-rule">按原付费期剩余实际时间补差；到期日仍为 {date(entitlement.periodEnd)}，本月已用 {entitlement.usageUsedGb}G 不清零。</p>
-        <p className="cc-svc-rule">仅创建本地模拟待付单。模拟付款确认后，还需模拟履约成功才更新当前权益；此月费作为未来续期输入。</p>
+        <p className="cc-svc-rule">{entitlement.manualFulfillment?"付款确认后进入待管理员配置；管理员手动配置并确认后才更新权益，不会即时自动切换。":"仅创建本地模拟待付单。模拟付款确认后，还需模拟履约成功才更新当前权益；此月费作为未来续期输入。"}</p>
       </> : selectedOption.direction === "downgrade" ? <>
         <p className="cc-svc-due">本期 <strong>¥0</strong><small>下期付费续期时才采用新线路</small></p>
-        <p className="cc-svc-rule">不退差价，到期前继续使用当前方案。不会自动扣款，也不会免费延长服务。本地到期应用仅作模拟，不代表线上自动执行。</p>
+        <p className="cc-svc-rule">不退差价，到期前继续使用当前方案。不会自动扣款，也不会免费延长服务。{entitlement.manualFulfillment?"到期待处理，管理员手动配置并确认后生效；不自动重开到期服务。":"本地到期应用仅作模拟，不代表线上自动执行。"}</p>
       </> : <p className="cc-svc-reason" role="status">这个组合与当前档位相同。</p>}
     {quoteError && <p className="cc-svc-reason" role="alert">{quoteError}</p>}
     {actionError && <p className="cc-svc-reason" role="alert">{actionError}</p>}
@@ -297,7 +302,7 @@ export function ServiceChangeCard({ item, entitlement, csrfToken, reload, openSe
         !selectedOption || selectedOption.direction === "current" ||
         (selectedOption.direction === "upgrade" && (!quote || quoteLoading || new Date(quote.expiresAt).getTime() <= Date.now()))}
         onClick={() => void confirm()}>{busy ? "提交中…" : selectedOption?.direction === "downgrade"
-          ? "预约下期更换" : "确认升级并创建本地待付单"}</button>
+          ? "预约下期更换" : entitlement.manualFulfillment?"确认补差并前往付款":"确认升级并创建本地待付单"}</button>
       <button type="button" className="cc-svc-btn cc-svc-btn-text" onClick={closeEditor}>取消</button>
     </div>
   </div>;
@@ -307,7 +312,7 @@ export function ServiceChangeCard({ item, entitlement, csrfToken, reload, openSe
       <div className="cc-svc-identity"><div className="cc-svc-who">
         <h3>{typeName(entitlement.typeId)}</h3>
         <span className="cc-svc-place">{placeName(entitlement.typeId, entitlement.regionId, entitlement.ispId)}</span>
-        <span className="cc-svc-live">{item.serviceStatus === "open" ? "使用中" : "待开通"}</span>
+        <span className="cc-svc-live">{Date.parse(entitlement.periodEnd)<=Date.now()?"已到期":item.serviceStatus === "open" ? "使用中" : "待开通"}</span>
       </div>
         <p className="cc-svc-plan">{planName(entitlement, current)}</p>
         <p className="cc-svc-billing">月费 <strong>{fen(entitlement.monthlyPriceFen)}</strong>/月
@@ -321,22 +326,22 @@ export function ServiceChangeCard({ item, entitlement, csrfToken, reload, openSe
     </div>
     <div className="cc-svc-next">
       {active ? <><div className="cc-svc-change-summary" role="status">
-        <strong>{change?.status === "pending_payment" ? "待付款" : change?.status === "pending_fulfillment" ? "处理中" :
-          change?.status === "scheduled" ? "已预约下期" : change?.status === "fulfillment_failed" ? "处理未完成" : "需人工处理"}</strong>
-        <span>{change?.status === "pending_payment" ? `升级至 ${changeTargetName}，本地待付补差 ${fen(change.amountFen)}；尚未确认付款。` :
-          change?.status === "pending_fulfillment" ? `正在调整为 ${changeTargetName}；模拟付款已确认，待履约回执。` :
-          change?.status === "scheduled" ? `下次付费续期报价采用 ${changeTargetName}；${date(entitlement.periodEnd)} 到期前当前权益不变。本地到期应用仅作模拟，不代表线上自动执行。` :
-          change?.status === "fulfillment_failed" ? `调整为 ${changeTargetName} 未完成，当前方案不变；可在演示区重试。` :
+        <strong>{change?.status === "pending_payment" ? "待付款" : change?.status === "pending_fulfillment" ? "待管理员配置" :
+          change?.status === "scheduled" ? "预约降档 · 到期待处理" : change?.status === "fulfillment_failed" ? "处理未完成" : "需人工处理"}</strong>
+        <span>{change?.status === "pending_payment" ? `升级至 ${changeTargetName}，待付补差 ${fen(change.amountFen)}；尚未确认付款。` :
+          change?.status === "pending_fulfillment" ? `付款已确认，等待管理员手动配置 ${changeTargetName} 并确认后生效，当前权益未变。` :
+          change?.status === "scheduled" ? `下一付费周期报价采用 ${changeTargetName}；到期待处理 → 管理员确认后生效。不自动扣款、免费延期或重开服务。` :
+          change?.status === "fulfillment_failed" ? `调整为 ${changeTargetName} 未完成，当前方案不变；${entitlement.manualFulfillment?"等待管理员核对处理。":"可在演示区重试。"}` :
           "迟到付款冲突，当前权益未改变，需人工处理。"}</span>
       </div>
-        {change?.status === "pending_payment" && <button type="button" className="cc-svc-btn cc-svc-btn-small"
-          onClick={showDemoControls}>查看本地模拟付款操作</button>}
-        {change?.status === "scheduled" && <button type="button" className="cc-svc-btn cc-svc-btn-small"
+        {change?.status === "pending_payment" && (entitlement.manualFulfillment?<Link className="cc-svc-btn cc-svc-btn-small" to={`/subscribe/request?orderRef=${encodeURIComponent(change.orderRef??"")}`}>前往订单付款</Link>:<button type="button" className="cc-svc-btn cc-svc-btn-small"
+          onClick={showDemoControls}>查看本地模拟付款操作</button>)}
+        {change?.status === "scheduled" && entitlement.canChange!==false && <button type="button" className="cc-svc-btn cc-svc-btn-small"
           disabled={busy || csrfToken === null} onClick={() => void cancelDowngrade()}>取消预约</button>}</> : <>
         <button ref={triggerRef} type="button" className="cc-svc-btn" aria-expanded={editorOpen}
-          aria-controls={`cc-svc-editor-${entitlement.serviceId}`} onClick={() => editorOpen ? closeEditor() : openEditor()}>
-          <span aria-hidden="true">☷</span> 调整套餐 <span aria-hidden="true">⌄</span></button>
-        <span className="cc-svc-next-hint">可更换线路或升级月流量</span>
+          aria-controls={`cc-svc-editor-${entitlement.serviceId}`} onClick={() => editorOpen ? closeEditor() : openEditor()}
+          disabled={entitlement.canChange===false}><span aria-hidden="true">☷</span> 调整套餐 <span aria-hidden="true">⌄</span></button>
+        <span className="cc-svc-next-hint">{entitlement.canChange===false?"服务已到期或需管理员更新月窗口资料":"可更换线路或升级月流量"}</span>
       </>}
       <OrderDetails item={item} />
     </div>
@@ -349,7 +354,7 @@ export function ServiceChangeCard({ item, entitlement, csrfToken, reload, openSe
       <h4>订阅交付与续费设置</h4>
       <div>{children}</div>
     </section>}
-    {(change?.status === "pending_payment" || change?.status === "pending_fulfillment" ||
+    {!entitlement.manualFulfillment&&(change?.status === "pending_payment" || change?.status === "pending_fulfillment" ||
       change?.status === "fulfillment_failed") && <details ref={demoPanelRef} className="cc-svc-demo-panel">
       <summary>本地演示测试 · 仅合成服务</summary>
       <DemoControls entitlement={entitlement} csrfToken={csrfToken} reload={reload} />

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -722,6 +722,25 @@ test("populated synthetic 026 upgrades to 030 preserving relations, admin catalo
     assert.equal(oldPlans.length,255);
     assert.equal(firstNumber(database,"SELECT MAX(version) FROM schema_migrations"),26);
 
+    // The independent 26->30 release route reuses this populated fixture.
+    // Verify a current 026 snapshot through the existing backup tool, never an
+    // arbitrary SQL replay or a historical 013/015 snapshot.
+    const backupTool = await import(new URL("../../scripts/sqlite-backup.mjs", import.meta.url).href);
+    const recovery = await import(new URL("../../../scripts/ops/assemble-consolidated-release.mjs", import.meta.url).href);
+    const snapshotPath = join(directory,"synthetic-026-snapshot.sqlite");
+    const created = await backupTool.run(["create","--source",databasePath,"--destination",snapshotPath]);
+    const verified = await backupTool.run(["verify","--backup",snapshotPath,"--expected-sha256",created.sha256,
+      "--expected-last-migration","26"]);
+    const binding = {attemptId:"synthetic-populated-026-030",databaseBinding:"disposable-synthetic-db"};
+    const recoveryFacts = {...binding,trafficClosed:true,oldApplicationStopped:true,candidateStopped:true,
+      applicationWriters:0,applicationWritesSinceSnapshot:0,paymentsSinceSnapshot:0,fulfillmentsSinceSnapshot:0,
+      externalEffectsSinceSnapshot:0,snapshot:{...binding,sha256:verified.sha256,bytes:verified.bytes},
+      snapshotVerification:verified,rollbackArtifacts:{...binding,verified:true,authSchemaBoundary:26,
+        authSha256:"a".repeat(64),websiteSha256:"b".repeat(64)}};
+    const versions = () => (database.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as
+      Array<{version:number}>).map(row=>row.version);
+    assert.equal(recovery.assertStandard26RecoveryBoundary({...recoveryFacts,phase:"before-upgrade",liveMigrations:versions()}).status,"ok");
+
     // Upgrade through the real current runner; no hand replay of 027-030 SQL.
     runMigrations(database);
     assert.deepEqual(legacyTables.map(table => database.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()),legacySnapshot);
@@ -786,6 +805,25 @@ test("populated synthetic 026 upgrades to 030 preserving relations, admin catalo
       assert.deepEqual(reopened.pragma("foreign_key_check"),[]);
       assert.deepEqual(reopened.pragma("integrity_check"),[{integrity_check:"ok"}]);
     } finally { reopened.close(); }
+    // A closed-traffic acceptance failure may restore ONLY the matched whole
+    // 026 snapshot, and only with fresh zero-effect proof. Copy to another NEW
+    // disposable path: this test never overwrites even its migrated fixture.
+    assert.equal(recovery.assertStandard26RecoveryBoundary({...recoveryFacts,phase:"failed-upgrade",liveMigrations:versions()})
+      .permittedAction,"restore-matched-026-snapshot-and-artifacts");
+    const restoredPath=join(directory,"synthetic-restored-026.sqlite");
+    await copyFile(snapshotPath,restoredPath);
+    const restored=openAndVerifyDatabase(restoredPath);
+    try {
+      assert.deepEqual(restored.prepare("SELECT * FROM schema_migrations ORDER BY version").all(),oldHistory);
+      assert.deepEqual(legacyTables.map(table=>restored.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()),legacySnapshot);
+      assert.deepEqual(restored.prepare("SELECT * FROM sellable_plans ORDER BY id").all(),oldPlans);
+      assert.deepEqual(restored.pragma("foreign_key_check"),[]);
+      assert.deepEqual(restored.pragma("integrity_check"),[{integrity_check:"ok"}]);
+    } finally { restored.close(); }
+    for (const key of ["applicationWritesSinceSnapshot","paymentsSinceSnapshot","fulfillmentsSinceSnapshot","externalEffectsSinceSnapshot"]) {
+      assert.throws(()=>recovery.assertStandard26RecoveryBoundary({...recoveryFacts,phase:"failed-upgrade",
+        liveMigrations:versions(),[key]:1}),error=>(error as {code:string}).code==="RESTORE_26_FORBIDDEN");
+    }
   } finally {
     database.close();
     await rm(directory,{recursive:true,force:true});

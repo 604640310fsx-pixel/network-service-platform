@@ -96,6 +96,9 @@ jobs:
     timeout-minutes: 30
     env:
       EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      # Only this same-repository review PR opts into the independent 026->030 route.
+      # A fork with the same branch name and every other PR keep the frozen 026 gate.
+      STANDARD26_TASK_CONTEXT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/service-change-release-prepare-20261103' && github.event.pull_request.base.ref == 'integration/consolidate-project' }}
       PROVENANCE_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'github-actions' || 'github-actions-test' }}
       VALIDATION_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'ci-build' || 'ci-test' }}
       MONITOR_ORIGIN_POLICY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'required' || 'optional' }}
@@ -119,9 +122,16 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           node scripts/ops/validate-release-open-http-contract.mjs \
             --source "$GITHUB_WORKSPACE"
-          node scripts/ops/validate-consolidated-release-packet.mjs \
-            --source "$GITHUB_WORKSPACE" \
-            --expected-sha "$EXPECTED_SHA"
+          if [ "$STANDARD26_TASK_CONTEXT" = "true" ]; then
+            node scripts/ops/validate-consolidated-release-packet.mjs \
+              --source "$GITHUB_WORKSPACE" \
+              --expected-sha "$EXPECTED_SHA" \
+              --schema-route standard26-30
+          else
+            node scripts/ops/validate-consolidated-release-packet.mjs \
+              --source "$GITHUB_WORKSPACE" \
+              --expected-sha "$EXPECTED_SHA"
+          fi
 
       - name: Run monitor gateway offline tests
         run: |
@@ -162,6 +172,34 @@ jobs:
         run: |
           test ! -e "$BUNDLE_PARENT"
           mkdir -p "$BUNDLE_PARENT"
+          if [ "$STANDARD26_TASK_CONTEXT" = "true" ]; then
+            for ordinal in first second; do
+              node scripts/ops/assemble-consolidated-release.mjs \
+                --source "$GITHUB_WORKSPACE" \
+                --destination "$BUNDLE_PARENT/standard26-$ordinal" \
+                --expected-sha "$EXPECTED_SHA" \
+                --provenance-mode "$PROVENANCE_MODE" \
+                --schema-route standard26-30
+              node scripts/ops/validate-release-open-http-contract.mjs \
+                --source "$BUNDLE_PARENT/standard26-$ordinal"
+              node scripts/ops/validate-consolidated-release-packet.mjs \
+                --source "$GITHUB_WORKSPACE" \
+                --expected-sha "$EXPECTED_SHA" \
+                --bundle "$BUNDLE_PARENT/standard26-$ordinal" \
+                --validation-mode "$VALIDATION_MODE" \
+                --schema-route standard26-30
+              if find "$BUNDLE_PARENT/standard26-$ordinal" \
+                \( -type l -o -name node_modules -o -name '.env*' \
+                   -o -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
+                   -o -name '*.pem' -o -name '*.key' \) \
+                -print -quit | grep -q .; then
+                echo "forbidden standard26 review bundle entry detected" >&2
+                exit 1
+              fi
+            done
+            cmp "$BUNDLE_PARENT/standard26-first/release-manifest.json" \
+              "$BUNDLE_PARENT/standard26-second/release-manifest.json"
+          else
           node scripts/ops/assemble-consolidated-release.mjs \
             --source "$GITHUB_WORKSPACE" \
             --destination "$BUNDLE_PARENT/first" \
@@ -272,6 +310,17 @@ jobs:
             echo "forbidden standard19 release bundle entry detected" >&2
             exit 1
           fi
+          fi
+
+      - name: Retain exact standard26 PR review bundle (not a production release)
+        if: env.STANDARD26_TASK_CONTEXT == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-release-standard26-review-${{ env.EXPECTED_SHA }}
+          path: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}/standard26-first/
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
 
       - name: Verify lockfiles are unchanged
         run: |

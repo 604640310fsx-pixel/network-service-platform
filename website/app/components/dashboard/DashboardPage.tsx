@@ -6,6 +6,7 @@ import { AdminDiagnosisPanel } from "./AdminDiagnosisPanel";
 import { AdminInviteCodesPanel } from "./AdminInviteCodesPanel";
 import { AdminOrdersPanel } from "./AdminOrdersPanel";
 import { AdminPendingServices } from "./AdminPendingServices";
+import { AdminServiceChangePanel } from "./AdminServiceChangePanel";
 import { AdminPlansPanel } from "./AdminPlansPanel";
 import { AdminTicketsPanel } from "./AdminTicketsPanel";
 import { AdminUserServicesPanel } from "./AdminUserServicesPanel";
@@ -33,6 +34,7 @@ export function DashboardPage() {
   return (
     <main className="dash-page">
       <div className="dash-layout">
+        {principal?.role === "admin" && <AdminServiceChangePanel csrfToken={csrfToken} />}
         <BuyerDashboardOverview />
 
         {principal?.role === "admin" && <AdminDiagnosisPanel csrfToken={csrfToken} />}

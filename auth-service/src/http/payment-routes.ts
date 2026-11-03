@@ -43,7 +43,7 @@ import {
 } from "../payment/admin-services.js";
 import { refreshPaymentFromAlipay } from "../payment/payment-refresh.js";
 import {
-  acknowledgeServiceFulfillment, cancelServiceDowngrade, createServiceUpgradeOrder,
+  acknowledgeServiceFulfillment, assertManualServiceFacts, cancelServiceDowngrade, createServiceUpgradeOrder,
   listServiceChangeOptions, quoteServiceUpgrade, scheduleServiceDowngrade, serviceChangeSnapshot,
 } from "../payment/service-change.js";
 import {
@@ -746,7 +746,6 @@ export function registerPaymentHttpRoutes(
       return reply.code(200).send({
         items: [
           ...listMyServices(dependencies.database, session.principal.userId).map((item) => {
-            if (!dependencies.serviceChangeLocalDemo) return item;
             const rows = dependencies.database.prepare(
               "SELECT type_id,region_id,isp_id FROM orders WHERE order_ref=? AND user_id=?",
             ).all(item.orderRef,session.principal.userId) as Array<{type_id:string;region_id:string;isp_id:string}>;
@@ -757,7 +756,7 @@ export function registerPaymentHttpRoutes(
             return { ...item,
               display:{typeId:rows[0].type_id,regionId:rows[0].region_id,ispId:rows[0].isp_id},
               entitlement: serviceChangeSnapshot(dependencies.database, item.serviceId,
-                session.principal.userId, paymentNow(dependencies)),
+                session.principal.userId, paymentNow(dependencies),!dependencies.serviceChangeLocalDemo),
             };
           }),
           ...listMyGrants(dependencies.database, session.principal.userId),
@@ -768,9 +767,13 @@ export function registerPaymentHttpRoutes(
     }
   });
 
-  // Explicit local-only synthetic feature. Production server never sets this dependency.
-  if (dependencies.enabled && dependencies.serviceChangeLocalDemo) {
+  // Customer manual-fulfillment flow is real. Only simulation controls below
+  // remain under the explicit local flag; production never sets that flag.
+  if (dependencies.enabled) {
     const demoDependencies = dependencies;
+    const requireFacts = (serviceId:number,userId:number) => {
+      if(!dependencies.serviceChangeLocalDemo) assertManualServiceFacts(dependencies.database,serviceId,userId);
+    };
     const requireServiceAction = (request: FastifyRequest, reply: FastifyReply) => {
       const session = readPaymentSession(request, demoDependencies);
       if (session === null) {
@@ -800,7 +803,7 @@ export function registerPaymentHttpRoutes(
       if (session === null) return reply.code(401).send(errorResponse("unauthorized"));
       const serviceId = serviceIdFrom(request.params.id);
       if (serviceId === null) return reply.code(404).send(errorResponse("service_not_found"));
-      try { return reply.code(200).send({items:listServiceChangeOptions(demoDependencies.database,session.principal.userId,
+      try { requireFacts(serviceId,session.principal.userId); return reply.code(200).send({items:listServiceChangeOptions(demoDependencies.database,session.principal.userId,
         serviceId,paymentNow(demoDependencies))}); }
       catch (error) { return sendDomainError(reply,error); }
     });
@@ -811,7 +814,8 @@ export function registerPaymentHttpRoutes(
       const serviceId = serviceIdFrom(request.params.id);
       const specId = specFrom(request.body);
       if (serviceId === null || specId === undefined) return reply.code(400).send(errorResponse("invalid_change_target"));
-      try { return reply.code(200).send(quoteServiceUpgrade(demoDependencies.database,userId,serviceId,specId,paymentNow(demoDependencies))); }
+      try { requireFacts(serviceId,userId); return reply.code(200).send({...quoteServiceUpgrade(demoDependencies.database,userId,serviceId,specId,paymentNow(demoDependencies)),
+        effectiveCondition:dependencies.serviceChangeLocalDemo ? "simulated_fulfillment_ack":"admin_manual_confirmation"}); }
       catch (error) { return sendDomainError(reply,error); }
     });
     app.post<{ Params: { id: string }; Body: unknown }>("/api/me/services/:id/change/upgrade", async (request, reply) => {
@@ -828,6 +832,7 @@ export function registerPaymentHttpRoutes(
         return reply.code(400).send(errorResponse("invalid_change_quote"));
       }
       try {
+        requireFacts(serviceId,userId);
         const result = createServiceUpgradeOrder(demoDependencies,{userId,serviceId,quoteRef:body.quoteRef,idempotencyKey,rawAccessToken,
           acknowledgedAmountFen:body.acknowledgedAmountFen});
         return reply.code(200).send(await publicPaymentResult(demoDependencies,result));
@@ -840,7 +845,7 @@ export function registerPaymentHttpRoutes(
       const serviceId = serviceIdFrom(request.params.id);
       const specId = specFrom(request.body);
       if (serviceId === null || specId === undefined) return reply.code(400).send(errorResponse("invalid_change_target"));
-      try { return reply.code(200).send(scheduleServiceDowngrade(demoDependencies.database,userId,serviceId,specId,paymentNow(demoDependencies))); }
+      try { requireFacts(serviceId,userId); return reply.code(200).send(scheduleServiceDowngrade(demoDependencies.database,userId,serviceId,specId,paymentNow(demoDependencies))); }
       catch (error) { return sendDomainError(reply,error); }
     });
     app.post<{ Params: { id: string } }>("/api/me/services/:id/change/cancel", async (request, reply) => {
@@ -849,9 +854,10 @@ export function registerPaymentHttpRoutes(
       if (userId === null) return reply;
       const serviceId = serviceIdFrom(request.params.id);
       if (serviceId === null) return reply.code(400).send(errorResponse("invalid_change_target"));
-      try { return reply.code(200).send(cancelServiceDowngrade(demoDependencies.database,userId,serviceId,paymentNow(demoDependencies))); }
+      try { requireFacts(serviceId,userId); return reply.code(200).send(cancelServiceDowngrade(demoDependencies.database,userId,serviceId,paymentNow(demoDependencies))); }
       catch (error) { return sendDomainError(reply,error); }
     });
+    if(dependencies.serviceChangeLocalDemo) {
     app.post<{ Params: { id: string }; Body: unknown }>("/api/me/services/:id/change/simulate-fulfillment", async (request, reply) => {
       setNoStore(reply);
       const userId = requireServiceAction(request, reply);
@@ -886,6 +892,7 @@ export function registerPaymentHttpRoutes(
         return reply.code(200).send({orderRef:after.orderRef,status:after.status,changeStatus:"pending_fulfillment"});
       } catch (error) { return sendDomainError(reply,error); }
     });
+    }
   }
 
   app.get("/api/me/delivery-lines", async (request, reply) => {

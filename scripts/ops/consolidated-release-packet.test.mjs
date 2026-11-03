@@ -55,6 +55,10 @@ import {
   STANDARD16_26_RELEASE_SCHEMA_ROUTE,
   STANDARD19_26_RELEASE_SCHEMA_ROUTE,
   DIRECT14_26_RELEASE_SCHEMA_ROUTE,
+  STANDARD26_30_RELEASE_SCHEMA_ROUTE,
+  RELEASE_MIGRATIONS_001_030,
+  releaseArtifactNameForRoute,
+  assertStandard26RecoveryBoundary,
 } from "./assemble-consolidated-release.mjs";
 import {
   validateBundle,
@@ -2614,6 +2618,24 @@ function createArchiveSource(parent, name, { generation = 26 } = {}) {
     '<!doctype html><script type="module" src="/assets/referral-12345678.js"></script>\n',
   );
   writeFixtureFile(root, "website/dist/assets/referral-12345678.js", "export {};\n");
+  // Model an exact historical source, not today's extra 027..030 migrations.
+  // Existing 026 and earlier route assertions remain unchanged.
+  if (generation <= 26) {
+    const dbPath = join(root, "auth-service/src/db.ts");
+    let db = readFileSync(dbPath, "utf8");
+    for (const migration of RELEASE_MIGRATIONS_001_030.slice(26)) {
+      rmSync(join(root, "auth-service/src/migrations", migration));
+      db = db.replace(`  "${migration}",\n`, "");
+    }
+    writeFileSync(dbPath, db);
+  }
+  if (generation === 30) {
+    // Overlay only the affected release tools/workflow into this disposable
+    // fixture; its fixture commit is NOT a candidate task commit.
+    for (const path of ["scripts/ops/assemble-consolidated-release.mjs", "scripts/ops/validate-consolidated-release-packet.mjs", ".github/workflows/ci.yml"]) {
+      writeFixtureFile(root, path, readFileSync(join(REPOSITORY_ROOT, path), "utf8"));
+    }
+  }
   if (generation < 26) {
     // Strip the source back to an exact historical generation: its migrations,
     // runner entries, later runbook sections, and later CI route flags.
@@ -2984,6 +3006,112 @@ test("validator CLI keeps the current 001-026 source strict", () => {
     assert.equal(unknownRoute.json.code, "ARGUMENT_ERROR");
   } finally {
     rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("standard26-30 is explicit, exact, isolated from frozen 026 routes and local bundles stay unreleasable", () => {
+  const parent = mkdtempSync(join(tmpdir(), "consolidated-release-026-030-"));
+  try {
+    assert.equal(RELEASE_MIGRATIONS.length, 26);
+    assert.equal(RELEASE_MIGRATIONS_001_030.length, 30);
+    assert.deepEqual(RELEASE_MIGRATIONS_001_030.slice(0,26), RELEASE_MIGRATIONS);
+    const source = createArchiveSource(parent, "source-030", { generation: 30 });
+    assert.equal(releaseArtifactNameForRoute(source.sha, STANDARD26_30_RELEASE_SCHEMA_ROUTE), `consolidated-release-standard26-${source.sha}`);
+    const args = ["--source", source.root, "--expected-sha", source.sha];
+    const explicit = cli(VALIDATOR_PATH, [...args, "--schema-route", STANDARD26_30_RELEASE_SCHEMA_ROUTE]);
+    assert.equal(explicit.status, 0, JSON.stringify(explicit.json));
+    const oldDefault = cli(VALIDATOR_PATH, args);
+    assert.equal(oldDefault.json.code, "SCHEMA_BOUNDARY_MISMATCH");
+    const bundle = join(parent, "bundle-030");
+    const assembled = cli(ASSEMBLER_PATH, [...args, "--destination", bundle,
+      "--provenance-mode", LOCAL_PROVENANCE_MODE, "--schema-route", STANDARD26_30_RELEASE_SCHEMA_ROUTE]);
+    assert.equal(assembled.status, 0, JSON.stringify(assembled.json));
+    const manifest = JSON.parse(readFileSync(join(bundle,"release-manifest.json"),"utf8"));
+    assert.deepEqual(manifest.schemaBoundary,{rollback:26,candidate:30});
+    assert.deepEqual(manifest.migrations,RELEASE_MIGRATIONS_001_030);
+    const validated = cli(VALIDATOR_PATH,[...args,"--bundle",bundle,"--validation-mode",LOCAL_PROVENANCE_MODE,"--schema-route",STANDARD26_30_RELEASE_SCHEMA_ROUTE]);
+    assert.equal(validated.status,0,JSON.stringify(validated.json));
+    assert.equal(validated.json.releaseUse,"forbidden");
+    assert.throws(()=>validateBundle({bundle,expectedSha:source.sha,validationMode:"candidate",schemaRoute:STANDARD26_30_RELEASE_SCHEMA_ROUTE}),error=>error.code==="PROVENANCE_REQUIRED");
+    for (const schemaRoute of [STANDARD16_26_RELEASE_SCHEMA_ROUTE,DIRECT14_26_RELEASE_SCHEMA_ROUTE,STANDARD19_26_RELEASE_SCHEMA_ROUTE]) {
+      assert.throws(()=>assembleReleaseBundle({source:source.root,destination:join(parent,schemaRoute),expectedSha:source.sha,
+        provenanceMode:LOCAL_PROVENANCE_MODE,schemaRoute}),error=>error.code==="SCHEMA_BOUNDARY_MISMATCH");
+      assert.throws(()=>validateBundle({bundle,expectedSha:source.sha,validationMode:LOCAL_PROVENANCE_MODE,schemaRoute}),error=>error.code==="BUNDLE_INTEGRITY_FAILED");
+    }
+    const old = createArchiveSource(parent,"source-026");
+    assert.throws(()=>assembleReleaseBundle({source:old.root,destination:join(parent,"wrong-old"),expectedSha:old.sha,
+      provenanceMode:LOCAL_PROVENANCE_MODE,schemaRoute:STANDARD26_30_RELEASE_SCHEMA_ROUTE}),error=>error.code==="SCHEMA_BOUNDARY_MISMATCH");
+    // Missing/wrong/extra/future migrations must fail before a bundle is created.
+    for (const mode of ["missing","renamed","future"]) {
+      const fixtureParent = join(parent,mode); mkdirSync(fixtureParent);
+      const migrations = [...RELEASE_MIGRATIONS_001_030];
+      if(mode==="missing") migrations.pop();
+      if(mode==="renamed") migrations[29]="030_wrong.sql";
+      if(mode==="future") migrations.push("031_future.sql");
+      const fixture=createFixtureRepository(fixtureParent,migrations);
+      const destination=join(fixtureParent,"bundle");
+      assert.throws(()=>assembleReleaseBundle({source:fixture.root,destination,expectedSha:fixture.sha,
+        provenanceMode:LOCAL_PROVENANCE_MODE,schemaRoute:STANDARD26_30_RELEASE_SCHEMA_ROUTE}),error=>error.code==="SCHEMA_BOUNDARY_MISMATCH");
+      assert.equal(existsSync(destination),false);
+      const rejected=cli(VALIDATOR_PATH,["--source",fixture.root,"--expected-sha",fixture.sha,"--schema-route",STANDARD26_30_RELEASE_SCHEMA_ROUTE]);
+      assert.equal(rejected.json.code,"SCHEMA_BOUNDARY_MISMATCH");
+    }
+  } finally { rmSync(parent,{recursive:true,force:true}); }
+});
+
+test("standard26 review CI opts in only the exact same-repo PR and retains mandatory old-route controls", () => {
+  const workflow=readFileSync(join(REPOSITORY_ROOT,".github/workflows/ci.yml"),"utf8");
+  const condition="github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/service-change-release-prepare-20261103' && github.event.pull_request.base.ref == 'integration/consolidate-project'";
+  assert.equal(workflow.split(`STANDARD26_TASK_CONTEXT: \u0024{{ ${condition} }}`).length,2);
+  assert.match(workflow,/test "\$\(git rev-parse HEAD\)" = "\$EXPECTED_SHA"/);
+  assert.equal(workflow.includes("continue-on-error"),false);
+  for(const route of ["standard16-26","direct14-26","standard19-26"])assert.ok(workflow.includes(`--schema-route ${route}`));
+  for(const required of ["npm --prefix auth-service test","npm --prefix website test","npm --prefix website run check","npm --prefix website run build",
+    "consolidated-release-packet.test.mjs scripts/ops/release-safety-guards.test.mjs",'--validation-mode "$VALIDATION_MODE"',
+    '"$BUNDLE_PARENT/standard26-first/release-manifest.json"',"consolidated-release-standard26-review-${{ env.EXPECTED_SHA }}"])
+    assert.ok(workflow.includes(required),required);
+  // The same real context is retained: a PR's test provenance cannot become
+  // an integration-push candidate just because its source is schema030.
+  const sha="b".repeat(40),environment=githubEnvironment({sha,candidate:false});
+  const provenance=createReleaseProvenance({mode:"github-actions-test",expectedSha:sha,schemaRoute:STANDARD26_30_RELEASE_SCHEMA_ROUTE,environment});
+  assert.equal(provenance.releaseUse,"forbidden");
+  assert.equal(provenance.eventName,"pull_request");
+  assert.throws(()=>createReleaseProvenance({mode:"github-actions",expectedSha:sha,schemaRoute:STANDARD26_30_RELEASE_SCHEMA_ROUTE,environment}),
+    error=>error.code==="PROVENANCE_REQUIRED");
+});
+
+test("standard26-30 recovery fails closed after any new effect or unknown/mismatched proof", () => {
+  const migrations = Array.from({length:26},(_,index)=>index+1);
+  const binding={attemptId:"synthetic-release-only",databaseBinding:"synthetic-db-only"};
+  const snapshot={...binding,sha256:"a".repeat(64),bytes:4096};
+  const proof={...binding,verified:true,authSchemaBoundary:26,authSha256:"b".repeat(64),websiteSha256:"c".repeat(64)};
+  const base={...binding,phase:"before-upgrade",trafficClosed:true,oldApplicationStopped:true,candidateStopped:true,
+    applicationWriters:0,applicationWritesSinceSnapshot:0,paymentsSinceSnapshot:0,fulfillmentsSinceSnapshot:0,externalEffectsSinceSnapshot:0,
+    liveMigrations:migrations,snapshot,rollbackArtifacts:proof,
+    snapshotVerification:{status:"ok",operation:"verify",sha256:snapshot.sha256,bytes:snapshot.bytes,fileMode:"0600",
+      quickCheck:"ok",foreignKeyFailures:0,migrations}};
+  assert.equal(assertStandard26RecoveryBoundary(base).permittedAction,"upgrade-026-to-030");
+  for(const end of [26,27,28,29,30]) {
+    const result=assertStandard26RecoveryBoundary({...base,phase:"failed-upgrade",liveMigrations:Array.from({length:end},(_,i)=>i+1)});
+    assert.equal(result.permittedAction,"restore-matched-026-snapshot-and-artifacts");
+    assert.equal(result.automaticRestore,false);
+    assert.equal(result.requiresFreshProofAtExecution,true);
+  }
+  const deny=patch=>assert.throws(()=>assertStandard26RecoveryBoundary({...base,...patch}),error=>error.code==="RESTORE_26_FORBIDDEN");
+  for(const key of ["applicationWriters","applicationWritesSinceSnapshot","paymentsSinceSnapshot","fulfillmentsSinceSnapshot","externalEffectsSinceSnapshot"]) {
+    deny({[key]:1});deny({[key]:undefined});
+    assert.throws(()=>assertStandard26RecoveryBoundary({...base,phase:"failed-upgrade",[key]:1}),error=>error.code==="RESTORE_26_FORBIDDEN");
+  }
+  for(const key of ["trafficClosed","oldApplicationStopped","candidateStopped"]) {deny({[key]:false});deny({[key]:undefined});}
+  for(const patch of [{phase:"after-open"},{snapshot:undefined},{rollbackArtifacts:undefined},
+    {snapshot:{...snapshot,attemptId:"other-attempt"}},{snapshot:{...snapshot,databaseBinding:"other-db"}},
+    {rollbackArtifacts:{...proof,verified:false}},{rollbackArtifacts:{...proof,authSchemaBoundary:19}},
+    {rollbackArtifacts:{...proof,websiteSha256:undefined}},{liveMigrations:[1,2,26]},
+    {liveMigrations:Array.from({length:30},(_,i)=>i+1)},
+    {phase:"failed-upgrade",liveMigrations:Array.from({length:31},(_,i)=>i+1)}]) deny(patch);
+  for(const patch of [{sha256:"d".repeat(64)},{fileMode:"0644"},{bytes:8192},{quickCheck:"failed"},
+    {foreignKeyFailures:1},{operation:"create"},{migrations:migrations.slice(0,13)}]) {
+    deny({snapshotVerification:{...base.snapshotVerification,...patch}});
   }
 });
 

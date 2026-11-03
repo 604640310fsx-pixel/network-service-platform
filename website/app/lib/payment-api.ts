@@ -121,12 +121,14 @@ export type MyServiceItem = {
   readonly endsAt: string | null;
   /** Admin plan-name override; null = no override. */
   readonly planLabel: string | null;
-  /** Local synthetic demo only; absent in the original purchase response. */
+  /** Authoritative purchased-service projection; absent on older servers. */
   readonly display?: { readonly typeId: string; readonly regionId: string; readonly ispId: string };
   readonly entitlement?: ServiceEntitlement | null;
 };
 
 export type ServiceEntitlement = {
+  readonly manualFulfillment?: boolean;
+  readonly canChange?: boolean;
   readonly serviceId: number;
   readonly typeId: "local-isp" | "pure-native-ip";
   readonly regionId: string;
@@ -576,7 +578,10 @@ function parseServiceChangeFields(item: Record<string, unknown>, serviceId: numb
           (display !== undefined && (display.typeId !== value.typeId || display.regionId !== value.regionId || display.ispId !== value.ispId))) {
         throw new PaymentApiError("invalid_response");
       }
-      entitlement = { serviceId: value.serviceId, typeId: value.typeId, regionId: value.regionId,
+      if((value.manualFulfillment!==undefined&&typeof value.manualFulfillment!=="boolean") ||
+        (value.canChange!==undefined&&typeof value.canChange!=="boolean"))throw new PaymentApiError("invalid_response");
+      entitlement = { manualFulfillment:value.manualFulfillment as boolean|undefined,canChange:value.canChange as boolean|undefined,
+        serviceId: value.serviceId, typeId: value.typeId, regionId: value.regionId,
         ispId: value.ispId, specId: value.specId, monthlyPriceFen: value.monthlyPriceFen,
         periodEnd: value.periodEnd, usageUsedGb: value.usageUsedGb, usageQuotaGb: value.usageQuotaGb,
         usageWindowEnd: value.usageWindowEnd, version: value.version, periodMonths: value.periodMonths,
@@ -997,7 +1002,7 @@ export async function getMyServiceListing(signal?: AbortSignal): Promise<MyServi
 
 export type ServiceUpgradeQuote = {
   readonly quoteRef: string; readonly amountFen: number; readonly currency: "CNY";
-  readonly expiresAt: string; readonly effectiveCondition: "simulated_fulfillment_ack";
+  readonly expiresAt: string; readonly effectiveCondition: "simulated_fulfillment_ack"|"admin_manual_confirmation";
   readonly periodEnd: string; readonly monthlyUsedGb: number; readonly monthlyWindowEnd: string;
 };
 export type ServiceChangeOption = { readonly specId: string | null; readonly monthlyFen: number;
@@ -1024,7 +1029,7 @@ export async function quoteServiceUpgrade(serviceId: number, specId: string | nu
     method: "POST", headers: mutationHeaders({ "X-CSRF-Token": csrfToken }), body: JSON.stringify({ specId }), signal,
   }));
   if (!isNonEmptyString(body.quoteRef) || !isPositiveInteger(body.amountFen) || body.currency !== "CNY" ||
-      !isCanonicalIsoInstant(body.expiresAt) || body.effectiveCondition !== "simulated_fulfillment_ack" ||
+      !isCanonicalIsoInstant(body.expiresAt) || !["simulated_fulfillment_ack","admin_manual_confirmation"].includes(body.effectiveCondition as string) ||
       !isCanonicalIsoInstant(body.periodEnd) || !isNonNegativeInteger(body.monthlyUsedGb) ||
       !isCanonicalIsoInstant(body.monthlyWindowEnd)) throw new PaymentApiError("invalid_response");
   return body as ServiceUpgradeQuote;

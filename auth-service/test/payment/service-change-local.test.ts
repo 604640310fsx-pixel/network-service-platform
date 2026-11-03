@@ -9,6 +9,7 @@ import {
   addCalendarMonths, acknowledgeServiceFulfillment, applyDueScheduledDowngrade, cancelServiceDowngrade,
   createServiceUpgradeOrder, proratedUpgradeFen, quoteServiceUpgrade,
   listServiceChangeOptions, scheduleServiceDowngrade, serviceChangeSnapshot,
+  confirmManualServiceFacts, confirmManualServiceChange, listManualServiceChanges,
 } from "../../src/payment/service-change.js";
 import { finalizeClosed, finalizePaid } from "../../src/payment/state-machine.js";
 import { computeSessionTokenHash } from "../../src/session/session-token.js";
@@ -65,6 +66,145 @@ test("calendar anniversaries and exact rational prorating keep one final half-up
   assert.equal(proratedUpgradeFen(1000,12,74,100,1,2),4440);
   assert.equal(proratedUpgradeFen(1000,12,74,100,100,100),8880);
   assert.throws(() => proratedUpgradeFen(1000,6,90,100,1,2),/service_not_quotable/);
+});
+
+test("manual customer signed payment waits for real role+CSRF admin confirmation; persistent reminders and replay are exact",async()=>{
+  await withAuthenticationDatabase(async database=>{
+    const owner=insertAuthenticationUser(database,{email:"manual-owner@example.invalid",passwordHash:"synthetic",status:"active"});
+    const adminId=insertAuthenticationUser(database,{email:"manual-admin@example.invalid",passwordHash:"synthetic",status:"active",role:"admin"});
+    const otherId=insertAuthenticationUser(database,{email:"manual-other@example.invalid",passwordHash:"synthetic",status:"active"});
+    const seeded=seedService(database,owner),buyer=insertWebSession(database,owner),admin=insertWebSession(database,adminId),other=insertWebSession(database,otherId);
+    const actor={id:adminId,email:"manual-admin@example.invalid"};
+    const app=buildApp({payment:seeded.dependencies}); // no local-demo dependency
+    const headers=(s:typeof buyer)=>({cookie:s.cookie,"x-csrf-token":s.csrfToken});
+    const facts={expectedVersion:1,specId:null,monthlyPriceFen:7900,periodStart:"2026-08-01T00:00:00.000Z",usageStart:"2026-08-01T00:00:00.000Z",usageUsedGb:80};
+    const list=async()=>{const r=await app.inject({method:"GET",url:"/api/admin/service-changes",headers:headers(admin)});assert.equal(r.statusCode,200,r.body);return r.json();};
+    const rights=()=>database.prepare("SELECT * FROM service_entitlements WHERE service_id=?").all(seeded.serviceId)[0] as Record<string,unknown>;
+    try{
+      const factsUrl=`/api/admin/services/${seeded.serviceId}/change-facts`;
+      assert.equal((await app.inject({method:"POST",url:factsUrl,payload:facts})).statusCode,401);
+      assert.equal((await app.inject({method:"POST",url:factsUrl,headers:headers(buyer),payload:facts})).statusCode,403);
+      assert.equal((await app.inject({method:"POST",url:factsUrl,headers:{cookie:admin.cookie},payload:facts})).statusCode,403);
+      assert.equal((await app.inject({method:"POST",url:factsUrl,headers:headers(admin),payload:{...facts,usageUsedGb:undefined}})).statusCode,400);
+      const saved=await app.inject({method:"POST",url:factsUrl,headers:headers(admin),payload:facts});assert.equal(saved.statusCode,200,saved.body);
+      const before=rights();assert.equal(before.binding_provenance,"verified_opening");assert.equal(before.provider_binding_ref,`manual-service:${seeded.serviceId}`);
+      const originalRenewal=produceRenewalQuote(database,seeded.serviceId,"MONTHLY",owner);
+      setRenewalConsent(database,seeded.serviceId,owner,"MONTHLY",0,true,originalRenewal.key,NOW.toISOString());
+      const consentBefore=database.prepare("SELECT * FROM wallet_consents WHERE service_id=?").all(seeded.serviceId);
+      assert.equal((await app.inject({method:"POST",url:`/api/me/services/${seeded.serviceId}/change/simulate-payment`,headers:headers(buyer)})).statusCode,404);
+      assert.equal((await app.inject({method:"POST",url:`/api/me/services/${seeded.serviceId}/change/simulate-fulfillment`,headers:headers(buyer),payload:{}})).statusCode,404);
+      const quoteResponse=await app.inject({method:"POST",url:`/api/me/services/${seeded.serviceId}/change/quote`,headers:headers(buyer),payload:{specId:"high-500g"}});
+      assert.equal(quoteResponse.statusCode,200,quoteResponse.body);const quote=quoteResponse.json();assert.equal(quote.effectiveCondition,"admin_manual_confirmation");
+      assert.equal((await app.inject({method:"POST",url:`/api/me/services/${seeded.serviceId}/change/quote`,headers:headers(other),payload:{specId:"high-500g"}})).statusCode,404);
+      const orderResponse=await app.inject({method:"POST",url:`/api/me/services/${seeded.serviceId}/change/upgrade`,headers:{...headers(buyer),"idempotency-key":"manual-http-order","x-order-access-token":ACCESS_TOKEN_B},payload:{quoteRef:quote.quoteRef,acknowledgedAmountFen:quote.amountFen}});
+      assert.equal(orderResponse.statusCode,200,orderResponse.body);const order=orderResponse.json();assert.equal(seeded.sdk.pageCalls.at(-1)?.method,"alipay.trade.page.pay");
+      const changeId=firstValue(database,"SELECT id FROM service_changes WHERE service_id=?",seeded.serviceId) as number;
+      const confirmUrl=`/api/admin/services/${seeded.serviceId}/changes/${changeId}/confirm-configured`;
+      const confirmBody={ownerId:owner,expectedVersion:before.version,configured:true};
+      assert.equal((await app.inject({method:"POST",url:confirmUrl,headers:headers(admin),payload:confirmBody})).statusCode,409);
+      assert.equal((await list()).counts.total,0);assert.deepEqual(rights(),before);
+      const fields={sign:"synthetic-signature",sign_type:"RSA2",notify_id:"manual-notify",app_id:seeded.dependencies.appId,
+        seller_id:seeded.dependencies.sellerId,out_trade_no:order.orderRef,trade_no:"synthetic-manual-trade",trade_status:"TRADE_SUCCESS",total_amount:(quote.amountFen/100).toFixed(2)};
+      seeded.sdk.verifyNotify=false;
+      assert.equal((await app.inject({method:"POST",url:"/api/pay/alipay/notify",headers:{"content-type":"application/x-www-form-urlencoded"},payload:new URLSearchParams(fields).toString()})).statusCode,400);
+      assert.equal((await list()).counts.total,0);seeded.sdk.verifyNotify=true;
+      for(let i=0;i<2;i++){const paid=await app.inject({method:"POST",url:"/api/pay/alipay/notify",headers:{"content-type":"application/x-www-form-urlencoded"},payload:new URLSearchParams(fields).toString()});assert.equal(paid.statusCode,200,paid.body);}
+      assert.equal((await list()).counts.paidPending,1);assert.equal((await list()).counts.total,1);assert.deepEqual(rights(),before);
+      assert.equal((await app.inject({method:"POST",url:confirmUrl,headers:headers(buyer),payload:confirmBody})).statusCode,403);
+      assert.equal((await app.inject({method:"POST",url:confirmUrl,headers:{cookie:admin.cookie},payload:confirmBody})).statusCode,403);
+      for(const body of [{...confirmBody,ownerId:otherId},{...confirmBody,expectedVersion:999},{...confirmBody,configured:false},{...confirmBody,receiptRef:"fake-provider-ack"}]){
+        const r=await app.inject({method:"POST",url:confirmUrl,headers:headers(admin),payload:body});assert.ok(r.statusCode>=400,r.body);assert.equal((await list()).counts.total,1);assert.deepEqual(rights(),before);
+      }
+      const confirmed=await app.inject({method:"POST",url:confirmUrl,headers:headers(admin),payload:confirmBody});assert.equal(confirmed.statusCode,200,confirmed.body);
+      assert.equal((await list()).counts.total,0);const after=rights();assert.equal(after.usage_quota_gb,500);assert.equal(after.usage_used_gb,80);
+      for(const key of ["period_start","period_end","usage_start","usage_end","period_months","discount_numerator","discount_denominator"])assert.equal(after[key],before[key],key);
+      assert.equal(firstValue(database,"SELECT ends_at FROM services WHERE id=?",seeded.serviceId),before.period_end);
+      const repeat=await app.inject({method:"POST",url:confirmUrl,headers:headers(admin),payload:confirmBody});assert.equal(repeat.statusCode,200,repeat.body);assert.equal(repeat.json().replay,true);
+      assert.equal(firstValue(database,"SELECT COUNT(*) FROM audit_log WHERE action='service.change.admin_configured'"),1);
+      assert.match(firstValue(database,"SELECT receipt_ref FROM service_changes WHERE id=?",changeId) as string,/^ADMIN-CONFIGURED-/);
+      assert.equal(firstValue(database,"SELECT COUNT(*) FROM services"),1);
+      assert.ok(produceRenewalQuote(database,seeded.serviceId,"MONTHLY",owner).key.includes(":high-500g:"));
+      assert.notEqual(produceRenewalQuote(database,seeded.serviceId,"MONTHLY",owner).key,originalRenewal.key);
+      assert.deepEqual(database.prepare("SELECT * FROM wallet_consents WHERE service_id=?").all(seeded.serviceId),consentBefore);
+      assert.throws(()=>confirmManualServiceChange(database,seeded.serviceId,changeId,{id:owner,email:actor.email},confirmBody as {ownerId:number;expectedVersion:number;configured:true},NOW),/forbidden/);
+    }finally{await app.close();}
+  });
+});
+
+test("manual due downgrade is a persistent admin TODO only at server due time; no reopen, reset, refund or early apply",async()=>{
+  await withAuthenticationDatabase(async database=>{
+    const owner=insertAuthenticationUser(database,{email:"manual-due@example.invalid",passwordHash:"synthetic",status:"active"});
+    const admin=insertAuthenticationUser(database,{email:"manual-due-admin@example.invalid",passwordHash:"synthetic",status:"active",role:"admin"});
+    const actor={id:admin,email:"manual-due-admin@example.invalid"};const seeded=seedService(database,owner,"high-500g");
+    confirmManualServiceFacts(database,seeded.serviceId,actor,{expectedVersion:1,specId:"high-500g",monthlyPriceFen:11900,
+      periodStart:"2026-08-01T00:00:00.000Z",usageStart:"2026-08-01T00:00:00.000Z",usageUsedGb:80},NOW);
+    const version=firstValue(database,"SELECT version FROM service_entitlements WHERE service_id=?",seeded.serviceId) as number;
+    scheduleServiceDowngrade(database,owner,seeded.serviceId,"half-500g",NOW);
+    const changeId=firstValue(database,"SELECT id FROM service_changes WHERE service_id=?",seeded.serviceId) as number;
+    const input={ownerId:owner,expectedVersion:version,configured:true as const};
+    assert.equal(listManualServiceChanges(database,NOW).counts.total,0);assert.equal(listManualServiceChanges(database,NOW).items[0]?.category,"scheduled");
+    assert.throws(()=>confirmManualServiceChange(database,seeded.serviceId,changeId,actor,input,NOW),/change_not_due/);
+    const before=database.prepare("SELECT * FROM service_entitlements WHERE service_id=?").all(seeded.serviceId)[0] as Record<string,unknown>;
+    const due=new Date("2026-09-01T00:00:00.000Z");
+    assert.equal(listManualServiceChanges(database,due).counts.dueDowngrade,1);
+    assert.equal(listManualServiceChanges(database,due).counts.dueDowngrade,1); // read/refresh does not dismiss
+    assert.equal(confirmManualServiceChange(database,seeded.serviceId,changeId,actor,input,due).replay,false);
+    assert.equal(confirmManualServiceChange(database,seeded.serviceId,changeId,actor,input,due).replay,true);
+    const after=database.prepare("SELECT * FROM service_entitlements WHERE service_id=?").all(seeded.serviceId)[0] as Record<string,unknown>;
+    for(const key of ["period_start","period_end","usage_start","usage_end","usage_used_gb","usage_quota_gb","period_months","discount_numerator","discount_denominator"])assert.equal(after[key],before[key],key);
+    assert.equal(firstValue(database,"SELECT ends_at FROM services WHERE id=?",seeded.serviceId),due.toISOString());
+    assert.equal(listManualServiceChanges(database,due).counts.total,0);
+    assert.equal(firstValue(database,"SELECT COUNT(*) FROM wallet_ledger"),0);
+    assert.equal(firstValue(database,"SELECT COUNT(*) FROM orders"),1);
+  });
+});
+
+test("manual late payment, expiry, management closure, gift and cancelled appointment fail closed without losing paid TODO",async()=>{
+  await withAuthenticationDatabase(async database=>{
+    const owner=insertAuthenticationUser(database,{email:"manual-negative@example.invalid",passwordHash:"synthetic",status:"active"});
+    const admin=insertAuthenticationUser(database,{email:"manual-negative-admin@example.invalid",passwordHash:"synthetic",status:"active",role:"admin"});
+    const actor={id:admin,email:"manual-negative-admin@example.invalid"},seeded=seedService(database,owner,"high-500g");
+    confirmManualServiceFacts(database,seeded.serviceId,actor,{expectedVersion:1,specId:"high-500g",monthlyPriceFen:11900,
+      periodStart:"2026-08-01T00:00:00.000Z",usageStart:"2026-08-01T00:00:00.000Z",usageUsedGb:80},NOW);
+    const version=firstValue(database,"SELECT version FROM service_entitlements WHERE service_id=?",seeded.serviceId) as number;
+    scheduleServiceDowngrade(database,owner,seeded.serviceId,"half-500g",NOW);
+    const cancelled=firstValue(database,"SELECT id FROM service_changes WHERE service_id=?",seeded.serviceId) as number;
+    cancelServiceDowngrade(database,owner,seeded.serviceId,NOW);
+    assert.equal(listManualServiceChanges(database,NOW).items.length,0);
+    assert.throws(()=>confirmManualServiceChange(database,seeded.serviceId,cancelled,actor,{ownerId:owner,expectedVersion:version,configured:true},new Date("2026-09-01T00:00:00.000Z")),/stale_change/);
+    const quote=quoteServiceUpgrade(database,owner,seeded.serviceId,"live-1t",NOW);
+    const order=createServiceUpgradeOrder(seeded.dependencies,{userId:owner,serviceId:seeded.serviceId,quoteRef:quote.quoteRef,
+      idempotencyKey:"manual-late",rawAccessToken:ACCESS_TOKEN_B,acknowledgedAmountFen:quote.amountFen});
+    const paid={outTradeNo:order.orderRef,tradeNo:"manual-late-paid",tradeStatus:"TRADE_SUCCESS",totalAmount:(quote.amountFen/100).toFixed(2),totalAmountFen:quote.amountFen,appId:seeded.dependencies.appId,sellerId:seeded.dependencies.sellerId};
+    finalizePaid(seeded.dependencies,paid);
+    const id=firstValue(database,"SELECT id FROM service_changes WHERE order_id=(SELECT id FROM orders WHERE order_ref=?)",order.orderRef) as number;
+    const input={ownerId:owner,expectedVersion:version,configured:true as const};
+    const before=database.prepare("SELECT * FROM service_entitlements WHERE service_id=?").all(seeded.serviceId);
+    assert.throws(()=>confirmManualServiceChange(database,seeded.serviceId,id,actor,input,new Date("2026-09-01T00:00:00.000Z")),/service_not_quotable/);
+    assert.equal(listManualServiceChanges(database,new Date("2026-09-01T00:00:00.000Z")).items[0]?.reason,"service_expired");
+    assert.equal(listManualServiceChanges(database,NOW).counts.paidPending,1);
+    const originalOrder=firstValue(database,"SELECT p.order_id FROM services s JOIN payments p ON p.id=s.payment_id WHERE s.id=?",seeded.serviceId);
+    database.prepare("INSERT INTO wallet_order_closures(order_id,closed_by_user_id,closed_at) VALUES (?,?,?)").run(originalOrder,admin,NOW.toISOString());
+    assert.throws(()=>confirmManualServiceChange(database,seeded.serviceId,id,actor,input,NOW),/service_not_quotable/);
+    assert.throws(()=>confirmManualServiceFacts(database,seeded.serviceId,actor,{expectedVersion:version,specId:"high-500g",monthlyPriceFen:11900,
+      periodStart:"2026-08-01T00:00:00.000Z",usageStart:"2026-08-01T00:00:00.000Z",usageUsedGb:80},NOW),/service_not_quotable/);
+    assert.equal(listManualServiceChanges(database,NOW).counts.paidPending,1);
+    assert.deepEqual(database.prepare("SELECT * FROM service_entitlements WHERE service_id=?").all(seeded.serviceId),before);
+    database.prepare("DELETE FROM wallet_order_closures WHERE order_id=?").run(originalOrder); // synthetic denial probe only
+    database.prepare("UPDATE service_changes SET status='closed' WHERE id=?").run(id);
+    database.prepare("UPDATE payments SET status='closed',paid_at=NULL,closed_at=?,close_reason='alipay_trade_closed' WHERE order_id=(SELECT id FROM orders WHERE order_ref=?)")
+      .run(NOW.toISOString(),order.orderRef);
+    database.prepare("UPDATE orders SET status='closed' WHERE order_ref=?").run(order.orderRef);
+    assert.equal(finalizePaid(seeded.dependencies,paid),"finalized");
+    assert.equal(firstValue(database,"SELECT status FROM service_changes WHERE id=?",id),"paid_conflict");
+    assert.throws(()=>confirmManualServiceChange(database,seeded.serviceId,id,actor,input,NOW),/stale_change/);
+    assert.equal(listManualServiceChanges(database,NOW).counts.paidPending,1);
+    const app=buildApp({payment:seeded.dependencies});const session=insertWebSession(database,owner);
+    try{assert.equal((await app.inject({method:"POST",url:"/api/me/grants/999/change/quote",headers:{cookie:session.cookie,"x-csrf-token":session.csrfToken},payload:{specId:"high-500g"}})).statusCode,404);}
+    finally{await app.close();}
+    assert.equal(firstValue(database,"SELECT COUNT(*) FROM audit_log WHERE action='service.change.admin_configured'"),0);
+    assert.equal(firstValue(database,"SELECT COUNT(*) FROM services"),1);
+  });
 });
 
 test("renewal quote follows fulfilled effective route and quota, keeps term discounts and rejects inconsistent bindings", async () => {
