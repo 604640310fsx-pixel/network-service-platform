@@ -181,10 +181,16 @@ test("corrupt/conflicting v2 snapshots never fall back to shared-3 or legacy NUL
 
 test('marked031 missing its snapshot column is corruption, not historical NULL fallback',async()=>{
  await withAuthenticationDatabase(async db=>{
+  const owner=insertAuthenticationUser(db,{email:'schema-negative@example.invalid',passwordHash:'synthetic',status:'active'}),deps=paymentDependencies(db);
+  const old=createPaymentOrder(deps,orderInput('shared-3',21900,owner));
+  finalizePaid(deps,{outTradeNo:old.orderRef,tradeNo:'schema-negative-paid',tradeStatus:'TRADE_SUCCESS',totalAmount:'219.00',totalAmountFen:21900,appId:deps.appId,sellerId:deps.sellerId});
+  const serviceId=firstValue(db,'SELECT s.id FROM services s JOIN payments p ON p.id=s.payment_id WHERE p.out_trade_no=?',old.orderRef)as number;
+  db.prepare("UPDATE services SET status='open',opened_by_admin_id=?,opened_at=?,ends_at='2026-09-21T00:00:00.000Z' WHERE id=?").run(owner,TEST_NOW.toISOString(),serviceId);
   db.exec('ALTER TABLE orders DROP COLUMN residential_options_json');
   assert.equal(firstValue(db,'SELECT MAX(version) FROM schema_migrations'),31);
   assert.throws(()=>residentialSnapshotSql(db),{message:'Residential snapshot schema missing'});
   assert.throws(()=>resolveQuote(db,{selection:selection(),couponCode:null,now:()=>TEST_NOW}),{message:'Residential snapshot schema missing'});
+  assert.throws(()=>produceRenewalQuote(db,serviceId,'MONTHLY',owner),{message:'QUOTE_UNAVAILABLE'});
  });
 });
 

@@ -15,6 +15,7 @@ Function("require", "module", "exports", compiled)(
     if (specifier === "../../lib/i18n") return { useT: () => ({}) };
     if (specifier === "../../lib/serviceTerm") return { serviceTerm: () => ({ kind: "long_term" }) };
     if (specifier === "../../lib/resolveSelection") return { resolveSelection: () => ({ summary: {}, requiresSpec: false }) };
+    if (specifier === "../subscribe/ResidentialOptionDetails") return {};
     if (["react", "react-router-dom", "../subscription-import", "../dashboard/buyerPlans", "../../lib/auth", "../../lib/wallet-api", "./ServiceChangeCard", "./customer-services.css", "react/jsx-runtime"].includes(specifier)) return {};
     throw new Error(`Unexpected import: ${specifier}`);
   },

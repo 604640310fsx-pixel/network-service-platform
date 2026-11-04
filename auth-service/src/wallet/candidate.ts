@@ -4,7 +4,7 @@ import { findSellablePlan } from "../payment/commerce.js";
 import { addUtcMonths, parseEndsAt } from "../payment/admin-services.js";
 import { CATALOG_VERSION } from "../payment/pricing.js";
 import { scheduledRenewalTarget } from "../payment/service-change.js";
-import { residentialOptionsForOrder, isCurrentResidentialPricing, RESIDENTIAL_OPTIONS_VERSION, type ResidentialOptions } from "../payment/residential-options.js";
+import { residentialOptionsForOrder, residentialSnapshotSql, isCurrentResidentialPricing, RESIDENTIAL_OPTIONS_VERSION, type ResidentialOptions } from "../payment/residential-options.js";
 import {
   finalizeClosed,
   finalizePaid,
@@ -196,7 +196,14 @@ const PERIOD_DURATION_ID: Readonly<Record<BillingPeriod, string>> = {
     A validated scheduled downgrade selects the NEXT paid period, without changing
     current rights. No entitlement retains the original tuple. No caller price/key. */
 export function produceRenewalQuote(db: DatabaseConnection, serviceId: number, period: BillingPeriod, actorUserId: number): AuthoritativeQuote {
-  const row = one(db, `SELECT s.ends_at,o.user_id,o.type_id,o.region_id,o.isp_id,o.spec_id,o.duration_id,o.order_ref
+  // Historical wallet-only schemas have neither the residential column nor an
+  // order_ref. The schema guard rejects a marked031 database missing its column;
+  // only a genuine historical schema may avoid the new snapshot lookup.
+  let hasResidentialSnapshot: boolean;
+  try { hasResidentialSnapshot = residentialSnapshotSql(db) !== "NULL"; }
+  catch { throw new WalletError("QUOTE_UNAVAILABLE"); }
+  const row = one(db, `SELECT s.ends_at,o.user_id,o.type_id,o.region_id,o.isp_id,o.spec_id,o.duration_id,
+    ${hasResidentialSnapshot ? "o.order_ref" : "NULL AS order_ref"}
     FROM services s JOIN payments p ON p.id=s.payment_id
     JOIN orders o ON o.id=p.order_id
     WHERE s.id=? AND s.status='open' AND p.status='paid' AND o.status='paid'`, serviceId);
@@ -204,7 +211,7 @@ export function produceRenewalQuote(db: DatabaseConnection, serviceId: number, p
   if (integer(row.user_id) !== actorUserId) throw new WalletError("FORBIDDEN");
   if (serviceManagementClosed(db, serviceId)) throw new WalletError("SERVICE_CLOSED");
   let purchasedOptions: ResidentialOptions | null;
-  try { purchasedOptions = residentialOptionsForOrder(db, text(row.order_ref)); }
+  try { purchasedOptions = hasResidentialSnapshot ? residentialOptionsForOrder(db, text(row.order_ref)) : null; }
   catch { throw new WalletError("QUOTE_UNAVAILABLE"); }
   if (purchasedOptions && !isCurrentResidentialPricing(purchasedOptions)) throw new WalletError("QUOTE_UNAVAILABLE");
   const endsAt = parseEndsAt(row.ends_at);
