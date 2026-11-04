@@ -36,6 +36,20 @@ export const STANDARD19_RELEASE_ARTIFACT_PREFIX = "consolidated-release-standard
 export const STANDARD26_RELEASE_ARTIFACT_PREFIX = "consolidated-release-standard26-";
 export const RELEASE_INTEGRATION_REF =
   "refs/heads/integration/consolidate-project";
+export const STANDARD26_FORMAL_REF =
+  "refs/heads/codex/service-change-release-prepare-20261103";
+export const STANDARD26_PRODUCT_BASELINE =
+  "20b18764ff465cd690a433305fad5124ed4ecb60";
+export const STANDARD26_CONTROL_PATHS = Object.freeze([
+  ".github/workflows/ci.yml",
+  "scripts/ops/assemble-consolidated-release.mjs",
+  "scripts/ops/validate-consolidated-release-packet.mjs",
+  "scripts/ops/consolidated-release-packet.test.mjs",
+]);
+export function releaseFormalRefForRoute(schemaRoute) {
+  return schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE
+    ? STANDARD26_FORMAL_REF : RELEASE_INTEGRATION_REF;
+}
 // Historical routes (001-019) stay recognized so already-built 019 bundles
 // still validate; the current repository sequence is 001-020 (tickets).
 export const STANDARD16_19_RELEASE_SCHEMA_ROUTE = "standard16-19";
@@ -524,8 +538,10 @@ export function createReleaseProvenance({
 
   const isReleaseCandidateContext =
     eventName === "push" &&
-    ref === RELEASE_INTEGRATION_REF &&
-    githubSha === sha;
+    ref === releaseFormalRefForRoute(schemaRoute) &&
+    githubSha === sha &&
+    (schemaRoute !== STANDARD26_30_RELEASE_SCHEMA_ROUTE ||
+      workflowRef === `${RELEASE_REPOSITORY}/.github/workflows/ci.yml@${STANDARD26_FORMAL_REF}`);
   if (mode === "github-actions-test") {
     if (isReleaseCandidateContext) {
       throw new ReleaseAssemblyError(
@@ -552,6 +568,15 @@ export function createReleaseProvenance({
       "release-candidate provenance requires an exact integration push SHA",
     );
   }
+  if (schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE) {
+    let event;
+    try { event = JSON.parse(readFileSync(requiredEnvironment(environment, "GITHUB_EVENT_PATH"), "utf8")); }
+    catch { throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "formal standard26 source requires the actual push event payload"); }
+    if (event.ref !== STANDARD26_FORMAL_REF || event.after !== sha ||
+      event.repository?.full_name !== RELEASE_REPOSITORY || event.deleted !== false) {
+      throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "formal standard26 push payload does not match repository/ref/head");
+    }
+  }
 
   return Object.freeze({
     kind: "github-actions",
@@ -565,6 +590,8 @@ export function createReleaseProvenance({
     ref,
     githubSha,
     artifactName,
+    ...(schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE
+      ? { productBaseline: STANDARD26_PRODUCT_BASELINE } : {}),
   });
 }
 
@@ -609,6 +636,26 @@ function verifySourceRevision(source, expectedSha) {
       "source repository contains uncommitted files",
     );
   }
+}
+
+// This is a single frozen product source, not a general branch publishing rule.
+// Compare the entire tracked tree (not just payload paths), including SQL/locks.
+export function verifyStandard26ProductSource(source, expectedSha) {
+  source = existingDirectory(source, "source");
+  verifySourceRevision(source, normalizedExpectedSha(expectedSha));
+  const ancestor = spawnSync("git", ["-C", source, "merge-base", "--is-ancestor",
+    STANDARD26_PRODUCT_BASELINE, expectedSha], { encoding: "utf8" });
+  if (ancestor.status !== 0) {
+    throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH", "frozen product baseline must be an ancestor of the formal source");
+  }
+  const diff = spawnSync("git", ["-C", source, "diff", "--name-only", "--no-renames", "-z",
+    STANDARD26_PRODUCT_BASELINE, expectedSha], { encoding: "utf8" });
+  if (diff.status !== 0) throw new ReleaseAssemblyError("SOURCE_INVALID", "formal product tree comparison failed");
+  const changed = diff.stdout.split("\0").filter(Boolean);
+  if (changed.some(path => !STANDARD26_CONTROL_PATHS.includes(path))) {
+    throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH", "formal source may differ from the frozen product baseline only in four release controls");
+  }
+  return STANDARD26_PRODUCT_BASELINE;
 }
 
 function normalizedRelativePath(path) {
@@ -791,6 +838,9 @@ export function assembleReleaseBundle({
   });
   const destinationRoot = newDestination(destination, sourceRoot);
   verifySourceRevision(sourceRoot, sha);
+  if (schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE && provenance.kind === "github-actions") {
+    verifyStandard26ProductSource(sourceRoot, sha);
+  }
   verifyMigrationInputs(sourceRoot, routeMigrations);
 
   let created = false;
