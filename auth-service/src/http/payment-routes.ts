@@ -43,6 +43,10 @@ import {
 } from "../payment/admin-services.js";
 import { refreshPaymentFromAlipay } from "../payment/payment-refresh.js";
 import {
+  acknowledgeServiceFulfillment, assertManualServiceFacts, cancelServiceDowngrade, createServiceUpgradeOrder,
+  listServiceChangeOptions, quoteServiceUpgrade, scheduleServiceDowngrade, serviceChangeSnapshot,
+} from "../payment/service-change.js";
+import {
   acceptPendingPaymentEvent,
   auditPaymentFailure,
   finalizeClosed,
@@ -69,6 +73,7 @@ export interface PaymentEnabledDependencies extends OrderServiceDependencies {
   readonly enabled: true;
   readonly sellerId: string;
   readonly csrfSigningKey: Buffer;
+  readonly serviceChangeLocalDemo?: true;
   readonly monitorTargetCatalog: MonitorTargetCatalog | null;
 }
 
@@ -740,7 +745,20 @@ export function registerPaymentHttpRoutes(
       // every admin-only field (admin_note, grant reason) never reach the buyer.
       return reply.code(200).send({
         items: [
-          ...listMyServices(dependencies.database, session.principal.userId),
+          ...listMyServices(dependencies.database, session.principal.userId).map((item) => {
+            const rows = dependencies.database.prepare(
+              "SELECT type_id,region_id,isp_id FROM orders WHERE order_ref=? AND user_id=?",
+            ).all(item.orderRef,session.principal.userId) as Array<{type_id:string;region_id:string;isp_id:string}>;
+            if (rows.length !== 1 || typeof rows[0]?.type_id !== "string" ||
+                typeof rows[0].region_id !== "string" || typeof rows[0].isp_id !== "string") {
+              throw new Error("Service display invariant failed");
+            }
+            return { ...item,
+              display:{typeId:rows[0].type_id,regionId:rows[0].region_id,ispId:rows[0].isp_id},
+              entitlement: serviceChangeSnapshot(dependencies.database, item.serviceId,
+                session.principal.userId, paymentNow(dependencies),!dependencies.serviceChangeLocalDemo),
+            };
+          }),
           ...listMyGrants(dependencies.database, session.principal.userId),
         ],
       });
@@ -748,6 +766,134 @@ export function registerPaymentHttpRoutes(
       return reply.code(503).send(errorResponse("payment_unavailable"));
     }
   });
+
+  // Customer manual-fulfillment flow is real. Only simulation controls below
+  // remain under the explicit local flag; production never sets that flag.
+  if (dependencies.enabled) {
+    const demoDependencies = dependencies;
+    const requireFacts = (serviceId:number,userId:number) => {
+      if(!dependencies.serviceChangeLocalDemo) assertManualServiceFacts(dependencies.database,serviceId,userId);
+    };
+    const requireServiceAction = (request: FastifyRequest, reply: FastifyReply) => {
+      const session = readPaymentSession(request, demoDependencies);
+      if (session === null) {
+        void reply.code(401).send(errorResponse("unauthorized"));
+        return null;
+      }
+      const token = stringHeader(request.headers["x-csrf-token"]);
+      if (token === null || !verifyCsrfToken(demoDependencies.csrfSigningKey, session.sessionTokenHash, token)) {
+        void reply.code(403).send(errorResponse("csrf_invalid"));
+        return null;
+      }
+      return session.principal.userId;
+    };
+    const serviceIdFrom = (raw: string): number | null => {
+      if (!/^[1-9][0-9]*$/.test(raw)) return null;
+      const value = Number(raw);
+      return Number.isSafeInteger(value) ? value : null;
+    };
+    const specFrom = (body: unknown): string | null | undefined => {
+      if (typeof body !== "object" || body === null || Array.isArray(body)) return undefined;
+      const spec = (body as Record<string, unknown>).specId;
+      return spec === null || (typeof spec === "string" && /^[a-z0-9-]{1,40}$/.test(spec)) ? spec : undefined;
+    };
+    app.get<{ Params: { id: string } }>("/api/me/services/:id/change/options", async (request, reply) => {
+      setNoStore(reply);
+      const session = readPaymentSession(request,demoDependencies);
+      if (session === null) return reply.code(401).send(errorResponse("unauthorized"));
+      const serviceId = serviceIdFrom(request.params.id);
+      if (serviceId === null) return reply.code(404).send(errorResponse("service_not_found"));
+      try { requireFacts(serviceId,session.principal.userId); return reply.code(200).send({items:listServiceChangeOptions(demoDependencies.database,session.principal.userId,
+        serviceId,paymentNow(demoDependencies))}); }
+      catch (error) { return sendDomainError(reply,error); }
+    });
+    app.post<{ Params: { id: string }; Body: unknown }>("/api/me/services/:id/change/quote", async (request, reply) => {
+      setNoStore(reply);
+      const userId = requireServiceAction(request, reply);
+      if (userId === null) return reply;
+      const serviceId = serviceIdFrom(request.params.id);
+      const specId = specFrom(request.body);
+      if (serviceId === null || specId === undefined) return reply.code(400).send(errorResponse("invalid_change_target"));
+      try { requireFacts(serviceId,userId); return reply.code(200).send({...quoteServiceUpgrade(demoDependencies.database,userId,serviceId,specId,paymentNow(demoDependencies)),
+        effectiveCondition:dependencies.serviceChangeLocalDemo ? "simulated_fulfillment_ack":"admin_manual_confirmation"}); }
+      catch (error) { return sendDomainError(reply,error); }
+    });
+    app.post<{ Params: { id: string }; Body: unknown }>("/api/me/services/:id/change/upgrade", async (request, reply) => {
+      setNoStore(reply);
+      const userId = requireServiceAction(request, reply);
+      if (userId === null) return reply;
+      const serviceId = serviceIdFrom(request.params.id);
+      const body = request.body as Record<string, unknown> | null;
+      const idempotencyKey = stringHeader(request.headers["idempotency-key"]);
+      const rawAccessToken = stringHeader(request.headers["x-order-access-token"]);
+      if (serviceId === null || body === null || typeof body !== "object" ||
+          typeof body.quoteRef !== "string" || typeof body.acknowledgedAmountFen !== "number" ||
+          !Number.isSafeInteger(body.acknowledgedAmountFen) || idempotencyKey === null || rawAccessToken === null) {
+        return reply.code(400).send(errorResponse("invalid_change_quote"));
+      }
+      try {
+        requireFacts(serviceId,userId);
+        const result = createServiceUpgradeOrder(demoDependencies,{userId,serviceId,quoteRef:body.quoteRef,idempotencyKey,rawAccessToken,
+          acknowledgedAmountFen:body.acknowledgedAmountFen});
+        return reply.code(200).send(await publicPaymentResult(demoDependencies,result));
+      } catch (error) { return sendDomainError(reply,error); }
+    });
+    app.post<{ Params: { id: string }; Body: unknown }>("/api/me/services/:id/change/downgrade", async (request, reply) => {
+      setNoStore(reply);
+      const userId = requireServiceAction(request, reply);
+      if (userId === null) return reply;
+      const serviceId = serviceIdFrom(request.params.id);
+      const specId = specFrom(request.body);
+      if (serviceId === null || specId === undefined) return reply.code(400).send(errorResponse("invalid_change_target"));
+      try { requireFacts(serviceId,userId); return reply.code(200).send(scheduleServiceDowngrade(demoDependencies.database,userId,serviceId,specId,paymentNow(demoDependencies))); }
+      catch (error) { return sendDomainError(reply,error); }
+    });
+    app.post<{ Params: { id: string } }>("/api/me/services/:id/change/cancel", async (request, reply) => {
+      setNoStore(reply);
+      const userId = requireServiceAction(request, reply);
+      if (userId === null) return reply;
+      const serviceId = serviceIdFrom(request.params.id);
+      if (serviceId === null) return reply.code(400).send(errorResponse("invalid_change_target"));
+      try { requireFacts(serviceId,userId); return reply.code(200).send(cancelServiceDowngrade(demoDependencies.database,userId,serviceId,paymentNow(demoDependencies))); }
+      catch (error) { return sendDomainError(reply,error); }
+    });
+    if(dependencies.serviceChangeLocalDemo) {
+    app.post<{ Params: { id: string }; Body: unknown }>("/api/me/services/:id/change/simulate-fulfillment", async (request, reply) => {
+      setNoStore(reply);
+      const userId = requireServiceAction(request, reply);
+      if (userId === null) return reply;
+      const serviceId = serviceIdFrom(request.params.id);
+      const body = request.body as Record<string, unknown> | null;
+      if (serviceId === null || body === null || typeof body !== "object" ||
+          typeof body.receiptRef !== "string" || typeof body.succeeded !== "boolean") {
+        return reply.code(400).send(errorResponse("invalid_receipt"));
+      }
+      try { return reply.code(200).send(acknowledgeServiceFulfillment(demoDependencies.database,userId,serviceId,
+        body.receiptRef,body.succeeded,paymentNow(demoDependencies))); }
+      catch (error) { return sendDomainError(reply,error); }
+    });
+    app.post<{ Params: { id: string } }>("/api/me/services/:id/change/simulate-payment", async (request, reply) => {
+      setNoStore(reply);
+      const userId = requireServiceAction(request, reply);
+      if (userId === null) return reply;
+      const serviceId = serviceIdFrom(request.params.id);
+      if (serviceId === null) return reply.code(400).send(errorResponse("invalid_change_target"));
+      const row = demoDependencies.database.prepare(`SELECT o.order_ref,o.amount_fen FROM service_changes sc
+        JOIN orders o ON o.id=sc.order_id WHERE sc.service_id=? AND sc.user_id=? AND sc.status='pending_payment'`)
+        .all(serviceId,userId)[0] as {order_ref:string;amount_fen:number}|undefined;
+      if (row === undefined) return reply.code(409).send(errorResponse("no_pending_payment"));
+      const sdk = demoDependencies.sdk as typeof demoDependencies.sdk & { setDemoTrade?: (ref:string,amountFen:number)=>void };
+      if (typeof sdk.setDemoTrade !== "function") return reply.code(503).send(errorResponse("payment_unavailable"));
+      try {
+        sdk.setDemoTrade(row.order_ref,row.amount_fen);
+        const before = getAuthorizedOrderStatus(demoDependencies,{orderRef:row.order_ref,userId,rawAccessToken:null});
+        await refreshPaymentFromAlipay(demoDependencies,before);
+        const after = getAuthorizedOrderStatus(demoDependencies,{orderRef:row.order_ref,userId,rawAccessToken:null});
+        return reply.code(200).send({orderRef:after.orderRef,status:after.status,changeStatus:"pending_fulfillment"});
+      } catch (error) { return sendDomainError(reply,error); }
+    });
+    }
+  }
 
   app.get("/api/me/delivery-lines", async (request, reply) => {
     setNoStore(reply);

@@ -1,5 +1,4 @@
 import type { DatabaseConnection } from "../db.js";
-import { PAYMENT_MAX_SINGLE_FEN } from "./pricing.js";
 
 export class PaymentDomainError extends Error {
   readonly statusCode: number;
@@ -212,6 +211,9 @@ export function resolveQuote(
     throw new PaymentDomainError(409, "sold_out");
   }
   const listPriceFen = plan.priceFen;
+  if (!Number.isSafeInteger(listPriceFen) || listPriceFen <= 0) {
+    throw new PaymentDomainError(409, "plan_unavailable");
+  }
 
   let couponId: number | null = null;
   let couponCode: string | null = null;
@@ -248,12 +250,6 @@ export function resolveQuote(
   if (amountFen <= 0) {
     throw new PaymentDomainError(409, "coupon_invalid");
   }
-  if (amountFen > PAYMENT_MAX_SINGLE_FEN) {
-    throw new PaymentDomainError(409, "amount_limit_exceeded", {
-      maxSingleFen: PAYMENT_MAX_SINGLE_FEN,
-    });
-  }
-
   return { planId: plan.id, listPriceFen, discountFen, amountFen, couponId, couponCode };
 }
 

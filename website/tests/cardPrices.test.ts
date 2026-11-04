@@ -93,9 +93,12 @@ test("card prices come only from the server availability index", () => {
   assert.doesNotMatch(helper, /from ["'][^"']*subscribeCatalog["']|\.(?:startingPrice|monthlyPrice)\b/);
   assert.match(helper, /import type \{ PlanAvailabilityIndex, PlanAvailabilityItem \} from "\.\/planAvailability";/);
   assert.match(page, /typeFromPriceFen\(availability\.index, option\.id\)/);
-  assert.match(page, /regionFromPriceFen\(availability\.index, selection\.typeId, option\.id\)/);
+  // Region cards now show only the flag and name, per the approved presentation.
+  const regionSection = page.slice(page.indexOf('id="sub-section-region"'), page.indexOf('id="sub-section-isp"'));
+  assert.doesNotMatch(regionSection, /regionFromPriceFen|regionFromFen|sub-region-meta|sub-region-tags|sub-tag/);
+  assert.match(regionSection, /sub-flag/);
+  assert.match(regionSection, /ct\(option\.cardName \?\? option\.name\)/);
   assert.match(page, /specMonthlyPriceFen\(availability\.index, selection\.typeId, selection\.regionId, selection\.ispId, option\.id\)/);
-  // Each card still falls back to the fail-closed label.
+  // The two remaining card-price surfaces still fail closed.
   assert.equal(page.match(/=== null \? copy\.pricePending/g)?.length, 2);
-  assert.match(page, /regionFromFen === null \? <small>\{copy\.pricePending\}<\/small>/);
 });

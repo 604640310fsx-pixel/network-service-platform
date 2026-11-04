@@ -55,6 +55,14 @@ import {
   STANDARD16_26_RELEASE_SCHEMA_ROUTE,
   STANDARD19_26_RELEASE_SCHEMA_ROUTE,
   DIRECT14_26_RELEASE_SCHEMA_ROUTE,
+  STANDARD26_30_RELEASE_SCHEMA_ROUTE,
+  RELEASE_MIGRATIONS_001_030,
+  releaseArtifactNameForRoute,
+  assertStandard26RecoveryBoundary,
+  STANDARD26_FORMAL_REF,
+  STANDARD26_PRODUCT_BASELINE,
+  STANDARD26_CONTROL_PATHS,
+  verifyStandard26ProductSource,
 } from "./assemble-consolidated-release.mjs";
 import {
   validateBundle,
@@ -118,7 +126,7 @@ function createArtifactArchive(bundle, archive) {
   assert.equal(result.status, 0, result.stderr);
 }
 
-function installFakeGithub(parent, { artifact, workflowRun }) {
+function installFakeGithub(parent, { artifact, workflowRun, jobs }) {
   const bin = join(parent, "fake-bin");
   const command = join(bin, "gh");
   mkdirSync(bin);
@@ -130,6 +138,7 @@ function installFakeGithub(parent, { artifact, workflowRun }) {
       '[ "$2" = "--hostname" ] || exit 12',
       '[ "$3" = "github.com" ] || exit 13',
       'case "$4" in',
+      '  */jobs?*) printf "%s" "$TEST_JOBS_JSON" ;;',
       '  */actions/artifacts/*) printf "%s" "$TEST_ARTIFACT_JSON" ;;',
       '  */actions/runs/*) printf "%s" "$TEST_WORKFLOW_RUN_JSON" ;;',
       "  *) exit 14 ;;",
@@ -144,17 +153,20 @@ function installFakeGithub(parent, { artifact, workflowRun }) {
     ghHost: process.env.GH_HOST,
     artifact: process.env.TEST_ARTIFACT_JSON,
     workflowRun: process.env.TEST_WORKFLOW_RUN_JSON,
+    jobs: process.env.TEST_JOBS_JSON,
   };
   process.env.PATH = `${bin}:${previous.path ?? ""}`;
   process.env.GH_HOST = "untrusted.example.invalid";
   process.env.TEST_ARTIFACT_JSON = JSON.stringify(artifact);
   process.env.TEST_WORKFLOW_RUN_JSON = JSON.stringify(workflowRun);
+  process.env.TEST_JOBS_JSON = JSON.stringify(jobs ?? {});
   return () => {
     for (const [name, value] of [
       ["PATH", previous.path],
       ["GH_HOST", previous.ghHost],
       ["TEST_ARTIFACT_JSON", previous.artifact],
       ["TEST_WORKFLOW_RUN_JSON", previous.workflowRun],
+      ["TEST_JOBS_JSON", previous.jobs],
     ]) {
       if (value === undefined) {
         delete process.env[name];
@@ -2614,6 +2626,24 @@ function createArchiveSource(parent, name, { generation = 26 } = {}) {
     '<!doctype html><script type="module" src="/assets/referral-12345678.js"></script>\n',
   );
   writeFixtureFile(root, "website/dist/assets/referral-12345678.js", "export {};\n");
+  // Model an exact historical source, not today's extra 027..030 migrations.
+  // Existing 026 and earlier route assertions remain unchanged.
+  if (generation <= 26) {
+    const dbPath = join(root, "auth-service/src/db.ts");
+    let db = readFileSync(dbPath, "utf8");
+    for (const migration of RELEASE_MIGRATIONS_001_030.slice(26)) {
+      rmSync(join(root, "auth-service/src/migrations", migration));
+      db = db.replace(`  "${migration}",\n`, "");
+    }
+    writeFileSync(dbPath, db);
+  }
+  if (generation === 30) {
+    // Overlay only the affected release tools/workflow into this disposable
+    // fixture; its fixture commit is NOT a candidate task commit.
+    for (const path of ["scripts/ops/assemble-consolidated-release.mjs", "scripts/ops/validate-consolidated-release-packet.mjs", ".github/workflows/ci.yml"]) {
+      writeFixtureFile(root, path, readFileSync(join(REPOSITORY_ROOT, path), "utf8"));
+    }
+  }
   if (generation < 26) {
     // Strip the source back to an exact historical generation: its migrations,
     // runner entries, later runbook sections, and later CI route flags.
@@ -2984,6 +3014,232 @@ test("validator CLI keeps the current 001-026 source strict", () => {
     assert.equal(unknownRoute.json.code, "ARGUMENT_ERROR");
   } finally {
     rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("standard26-30 is explicit, exact, isolated from frozen 026 routes and local bundles stay unreleasable", () => {
+  const parent = mkdtempSync(join(tmpdir(), "consolidated-release-026-030-"));
+  try {
+    assert.equal(RELEASE_MIGRATIONS.length, 26);
+    assert.equal(RELEASE_MIGRATIONS_001_030.length, 30);
+    assert.deepEqual(RELEASE_MIGRATIONS_001_030.slice(0,26), RELEASE_MIGRATIONS);
+    const source = createArchiveSource(parent, "source-030", { generation: 30 });
+    assert.equal(releaseArtifactNameForRoute(source.sha, STANDARD26_30_RELEASE_SCHEMA_ROUTE), `consolidated-release-standard26-${source.sha}`);
+    const args = ["--source", source.root, "--expected-sha", source.sha];
+    const explicit = cli(VALIDATOR_PATH, [...args, "--schema-route", STANDARD26_30_RELEASE_SCHEMA_ROUTE]);
+    assert.equal(explicit.status, 0, JSON.stringify(explicit.json));
+    const oldDefault = cli(VALIDATOR_PATH, args);
+    assert.equal(oldDefault.json.code, "SCHEMA_BOUNDARY_MISMATCH");
+    const bundle = join(parent, "bundle-030");
+    const assembled = cli(ASSEMBLER_PATH, [...args, "--destination", bundle,
+      "--provenance-mode", LOCAL_PROVENANCE_MODE, "--schema-route", STANDARD26_30_RELEASE_SCHEMA_ROUTE]);
+    assert.equal(assembled.status, 0, JSON.stringify(assembled.json));
+    const manifest = JSON.parse(readFileSync(join(bundle,"release-manifest.json"),"utf8"));
+    assert.deepEqual(manifest.schemaBoundary,{rollback:26,candidate:30});
+    assert.deepEqual(manifest.migrations,RELEASE_MIGRATIONS_001_030);
+    const validated = cli(VALIDATOR_PATH,[...args,"--bundle",bundle,"--validation-mode",LOCAL_PROVENANCE_MODE,"--schema-route",STANDARD26_30_RELEASE_SCHEMA_ROUTE]);
+    assert.equal(validated.status,0,JSON.stringify(validated.json));
+    assert.equal(validated.json.releaseUse,"forbidden");
+    assert.throws(()=>validateBundle({bundle,expectedSha:source.sha,validationMode:"candidate",schemaRoute:STANDARD26_30_RELEASE_SCHEMA_ROUTE}),error=>error.code==="PROVENANCE_REQUIRED");
+    for (const schemaRoute of [STANDARD16_26_RELEASE_SCHEMA_ROUTE,DIRECT14_26_RELEASE_SCHEMA_ROUTE,STANDARD19_26_RELEASE_SCHEMA_ROUTE]) {
+      assert.throws(()=>assembleReleaseBundle({source:source.root,destination:join(parent,schemaRoute),expectedSha:source.sha,
+        provenanceMode:LOCAL_PROVENANCE_MODE,schemaRoute}),error=>error.code==="SCHEMA_BOUNDARY_MISMATCH");
+      assert.throws(()=>validateBundle({bundle,expectedSha:source.sha,validationMode:LOCAL_PROVENANCE_MODE,schemaRoute}),error=>error.code==="BUNDLE_INTEGRITY_FAILED");
+    }
+    const old = createArchiveSource(parent,"source-026");
+    assert.throws(()=>assembleReleaseBundle({source:old.root,destination:join(parent,"wrong-old"),expectedSha:old.sha,
+      provenanceMode:LOCAL_PROVENANCE_MODE,schemaRoute:STANDARD26_30_RELEASE_SCHEMA_ROUTE}),error=>error.code==="SCHEMA_BOUNDARY_MISMATCH");
+    // Missing/wrong/extra/future migrations must fail before a bundle is created.
+    for (const mode of ["missing","renamed","future"]) {
+      const fixtureParent = join(parent,mode); mkdirSync(fixtureParent);
+      const migrations = [...RELEASE_MIGRATIONS_001_030];
+      if(mode==="missing") migrations.pop();
+      if(mode==="renamed") migrations[29]="030_wrong.sql";
+      if(mode==="future") migrations.push("031_future.sql");
+      const fixture=createFixtureRepository(fixtureParent,migrations);
+      const destination=join(fixtureParent,"bundle");
+      assert.throws(()=>assembleReleaseBundle({source:fixture.root,destination,expectedSha:fixture.sha,
+        provenanceMode:LOCAL_PROVENANCE_MODE,schemaRoute:STANDARD26_30_RELEASE_SCHEMA_ROUTE}),error=>error.code==="SCHEMA_BOUNDARY_MISMATCH");
+      assert.equal(existsSync(destination),false);
+      const rejected=cli(VALIDATOR_PATH,["--source",fixture.root,"--expected-sha",fixture.sha,"--schema-route",STANDARD26_30_RELEASE_SCHEMA_ROUTE]);
+      assert.equal(rejected.json.code,"SCHEMA_BOUNDARY_MISMATCH");
+    }
+  } finally { rmSync(parent,{recursive:true,force:true}); }
+});
+
+test("standard26 review CI opts in only the exact same-repo PR and retains mandatory old-route controls", () => {
+  const workflow=readFileSync(join(REPOSITORY_ROOT,".github/workflows/ci.yml"),"utf8");
+  const condition="github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/service-change-release-prepare-20261103' && github.event.pull_request.base.ref == 'integration/consolidate-project'";
+  assert.equal(workflow.split(`STANDARD26_TASK_CONTEXT: \u0024{{ ${condition} }}`).length,2);
+  assert.match(workflow,/test "\$\(git rev-parse HEAD\)" = "\$EXPECTED_SHA"/);
+  assert.equal(workflow.includes("continue-on-error"),false);
+  for(const route of ["standard16-26","direct14-26","standard19-26"])assert.ok(workflow.includes(`--schema-route ${route}`));
+  for(const required of ["npm --prefix auth-service test","npm --prefix website test","npm --prefix website run check","npm --prefix website run build",
+    "consolidated-release-packet.test.mjs scripts/ops/release-safety-guards.test.mjs",'--validation-mode "$VALIDATION_MODE"',
+    '"$BUNDLE_PARENT/standard26-first/release-manifest.json"',"consolidated-release-standard26-review-${{ env.EXPECTED_SHA }}"])
+    assert.ok(workflow.includes(required),required);
+  // The same real context is retained: a PR's test provenance cannot become
+  // an integration-push candidate just because its source is schema030.
+  const sha="b".repeat(40),environment=githubEnvironment({sha,candidate:false});
+  const provenance=createReleaseProvenance({mode:"github-actions-test",expectedSha:sha,schemaRoute:STANDARD26_30_RELEASE_SCHEMA_ROUTE,environment});
+  assert.equal(provenance.releaseUse,"forbidden");
+  assert.equal(provenance.eventName,"pull_request");
+  assert.throws(()=>createReleaseProvenance({mode:"github-actions",expectedSha:sha,schemaRoute:STANDARD26_30_RELEASE_SCHEMA_ROUTE,environment}),
+    error=>error.code==="PROVENANCE_REQUIRED");
+});
+
+test("standard26 formal source pins the real push, frozen product ancestor and four control paths", () => {
+  const parent = mkdtempSync(join(tmpdir(), "standard26-formal-source-"));
+  try {
+    const source = join(parent, "source");
+    runGit(parent, "clone", "--shared", "--no-checkout", REPOSITORY_ROOT, source);
+    runGit(source, "checkout", "--detach", STANDARD26_PRODUCT_BASELINE);
+    for (const path of STANDARD26_CONTROL_PATHS) writeFixtureFile(source, path, readFileSync(join(REPOSITORY_ROOT, path), "utf8"));
+    runGit(source, "add", "--", ...STANDARD26_CONTROL_PATHS);
+    runGit(source, "commit", "--allow-empty", "-m", "synthetic formal controls");
+    const sha = runGit(source, "rev-parse", "HEAD");
+    assert.equal(verifyStandard26ProductSource(source, sha), STANDARD26_PRODUCT_BASELINE);
+    const eventPath = join(parent, "push.json");
+    const event = { ref:STANDARD26_FORMAL_REF, after:sha, deleted:false,
+      repository:{full_name:"604640310fsx-pixel/network-service-platform"} };
+    writeFileSync(eventPath, JSON.stringify(event));
+    const environment = {...githubEnvironment({sha,candidate:true}), GITHUB_REF:STANDARD26_FORMAL_REF,
+      GITHUB_WORKFLOW_REF:`604640310fsx-pixel/network-service-platform/.github/workflows/ci.yml@${STANDARD26_FORMAL_REF}`,
+      GITHUB_EVENT_PATH:eventPath};
+    const args = {mode:"github-actions", expectedSha:sha, schemaRoute:STANDARD26_30_RELEASE_SCHEMA_ROUTE, environment};
+    assert.equal(createReleaseProvenance(args).productBaseline, STANDARD26_PRODUCT_BASELINE);
+    for (const patch of [ {GITHUB_ACTIONS:"false"}, {GITHUB_EVENT_NAME:"pull_request"},
+      {GITHUB_EVENT_NAME:"workflow_dispatch"}, {GITHUB_REPOSITORY:"fork/network-service-platform"},
+      {GITHUB_REF:"refs/heads/integration/consolidate-project"}, {GITHUB_SHA:"a".repeat(40)},
+      {GITHUB_WORKFLOW_REF:"604640310fsx-pixel/network-service-platform/.github/workflows/ci.yml@refs/heads/main"},
+      {GITHUB_EVENT_PATH:join(parent,"missing-event")} ]) {
+      assert.throws(()=>createReleaseProvenance({...args,environment:{...environment,...patch}}),error=>error.code==="PROVENANCE_REQUIRED");
+    }
+    for (const patch of [{after:"a".repeat(40)}, {ref:"refs/heads/main"}, {deleted:true},
+      {repository:{full_name:"fork/network-service-platform"}}]) {
+      writeFileSync(eventPath,JSON.stringify({...event,...patch}));
+      assert.throws(()=>createReleaseProvenance(args),error=>error.code==="PROVENANCE_REQUIRED");
+    }
+    writeFileSync(eventPath,JSON.stringify(event));
+    assert.throws(()=>createReleaseProvenance({...args,mode:"github-actions-test"}),error=>error.code==="PROVENANCE_REQUIRED");
+    const sourceGate = () => spawnSync(process.execPath,[VALIDATOR_PATH,"--source",source,"--expected-sha",runGit(source,"rev-parse","HEAD"),
+      "--schema-route",STANDARD26_30_RELEASE_SCHEMA_ROUTE,"--validation-mode","ci-build"],{encoding:"utf8",env:{...process.env,...environment}});
+    const accepted = sourceGate();
+    assert.equal(accepted.status,0,accepted.stdout+accepted.stderr);
+    assert.equal(JSON.parse(accepted.stdout).productBaseline,STANDARD26_PRODUCT_BASELINE);
+    writeFixtureFile(source,"website/product-drift.txt","synthetic forbidden product change\n");
+    assert.throws(()=>verifyStandard26ProductSource(source,sha),error=>error.code==="SOURCE_DIRTY");
+    runGit(source,"add","--","website/product-drift.txt");
+    runGit(source,"commit","-m","synthetic product drift");
+    const drift = runGit(source,"rev-parse","HEAD");
+    assert.throws(()=>verifyStandard26ProductSource(source,drift),error=>error.code==="PRODUCT_SOURCE_MISMATCH");
+    writeFileSync(eventPath,JSON.stringify({...event,after:drift})); environment.GITHUB_SHA=drift;
+    const rejected=sourceGate();assert.notEqual(rejected.status,0);
+    assert.match(rejected.stderr,/PRODUCT_SOURCE_MISMATCH/);
+    // An unrelated repository's clean commit cannot stand in for the baseline.
+    const unrelatedParent=join(parent,"unrelated");mkdirSync(unrelatedParent);
+    const unrelated = createFixtureRepository(unrelatedParent);
+    assert.throws(()=>verifyStandard26ProductSource(unrelated.root,unrelated.sha),error=>error.code==="PRODUCT_SOURCE_MISMATCH");
+    const workflow=readFileSync(join(REPOSITORY_ROOT,".github/workflows/ci.yml"),"utf8");
+    assert.ok(workflow.includes("STANDARD26_FORMAL_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'push' && github.ref == 'refs/heads/codex/service-change-release-prepare-20261103' }}"));
+    assert.ok(workflow.includes("      - codex/service-change-release-prepare-20261103\n"));
+    assert.ok(workflow.includes("fetch-depth: 0"));
+    assert.ok(workflow.includes("consolidated-release-standard26-${{ env.EXPECTED_SHA }}"));
+  } finally { rmSync(parent,{recursive:true,force:true}); }
+});
+
+test("standard26 formal artifact rechecks source ancestry, real run/jobs and exact archive; PR stays forbidden", () => {
+  const parent = mkdtempSync(join(tmpdir(), "standard26-formal-artifact-"));
+  let restore=()=>{};
+  try {
+    const source=join(parent,"source");
+    runGit(parent,"clone","--shared","--no-checkout",REPOSITORY_ROOT,source);
+    runGit(source,"checkout","--detach",STANDARD26_PRODUCT_BASELINE);
+    for(const path of STANDARD26_CONTROL_PATHS)writeFixtureFile(source,path,readFileSync(join(REPOSITORY_ROOT,path),"utf8"));
+    runGit(source,"add","--",...STANDARD26_CONTROL_PATHS);
+    runGit(source,"commit","--allow-empty","-m","synthetic formal artifact controls");
+    const sha=runGit(source,"rev-parse","HEAD");
+    writeFixtureFile(source,"auth-service/dist/src/db.js","export const db=true;\n");
+    writeFixtureFile(source,"auth-service/dist/src/server.js","export const server=true;\n");
+    writeFixtureFile(source,"website/dist/index.html","<!doctype html><title>synthetic</title>\n");
+    writeFixtureFile(source,"website/dist/referral.html",'<script type="module" src="/assets/referral-12345678.js"></script>\n');
+    writeFixtureFile(source,"website/dist/assets/referral-12345678.js","export {};\n");
+    const eventPath=join(parent,"push.json");
+    writeFileSync(eventPath,JSON.stringify({ref:STANDARD26_FORMAL_REF,after:sha,deleted:false,repository:{full_name:"604640310fsx-pixel/network-service-platform"}}));
+    const environment={...githubEnvironment({sha,candidate:true}),GITHUB_REF:STANDARD26_FORMAL_REF,
+      GITHUB_WORKFLOW_REF:`604640310fsx-pixel/network-service-platform/.github/workflows/ci.yml@${STANDARD26_FORMAL_REF}`,GITHUB_EVENT_PATH:eventPath};
+    const bundle=join(parent,"bundle"),schemaRoute=STANDARD26_30_RELEASE_SCHEMA_ROUTE;
+    assembleReleaseBundle({source,destination:bundle,expectedSha:sha,schemaRoute,provenanceMode:"github-actions",environment});
+    const args={source,bundle,expectedSha:sha,schemaRoute,validationMode:"ci-build",environment};
+    assert.equal(validateBundle(args).status,"ok");
+    assert.throws(()=>validateBundle({...args,source:undefined}),error=>error.code==="PROVENANCE_REQUIRED");
+    const archive=join(parent,"candidate.zip");createArtifactArchive(bundle,archive);
+    const artifact={id:777,name:releaseArtifactNameForRoute(sha,schemaRoute),expired:false,digest:`sha256:${sha256(archive)}`,workflow_run:{id:123456789,head_sha:sha}};
+    const workflowRun={id:123456789,repository:{full_name:"604640310fsx-pixel/network-service-platform"},path:".github/workflows/ci.yml",event:"push",
+      head_branch:STANDARD26_FORMAL_REF.slice("refs/heads/".length),head_sha:sha,status:"completed",conclusion:"success",run_attempt:1};
+    const jobs={jobs:["Website check and build","Auth service build and test","Consolidated release packet"].map(name=>({name,head_sha:sha,status:"completed",conclusion:"success"}))};
+    restore=installFakeGithub(parent,{artifact,workflowRun,jobs});
+    const candidate={...args,validationMode:"candidate",githubArtifactId:"777",artifactArchive:archive};
+    assert.equal(validateBundle(candidate).candidateVerified,true);
+    for(const patch of [{event:"pull_request"},{head_branch:"integration/consolidate-project"},{head_sha:"a".repeat(40)},
+      {repository:{full_name:"fork/network-service-platform"}},{conclusion:"failure"}]) {
+      process.env.TEST_WORKFLOW_RUN_JSON=JSON.stringify({...workflowRun,...patch});
+      assert.throws(()=>validateBundle(candidate),error=>error.code==="PROVENANCE_REQUIRED");
+    }
+    process.env.TEST_WORKFLOW_RUN_JSON=JSON.stringify(workflowRun);
+    for(const conclusion of ["skipped","failure",null]) {
+      process.env.TEST_JOBS_JSON=JSON.stringify({jobs:jobs.jobs.map((job,index)=>index===0?{...job,conclusion}:job)});
+      assert.throws(()=>validateBundle(candidate),error=>error.code==="PROVENANCE_REQUIRED");
+    }
+    process.env.TEST_JOBS_JSON=JSON.stringify(jobs);
+    process.env.TEST_ARTIFACT_JSON=JSON.stringify({...artifact,digest:`sha256:${"0".repeat(64)}`});
+    assert.throws(()=>validateBundle(candidate),error=>error.code==="PROVENANCE_REQUIRED");
+    process.env.TEST_ARTIFACT_JSON=JSON.stringify(artifact);
+    writeFixtureFile(source,"website/product-drift.txt","synthetic dirty source\n");
+    assert.throws(()=>validateBundle(candidate),error=>error.code==="SOURCE_DIRTY");
+    rmSync(join(source,"website/product-drift.txt"));
+    const manifestPath=join(bundle,"release-manifest.json"),manifest=JSON.parse(readFileSync(manifestPath,"utf8"));
+    writeFileSync(manifestPath,JSON.stringify({...manifest,provenance:{...manifest.provenance,productBaseline:"a".repeat(40)}}));
+    assert.throws(()=>validateBundle(candidate),error=>error.code==="PROVENANCE_REQUIRED");
+    const prBundle=join(parent,"pr-bundle"),prEnvironment=githubEnvironment({sha,candidate:false});
+    assembleReleaseBundle({source,destination:prBundle,expectedSha:sha,schemaRoute,provenanceMode:"github-actions-test",environment:prEnvironment});
+    assert.equal(validateBundle({...args,bundle:prBundle,validationMode:"ci-test",environment:prEnvironment}).releaseUse,"forbidden");
+    assert.throws(()=>validateBundle({...candidate,bundle:prBundle}),error=>error.code==="PROVENANCE_REQUIRED");
+  } finally { restore();rmSync(parent,{recursive:true,force:true}); }
+});
+
+test("standard26-30 recovery fails closed after any new effect or unknown/mismatched proof", () => {
+  const migrations = Array.from({length:26},(_,index)=>index+1);
+  const binding={attemptId:"synthetic-release-only",databaseBinding:"synthetic-db-only"};
+  const snapshot={...binding,sha256:"a".repeat(64),bytes:4096};
+  const proof={...binding,verified:true,authSchemaBoundary:26,authSha256:"b".repeat(64),websiteSha256:"c".repeat(64)};
+  const base={...binding,phase:"before-upgrade",trafficClosed:true,oldApplicationStopped:true,candidateStopped:true,
+    applicationWriters:0,applicationWritesSinceSnapshot:0,paymentsSinceSnapshot:0,fulfillmentsSinceSnapshot:0,externalEffectsSinceSnapshot:0,
+    liveMigrations:migrations,snapshot,rollbackArtifacts:proof,
+    snapshotVerification:{status:"ok",operation:"verify",sha256:snapshot.sha256,bytes:snapshot.bytes,fileMode:"0600",
+      quickCheck:"ok",foreignKeyFailures:0,migrations}};
+  assert.equal(assertStandard26RecoveryBoundary(base).permittedAction,"upgrade-026-to-030");
+  for(const end of [26,27,28,29,30]) {
+    const result=assertStandard26RecoveryBoundary({...base,phase:"failed-upgrade",liveMigrations:Array.from({length:end},(_,i)=>i+1)});
+    assert.equal(result.permittedAction,"restore-matched-026-snapshot-and-artifacts");
+    assert.equal(result.automaticRestore,false);
+    assert.equal(result.requiresFreshProofAtExecution,true);
+  }
+  const deny=patch=>assert.throws(()=>assertStandard26RecoveryBoundary({...base,...patch}),error=>error.code==="RESTORE_26_FORBIDDEN");
+  for(const key of ["applicationWriters","applicationWritesSinceSnapshot","paymentsSinceSnapshot","fulfillmentsSinceSnapshot","externalEffectsSinceSnapshot"]) {
+    deny({[key]:1});deny({[key]:undefined});
+    assert.throws(()=>assertStandard26RecoveryBoundary({...base,phase:"failed-upgrade",[key]:1}),error=>error.code==="RESTORE_26_FORBIDDEN");
+  }
+  for(const key of ["trafficClosed","oldApplicationStopped","candidateStopped"]) {deny({[key]:false});deny({[key]:undefined});}
+  for(const patch of [{phase:"after-open"},{snapshot:undefined},{rollbackArtifacts:undefined},
+    {snapshot:{...snapshot,attemptId:"other-attempt"}},{snapshot:{...snapshot,databaseBinding:"other-db"}},
+    {rollbackArtifacts:{...proof,verified:false}},{rollbackArtifacts:{...proof,authSchemaBoundary:19}},
+    {rollbackArtifacts:{...proof,websiteSha256:undefined}},{liveMigrations:[1,2,26]},
+    {liveMigrations:Array.from({length:30},(_,i)=>i+1)},
+    {phase:"failed-upgrade",liveMigrations:Array.from({length:31},(_,i)=>i+1)}]) deny(patch);
+  for(const patch of [{sha256:"d".repeat(64)},{fileMode:"0644"},{bytes:8192},{quickCheck:"failed"},
+    {foreignKeyFailures:1},{operation:"create"},{migrations:migrations.slice(0,13)}]) {
+    deny({snapshotVerification:{...base.snapshotVerification,...patch}});
   }
 });
 

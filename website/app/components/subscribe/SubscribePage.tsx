@@ -1,10 +1,10 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useCatalogText, useT, type Messages } from "../../lib/i18n";
-import { networkTypes } from "../../lib/subscribeCatalog";
+import { networkTypes, trafficOptions } from "../../lib/subscribeCatalog";
 import { parseSelectionParams, selectionToQuery, type CatalogSelection } from "../../lib/resolveSelection";
 import { usePlanAvailability } from "../../lib/planAvailability";
-import { formatCardYuan, regionFromPriceFen, specMonthlyPriceFen, typeFromPriceFen } from "../../lib/cardPrices";
+import { formatCardYuan, specMonthlyPriceFen, typeFromPriceFen } from "../../lib/cardPrices";
 import { WorkbenchBanner } from "../WorkbenchBanner";
 import { useCustomerDrawer } from "../customer/CustomerCenterShell";
 import { MobileOrderBar } from "./MobileOrderBar";
@@ -21,6 +21,7 @@ const solutionCodes: Record<string, string> = {
   "us-local-carrier": "US LOCAL CARRIER",
   "local-isp": "LOCAL PREMIUM",
   residential: "RESIDENTIAL ISP",
+  "pure-native-ip": "PURE NATIVE IP",
 };
 
 /* 真住宅宽带的能力概览把线路名称（电信 CN2 GIA / 联通 9929 / 移动 CMIN2）与住宅环境属性
@@ -105,13 +106,19 @@ export function SubscribePage() {
     selection.summary.availability === "available";
   const { activeDrawer, openDrawer, closeDrawer } = useCustomerDrawer();
   const orderOpen = activeDrawer === "order";
-  const steps = (selection.requiresSpec ? STEP_KEYS_WITH_SPEC : STEP_KEYS_WITHOUT_SPEC).map(
+  const showIspStep = !selection.summary.ispImplied;
+  const stepKeys = (selection.hasSpecStep ? STEP_KEYS_WITH_SPEC : STEP_KEYS_WITHOUT_SPEC)
+    .filter((key) => showIspStep || key !== "isp");
+  const steps = stepKeys.map(
     (key) => [copy.steps[key].name, copy.steps[key].tip] as const,
   );
   // 选择步骤对应的 DOM 区块；最后一步"确认并提交"不再对应区块（跳转独立页）。
-  const sectionIds = selection.requiresSpec
+  const allSectionIds = selection.hasSpecStep
     ? ["sub-section-type", "sub-section-region", "sub-section-isp", "sub-section-spec", "sub-section-duration"]
     : ["sub-section-type", "sub-section-region", "sub-section-isp", "sub-section-duration"];
+  const sectionIds = showIspStep ? allSectionIds : allSectionIds.filter((id) => id !== "sub-section-isp");
+  const displayedStep = selection.summary.ispImplied && selection.currentStep >= 4
+    ? selection.currentStep - 1 : selection.currentStep;
 
   const currentSelection: CatalogSelection = {
     typeId: selection.typeId,
@@ -140,7 +147,7 @@ export function SubscribePage() {
       if (canRequest) goToRequest();
       return;
     }
-    selection.setCurrentStep(step);
+    selection.setCurrentStep(selection.summary.ispImplied && step >= 3 ? step + 1 : step);
     document.getElementById(sectionIds[step - 1])?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -156,7 +163,7 @@ export function SubscribePage() {
             badge="CATALOG V1"
           />
 
-          <StepProgress steps={steps} currentStep={selection.currentStep} onStep={goToStep} />
+          <StepProgress steps={steps} currentStep={displayedStep} onStep={goToStep} />
 
           <section className="sub-section sub-solution-section" id="sub-section-type">
             <div className="sub-section-heading">
@@ -209,34 +216,24 @@ export function SubscribePage() {
               <small>{copy.regionSection.count(selection.availableRegions.length)}</small>
             </div>
             <div
-              className={`sub-grid sub-grid-region${selection.typeId === "residential" ? " has-tags" : ""}`}
+              className="sub-grid sub-grid-region"
               role="radiogroup"
               aria-label={copy.regionSection.groupLabel}
               onKeyDown={handleRadioGroupKeyDown}
             >
               {selection.availableRegions.map((option) => {
-                const regionFromFen = selection.typeId === null ? null : regionFromPriceFen(availability.index, selection.typeId, option.id);
                 return (
-                <OptionCard key={option.id} selected={selection.regionId === option.id} onSelect={() => selection.selectRegion(option.id)} label={ct(option.name)} className="sub-region-option" tabIndex={optionTabIndex(selection.availableRegions, selection.regionId, option.id)}>
+                <OptionCard key={option.id} selected={selection.regionId === option.id} onSelect={() => selection.selectRegion(option.id)} label={ct(option.cardName ?? option.name)} className="sub-region-option" tabIndex={optionTabIndex(selection.availableRegions, selection.regionId, option.id)}>
                   <span className="sub-region-main">
-                    <span className="sub-option-head"><i className={`sub-flag is-${option.flagClass}`} aria-hidden="true" /><strong>{ct(option.name)}</strong></span>
-                    <span className="sub-region-meta">
-                      {regionFromFen === null ? <small>{copy.pricePending}</small> : <b>{copy.fromPrefix && <small>{copy.fromPrefix}</small>}{formatCardYuan(regionFromFen)}{copy.fromSuffix && <small>{copy.fromSuffix}</small>}</b>}
-                      {option.badge && <i className={`sub-tag ${option.configured ? "is-accent" : ""}`}>{ct(option.badge)}</i>}
-                    </span>
+                    <span className="sub-option-head"><i className={`sub-flag is-${option.flagClass}`} aria-hidden="true" /><strong>{ct(option.cardName ?? option.name)}</strong></span>
                   </span>
-                  {selection.typeId === "residential" && copy.residentialRegionTags[option.id] && (
-                    <span className="sub-region-tags">
-                      {copy.residentialRegionTags[option.id]!.map((tag) => <i key={tag} className="sub-tag">{tag}</i>)}
-                    </span>
-                  )}
                 </OptionCard>
                 );
               })}
             </div>
           </section>
 
-          <section className="sub-section" id="sub-section-isp">
+          {showIspStep && <section className="sub-section" id="sub-section-isp">
             <div className="sub-section-heading">
               <div><span>STEP 03 · NETWORK OPERATOR</span><h2>{copy.ispSection.title}{selection.regionId && <em>· {ct(selection.summary.region)}</em>}</h2><p>{copy.ispSection.lead}</p></div>
               <small>{selection.availableIsps.length ? copy.ispSection.count(selection.availableIsps.length) : copy.ispSection.pendingConfig}</small>
@@ -250,14 +247,33 @@ export function SubscribePage() {
                 ))}
               </div>
             ) : <div className="sub-pending" role="status">{copy.ispSection.regionPending}</div>}
-          </section>
+          </section>}
 
-          {selection.requiresSpec && <section className="sub-section" id="sub-section-spec">
+          {selection.hasSpecStep && <section className="sub-section" id="sub-section-spec">
             <div className="sub-section-heading">
               <div><span>STEP 04 · SERVICE PROFILE</span><h2>{copy.specSection.title}</h2><p>{copy.specSection.lead}</p></div>
               <small>{selection.availableSpecs.length ? copy.specSection.count(selection.availableSpecs.length) : copy.specSection.chooseIspFirst}</small>
             </div>
-            {selection.availableSpecs.length ? (
+            {selection.availableLines.length > 0 ? (
+              <div className="sub-package-choice">
+                <div><h3>{copy.specSection.lineTitle}</h3><div className="sub-grid sub-package-lines" role="radiogroup" aria-label={copy.specSection.lineTitle} onKeyDown={handleRadioGroupKeyDown}>
+                  {selection.availableLines.map((line) => <OptionCard key={line.id} selected={selection.selectedLine?.id === line.id}
+                    onSelect={() => selection.selectLine(line.id)} label={ct(line.name)} className="sub-package-option"
+                    tabIndex={optionTabIndex(selection.availableLines, selection.selectedLine?.id ?? null, line.id)}>
+                    <strong>{ct(line.name)}</strong>{line.notice && <small>{ct(line.notice)}</small>}
+                  </OptionCard>)}
+                </div></div>
+                <div><h3>{copy.specSection.trafficTitle}</h3><div className="sub-grid sub-package-traffic" role="radiogroup" aria-label={copy.specSection.trafficGroupLabel} onKeyDown={handleRadioGroupKeyDown}>
+                  {trafficOptions.filter((traffic) => selection.selectedLine &&
+                    selection.packageSpecId(selection.selectedLine.id, traffic.id) !== undefined).map((traffic) =>
+                    <OptionCard key={traffic.id} selected={selection.selectedTrafficId === traffic.id}
+                      onSelect={() => selection.selectTraffic(traffic.id)} label={traffic.name} className="sub-package-option"
+                      tabIndex={optionTabIndex(trafficOptions, selection.selectedTrafficId, traffic.id)}>
+                      <strong>{traffic.name}</strong>
+                    </OptionCard>)}
+                </div></div>
+              </div>
+            ) : selection.availableSpecs.length ? (
               <div className="sub-grid sub-grid-three" role="radiogroup" aria-label={copy.specSection.groupLabel} onKeyDown={handleRadioGroupKeyDown}>
                 {selection.availableSpecs.map((option) => {
                   const monthlyFen = selection.typeId === null ? null : specMonthlyPriceFen(availability.index, selection.typeId, selection.regionId, selection.ispId, option.id);
@@ -265,7 +281,7 @@ export function SubscribePage() {
                   <OptionCard key={option.id} selected={selection.specId === option.id} onSelect={() => selection.selectSpec(option.id)} label={ct(option.name)} className="sub-spec-option" tabIndex={optionTabIndex(selection.availableSpecs, selection.specId, option.id)}>
                     <span className="sub-option-head"><strong>{ct(option.name)}</strong>{option.badge && <i className="sub-tag is-accent">{ct(option.badge)}</i>}<i className="sub-tag">{monthlyFen === null ? copy.pricePending : copy.perMonth(formatCardYuan(monthlyFen))}</i></span>
                     <span className="sub-features">{option.features.map((feature) => <span key={feature}>{ct(feature)}</span>)}</span>
-                    <span className="sub-option-cta">{ct(option.description)}</span>
+                    {option.description && <span className="sub-option-cta">{ct(option.description)}</span>}
                   </OptionCard>
                   );
                 })}
@@ -276,7 +292,7 @@ export function SubscribePage() {
           <section className="sub-section" id="sub-section-duration">
             <div className="sub-section-heading">
               <div>
-                <span>{selection.requiresSpec ? "STEP 05" : "STEP 04"} · SERVICE TERM</span>
+                <span>{selection.summary.ispImplied ? "STEP 04" : selection.hasSpecStep ? "STEP 05" : "STEP 04"} · SERVICE TERM</span>
                 <h2>{copy.durationSection.title}</h2>
                 <p>{copy.durationSection.lead}</p>
                 {priceStatus && <p className={`sub-price-status${availability.error ? " is-error" : ""}`} role={availability.error ? "alert" : "status"}>{priceStatus}</p>}
@@ -318,7 +334,7 @@ export function SubscribePage() {
                   );
                 })}
               </div>
-            ) : <div className="sub-pending">{selection.requiresSpec ? copy.durationSection.chooseSpecFirst : copy.durationSection.chooseIspFirst}</div>}
+            ) : <div className="sub-pending">{selection.hasSpecStep ? copy.durationSection.chooseSpecFirst : copy.durationSection.chooseIspFirst}</div>}
           </section>
         </div>
 
