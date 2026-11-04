@@ -980,6 +980,7 @@ export const en: Messages = {
     zeroItems: "0 items",
   },
   center: {
+    manualChangeTodo: "Plan change tasks",
     navGroups: { overview: "Overview", subscription: "Subscriptions", support: "Support", account: "Account" },
     nav: {
       "/status": "Server status",
@@ -1127,6 +1128,7 @@ export const en: Messages = {
     deliveryMismatch: "Delivery data does not match this plan. Please try again later.",
     deliveryInvalid: "Delivery data returned an error. Please try again later.",
     deliveryRenewalTitle: "Subscription delivery and renewal settings",
+    manualFactsRequired: "An administrator must complete the plan details before a paid change can be requested. Existing subscription delivery and renewal remain available.",
     activationDetailsTitle: "Activation status and details",
     giftDeliveryTitle: "Gift delivery and details",
     subscriptionUnavailable: "Subscription details are unavailable. Please try again later.",

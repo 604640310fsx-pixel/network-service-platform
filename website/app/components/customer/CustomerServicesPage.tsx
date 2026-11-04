@@ -722,7 +722,7 @@ export function CustomerServicesPage() {
                   </div>
                 )}
                 {isOpen&&item.display&&["local-isp","pure-native-ip"].includes(item.display.typeId)&&!item.entitlement&&
-                  <p className="cc-svc-import-state">需管理员补齐套餐资料，当前不能发起收费变更；原订阅交付和续费入口保留。</p>}
+                  <p className="cc-svc-import-state">{t.services.manualFactsRequired}</p>}
                 <ExistingServiceSection title={isOpen ? t.services.deliveryRenewalTitle : t.services.activationDetailsTitle}>
                     {isOpen && <ServiceSubscription item={item} />}
                     {!isOpen && <p className="cc-svc-import-state">{t.services.awaitingDelivery}</p>}

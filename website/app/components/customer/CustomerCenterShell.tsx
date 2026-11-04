@@ -304,7 +304,7 @@ function CustomerCenterContent({
           </div>
           <nav className="cc-navigation" aria-label={t.center.navLabel}>
             {principal?.role==="admin"&&<div className="cc-nav-group"><p>ADMIN</p><NavLink to="/dashboard#admin-service-changes" onClick={closeDrawer}>
-              <NavIcon href="/services"/><span>套餐变更待办 <AdminServiceChangeBadge/></span>
+              <NavIcon href="/services"/><span>{t.center.manualChangeTodo} <AdminServiceChangeBadge/></span>
             </NavLink></div>}
             {navigation.map((group) => (
               <div className="cc-nav-group" key={group.group}>

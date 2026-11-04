@@ -979,6 +979,7 @@ export const zh = {
     zeroItems: "0 项",
   },
   center: {
+    manualChangeTodo: "套餐变更待办",
     navGroups: { overview: "概览", subscription: "订阅管理", support: "支持与帮助", account: "账户设置" },
     nav: {
       "/status": "服务器状态",
@@ -1126,6 +1127,7 @@ export const zh = {
     deliveryMismatch: "交付数据与当前套餐不一致，请稍后重试。",
     deliveryInvalid: "交付数据返回异常，请稍后重试。",
     deliveryRenewalTitle: "订阅交付与续费设置",
+    manualFactsRequired: "需管理员补齐套餐资料，当前不能发起收费变更；原订阅交付和续费入口保留。",
     activationDetailsTitle: "开通状态与说明",
     giftDeliveryTitle: "赠送交付与说明",
     subscriptionUnavailable: "订阅信息暂不可读取，请稍后重试。",
