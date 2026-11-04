@@ -1,4 +1,6 @@
 import type { DatabaseConnection } from "../db.js";
+import { createResidentialOptions, isResidentialV2, residentialVariant, residentialBaseSpec,
+  residentialSnapshotSql, residentialOptionsFromOrderRow, assertResidentialSnapshotAnchor, parseResidentialOptions, RESIDENTIAL_VARIANTS, RESIDENTIAL_LEGACY_DIRECT_SPEC, type ResidentialOptions } from "./residential-options.js";
 
 export class PaymentDomainError extends Error {
   readonly statusCode: number;
@@ -32,6 +34,23 @@ export interface SellablePlanRow {
   readonly isActive: boolean;
   readonly totalSlots: number | null;
   readonly occupiedSlots: number;
+  readonly soldOut?: boolean;
+  readonly residentialOptions?: ResidentialOptions;
+}
+
+/** New-purchase catalog only; admin and legacy rows keep their existing identity. */
+export function listPurchaseCatalogPlans(database: DatabaseConnection): Array<AdminPlanItem & { soldOut?: boolean; residentialOptions?: ResidentialOptions }> {
+  const raw = listSellablePlans(database);
+  const items: Array<AdminPlanItem & { soldOut?: boolean; residentialOptions?: ResidentialOptions }> = raw.filter(row => row.typeId !== "residential");
+  for (const anchor of raw.filter(row => row.typeId === "residential" && ["shared-5","shared-3","dedicated"].includes(row.specId ?? ""))) {
+    for (const variant of RESIDENTIAL_VARIANTS) {
+      if (variant.specId === RESIDENTIAL_LEGACY_DIRECT_SPEC) continue;
+      if (residentialBaseSpec(variant.specId) !== anchor.specId) continue;
+      const plan = findSellablePlan(database, { typeId: anchor.typeId, regionId: anchor.regionId, ispId: anchor.ispId, specId: variant.specId, durationId: anchor.durationId });
+      if (plan?.residentialOptions) items.push({ ...anchor, ...plan, specId: variant.specId, residentialOptions: plan.residentialOptions });
+    }
+  }
+  return items;
 }
 
 export const COUPON_CODE_PATTERN = /^[A-Z0-9_-]{3,32}$/;
@@ -53,7 +72,31 @@ function rowRecord(row: unknown): Record<string, unknown> {
 export function findSellablePlan(
   database: DatabaseConnection,
   selection: PlanSelection,
+  residentialHistory?: ResidentialOptions,
 ): SellablePlanRow | null {
+  if (isResidentialV2(selection)) {
+    if (!residentialVariant(selection.specId) || residentialSnapshotSql(database) === "NULL") return null;
+    const specId = residentialBaseSpec(selection.specId);
+    if (!specId) return null;
+    const anchor = { ...selection, specId };
+    const period = findSellablePlan(database, anchor);
+    const monthly = findSellablePlan(database, { ...anchor, durationId: "month-1" });
+    if (!period) return null;
+    if (!monthly || !Number.isSafeInteger(monthly.priceFen) || monthly.priceFen <= 0 || !Number.isSafeInteger(period.priceFen) || period.priceFen <= 0)
+      return { ...period, isActive: false };
+    let options = createResidentialOptions(selection, period.id, monthly.priceFen, period.priceFen);
+    if(residentialHistory){
+      const history=parseResidentialOptions(JSON.stringify(residentialHistory),residentialHistory);
+      if(!history || !['original-traffic-tier-v1','original-traffic-tier-v2'].includes(history.pricingStrategyVersion??'') ||
+        ['typeId','regionId','ispId','specId'].some(key=>history[key as keyof ResidentialOptions]!==selection[key as keyof PlanSelection]))throw new Error('Residential history tuple conflict');
+      assertResidentialSnapshotAnchor(database,history);
+      if(history.pricingStrategyVersion==='original-traffic-tier-v1')options={...options,pricingStrategyVersion:'original-traffic-tier-v1',deviceAllowance:history.deviceAllowance};
+    }
+    return { ...period, priceFen: options.finalPeriodFen!,
+      isActive: period.isActive && monthly.isActive,
+      soldOut: (period.totalSlots !== null && period.occupiedSlots >= period.totalSlots) ||
+        (monthly.totalSlots !== null && monthly.occupiedSlots >= monthly.totalSlots), residentialOptions: options };
+  }
   const rows = database
     .prepare(
       `SELECT id, price_fen, is_active, total_slots, occupied_slots
@@ -187,12 +230,15 @@ export interface QuoteResult {
   readonly amountFen: number;
   readonly couponId: number | null;
   readonly couponCode: string | null;
+  readonly residentialOptions?: ResidentialOptions;
 }
 
 export interface QuoteInput {
   readonly selection: PlanSelection;
   readonly couponCode: string | null;
   readonly now: () => Date;
+  /** Internal only: read from the authorized persisted order, never an HTTP field. */
+  readonly residentialHistory?: ResidentialOptions;
 }
 
 /* 唯一报价/核价入口：POST /api/pay/quote 与创建订单都调用同一份逻辑，
@@ -203,11 +249,11 @@ export function resolveQuote(
   database: DatabaseConnection,
   input: QuoteInput,
 ): QuoteResult {
-  const plan = findSellablePlan(database, input.selection);
+  const plan = findSellablePlan(database, input.selection, input.residentialHistory);
   if (plan === null || !plan.isActive) {
     throw new PaymentDomainError(409, "plan_unavailable");
   }
-  if (plan.totalSlots !== null && plan.occupiedSlots >= plan.totalSlots) {
+  if (plan.soldOut || (plan.totalSlots !== null && plan.occupiedSlots >= plan.totalSlots)) {
     throw new PaymentDomainError(409, "sold_out");
   }
   const listPriceFen = plan.priceFen;
@@ -250,7 +296,8 @@ export function resolveQuote(
   if (amountFen <= 0) {
     throw new PaymentDomainError(409, "coupon_invalid");
   }
-  return { planId: plan.id, listPriceFen, discountFen, amountFen, couponId, couponCode };
+  return { planId: plan.id, listPriceFen, discountFen, amountFen, couponId, couponCode,
+    ...(plan.residentialOptions ? { residentialOptions: plan.residentialOptions } : {}) };
 }
 
 export interface OccupyInput {
@@ -340,7 +387,8 @@ export function releasePlanAndCouponForOrder(
   const nowIso = now().toISOString();
   const orderRows = database
     .prepare(
-      `SELECT type_id, region_id, isp_id, spec_id, duration_id
+      `SELECT type_id, region_id, isp_id, spec_id, duration_id, catalog_version,
+         ${residentialSnapshotSql(database)} AS residential_options_json
        FROM orders WHERE id = ?`,
     )
     .all(orderId);
@@ -355,7 +403,9 @@ export function releasePlanAndCouponForOrder(
     ) {
       throw new Error("Commerce database invariant failed");
     }
-    const plan = findSellablePlan(database, {
+    const snapshot = residentialOptionsFromOrderRow(value);
+    if (snapshot) assertResidentialSnapshotAnchor(database, snapshot);
+    const plan = snapshot ? {id:snapshot.basePlanId} : findSellablePlan(database, {
       typeId: value.type_id,
       regionId: value.region_id,
       ispId: value.isp_id,

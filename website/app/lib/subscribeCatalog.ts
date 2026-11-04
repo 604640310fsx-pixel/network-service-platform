@@ -55,6 +55,7 @@ export type SpecOption = {
   trafficId?: string;
   // 本地ISP运营商选配项：批准加价表中该线路 × 流量档的月费加价（元/月），仅用于展示；最终价仍由服务端核定。
   surcharge?: number;
+  deviceAllowance?: number | null;
 };
 
 export type LineOption = {
@@ -355,6 +356,35 @@ export const specsByIsp: Record<string, SpecOption[]> = {
   comcast: createResidentialSpecs({ shared5: 159, shared3: 239, dedicated: 659 }),
 };
 
+export const RESIDENTIAL_DEFAULT_SPEC = "res-v2-direct-200g";
+export const residentialLines: LineOption[] = [
+  { id: "direct", name: "默认直连（高峰期不稳定）", description: "" },
+  { id: "optimized", name: "优化线路", description: "" },
+  { id: "highspeed", name: "高速线路", description: "" },
+  { id: "live", name: "直播专线", description: "" },
+];
+// Labels/allowed combinations only. No static amount is used for a new purchase.
+const residentialNamesByLine: Record<string, readonly string[]> = {
+  direct: ["默认直连 · 200G", "默认直连 · 300G", "默认直连 · 1T"],
+  optimized: ["优化线路 · 200G", "优化线路 · 300G", "优化线路 · 1T"],
+  highspeed: ["高速线路 · 200G", "高速线路 · 300G", "高速线路 · 1T"],
+  live: ["直播专线 · 200G", "直播专线 · 300G", "直播专线 · 1T"],
+};
+export const residentialV2Specs: SpecOption[] = [
+  ...["200g","300g","1t"].map((trafficId,index)=>({id:`res-v2-direct-${trafficId}`,name:residentialNamesByLine.direct![index]!,monthlyPrice:null,pricesByDuration:{},traffic:["200G","300G","1T"][index]!,bandwidth:"100M",features:[],description:"",lineId:"direct",trafficId,deviceAllowance:[3,5,10][index]!,surcharge:0})),
+  ...residentialLines.slice(1).flatMap((line, lineIndex) => ["200g", "300g", "1t"].map((trafficId, index) => ({
+    id: `res-v2-${line.id}-${trafficId}`, name: residentialNamesByLine[line.id]![index]!,
+    monthlyPrice: null, pricesByDuration: {}, traffic: ["200G", "300G", "1T"][index]!, bandwidth: "100M", features: [], description: "",
+    lineId: line.id, trafficId, deviceAllowance: [3, 5, 10][index]!, surcharge: [[10,12,30],[20,25,70],[30,35,100]][lineIndex]![index]!,
+  }))),
+];
+// Read-only historical order labels; never offered as new-purchase choices.
+export const residentialHistoricalSpecs: SpecOption[] = [
+  {id:'res-v2-direct-default',name:'默认直连 · 300G',traffic:'300G',trafficId:'300g',lineId:'direct',surcharge:0,deviceAllowance:null,monthlyPrice:null,pricesByDuration:{},bandwidth:'100M',features:[],description:''},
+  ...['direct','optimized','highspeed','live'].map((lineId,index)=>({id:`res-v2-${lineId}-500g`,name:['默认直连 · 500G','优化线路 · 500G','高速线路 · 500G','直播专线 · 500G'][index]!,traffic:'500G',trafficId:'500g',lineId,surcharge:[10,20,40,60][index]!,deviceAllowance:index===0?null:5,monthlyPrice:null,pricesByDuration:{},bandwidth:'100M',features:[],description:''})),
+];
+export const residentialTrafficOptions = [{id:'200g',name:'200G'},{id:'300g',name:'300G'},{id:'1t',name:'1T'}];
+
 // ===== 线路 × 流量选配（NSP-PACKAGE-COPY-20261101-01，全部按月、人民币元/月） =====
 // specId 编码为 `${lineId}-${trafficId}`，沿用既有五元组的 spec 字段，不新增下单字段。
 // 选配价为最终月价；半年 / 年付按统一周期规则由月价计算（不提供 3 个月）。
@@ -561,6 +591,6 @@ export const defaultCatalogSelection = {
   typeId: "residential",
   regionId: "vn",
   ispId: "vnpt-corp",
-  specId: "shared-3",
+  specId: RESIDENTIAL_DEFAULT_SPEC,
   durationId: "month-1",
 } as const;

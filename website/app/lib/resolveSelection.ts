@@ -8,6 +8,7 @@ import {
   packageSpecsByTypeAndRegion,
   regionsByType,
   specsByIsp,
+  residentialLines, residentialV2Specs, residentialHistoricalSpecs, RESIDENTIAL_DEFAULT_SPEC,
   type DurationOption,
   type IspOption,
   type LineOption,
@@ -16,6 +17,7 @@ import {
   type SpecOption,
 } from "./subscribeCatalog";
 import { planAvailabilityKey, type PlanAvailabilityIndex } from "./planAvailability";
+import type {ResidentialOptions} from "./residential-options";
 
 /* 单个五元组相对服务端权威可售状态的判定结果。"unknown" 表示未提供 availability
    （调用方尚未拉取，或调用方本就不关心）——此时价格与既有目录逻辑完全一致，
@@ -33,6 +35,7 @@ export type CatalogSelection = {
 
 /* 摘要视图模型：唯一真源在此，hook 与独立提交页共用。 */
 export type SelectionSummary = {
+  residentialOptions?: ResidentialOptions;
   type: string;
   region: string;
   isp: string;
@@ -63,6 +66,7 @@ export function withImpliedIsp(selection: CatalogSelection): CatalogSelection {
 /* 本地ISP运营商 / 纯净原生独享 IP 的初始选择：默认路线（A 现有套餐，specId 为 null）/ B 普通路线 200G，月付。
    只在地区与运营商已经由用户（或 URL）确定且合法之后生效；不替用户挑地区或运营商。 */
 const PACKAGE_DEFAULT_SPEC_ID: Record<string, string | null> = {
+  residential: RESIDENTIAL_DEFAULT_SPEC,
   "local-isp": null,
   "pure-native-ip": "ordinary-200g",
 };
@@ -83,6 +87,18 @@ export function withPackageDefaults(selection: CatalogSelection): CatalogSelecti
       : null;
   const durationId = resolved.selectedDuration ? resolved.selectedDuration.id : PACKAGE_DEFAULT_DURATION_ID;
   return { ...selection, specId, durationId };
+}
+
+/** Call ONLY on a new /subscribe entry, never an order/payment/retry/renewal. */
+export function normalizeResidentialNewPurchase(selection: CatalogSelection): { selection: CatalogSelection; reconfirm: boolean } {
+  if (selection.typeId !== "residential") return { selection, reconfirm: false };
+  const regionId = regionsByType.residential?.some(row => row.id === selection.regionId) ? selection.regionId : null;
+  const ispId = regionId && ispsByTypeAndRegion.residential?.[regionId]?.some(row => row.id === selection.ispId) ? selection.ispId : null;
+  const legacy = ["shared-5", "shared-3", "dedicated", ...residentialHistoricalSpecs.map(row=>row.id)].includes(selection.specId ?? "");
+  const validSpec = residentialV2Specs.some(row => row.id === selection.specId);
+  const specId = ispId ? !legacy && validSpec ? selection.specId : RESIDENTIAL_DEFAULT_SPEC : null;
+  const durationId = ispId ? !legacy && durationsByType.residential?.some(row => row.id === selection.durationId) ? selection.durationId : "month-1" : null;
+  return { selection: { typeId: "residential", regionId, ispId, specId, durationId }, reconfirm: legacy };
 }
 
 export type ResolvedSelection = {
@@ -123,13 +139,14 @@ export function resolveSelection(
   const availableRegions = typeId ? (regionsByType[typeId] ?? []) : [];
   const availableIsps = typeId && regionId ? (ispsByTypeAndRegion[typeId]?.[regionId] ?? []) : [];
   // 线路 × 流量选配按 type + region 定义（与 ISP 无关）；真住宅宽带规格仍按 ISP 定义。
-  const regionLines = typeId && regionId ? (packageLinesByTypeAndRegion[typeId]?.[regionId] ?? []) : [];
+  const legacyResidential = typeId === "residential" && ["shared-5", "shared-3", "dedicated"].includes(specId ?? "");
+  const regionLines = typeId === "residential" && !legacyResidential ? residentialLines : typeId && regionId ? (packageLinesByTypeAndRegion[typeId]?.[regionId] ?? []) : [];
   const regionPackageSpecs = typeId && regionId ? packageSpecsByTypeAndRegion[typeId]?.[regionId] : undefined;
   const hasPackageOptions = regionLines.length > 0;
   const hasSpecStep = requiresSpec || hasPackageOptions;
   const availableSpecs = !ispId
     ? []
-    : (regionPackageSpecs ?? (requiresSpec ? (specsByIsp[ispId] ?? []) : []));
+    : (typeId === "residential" && !legacyResidential ? residentialHistoricalSpecs.some(row=>row.id===specId)?residentialHistoricalSpecs:residentialV2Specs : regionPackageSpecs ?? (requiresSpec ? (specsByIsp[ispId] ?? []) : []));
   const availableLines = ispId ? regionLines : [];
 
   const selectedRegion = availableRegions.find((option) => option.id === regionId) ?? null;
@@ -191,6 +208,8 @@ export function resolveSelection(
     complete && selectedDuration ? (durationAvailability[selectedDuration.id] ?? "unknown") : "unknown";
 
   const summary: SelectionSummary = {
+    ...(selectedDuration && availability?.[planAvailabilityKey(typeId!,regionId!,ispId!,specIdForLookup,selectedDuration.id)]?.residentialOptions
+      ? { residentialOptions: availability[planAvailabilityKey(typeId!,regionId!,ispId!,specIdForLookup,selectedDuration.id)]!.residentialOptions } : {}),
     type: selectedType?.name ?? "—",
     region: selectedRegion?.name ?? "—",
     isp: selectedIsp?.name ?? "—",

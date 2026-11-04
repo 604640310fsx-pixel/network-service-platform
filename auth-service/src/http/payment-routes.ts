@@ -10,7 +10,7 @@ import {
   type AlipaySdkLike,
 } from "../payment/alipay.js";
 import {
-  listSellablePlans,
+  listPurchaseCatalogPlans,
   normalizeCouponCode,
   resolveQuote,
   type PlanSelection,
@@ -42,6 +42,7 @@ import {
   readMyGrantDelivery,
 } from "../payment/admin-services.js";
 import { refreshPaymentFromAlipay } from "../payment/payment-refresh.js";
+import { isResidentialV2 } from "../payment/residential-options.js";
 import {
   acknowledgeServiceFulfillment, assertManualServiceFacts, cancelServiceDowngrade, createServiceUpgradeOrder,
   listServiceChangeOptions, quoteServiceUpgrade, scheduleServiceDowngrade, serviceChangeSnapshot,
@@ -154,6 +155,8 @@ function parseCreateBody(body: unknown): CreateOrderBody | null {
     return null;
   }
   const value = body as Record<string, unknown>;
+  if (isResidentialV2(value as unknown as PlanSelection) && Object.keys(value).some(key =>
+    !["typeId","regionId","ispId","specId","durationId","contact","scenarios","notes","acknowledgedAmountFen","couponCode"].includes(key))) return null;
   if (
     typeof value.typeId !== "string" ||
     typeof value.regionId !== "string" ||
@@ -192,6 +195,8 @@ function parseQuoteBody(body: unknown): QuoteBody | null {
     return null;
   }
   const value = body as Record<string, unknown>;
+  if (isResidentialV2(value as unknown as PlanSelection) && Object.keys(value).some(key =>
+    !["typeId","regionId","ispId","specId","durationId","couponCode"].includes(key))) return null;
   if (
     typeof value.typeId !== "string" ||
     typeof value.regionId !== "string" ||
@@ -242,6 +247,7 @@ async function publicPaymentResult(
     status: result.status,
     amountFen: result.amountFen,
     currency: result.currency,
+    ...(result.residentialOptions ? { residentialOptions: result.residentialOptions } : {}),
   } as const;
   if (result.status !== "pending") {
     return { ...base, reservedUntil: null, payUrl: null };
@@ -483,7 +489,7 @@ export function registerPaymentHttpRoutes(
       return reply.code(503).send(errorResponse("payment_unavailable"));
     }
     try {
-      const items = listSellablePlans(dependencies.database).map((plan) => ({
+      const items = listPurchaseCatalogPlans(dependencies.database).map((plan) => ({
         typeId: plan.typeId,
         regionId: plan.regionId,
         ispId: plan.ispId,
@@ -491,7 +497,8 @@ export function registerPaymentHttpRoutes(
         durationId: plan.durationId,
         priceFen: plan.priceFen,
         isActive: plan.isActive,
-        soldOut: plan.totalSlots !== null && plan.occupiedSlots >= plan.totalSlots,
+        soldOut: plan.soldOut || (plan.totalSlots !== null && plan.occupiedSlots >= plan.totalSlots),
+        ...(plan.residentialOptions ? { residentialOptions: plan.residentialOptions } : {}),
       }));
       return reply.code(200).send({ items });
     } catch {
@@ -527,6 +534,7 @@ export function registerPaymentHttpRoutes(
         amountFen: quote.amountFen,
         currency: "CNY",
         couponCode: quote.couponCode,
+        ...(quote.residentialOptions ? { residentialOptions: quote.residentialOptions } : {}),
       });
     } catch (error) {
       return sendDomainError(reply, error);
@@ -724,6 +732,7 @@ export function registerPaymentHttpRoutes(
           currency: after.currency,
           reservedUntil: after.reservedUntil,
           service,
+          ...(after.residentialOptions ? { residentialOptions: after.residentialOptions } : {}),
         });
       } catch (error) {
         return sendDomainError(reply, error);

@@ -1,8 +1,10 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useCatalogText, useT, type Messages } from "../../lib/i18n";
-import { networkTypes, trafficOptions } from "../../lib/subscribeCatalog";
-import { parseSelectionParams, selectionToQuery, type CatalogSelection } from "../../lib/resolveSelection";
+import { useCatalogText, useT } from "../../lib/i18n";
+import { networkTypes, trafficOptions, residentialTrafficOptions } from "../../lib/subscribeCatalog";
+import { normalizeResidentialNewPurchase, parseSelectionParams, selectionToQuery, type CatalogSelection } from "../../lib/resolveSelection";
+import { RESIDENTIAL_DEFAULT_SPEC } from "../../lib/subscribeCatalog";
+import { ResidentialOptionDetails } from "./ResidentialOptionDetails";
 import { usePlanAvailability } from "../../lib/planAvailability";
 import { formatCardYuan, specMonthlyPriceFen, typeFromPriceFen } from "../../lib/cardPrices";
 import { WorkbenchBanner } from "../WorkbenchBanner";
@@ -24,20 +26,9 @@ const solutionCodes: Record<string, string> = {
   "pure-native-ip": "PURE NATIVE IP",
 };
 
-/* 真住宅宽带的能力概览把线路名称（电信 CN2 GIA / 联通 9929 / 移动 CMIN2）与住宅环境属性
-   （UDP / IPv4·IPv6 / DNS 等）混在同一份列表里。线路名称改为在上方以"直连高级路线"标题
-   呈现，这里从 catalog 的 features 里把线路字符串过滤掉，只保留住宅环境事实，避免同一张
-   卡片里出现两次线路信息。不改写 catalog 数据本身。 */
-const RESIDENTIAL_ROUTE_FEATURES = ["电信 CN2 GIA", "联通 9929", "移动 CMIN2"];
-
-function residentialEnvironmentFeatures(features: string[], copy: Messages["subscribe"], ct: (text: string) => string) {
-  const environment = features
-    .filter((feature) => !RESIDENTIAL_ROUTE_FEATURES.includes(feature))
-    .map((feature) => (feature === "UDP" ? copy.fullUdp : ct(feature)));
-  // "真实住宅 ISP" 并非 catalog features 里的字符串，但对应 ispsByTypeAndRegion.residential
-  // 里真实命名的住宅 ISP——是同一份 catalog 数据里已有的真实事实，只是换成客户能懂的话。
-  return [copy.realResidentialIsp, ...environment];
-}
+// Presentation only: keep catalog IDs, default selection, prices and order identity.
+const productCardOrder = ["pure-native-ip", "residential", "us-local-carrier", "local-isp"];
+const displayNetworkTypes = [...networkTypes].sort((a, b) => productCardOrder.indexOf(a.id) - productCardOrder.indexOf(b.id));
 
 function optionTabIndex<T extends { id: string }>(
   options: readonly T[],
@@ -90,15 +81,22 @@ export function SubscribePage() {
   const [searchParams, setSearchParams] = useSearchParams();
   // 仅在挂载时读取一次 query 作为初始选择；hook 只有在其解析为完整方案时才采纳，
   // 不完整 / 非法参数不会污染 hook（回退默认选择）。
-  const [initialSelection] = useState(() => parseSelectionParams(searchParams));
+  const [initialEntry] = useState(() => {
+    const entry = normalizeResidentialNewPurchase(parseSelectionParams(searchParams));
+    return { ...entry, reconfirm: entry.reconfirm || searchParams.get("reconfirm") === "residential-v2" };
+  });
+  const [legacyConfirmed, setLegacyConfirmed] = useState(false);
+  const needsResidentialReconfirm = initialEntry.reconfirm && !legacyConfirmed;
   const availability = usePlanAvailability();
-  const selection = useSubscriptionSelection(initialSelection, availability.index ?? undefined);
+  const selection = useSubscriptionSelection(initialEntry.selection, availability.index ?? undefined);
+  const shownTrafficOptions = selection.typeId==='residential'?residentialTrafficOptions:trafficOptions;
   const priceStatus = availability.loading
     ? copy.priceLoading
     : availability.error
       ? copy.priceUnavailable
       : null;
   const canRequest =
+    !needsResidentialReconfirm &&
     !availability.loading &&
     !availability.error &&
     selection.summary.complete &&
@@ -131,9 +129,11 @@ export function SubscribePage() {
   // 把当前选择镜像回 /subscribe 的 query（replace，避免堆积浏览历史）；
   // 正常跳转前历史记录即带有同一组 ID，浏览器后退 / 刷新可据此恢复。
   useEffect(() => {
-    setSearchParams(new URLSearchParams(selectionToQuery(currentSelection)), { replace: true });
+    const query = new URLSearchParams(selectionToQuery(currentSelection));
+    if (needsResidentialReconfirm) query.set("reconfirm", "residential-v2");
+    setSearchParams(query, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selection.typeId, selection.regionId, selection.ispId, selection.specId, selection.durationId]);
+  }, [selection.typeId, selection.regionId, selection.ispId, selection.specId, selection.durationId, needsResidentialReconfirm]);
 
   // 携带当前选择跳转到独立提交页（只放公开 catalog ID）。
   function goToRequest() {
@@ -164,6 +164,7 @@ export function SubscribePage() {
           />
 
           <StepProgress steps={steps} currentStep={displayedStep} onStep={goToStep} />
+          {needsResidentialReconfirm && <div className="sub-pending" role="alert"><p>{copy.residentialReconfirm}</p><button type="button" className="sub-order-button" onClick={() => setLegacyConfirmed(true)}>{copy.residentialConfirm}</button></div>}
 
           <section className="sub-section sub-solution-section" id="sub-section-type">
             <div className="sub-section-heading">
@@ -171,37 +172,20 @@ export function SubscribePage() {
               <small>{copy.typeSection.count}</small>
             </div>
             <div className="sub-grid sub-solution-grid" role="radiogroup" aria-label={copy.typeSection.groupLabel} onKeyDown={handleRadioGroupKeyDown}>
-              {networkTypes.map((option) => {
-                const presentation = copy.solutions[option.id];
-                const typeFromFen = typeFromPriceFen(availability.index, option.id);
+              {displayNetworkTypes.map((option) => {
+                const product = copy.productCards[option.id];
+                const typeFromFen = option.id === "residential" ? specMonthlyPriceFen(availability.index, "residential", selection.regionId, selection.ispId, RESIDENTIAL_DEFAULT_SPEC) : typeFromPriceFen(availability.index, option.id);
                 const selected = selection.typeId === option.id;
                 return (
-                  <OptionCard key={option.id} selected={selected} onSelect={() => selection.selectType(option.id)} label={ct(option.name)} className="sub-type-option" tabIndex={optionTabIndex(networkTypes, selection.typeId, option.id)}>
+                  <OptionCard key={option.id} selected={selected} onSelect={() => selection.selectType(option.id)} label={ct(option.name)} className="sub-type-option" tabIndex={optionTabIndex(displayNetworkTypes, selection.typeId, option.id)}>
                     <span className="sub-solution-top">
                       <span className="sub-solution-icon"><SolutionIcon typeId={option.id} /></span>
                       <span className="sub-solution-title"><small>{solutionCodes[option.id]}</small><strong>{ct(option.name)}</strong></span>
-                      {option.badge && <i className="sub-tag is-accent">{ct(option.badge)}</i>}
                     </span>
-                    <span className="sub-description">{ct(option.description)}</span>
-                    {presentation && (
-                      <span className="sub-route-group">
-                        <small>{presentation.label}</small>
-                        <span>{presentation.highlights.map((item) => <i key={item}>{item}</i>)}</span>
-                      </span>
-                    )}
-                    {option.id === "residential" ? (
-                      <>
-                        <span className="sub-capability-label">{copy.typeSection.residentialEnvironment}</span>
-                        <span className="sub-features">{residentialEnvironmentFeatures(option.features, copy, ct).map((feature) => <span key={feature}>{feature}</span>)}</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="sub-capability-label">{copy.typeSection.capabilities}</span>
-                        <span className="sub-features">{option.features.map((feature) => <span key={feature}>{ct(feature)}</span>)}</span>
-                      </>
-                    )}
+                    <span className="sub-product-facts"><i className="sub-product-tag">{product.tag}</i><span>{product.bandwidth}</span></span>
+                    <span className="sub-product-audience">{product.audience}</span>
                     <span className="sub-solution-footer">
-                      <b>{typeFromFen === null ? copy.pricePending : copy.from(formatCardYuan(typeFromFen))}</b>
+                      <b>{option.id === "residential" && <small>{t.residentialOptions.base}</small>}{typeFromFen === null ? copy.pricePending : option.id === "residential" ? copy.perMonth(formatCardYuan(typeFromFen)) : copy.from(formatCardYuan(typeFromFen))}</b>
                       <strong>{selected ? copy.typeSection.current : copy.typeSection.choose}<i aria-hidden="true">→</i></strong>
                     </span>
                   </OptionCard>
@@ -264,12 +248,13 @@ export function SubscribePage() {
                   </OptionCard>)}
                 </div></div>
                 <div><h3>{copy.specSection.trafficTitle}</h3><div className="sub-grid sub-package-traffic" role="radiogroup" aria-label={copy.specSection.trafficGroupLabel} onKeyDown={handleRadioGroupKeyDown}>
-                  {trafficOptions.filter((traffic) => selection.selectedLine &&
+                  {shownTrafficOptions.filter((traffic) => selection.selectedLine &&
                     selection.packageSpecId(selection.selectedLine.id, traffic.id) !== undefined).map((traffic) =>
                     <OptionCard key={traffic.id} selected={selection.selectedTrafficId === traffic.id}
                       onSelect={() => selection.selectTraffic(traffic.id)} label={traffic.name} className="sub-package-option"
-                      tabIndex={optionTabIndex(trafficOptions, selection.selectedTrafficId, traffic.id)}>
+                      tabIndex={optionTabIndex(shownTrafficOptions, selection.selectedTrafficId, traffic.id)}>
                       <strong>{traffic.name}</strong>
+                      {selection.typeId === "residential" && <small>{copy.residentialTrafficDevices(selection.availableSpecs.find(option => option.lineId === selection.selectedLine?.id && option.trafficId === traffic.id)?.deviceAllowance ?? null)}</small>}
                     </OptionCard>)}
                 </div></div>
               </div>
@@ -290,6 +275,7 @@ export function SubscribePage() {
           </section>}
 
           <section className="sub-section" id="sub-section-duration">
+            {selection.summary.residentialOptions && <ResidentialOptionDetails options={selection.summary.residentialOptions} />}
             <div className="sub-section-heading">
               <div>
                 <span>{selection.summary.ispImplied ? "STEP 04" : selection.hasSpecStep ? "STEP 05" : "STEP 04"} · SERVICE TERM</span>

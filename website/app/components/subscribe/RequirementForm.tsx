@@ -1,6 +1,7 @@
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
+import { ResidentialOptionDetails } from "./ResidentialOptionDetails";
 import { useCatalogText, useT, type Messages } from "../../lib/i18n";
 import {
   PaymentApiError,
@@ -218,6 +219,7 @@ export function RequirementForm({
       </div>
 
       <div className="sub-field sub-coupon-field">
+        {(activeQuote?.residentialOptions ?? summary.residentialOptions) && <ResidentialOptionDetails options={(activeQuote?.residentialOptions ?? summary.residentialOptions)!} />}
         <label htmlFor={couponId}>{copy.couponLabel} <em>{copy.optional}</em></label>
         <div className="sub-coupon-row">
           <input

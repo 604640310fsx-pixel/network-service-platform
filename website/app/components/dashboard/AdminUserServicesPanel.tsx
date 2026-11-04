@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { ResidentialOptionDetails } from "../subscribe/ResidentialOptionDetails";
 import { getAdminPlans, type AdminPlanItem } from "../../lib/admin-commerce-api";
 import {
   bindAdminGrantDelivery,
@@ -307,6 +308,7 @@ function ServiceRow({
           </span>
         </div>
         <p className="dash-usvc-meta">{copy.snapshot}: {snapshotLabel(service)}</p>
+        {service.residentialOptions && <ResidentialOptionDetails options={service.residentialOptions} />}
         <div className="dash-usvc-grid">
           <label>
             {copy.endsAt}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ResidentialOptionDetails } from "../subscribe/ResidentialOptionDetails";
 import { useCatalogText, useT, type Messages } from "../../lib/i18n";
 import { Link } from "react-router-dom";
 import {
@@ -724,6 +725,7 @@ export function CustomerServicesPage() {
                 {isOpen&&item.display&&["local-isp","pure-native-ip"].includes(item.display.typeId)&&!item.entitlement&&
                   <p className="cc-svc-import-state">{t.services.manualFactsRequired}</p>}
                 <ExistingServiceSection title={isOpen ? t.services.deliveryRenewalTitle : t.services.activationDetailsTitle}>
+                    {item.residentialOptions && <ResidentialOptionDetails options={item.residentialOptions} />}
                     {isOpen && <ServiceSubscription item={item} />}
                     {!isOpen && <p className="cc-svc-import-state">{t.services.awaitingDelivery}</p>}
                     {isOpen && item.serviceId !== null

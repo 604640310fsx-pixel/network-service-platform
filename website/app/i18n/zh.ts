@@ -423,6 +423,16 @@ export const zh = {
     },
     stepsNavLabel: "套餐选择步骤",
     mobileStep: "步骤",
+    residentialReconfirm: "原链接已更新为新购住宅规格，初始为默认直连、200G、月付。旧订单权益不变，请核对当前线路、流量和价格并确认新购方案。",
+    residentialConfirm: "确认新购方案",
+    residentialDevices: (n: number | null) => n === null ? "设备额度未指定（沿用原套餐资料）" : `${n}台设备（人工配置）`,
+    residentialTrafficDevices: (n: number | null) => n === null ? "设备限制：待确认" : `设备限制：${n}台`,
+    productCards: {
+      residential: { tag: "真实家宽IP", bandwidth: "带宽100Mbps", audience: "适合人群：长期稳定！社媒运营/直播/Claude Max与Ultra用户" },
+      "us-local-carrier": { tag: "500G流量", bandwidth: "带宽200Mbps", audience: "适合人群：独享干净/社媒养号/ChatGPT Plus用户" },
+      "local-isp": { tag: "住宅静态IP", bandwidth: "带宽100Mbps", audience: "适合人群：社媒运营/直播/ChatGPT Pro/Claude Pro用户" },
+      "pure-native-ip": { tag: "独享纯净IP", bandwidth: "带宽100Mbps", audience: "适合人群：独享干净！流媒体全解锁/ChatGPT Plus用户" },
+    } as Record<string, { tag: string; bandwidth: string; audience: string }>,
     solutions: {
       "us-local-carrier": { label: "美国本地运营商", highlights: ["NTT", "GTT", "Cogent", "Charter"] },
       "local-isp": { label: "覆盖地区", highlights: ["美国", "台湾", "日本", "马来西亚"] },
@@ -444,7 +454,7 @@ export const zh = {
     typeSection: {
       title: "选择网络方案架构",
       lead: "先确定接入网络的技术方向，再继续配置地区与运营商。",
-      count: "三类方案",
+      count: "四类方案",
       groupLabel: "网络类型",
       residentialEnvironment: "住宅环境",
       capabilities: "能力概览",
@@ -1833,6 +1843,12 @@ export const zh = {
     },
   },
   // 中文直接显示 subscribeCatalog 原文；其他语言按目录原文提供译文（测试保证全覆盖）。
+  residentialOptions: {
+    line: "线路", traffic: "月流量", device: "设备额度", base: "基准月价", addon: "线路月附加", final: "最终月价",
+    basePeriod: "原套餐周期价", addonPeriod: "线路周期附加", finalPeriod: "周期合计",
+    manual: "设备额度为管理员人工配置资料，不代表系统自动执行物理设备限制。",
+    lines: { direct: "默认直连（高峰期不稳定）", optimized: "优化线路", highspeed: "高速线路", live: "直播专线" } as Record<string,string>,
+  },
   catalog: {} as Record<string, string>,
 };
 

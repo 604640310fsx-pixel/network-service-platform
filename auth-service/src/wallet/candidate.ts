@@ -4,6 +4,7 @@ import { findSellablePlan } from "../payment/commerce.js";
 import { addUtcMonths, parseEndsAt } from "../payment/admin-services.js";
 import { CATALOG_VERSION } from "../payment/pricing.js";
 import { scheduledRenewalTarget } from "../payment/service-change.js";
+import { residentialOptionsForOrder, isCurrentResidentialPricing, RESIDENTIAL_OPTIONS_VERSION, type ResidentialOptions } from "../payment/residential-options.js";
 import {
   finalizeClosed,
   finalizePaid,
@@ -142,6 +143,7 @@ export function creditVerifiedTopup(db: DatabaseConnection, expectedMerchantId: 
 
 export type BillingPeriod = "MONTHLY" | "QUARTERLY" | "SEMIANNUAL" | "ANNUAL";
 export interface AuthoritativeQuote {
+  readonly residentialOptions?: ResidentialOptions;
   readonly key: string; readonly serviceId: number; readonly ownerId: number;
   readonly priceFen: number; readonly durationId: string; readonly period: BillingPeriod;
   readonly previousEndsAt: string; readonly newEndsAt: string;
@@ -194,13 +196,17 @@ const PERIOD_DURATION_ID: Readonly<Record<BillingPeriod, string>> = {
     A validated scheduled downgrade selects the NEXT paid period, without changing
     current rights. No entitlement retains the original tuple. No caller price/key. */
 export function produceRenewalQuote(db: DatabaseConnection, serviceId: number, period: BillingPeriod, actorUserId: number): AuthoritativeQuote {
-  const row = one(db, `SELECT s.ends_at,o.user_id,o.type_id,o.region_id,o.isp_id,o.spec_id,o.duration_id
+  const row = one(db, `SELECT s.ends_at,o.user_id,o.type_id,o.region_id,o.isp_id,o.spec_id,o.duration_id,o.order_ref
     FROM services s JOIN payments p ON p.id=s.payment_id
     JOIN orders o ON o.id=p.order_id
     WHERE s.id=? AND s.status='open' AND p.status='paid' AND o.status='paid'`, serviceId);
   if (!row || row.user_id === null) throw new WalletError("QUOTE_UNAVAILABLE");
   if (integer(row.user_id) !== actorUserId) throw new WalletError("FORBIDDEN");
   if (serviceManagementClosed(db, serviceId)) throw new WalletError("SERVICE_CLOSED");
+  let purchasedOptions: ResidentialOptions | null;
+  try { purchasedOptions = residentialOptionsForOrder(db, text(row.order_ref)); }
+  catch { throw new WalletError("QUOTE_UNAVAILABLE"); }
+  if (purchasedOptions && !isCurrentResidentialPricing(purchasedOptions)) throw new WalletError("QUOTE_UNAVAILABLE");
   const endsAt = parseEndsAt(row.ends_at);
   if (!endsAt.ok || endsAt.value === null) throw new WalletError("QUOTE_UNAVAILABLE");
   const field = (value: unknown): string => {
@@ -220,6 +226,7 @@ export function produceRenewalQuote(db: DatabaseConnection, serviceId: number, p
       FROM service_entitlements e LEFT JOIN sellable_plans p ON p.id=e.plan_id
       LEFT JOIN sellable_plans m ON m.id=e.monthly_plan_id WHERE e.service_id=?`, serviceId);
     if (effective !== null) {
+      if (purchasedOptions) throw new WalletError("QUOTE_UNAVAILABLE");
       if (effective.user_id !== actorUserId || effective.type_id !== typeId ||
           effective.region_id !== regionId || effective.isp_id !== ispId ||
           effective.duration_id !== row.duration_id ||
@@ -245,17 +252,17 @@ export function produceRenewalQuote(db: DatabaseConnection, serviceId: number, p
      periods need no reconsent; the cycle snapshot (previousEndsAt/newEndsAt) is
      protected by UNIQUE(service_id,previous_ends_at) and the in-transaction re-read.
      The live constant is bound, never the order's purchase-time stamp. */
-  const catalogVersion = field(CATALOG_VERSION);
+  const catalogVersion = purchasedOptions ? RESIDENTIAL_OPTIONS_VERSION : field(CATALOG_VERSION);
   const durationId = PERIOD_DURATION_ID[period];
   const months = /^month-(\d+)$/.exec(durationId);
   if (months === null) throw new WalletError("QUOTE_UNAVAILABLE");
   let plan;
   try {
-    plan = findSellablePlan(db, { typeId, regionId, ispId, specId, durationId });
+    plan = findSellablePlan(db, { typeId, regionId, ispId, specId, durationId }, purchasedOptions ?? undefined);
   } catch {
     throw new WalletError("QUOTE_UNAVAILABLE");
   }
-  if (plan === null || !plan.isActive || (usesScheduledTarget && plan.totalSlots !== null &&
+  if (plan === null || !plan.isActive || (purchasedOptions && plan.soldOut) || (usesScheduledTarget && plan.totalSlots !== null &&
       plan.occupiedSlots >= plan.totalSlots)) throw new WalletError("QUOTE_UNAVAILABLE");
   const previousEndsAt = endsAt.value;
   const newEndsAt = addUtcMonths(previousEndsAt, Number(months[1]));
@@ -263,6 +270,7 @@ export function produceRenewalQuote(db: DatabaseConnection, serviceId: number, p
     key: `renewal-quote:${catalogVersion}:${typeId}:${regionId}:${ispId}:${specId ?? ""}:${durationId}:${plan.priceFen}`,
     serviceId, ownerId: integer(row.user_id), priceFen: plan.priceFen, durationId, period,
     previousEndsAt, newEndsAt,
+    ...(plan.residentialOptions ? { residentialOptions: plan.residentialOptions } : {}),
   };
 }
 function validQuote(quote: AuthoritativeQuote | null, service: ServiceEligibility, period: BillingPeriod): quote is AuthoritativeQuote {

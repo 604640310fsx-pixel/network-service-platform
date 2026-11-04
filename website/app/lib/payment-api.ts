@@ -1,4 +1,6 @@
 import type { CatalogSelection } from "./resolveSelection";
+// @ts-ignore TS5097: keep the existing Node strip-types test entry compatible.
+import { residentialResponseFields, type ResidentialOptions } from "./residential-options.ts";
 
 export const PAYMENT_MAX_SINGLE_FEN_FRONTEND = 200_000;
 
@@ -45,6 +47,7 @@ export type RequirementDraft = {
 };
 
 export type QuoteResult = {
+  readonly residentialOptions?: ResidentialOptions;
   readonly listPriceFen: number;
   readonly discountFen: number;
   readonly amountFen: number;
@@ -73,6 +76,7 @@ export type OrderCredentials = {
 /* 创建 / 重试 / 获取电脑网站支付页（POST :orderRef/pay-page）三处同一冻结结构。
    payUrl 仅在 pending 时有值，只留在内存并用于导航，绝不写入本站 URL / localStorage / 日志。 */
 export type PaymentOrderResult = {
+  readonly residentialOptions?: ResidentialOptions;
   readonly orderRef: string;
   readonly status: PaymentOrderStatus;
   readonly amountFen: number;
@@ -95,6 +99,7 @@ function parseOptionalQrCode(value: unknown): string | null {
 }
 
 export type PaymentOrderSnapshot = {
+  readonly residentialOptions?: ResidentialOptions;
   readonly orderRef: string;
   readonly status: PaymentOrderStatus;
   readonly amountFen: number;
@@ -108,6 +113,7 @@ export type PaymentOrderSnapshot = {
 };
 
 export type MyServiceItem = {
+  readonly residentialOptions?: ResidentialOptions;
   /** 服务端 services.id（后端 6503430 起随购买项返回），用于钱包续费接口；
       旧服务端不返回时为 null，前端不推算、不显示续费控件。赠送项用 grantId，不在此映射。 */
   readonly serviceId: number | null;
@@ -208,6 +214,7 @@ export type AdminMonitorTarget = {
 
 // GET /api/me/orders 单项。字段严格对应冻结后端契约；serviceStatus 可为 null（无服务）。
 export type MyOrderItem = {
+  readonly residentialOptions?: ResidentialOptions;
   readonly orderRef: string;
   readonly typeId: string;
   readonly regionId: string;
@@ -223,6 +230,7 @@ export type MyOrderItem = {
 };
 
 export type AdminPendingServiceItem = {
+  readonly residentialOptions?: ResidentialOptions;
   readonly serviceId: number;
   readonly orderRef: string;
   readonly amountFen: number;
@@ -428,6 +436,7 @@ function parseOrderResult(value: unknown): PaymentOrderResult {
       reservedUntil: body.reservedUntil,
       payUrl: body.payUrl,
       qrCode: parseOptionalQrCode(body.qrCode),
+      ...residentialResponseFields(body),
     };
   }
 
@@ -441,6 +450,7 @@ function parseOrderResult(value: unknown): PaymentOrderResult {
     reservedUntil: null,
     payUrl: null,
     qrCode: null,
+    ...residentialResponseFields(body),
   };
 }
 
@@ -474,6 +484,7 @@ function parseOrderSnapshot(value: unknown): PaymentOrderSnapshot {
     currency: body.currency,
     reservedUntil: isIsoInstant(body.reservedUntil) ? body.reservedUntil : null,
     service,
+    ...residentialResponseFields(body),
   };
 }
 
@@ -620,6 +631,7 @@ function parseMyServiceItem(item: Record<string, unknown>): MyServiceItem {
     endsAt,
     planLabel: planLabel as string | null,
     ...parseServiceChangeFields(item, serviceId as number | null),
+    ...residentialResponseFields(item),
   };
 }
 
@@ -714,6 +726,7 @@ function parseMyOrders(value: unknown): MyOrderItem[] {
       createdAt: item.createdAt,
       reservedUntil: item.reservedUntil,
       serviceStatus: item.serviceStatus,
+      ...residentialResponseFields(item),
     };
   });
 }
@@ -753,6 +766,7 @@ function parseAdminPendingServices(value: unknown): AdminPendingServiceItem[] {
       specId: item.specId,
       durationId: item.durationId,
       createdAt: item.createdAt,
+      ...residentialResponseFields(item),
     };
   });
 }
@@ -894,6 +908,7 @@ function parseQuoteResult(value: unknown): QuoteResult {
     amountFen: body.amountFen,
     currency: body.currency,
     couponCode: body.couponCode === null ? null : body.couponCode,
+    ...residentialResponseFields(body),
   };
 }
 

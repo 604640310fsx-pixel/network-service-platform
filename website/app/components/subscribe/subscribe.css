@@ -86,7 +86,18 @@
 .sub-solution-title small,
 .sub-solution-title strong { display: block; }
 .sub-solution-title small { margin-bottom: 1px; color: var(--cc-text-4); font-size: 8.5px; font-weight: 700; letter-spacing: 0.12em; }
-.sub-solution-title strong { font-size: 16px; font-weight: 650; }
+.sub-solution-title strong { color: var(--cc-accent); font-size: 24px; font-weight: 650; line-height: 1.22; }
+.sub-product-facts { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 12px; margin: 10px 0; color: var(--cc-text-2); font-size: 12px; }
+.sub-product-tag { border: 1px solid rgba(34, 197, 94, .25); border-radius: 5px; padding: 3px 7px; background: rgba(34, 197, 94, .08); color: #16a34a; font-size: 11px; font-style: normal; font-weight: 600; }
+.sub-product-audience { display: block; margin: 0 0 12px; color: var(--cc-text-2); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.sub-residential-details { margin: 12px 0; color: var(--cc-text-2); font-size: 12px; line-height: 1.5; }
+.sub-residential-details dl { margin: 0; display: grid; gap: 5px; }
+.sub-residential-details dl > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+.sub-residential-details dt { color: var(--cc-text-3); }
+.sub-residential-details dd { margin: 0; text-align: right; }
+.sub-residential-details small { display: block; margin-top: 8px; color: var(--cc-text-3); }
+.sub-summary-card > .sub-residential-details { margin: 0; padding: 12px 17px; border-top: 1px solid var(--cc-hairline); }
+@media (max-width: 640px) { .sub-solution-title strong { font-size: 21px; } }
 .sub-solution-top > .sub-tag { margin-left: auto; }
 /* 英文界面：长英文单词（如 Residential）与「Recommended」徽标放不进同一行时，
    徽标换到下一行右侧，标题保持整词；中文界面不受影响。 */
@@ -106,7 +117,8 @@
    显式 width:100% 而不依赖 flex 子项的 stretch——按钮内的 flex 子项在部分引擎下会收缩到
    内容宽度，底栏就会挤在左侧、分隔线变短。窄卡片放不下一行时操作换到下一行右侧，不压缩价格。 */
 .sub-solution-footer { box-sizing: border-box; width: 100%; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; margin-top: auto; padding-top: 14px; border-top: 1px solid var(--cc-hairline); }
-.sub-solution-footer > b { font-size: 19px; font-weight: 650; line-height: 1.2; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sub-solution-footer > b { color: var(--cc-accent); font-size: 19px; font-weight: 650; line-height: 1.2; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sub-solution-footer > b > small { display: block; color: var(--cc-text-3); font-size: 11px; font-weight: 400; }
 .sub-solution-footer > strong { display: inline-flex; align-items: baseline; gap: 7px; margin-left: auto; color: var(--cc-text-3); font-size: 12px; font-weight: 550; line-height: 1.2; white-space: nowrap; }
 .sub-solution-footer > strong i { font-style: normal; transition: transform 0.16s; }
 .sub-type-option:hover .sub-solution-footer > strong i { transform: translateX(2px); }

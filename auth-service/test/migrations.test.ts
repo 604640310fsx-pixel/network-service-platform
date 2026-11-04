@@ -139,11 +139,37 @@ function createBootstrapUser(database: DatabaseConnection): {
   return { inviteCodeId, userId };
 }
 
+test("031 upgrades populated030 with only a nullable order snapshot; no backfill/catalog change and second startup is inert", async()=>{
+ const directory=await mkdtemp(join(tmpdir(),'auth-residential031-'));
+ const db=openAndVerifyDatabase(join(directory,'synthetic.sqlite'));
+ try{
+  applyMigrationPrefix(db,30);const {userId}=createBootstrapUser(db);
+  db.prepare(`INSERT INTO orders(order_ref,idempotency_key,request_fingerprint,user_id,type_id,region_id,isp_id,spec_id,duration_id,catalog_version,amount_fen,currency,contact,scenarios,notes,status,created_at,updated_at)
+    VALUES ('SYNTHETIC030','synthetic031','synthetic031',?,'residential','sg','sptel','shared-5','month-1','SUBSCRIBE-CATALOG-V1',14900,'CNY','synthetic@example.invalid','[]',NULL,'paid',?,?)`).run(userId,NOW,NOW);
+  const columns=columnNames(db,'orders'),order=db.prepare('SELECT * FROM orders').all(),plans=db.prepare('SELECT * FROM sellable_plans ORDER BY id').all(),history=db.prepare('SELECT * FROM schema_migrations ORDER BY version').all();
+  const schema=db.prepare("SELECT type,name,sql FROM sqlite_master WHERE name!='orders' ORDER BY type,name").all();
+  runMigrations(db);
+  assert.deepEqual(db.prepare(`SELECT ${columns.join(',')} FROM orders`).all(),order);
+  assert.deepEqual(columnNames(db,'orders'),[...columns,'residential_options_json']);
+  assert.equal(firstNumber(db,'SELECT COUNT(*) FROM orders WHERE residential_options_json IS NOT NULL'),0);
+  assert.deepEqual(db.prepare('SELECT * FROM sellable_plans ORDER BY id').all(),plans);
+  assert.deepEqual(db.prepare('SELECT * FROM schema_migrations WHERE version<=30 ORDER BY version').all(),history);
+  assert.deepEqual(db.prepare("SELECT type,name,sql FROM sqlite_master WHERE name!='orders' ORDER BY type,name").all(),schema);
+  for(const raw of ['null','[]','1','"string"','invalid'])assert.throws(()=>db.prepare('UPDATE orders SET residential_options_json=?').run(raw));
+  db.prepare('UPDATE orders SET residential_options_json=?').run('{}');
+  db.prepare('UPDATE orders SET residential_options_json=NULL').run();
+  const after=db.prepare('SELECT * FROM schema_migrations ORDER BY version').all();runMigrations(db);
+  assert.deepEqual(db.prepare('SELECT * FROM schema_migrations ORDER BY version').all(),after);
+  assert.equal(firstNumber(db,'SELECT MAX(version) FROM schema_migrations'),31);
+  assert.deepEqual(db.pragma('foreign_key_check'),[]);assert.deepEqual(db.pragma('integrity_check'),[{integrity_check:'ok'}]);
+ }finally{db.close();await rm(directory,{recursive:true,force:true});}
+});
+
 test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", async () => {
   await withTemporaryDatabase((database) => {
     assert.equal(
       MIGRATION_FILES.at(-1),
-      "030_service_change_local.sql",
+      "031_residential_order_options.sql",
     );
     const migrationRows = database
       .prepare("SELECT version, applied_at FROM schema_migrations ORDER BY version")
@@ -151,7 +177,7 @@ test("applies the frozen migration sequence once and preserves SQLite PRAGMAs", 
 
     assert.deepEqual(
       migrationRows.map((row) => row.version),
-      Array.from({ length: 30 }, (_, index) => index + 1),
+      Array.from({ length: 31 }, (_, index) => index + 1),
     );
     for (const row of migrationRows) {
       assert.match(row.applied_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
@@ -323,7 +349,7 @@ test("Migration 022 adds nullable service columns and admin_grants on a 021 data
 
     runMigrations(database);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 30);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 31);
     assert.deepEqual(columnNames(database, "services"), [...servicesBefore, "ends_at", "plan_override", "admin_note"]);
     // Running to the latest schema also applies 023/024, which append the structured/delivery columns.
     assert.deepEqual(columnNames(database, "admin_grants").slice(0, 10), [
@@ -359,7 +385,7 @@ test("Migration 023 structures admin_grants and adds encrypted grant delivery it
 
     runMigrations(database);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 30);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 31);
     assert.deepEqual(columnNames(database, "admin_grants"), [
       "id", "user_id", "granted_by_admin_id", "label", "starts_at", "ends_at",
       "status", "reason", "created_at", "updated_at",
@@ -417,7 +443,7 @@ test("Migration 024 adds a nullable monitor_target to gift delivery lines on a 0
 
     runMigrations(database);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 30);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 31);
     assert.equal(columnNames(database, "admin_grant_delivery_items").at(-1), "monitor_target");
     // The 023 line keeps every value and is unbound.
     assert.deepEqual(
@@ -458,7 +484,7 @@ test("Migration 025 adds ticket attachments and the grant link on a 024 database
 
     runMigrations(database);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 30);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 31);
     assert.deepEqual(columnNames(database, "ticket_attachments"), [
       "id", "attachment_ref", "message_id", "content_type", "byte_size", "content", "created_at",
     ]);
@@ -528,7 +554,7 @@ test("Migration 026 adds the wallet accounting tables on a 025 database", async 
 
     runMigrations(database);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 30);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 31);
     assert.deepEqual(
       objectNames(database, "table").filter((name) => name.startsWith("wallet_")).sort(),
       [
@@ -661,7 +687,7 @@ test("Migration 026 adds the wallet accounting tables on a 025 database", async 
   }
 });
 
-test("populated synthetic 026 upgrades to 030 preserving relations, admin catalog edits and startup idempotence", async () => {
+test("populated synthetic 026 upgrades to 031 preserving relations, admin catalog edits and startup idempotence", async () => {
   const { resolvePriceFen } = await import("../src/payment/pricing.js");
   const directory = await mkdtemp(join(tmpdir(), "auth-populated-026-030-"));
   const databasePath = join(directory, "synthetic.sqlite");
@@ -717,6 +743,10 @@ test("populated synthetic 026 upgrades to 030 preserving relations, admin catalo
     const legacyTables = ["users","orders","payments","services","service_delivery_items","admin_grants",
       "admin_grant_delivery_items","wallet_accounts","wallet_ledger","wallet_consents","wallet_consent_history"];
     const legacySnapshot = legacyTables.map(table => database.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all());
+    const legacyColumns = legacyTables.map(table=>columnNames(database,table).join(','));
+    const readLegacy = (db:DatabaseConnection)=>legacyTables.map((table,index)=>db.prepare(`SELECT ${legacyColumns[index]} FROM ${table} ORDER BY rowid`).all());
+    const oldOrderColumns = database.prepare('PRAGMA table_info(orders)').all();
+    const oldOrderFks = database.prepare('PRAGMA foreign_key_list(orders)').all();
     const oldSchema = database.prepare("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name").all() as Array<Record<string,unknown>>;
     const oldHistory = database.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
     assert.equal(oldPlans.length,255);
@@ -743,10 +773,11 @@ test("populated synthetic 026 upgrades to 030 preserving relations, admin catalo
 
     // Upgrade through the real current runner; no hand replay of 027-030 SQL.
     runMigrations(database);
-    assert.deepEqual(legacyTables.map(table => database.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()),legacySnapshot);
+    assert.deepEqual(readLegacy(database),legacySnapshot);
+    assert.equal(firstNumber(database,'SELECT COUNT(*) FROM orders WHERE residential_options_json IS NOT NULL'),0);
     assert.deepEqual(database.prepare("SELECT * FROM schema_migrations WHERE version<=26 ORDER BY version").all(),oldHistory);
     assert.deepEqual(database.prepare("SELECT version FROM schema_migrations ORDER BY version").all(),
-      Array.from({length:30},(_,index)=>({version:index+1})));
+      Array.from({length:31},(_,index)=>({version:index+1})));
     for (const before of oldPlans) {
       const expected = {...before};
       if (!adminIds.has(before.id as number)) {
@@ -764,7 +795,10 @@ test("populated synthetic 026 upgrades to 030 preserving relations, admin catalo
     assert.equal(firstNumber(database,"SELECT COUNT(*) FROM sellable_plans WHERE id>255 AND duration_id IN ('month-6','month-12') AND type_id IN ('local-isp','pure-native-ip') AND is_active=1"),506);
     assert.equal(firstNumber(database,"SELECT COUNT(*) FROM sellable_plans"),1014);
     const newSchema = database.prepare("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name").all() as Array<Record<string,unknown>>;
-    for (const before of oldSchema) assert.deepEqual(newSchema.find(row=>row.name===before.name),before);
+    for (const before of oldSchema.filter(row=>row.name!=='orders')) assert.deepEqual(newSchema.find(row=>row.name===before.name),before);
+    assert.deepEqual(database.prepare('PRAGMA table_info(orders)').all().slice(0,oldOrderColumns.length),oldOrderColumns);
+    assert.deepEqual(database.prepare('PRAGMA foreign_key_list(orders)').all(),oldOrderFks);
+    assert.deepEqual(columnNames(database,'orders').slice(oldOrderColumns.length),['residential_options_json']);
     assert.deepEqual(newSchema.filter(row=>!oldSchema.some(old=>old.name===row.name)).map(row=>row.name).sort(),
       ["service_entitlements","service_change_quotes","service_changes","idx_service_entitlements_user",
         "idx_service_change_quotes_service","idx_service_change_one_active","idx_service_changes_user"].sort());
@@ -799,7 +833,7 @@ test("populated synthetic 026 upgrades to 030 preserving relations, admin catalo
     try {
       assert.deepEqual(reopened.prepare("SELECT * FROM schema_migrations ORDER BY version").all(),historyAfter);
       assert.deepEqual(reopened.prepare("SELECT * FROM sellable_plans ORDER BY id").all(),plansAfter);
-      assert.deepEqual(legacyTables.map(table=>reopened.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()),legacySnapshot);
+      assert.deepEqual(readLegacy(reopened),legacySnapshot);
       for (const table of ["service_entitlements","service_change_quotes","service_changes"])
         assert.equal(firstNumber(reopened,`SELECT COUNT(*) FROM ${table}`),0);
       assert.deepEqual(reopened.pragma("foreign_key_check"),[]);
@@ -808,8 +842,10 @@ test("populated synthetic 026 upgrades to 030 preserving relations, admin catalo
     // A closed-traffic acceptance failure may restore ONLY the matched whole
     // 026 snapshot, and only with fresh zero-effect proof. Copy to another NEW
     // disposable path: this test never overwrites even its migrated fixture.
-    assert.equal(recovery.assertStandard26RecoveryBoundary({...recoveryFacts,phase:"failed-upgrade",liveMigrations:versions()})
-      .permittedAction,"restore-matched-026-snapshot-and-artifacts");
+    // The accepted production route is still EXACT030: local031 is NOT covered
+    // by its recovery permission, even with otherwise zero-effect facts.
+    assert.throws(()=>recovery.assertStandard26RecoveryBoundary({...recoveryFacts,phase:"failed-upgrade",liveMigrations:versions()}),
+      error=>(error as {code:string}).code==='RESTORE_26_FORBIDDEN');
     const restoredPath=join(directory,"synthetic-restored-026.sqlite");
     await copyFile(snapshotPath,restoredPath);
     const restored=openAndVerifyDatabase(restoredPath);
@@ -990,7 +1026,7 @@ test("Migration 019 upgrades an 018 database with the bounded owner-page query i
     assert.equal(objectNames(database, "index").includes("idx_referral_candidate_owner_page"), false);
     runMigrations(database);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 30);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 31);
     assert.equal(objectNames(database, "index").filter((name) => name === "idx_referral_candidate_owner_page").length, 1);
     const queryPlan = database.prepare(
       `EXPLAIN QUERY PLAN
@@ -1023,7 +1059,7 @@ test("Migration 020 adds only ticket tables on a 019 database and enforces its c
 
     runMigrations(database);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 30);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 31);
     assert.deepEqual(
       objectNames(database, "table").filter((name) => !tablesBefore.includes(name)),
       // Running to the latest schema also applies 022/023/025, which add admin_grants, its delivery items, ticket attachments, and the wallet tables.
@@ -1191,7 +1227,7 @@ test("continuous Schema 14 upgrades directly through 15-26 with legacy rows", as
     runMigrations(database);
     assert.deepEqual(
       (database.prepare("SELECT version FROM schema_migrations ORDER BY version").all() as Array<{ readonly version: number }>).map((row) => row.version),
-      Array.from({ length: 30 }, (_, index) => index + 1),
+      Array.from({ length: 31 }, (_, index) => index + 1),
     );
     assert.equal(objectNames(database, "table").includes("diagnosis_request_idempotency"), true);
     assert.equal(objectNames(database, "index").includes("idx_referral_candidate_owner_page"), true);
@@ -1199,7 +1235,7 @@ test("continuous Schema 14 upgrades directly through 15-26 with legacy rows", as
     assert.equal(firstNumber(database, "SELECT COUNT(*) FROM mail_outbox"), 0);
     assert.equal(firstNumber(database, "SELECT COUNT(*) FROM invite_codes WHERE id = 1 AND revoked_at IS NOT NULL"), 1);
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 30);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 31);
   } finally {
     database.close();
     await rm(temporaryDirectory, { recursive: true, force: true });
@@ -1318,7 +1354,7 @@ test("Migration 016 revokes legacy codes without guessing email and preserves hi
           .prepare("SELECT version FROM schema_migrations ORDER BY version")
           .all() as Array<{ readonly version: number }>
       ).map((row) => row.version),
-      Array.from({ length: 30 }, (_, index) => index + 1),
+      Array.from({ length: 31 }, (_, index) => index + 1),
     );
     assert.deepEqual(
       database
@@ -1397,7 +1433,7 @@ test("Migration 016 revokes legacy codes without guessing email and preserves hi
     );
 
     runMigrations(database);
-    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 30);
+    assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 31);
     assert.equal(firstNumber(database, "SELECT COUNT(*) FROM invite_code_redemptions"), 2);
   } finally {
     database.close();

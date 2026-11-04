@@ -1,6 +1,8 @@
 // Node's strip-types test runner needs the extension; Vite resolves the same module during build.
 // @ts-ignore TS5097: the website tsconfig does not enable allowImportingTsExtensions.
 import { PaymentApiError } from "./payment-api.ts";
+// @ts-ignore TS5097: shared source with Node strip-types tests.
+import { residentialResponseFields, type ResidentialOptions } from "./residential-options.ts";
 
 /* 管理员管理买家服务（/api/admin/users*、/api/admin/services/:id、/api/admin/grants*）。
    响应逐字段校验，不合约定即 invalid_response；写请求带 CSRF。 */
@@ -14,6 +16,7 @@ export type AdminUserSummary = {
 };
 
 export type AdminUserService = {
+  readonly residentialOptions?: ResidentialOptions;
   readonly id: number;
   readonly orderRef: string;
   readonly amountFen: number;
@@ -160,6 +163,7 @@ function parseService(value: unknown): AdminUserService {
     endsAt: nullableStr(row.endsAt),
     planLabel: nullableStr(row.planLabel),
     adminNote: nullableStr(row.adminNote),
+    ...residentialResponseFields(row),
     renewal: parseRenewal(row.renewal),
     deliveryLines: Array.isArray(row.deliveryLines)
       ? row.deliveryLines.map((line) => {

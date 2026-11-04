@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useSearchParams } from "react-router-dom";
 import { useT } from "../../lib/i18n";
 import { CustomerCenterShell } from "../customer/CustomerCenterShell";
 import { RequirementForm } from "./RequirementForm";
@@ -58,6 +58,9 @@ export function SubmitRequestPage() {
     );
   }, [fromAlipay, orderRef]);
 
+  if (!visibleOrderRef && selection.typeId === "residential" && (["shared-5", "shared-3", "dedicated", "res-v2-direct-default"].includes(selection.specId ?? "") || selection.specId?.endsWith('-500g'))) {
+    return <Navigate replace to={`/subscribe?${selectionToQuery(selection)}`} />;
+  }
   if (visibleOrderRef !== "") {
     const initialResult = readInitialResult(location.state, visibleOrderRef);
     return (

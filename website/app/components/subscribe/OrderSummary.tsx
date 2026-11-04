@@ -1,5 +1,6 @@
 import { useCatalogText, useT } from "../../lib/i18n";
 import type { SelectionSummary } from "./useSubscriptionSelection";
+import { ResidentialOptionDetails } from "./ResidentialOptionDetails";
 
 type OrderSummaryProps = {
   summary: SelectionSummary;
@@ -36,6 +37,7 @@ export function OrderSummary({ summary, canRequest, drawer = false, onRequest }:
         <div><span>{copy.udp}</span><b>{value(summary.udp)}</b></div>
         <div><span>{copy.dns}</span><b>{value(summary.dns)}</b></div>
       </div>
+      {summary.residentialOptions && <ResidentialOptionDetails options={summary.residentialOptions} />}
       <div className="sub-summary-total">
         <span><small>CATALOG PRICE</small>{copy.catalogPrice}</span>
         <div>
