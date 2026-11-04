@@ -34,12 +34,15 @@ export const RELEASE_ARTIFACT_PREFIX = "consolidated-release-";
 export const DIRECT14_RELEASE_ARTIFACT_PREFIX = "consolidated-release-direct14-";
 export const STANDARD19_RELEASE_ARTIFACT_PREFIX = "consolidated-release-standard19-";
 export const STANDARD26_RELEASE_ARTIFACT_PREFIX = "consolidated-release-standard26-";
+export const RESIDENTIAL31_RELEASE_ARTIFACT_PREFIX = "consolidated-release-residential31-";
 export const RELEASE_INTEGRATION_REF =
   "refs/heads/integration/consolidate-project";
 export const STANDARD26_FORMAL_REF =
   "refs/heads/codex/service-change-release-prepare-20261103";
 export const STANDARD26_PRODUCT_BASELINE =
   "20b18764ff465cd690a433305fad5124ed4ecb60";
+export const RESIDENTIAL31_FORMAL_REF = "refs/heads/codex/residential-options-local-20261105";
+export const RESIDENTIAL31_PRODUCT_BASELINE = "ab225e61c5ae91eb979f1f77f94dd7ef633de2c0";
 export const STANDARD26_CONTROL_PATHS = Object.freeze([
   ".github/workflows/ci.yml",
   "scripts/ops/assemble-consolidated-release.mjs",
@@ -47,6 +50,7 @@ export const STANDARD26_CONTROL_PATHS = Object.freeze([
   "scripts/ops/consolidated-release-packet.test.mjs",
 ]);
 export function releaseFormalRefForRoute(schemaRoute) {
+  if (schemaRoute === STANDARD26_31_RELEASE_SCHEMA_ROUTE) return RESIDENTIAL31_FORMAL_REF;
   return schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE
     ? STANDARD26_FORMAL_REF : RELEASE_INTEGRATION_REF;
 }
@@ -87,6 +91,14 @@ export const DIRECT14_26_RELEASE_SCHEMA_ROUTE = "direct14-26";
 export const STANDARD19_26_RELEASE_SCHEMA_ROUTE = "standard19-26";
 // Independent opt-in route. Never changes the frozen default/026 CI routes.
 export const STANDARD26_30_RELEASE_SCHEMA_ROUTE = "standard26-30";
+export const STANDARD26_31_RELEASE_SCHEMA_ROUTE = "standard26-31";
+export function isIndependentStandard26Route(route) {
+  return route === STANDARD26_30_RELEASE_SCHEMA_ROUTE || route === STANDARD26_31_RELEASE_SCHEMA_ROUTE;
+}
+export function releaseProductBaselineForRoute(route) {
+  return route === STANDARD26_31_RELEASE_SCHEMA_ROUTE ? RESIDENTIAL31_PRODUCT_BASELINE :
+    route === STANDARD26_30_RELEASE_SCHEMA_ROUTE ? STANDARD26_PRODUCT_BASELINE : null;
+}
 export const DEFAULT_RELEASE_SCHEMA_ROUTE = STANDARD16_26_RELEASE_SCHEMA_ROUTE;
 export const DIRECT14_RELEASE_SCHEMA_ROUTE = DIRECT14_26_RELEASE_SCHEMA_ROUTE;
 export const RELEASE_SCHEMA_BOUNDARIES = Object.freeze({
@@ -114,9 +126,10 @@ export const RELEASE_SCHEMA_BOUNDARIES = Object.freeze({
   [DIRECT14_26_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 14, candidate: 26 }),
   [STANDARD19_26_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 19, candidate: 26 }),
   [STANDARD26_30_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 26, candidate: 30 }),
+  [STANDARD26_31_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 26, candidate: 31 }),
 });
 export const RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE =
-  "--schema-route must be standard16-19, direct14-19, standard16-20, direct14-20, standard19-20, standard16-21, direct14-21, standard19-21, standard16-22, direct14-22, standard19-22, standard16-23, direct14-23, standard19-23, standard16-24, direct14-24, standard19-24, standard16-25, direct14-25, standard19-25, standard16-26, direct14-26, standard19-26, or standard26-30";
+  "--schema-route must be standard16-19, direct14-19, standard16-20, direct14-20, standard19-20, standard16-21, direct14-21, standard19-21, standard16-22, direct14-22, standard19-22, standard16-23, direct14-23, standard19-23, standard16-24, direct14-24, standard19-24, standard16-25, direct14-25, standard19-25, standard16-26, direct14-26, standard19-26, standard26-30, or standard26-31";
 const DIRECT14_RELEASE_SCHEMA_ROUTES = Object.freeze(
   new Set([
     DIRECT14_19_RELEASE_SCHEMA_ROUTE,
@@ -150,7 +163,7 @@ export function releaseArtifactNameForRoute(sha, schemaRoute) {
       RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE,
     );
   }
-  const prefix = schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE
+  const prefix = schemaRoute === STANDARD26_31_RELEASE_SCHEMA_ROUTE ? RESIDENTIAL31_RELEASE_ARTIFACT_PREFIX : schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE
     ? STANDARD26_RELEASE_ARTIFACT_PREFIX
     : isDirect14ReleaseSchemaRoute(schemaRoute)
     ? DIRECT14_RELEASE_ARTIFACT_PREFIX
@@ -221,6 +234,10 @@ export const RELEASE_MIGRATIONS_001_030 = Object.freeze([
   "029_remove_single_payment_cap.sql",
   "030_service_change_local.sql",
 ]);
+export const RELEASE_MIGRATIONS_001_031 = Object.freeze([
+  ...RELEASE_MIGRATIONS_001_030,
+  "031_residential_order_options.sql",
+]);
 // Frozen default contract, not a moving alias for the newest source.
 export const RELEASE_MIGRATIONS = RELEASE_MIGRATIONS_001_026;
 export function releaseMigrationsForRoute(schemaRoute) {
@@ -247,6 +264,7 @@ export function releaseMigrationsForRoute(schemaRoute) {
                 ? RELEASE_MIGRATIONS_001_025
                 : candidate === 30
                   ? RELEASE_MIGRATIONS_001_030
+                  : candidate === 31 ? RELEASE_MIGRATIONS_001_031
                   : RELEASE_MIGRATIONS_001_026;
 }
 
@@ -295,6 +313,48 @@ export function assertStandard26RecoveryBoundary({ phase, attemptId, databaseBin
   }
   return Object.freeze({ status: "ok", schemaRoute: STANDARD26_30_RELEASE_SCHEMA_ROUTE,
     permittedAction: phase === "before-upgrade" ? "upgrade-026-to-030" : "restore-matched-026-snapshot-and-artifacts",
+    automaticRestore: false, requiresFreshProofAtExecution: true });
+}
+// Independent031 recovery: never widens the accepted030 rollback boundary.
+export function assertResidential31RecoveryBoundary({ phase, attemptId, databaseBinding,
+  trafficClosed, oldApplicationStopped, candidateStopped, applicationWriters,
+  applicationWritesSinceSnapshot, paymentsSinceSnapshot, fulfillmentsSinceSnapshot, externalEffectsSinceSnapshot,
+  liveMigrations, snapshot, snapshotVerification, rollbackArtifacts } = {}) {
+  const deny = (message) => { throw new ReleaseAssemblyError("RESTORE_26_FORBIDDEN", message); };
+  const continuous = (versions, max) => Array.isArray(versions) && versions.length === max &&
+    versions.every((version, index) => version === index + 1);
+  const sha = (value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+  const bound = (proof) => proof?.attemptId === attemptId && proof?.databaseBinding === databaseBinding;
+  if (!["before-upgrade", "failed-upgrade"].includes(phase) ||
+      typeof attemptId !== "string" || attemptId.trim() === "" ||
+      typeof databaseBinding !== "string" || databaseBinding.trim() === "" ||
+      trafficClosed !== true || oldApplicationStopped !== true || candidateStopped !== true ||
+      applicationWriters !== 0 || applicationWritesSinceSnapshot !== 0 ||
+      paymentsSinceSnapshot !== 0 || fulfillmentsSinceSnapshot !== 0 || externalEffectsSinceSnapshot !== 0) {
+    deny("closed ingress, stopped applications, zero writers and zero new writes/external effects must all be proven; otherwise preserve current facts and forward-fix/reconcile, never start the old 026 binary");
+  }
+  // A failed migration may have committed a prefix 027..029. It can recover only
+  // before any non-migration write; future/contradictory schema is never eligible.
+  const last = Array.isArray(liveMigrations) ? liveMigrations.length : 0;
+  if ((phase === "before-upgrade" && !continuous(liveMigrations, 26)) ||
+      (phase === "failed-upgrade" && (last < 26 || last > 31 || !continuous(liveMigrations, last)))) {
+    deny("live schema must be exact 001-026 before upgrade or a continuous 026..031 failed-upgrade boundary");
+  }
+  if (!bound(snapshot) || !sha(snapshot?.sha256) ||
+      snapshotVerification?.status !== "ok" || snapshotVerification.operation !== "verify" ||
+      snapshotVerification.sha256 !== snapshot.sha256 || snapshotVerification.fileMode !== "0600" ||
+      snapshotVerification.quickCheck !== "ok" || snapshotVerification.foreignKeyFailures !== 0 ||
+      !Number.isSafeInteger(snapshotVerification.bytes) || snapshotVerification.bytes <= 0 ||
+      snapshotVerification.bytes !== snapshot.bytes || !continuous(snapshotVerification.migrations, 26)) {
+    deny("a matching current-attempt independently verified 001-026 snapshot is required");
+  }
+  if (!bound(rollbackArtifacts) || rollbackArtifacts?.verified !== true ||
+      rollbackArtifacts?.authSchemaBoundary !== 26 || !sha(rollbackArtifacts?.authSha256) ||
+      !sha(rollbackArtifacts?.websiteSha256)) {
+    deny("independently verified matching Auth026 and Website recovery artifacts are required");
+  }
+  return Object.freeze({ status: "ok", schemaRoute: STANDARD26_31_RELEASE_SCHEMA_ROUTE,
+    permittedAction: phase === "before-upgrade" ? "upgrade-026-to-031" : "restore-matched-026-snapshot-and-artifacts",
     automaticRestore: false, requiresFreshProofAtExecution: true });
 }
 export const RELEASE_HTTP_CONTRACT_PATHS = Object.freeze([
@@ -540,8 +600,8 @@ export function createReleaseProvenance({
     eventName === "push" &&
     ref === releaseFormalRefForRoute(schemaRoute) &&
     githubSha === sha &&
-    (schemaRoute !== STANDARD26_30_RELEASE_SCHEMA_ROUTE ||
-      workflowRef === `${RELEASE_REPOSITORY}/.github/workflows/ci.yml@${STANDARD26_FORMAL_REF}`);
+    (!isIndependentStandard26Route(schemaRoute) ||
+      workflowRef === `${RELEASE_REPOSITORY}/.github/workflows/ci.yml@${releaseFormalRefForRoute(schemaRoute)}`);
   if (mode === "github-actions-test") {
     if (isReleaseCandidateContext) {
       throw new ReleaseAssemblyError(
@@ -568,11 +628,11 @@ export function createReleaseProvenance({
       "release-candidate provenance requires an exact integration push SHA",
     );
   }
-  if (schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE) {
+  if (isIndependentStandard26Route(schemaRoute)) {
     let event;
     try { event = JSON.parse(readFileSync(requiredEnvironment(environment, "GITHUB_EVENT_PATH"), "utf8")); }
     catch { throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "formal standard26 source requires the actual push event payload"); }
-    if (event.ref !== STANDARD26_FORMAL_REF || event.after !== sha ||
+    if (event.ref !== releaseFormalRefForRoute(schemaRoute) || event.after !== sha ||
       event.repository?.full_name !== RELEASE_REPOSITORY || event.deleted !== false) {
       throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "formal standard26 push payload does not match repository/ref/head");
     }
@@ -590,8 +650,8 @@ export function createReleaseProvenance({
     ref,
     githubSha,
     artifactName,
-    ...(schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE
-      ? { productBaseline: STANDARD26_PRODUCT_BASELINE } : {}),
+    ...(isIndependentStandard26Route(schemaRoute)
+      ? { productBaseline: releaseProductBaselineForRoute(schemaRoute) } : {}),
   });
 }
 
@@ -656,6 +716,21 @@ export function verifyStandard26ProductSource(source, expectedSha) {
     throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH", "formal source may differ from the frozen product baseline only in four release controls");
   }
   return STANDARD26_PRODUCT_BASELINE;
+}
+// Independent031 policy: it never changes the existing030 baseline or allowance.
+export function verifyResidential31ProductSource(source, expectedSha) {
+  source = existingDirectory(source,"source");
+  verifySourceRevision(source,normalizedExpectedSha(expectedSha));
+  const ancestor=spawnSync("git",["-C",source,"merge-base","--is-ancestor",RESIDENTIAL31_PRODUCT_BASELINE,expectedSha],{encoding:"utf8"});
+  if(ancestor.status!==0)throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH","frozen residential product baseline must be an ancestor");
+  const diff=spawnSync("git",["-C",source,"diff","--name-only","--no-renames","-z",RESIDENTIAL31_PRODUCT_BASELINE,expectedSha],{encoding:"utf8"});
+  if(diff.status!==0)throw new ReleaseAssemblyError("SOURCE_INVALID","residential product tree comparison failed");
+  if(diff.stdout.split("\0").filter(Boolean).some(path=>!STANDARD26_CONTROL_PATHS.includes(path)))
+    throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH","residential formal source may differ only in the four release controls");
+  return RESIDENTIAL31_PRODUCT_BASELINE;
+}
+export function verifyIndependentProductSource(source,expectedSha,route) {
+  return route===STANDARD26_31_RELEASE_SCHEMA_ROUTE ? verifyResidential31ProductSource(source,expectedSha) : verifyStandard26ProductSource(source,expectedSha);
 }
 
 function normalizedRelativePath(path) {
@@ -838,8 +913,8 @@ export function assembleReleaseBundle({
   });
   const destinationRoot = newDestination(destination, sourceRoot);
   verifySourceRevision(sourceRoot, sha);
-  if (schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE && provenance.kind === "github-actions") {
-    verifyStandard26ProductSource(sourceRoot, sha);
+  if (isIndependentStandard26Route(schemaRoute) && provenance.kind === "github-actions") {
+    verifyIndependentProductSource(sourceRoot, sha, schemaRoute);
   }
   verifyMigrationInputs(sourceRoot, routeMigrations);
 

@@ -17,6 +17,12 @@ import {
   releaseArtifactNameForRoute,
   DEFAULT_RELEASE_SCHEMA_ROUTE,
   STANDARD26_30_RELEASE_SCHEMA_ROUTE,
+  STANDARD26_31_RELEASE_SCHEMA_ROUTE,
+  RESIDENTIAL31_FORMAL_REF,
+  RESIDENTIAL31_PRODUCT_BASELINE,
+  isIndependentStandard26Route,
+  releaseProductBaselineForRoute,
+  verifyIndependentProductSource,
   isForbiddenBundlePath,
   isKnownReleaseSchemaRoute,
   releaseManifestCarriesSchemaRoute,
@@ -680,7 +686,7 @@ export function validateRepository({
             "## Migration 025 forward-only ticket attachments and grant link",
           ]
         : []),
-      ...(candidate === 26 || candidate === 30
+      ...(candidate === 26 || candidate === 30 || candidate === 31
         ? [
             "## Explicit DIRECT14 to 26 route",
             "--schema-route direct14-26",
@@ -780,7 +786,7 @@ export function validateRepository({
       "consolidated-release-direct14-${{ env.EXPECTED_SHA }}",
       // This independent route does not claim that the frozen 026 CI job
       // creates 030 artifacts. Its old flags must remain intact.
-      ...(candidate === 26 || candidate === 30
+      ...(candidate === 26 || candidate === 30 || candidate === 31
         ? [
             "--schema-route direct14-26",
             "--schema-route standard16-26",
@@ -846,6 +852,15 @@ export function validateRepository({
       "--schema-route standard26-30",
       "consolidated-release-standard26-review-${{ env.EXPECTED_SHA }}",
     ], "independent standard26 review CI route");
+  }
+  if (candidate === 31) {
+    assertFragments(workflow,[
+      "RESIDENTIAL31_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.ref == 'integration/consolidate-project' }}",
+      "RESIDENTIAL31_FORMAL_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'push' && github.ref == 'refs/heads/codex/residential-options-local-20261105' }}",
+      "--schema-route standard26-31", "--validation-mode ci-build",
+      "consolidated-release-residential31-${{ env.EXPECTED_SHA }}",
+      "consolidated-release-residential31-review-${{ env.EXPECTED_SHA }}",
+    ],"independent residential31 CI route");
   }
 
   const openValidator = readText(
@@ -969,7 +984,7 @@ function validateProvenance({
     );
   const githubShape =
     Object.keys(provenance).sort().join(",") ===
-      (schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE
+      (isIndependentStandard26Route(schemaRoute)
         ? "artifactName,eventName,githubSha,job,kind,productBaseline,ref,releaseUse,repository,runAttempt,runId,workflowRef"
         : "artifactName,eventName,githubSha,job,kind,ref,releaseUse,repository,runAttempt,runId,workflowRef") &&
     provenance.kind === "github-actions" &&
@@ -978,9 +993,9 @@ function validateProvenance({
     provenance.job === RELEASE_WORKFLOW_JOB &&
     provenance.eventName === "push" &&
     provenance.ref === releaseFormalRefForRoute(schemaRoute) &&
-    (schemaRoute !== STANDARD26_30_RELEASE_SCHEMA_ROUTE ||
-      (provenance.productBaseline === STANDARD26_PRODUCT_BASELINE &&
-        provenance.workflowRef === `${RELEASE_REPOSITORY}/.github/workflows/ci.yml@${STANDARD26_FORMAL_REF}`)) &&
+    (!isIndependentStandard26Route(schemaRoute) ||
+      (provenance.productBaseline === releaseProductBaselineForRoute(schemaRoute) &&
+        provenance.workflowRef === `${RELEASE_REPOSITORY}/.github/workflows/ci.yml@${releaseFormalRefForRoute(schemaRoute)}`)) &&
     provenance.githubSha === expectedSha &&
     provenance.artifactName === releaseArtifactNameForRoute(expectedSha, schemaRoute) &&
     typeof provenance.runId === "string" &&
@@ -1220,7 +1235,7 @@ function validateGithubArtifactProof({
       "live GitHub artifact or workflow metadata does not match the candidate",
     );
   }
-  if (provenance.ref === STANDARD26_FORMAL_REF) {
+  if ([STANDARD26_FORMAL_REF,RESIDENTIAL31_FORMAL_REF].includes(provenance.ref)) {
     const jobs = githubApiJson(`repos/${RELEASE_REPOSITORY}/actions/runs/${provenance.runId}/attempts/${provenance.runAttempt}/jobs?per_page=100`);
     for (const name of ["Website check and build", "Auth service build and test", "Consolidated release packet"]) {
       const matching = jobs?.jobs?.filter(job => job.name === name);
@@ -1325,9 +1340,9 @@ export function validateBundle({
     schemaRoute,
     environment,
   });
-  if (schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE && provenance.kind === "github-actions") {
+  if (isIndependentStandard26Route(schemaRoute) && provenance.kind === "github-actions") {
     if (typeof source !== "string") throw new ReleaseValidationError("PROVENANCE_REQUIRED", "formal standard26 validation requires its exact clean source repository");
-    try { verifyStandard26ProductSource(existingDirectory(source, "source"), sha); }
+    try { verifyIndependentProductSource(existingDirectory(source, "source"), sha, schemaRoute); }
     catch (error) { throw new ReleaseValidationError(error.code ?? "SOURCE_INVALID", "formal standard26 source policy failed"); }
   }
 
@@ -1506,24 +1521,24 @@ export function run(arguments_) {
   // Default repository/CI behavior stays frozen at 026. Only the new explicit
   // 26->30 route is allowed for source-only validation; old option behavior stays.
   const schemaRoute =
-    bundle === undefined && options.get("--schema-route") !== STANDARD26_30_RELEASE_SCHEMA_ROUTE
+    bundle === undefined && !isIndependentStandard26Route(options.get("--schema-route"))
       ? DEFAULT_RELEASE_SCHEMA_ROUTE
       : (options.get("--schema-route") ?? DEFAULT_RELEASE_SCHEMA_ROUTE);
   const repositoryResult = validateRepository({ source, expectedSha, schemaRoute });
   if (bundle === undefined) {
-    if (schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE && options.get("--validation-mode") === "ci-build" &&
+    if (isIndependentStandard26Route(schemaRoute) && options.get("--validation-mode") === "ci-build" &&
       !options.has("--github-artifact-id") && !options.has("--artifact-archive")) {
       try {
         createReleaseProvenance({mode:"github-actions",expectedSha,schemaRoute});
-        verifyStandard26ProductSource(existingDirectory(source, "source"), normalizedExpectedSha(expectedSha));
+        verifyIndependentProductSource(existingDirectory(source, "source"), normalizedExpectedSha(expectedSha), schemaRoute);
       } catch (error) { throw new ReleaseValidationError(error.code ?? "SOURCE_INVALID", "formal standard26 source policy failed"); }
-      return Object.freeze({...repositoryResult, productBaseline:STANDARD26_PRODUCT_BASELINE});
+      return Object.freeze({...repositoryResult, productBaseline:releaseProductBaselineForRoute(schemaRoute)});
     }
     if (
       options.has("--validation-mode") ||
       options.has("--github-artifact-id") ||
       options.has("--artifact-archive") ||
-      (options.has("--schema-route") && schemaRoute !== STANDARD26_30_RELEASE_SCHEMA_ROUTE)
+      (options.has("--schema-route") && !isIndependentStandard26Route(schemaRoute))
     ) {
       throw new ReleaseValidationError(
         "ARGUMENT_ERROR",
