@@ -1891,15 +1891,15 @@ test("missing, extra, and unknown migration registry states fail closed", async 
         applied_at TEXT NOT NULL
       );
       INSERT INTO schema_migrations (version, applied_at)
-      VALUES (31, '${NOW}');
+      VALUES (32, '${NOW}');
     `);
     assert.throws(
       () => runMigrations(database),
-      /database contains unknown migration version 31/,
+      /database contains unknown migration version 32/,
     );
     assert.deepEqual(
       database.prepare("SELECT version FROM schema_migrations").all(),
-      [{ version: 31 }],
+      [{ version: 32 }],
     );
   } finally {
     database.close();

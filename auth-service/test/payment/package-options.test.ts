@@ -61,7 +61,12 @@ test("negative control: without package rows the same options are unsellable", a
         assert.deepEqual(response.json(), { error: { code: "plan_unavailable" } });
       }
       const catalog = await app.inject({ method: "GET", url: "/api/catalog/plans" });
-      assert.equal(catalog.json().items.length, 255);
+      assert.equal(firstValue(database,"SELECT COUNT(*) FROM sellable_plans"),255);
+      const items=catalog.json().items as Array<Record<string,unknown>>;
+      assert.equal(items.length,723); //99 remaining non-residential +624 virtual住宅 aliases, noA/B package rows.
+      assert.equal(items.filter(item=>item.typeId==='residential').length,624);
+      assert.equal(items.filter(item=>item.typeId!=='residential').length,99);
+      assert.equal(new Set(items.map(item=>JSON.stringify([item.typeId,item.regionId,item.ispId,item.specId,item.durationId]))).size,723);
     } finally {
       await app.close();
     }
@@ -82,7 +87,12 @@ test("package options quote server prices, snapshot owned orders, and reject tam
     const app = buildApp({ payment: paymentDependencies(database, sdk, uniqueUuid) });
     try {
       const catalog = await app.inject({ method: "GET", url: "/api/catalog/plans" });
-      assert.equal(catalog.json().items.length, 1014);
+      const items=catalog.json().items as Array<Record<string,unknown>>;
+      assert.equal(items.length,1482);
+      assert.equal(items.filter(item=>item.typeId==='residential').length,624);
+      assert.equal(items.filter(item=>item.typeId!=='residential').length,858);
+      assert.ok(items.filter(item=>item.typeId==='residential').every(item=>typeof item.specId==='string'&&item.specId.startsWith('res-v2-')));
+      assert.equal(new Set(items.map(item=>JSON.stringify([item.typeId,item.regionId,item.ispId,item.specId,item.durationId]))).size,1482);
 
       // A = 地区现有套餐月价 ¥79 + 所选线路 × 流量档加价。
       const expectedA: Array<[Record<string, unknown>, number]> = [

@@ -805,7 +805,13 @@ test("public catalog and quote stay anonymous, validate input, and map domain er
       assert.equal(catalog.statusCode, 200);
       assert.equal(catalog.headers["cache-control"], "no-store");
       const catalogItems = catalog.json().items as Array<Record<string, unknown>>;
-      assert.equal(catalogItems.length, 1014);
+      assert.equal(catalogItems.length, 1482); //858 unchanged non-residential +624 virtual住宅 choices; DB stays1014.
+      assert.equal(firstValue(database,"SELECT COUNT(*) FROM sellable_plans"),1014);
+      const residential=catalogItems.filter(item=>item.typeId==='residential');
+      assert.equal(residential.length,624);
+      assert.equal(catalogItems.filter(item=>item.typeId!=='residential').length,858);
+      assert.ok(residential.every(item=>typeof item.specId==='string'&&item.specId.startsWith('res-v2-')));
+      assert.equal(new Set(catalogItems.map(item=>JSON.stringify([item.typeId,item.regionId,item.ispId,item.specId,item.durationId]))).size,1482);
       assert.deepEqual(
         catalogItems.find(
           (item) =>
