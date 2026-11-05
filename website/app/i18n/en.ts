@@ -409,6 +409,14 @@ export const en: Messages = {
     statusLabel: "Page status",
   },
   subscribe: {
+    configurator: {
+      monthlyFrom: "monthly from", perMonth: "/mo", selected: "✓ Selected", choose: "Choose this plan",
+      typeTitle: "Choose a network type", fromNote: "Lowest available monthly price; total depends on your selection",
+      location: "Region and carrier", profile: "Traffic and route", term: "Term",
+      baseMonthly: "Original monthly plan", lineAddon: "Monthly route add-on", monthlyTotal: "Monthly total",
+      payable: "Amount payable", catalogTerm: "Selected term catalogue price", average: (n: string) => `Approx. ¥${n}/mo`, saves: (n: string) => `Save ¥${n}`,
+      pendingCount: (n: number) => `${n} unpaid order${n === 1 ? "" : "s"}`, continuePayment: "Continue payment", orders: "Orders",
+    },
     banner: {
       title: "Configure a network plan for your use case",
       description: "Confirm your plan step by step: network type, region and options. Catalog prices are live; terms without a price stay pending.",

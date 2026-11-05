@@ -3,11 +3,10 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useCatalogText, useT } from "../../lib/i18n";
 import { networkTypes, trafficOptions, residentialTrafficOptions } from "../../lib/subscribeCatalog";
 import { normalizeResidentialNewPurchase, parseSelectionParams, selectionToQuery, type CatalogSelection } from "../../lib/resolveSelection";
-import { RESIDENTIAL_DEFAULT_SPEC } from "../../lib/subscribeCatalog";
-import { ResidentialOptionDetails } from "./ResidentialOptionDetails";
+import { monthlyPresentation } from "./subscriptionPresentation";
 import { usePlanAvailability } from "../../lib/planAvailability";
 import { formatCardYuan, specMonthlyPriceFen, typeFromPriceFen } from "../../lib/cardPrices";
-import { WorkbenchBanner } from "../WorkbenchBanner";
+import { PendingOrderNotice } from "./PendingOrderNotice";
 import { useCustomerDrawer } from "../customer/CustomerCenterShell";
 import { MobileOrderBar } from "./MobileOrderBar";
 import { getNextEnabledRadioIndex, getRovingRadioTabIndex, OptionCard } from "./OptionCard";
@@ -15,16 +14,10 @@ import { OrderSummary } from "./OrderSummary";
 import { StepProgress } from "./StepProgress";
 import { useSubscriptionSelection } from "./useSubscriptionSelection";
 import "./subscribe.css";
+import "./subscribe-configurator.css";
 
 const STEP_KEYS_WITH_SPEC = ["type", "region", "isp", "spec", "duration", "confirm"] as const;
 const STEP_KEYS_WITHOUT_SPEC = ["type", "region", "isp", "duration", "confirm"] as const;
-
-const solutionCodes: Record<string, string> = {
-  "us-local-carrier": "US LOCAL CARRIER",
-  "local-isp": "LOCAL PREMIUM",
-  residential: "RESIDENTIAL ISP",
-  "pure-native-ip": "PURE NATIVE IP",
-};
 
 // Presentation only: keep catalog IDs, default selection, prices and order identity.
 const productCardOrder = ["pure-native-ip", "residential", "us-local-carrier", "local-isp"];
@@ -64,13 +57,9 @@ function handleRadioGroupKeyDown(event: KeyboardEvent<HTMLDivElement>) {
 }
 
 function SolutionIcon({ typeId }: { typeId: string }) {
-  if (typeId === "us-local-carrier") {
-    return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" /><path d="M4.5 9h15M4.5 15h15M12 4c2.2 2.2 3.3 4.9 3.3 8S14.2 17.8 12 20c-2.2-2.2-3.3-4.9-3.3-8S9.8 6.2 12 4Z" /></svg>;
-  }
-  if (typeId === "local-isp") {
-    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 17.5h14M7 14l3-3 2.5 2.5L17 9" /><circle cx="7" cy="14" r="1.3" /><circle cx="10" cy="11" r="1.3" /><circle cx="12.5" cy="13.5" r="1.3" /><circle cx="17" cy="9" r="1.3" /></svg>;
-  }
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 11.5 12 5l7.5 6.5V20h-15Z" /><path d="M9 20v-5h6v5M8 9.3V5.5h3" /></svg>;
+  // Exact as-used r30 SVG alpha masks, including the original dual-ISP composite.
+  // Decorative only; no runtime HTML injection or icon dependency installation.
+  return <span className={`sub-product-glyph is-${typeId}`} aria-hidden="true" />;
 }
 
 export function SubscribePage() {
@@ -83,12 +72,13 @@ export function SubscribePage() {
   // 不完整 / 非法参数不会污染 hook（回退默认选择）。
   const [initialEntry] = useState(() => {
     const entry = normalizeResidentialNewPurchase(parseSelectionParams(searchParams));
-    return { ...entry, reconfirm: entry.reconfirm || searchParams.get("reconfirm") === "residential-v2" };
+    return { ...entry, reconfirm: entry.selection.typeId === "residential" &&
+      (entry.reconfirm || searchParams.get("reconfirm") === "residential-v2") };
   });
   const [legacyConfirmed, setLegacyConfirmed] = useState(false);
-  const needsResidentialReconfirm = initialEntry.reconfirm && !legacyConfirmed;
   const availability = usePlanAvailability();
   const selection = useSubscriptionSelection(initialEntry.selection, availability.index ?? undefined);
+  const needsResidentialReconfirm = selection.typeId === "residential" && initialEntry.reconfirm && !legacyConfirmed;
   const shownTrafficOptions = selection.typeId==='residential'?residentialTrafficOptions:trafficOptions;
   const priceStatus = availability.loading
     ? copy.priceLoading
@@ -125,6 +115,16 @@ export function SubscribePage() {
     specId: selection.specId,
     durationId: selection.durationId,
   };
+  const monthly = monthlyPresentation(availability.index, currentSelection);
+  const summaryPresentation = {
+    monthly,
+    line: selection.selectedLine ? ct(selection.selectedLine.name) : null,
+    months: selection.availableDurations.find(option => option.id === selection.durationId)?.months ?? null,
+  };
+  function optionAddon(specId: string | null | undefined) {
+    if (specId === undefined) return null;
+    return monthlyPresentation(availability.index, { ...currentSelection, specId })?.addonMonthlyFen ?? null;
+  }
 
   // 把当前选择镜像回 /subscribe 的 query（replace，避免堆积浏览历史）；
   // 正常跳转前历史记录即带有同一组 ID，浏览器后退 / 刷新可据此恢复。
@@ -152,41 +152,34 @@ export function SubscribePage() {
   }
 
   return (
-    <main className="sub-page">
+    <main className="sub-page sub-configurator-v11">
       <div className="sub-layout">
         <div className="sub-content">
-          <WorkbenchBanner
-            kicker="NETWORK SOLUTION CONFIGURATOR"
-            title={copy.banner.title}
-            description={copy.banner.description}
-            statusLabel={copy.banner.statusLabel}
-            badge="CATALOG V1"
-          />
-
           <StepProgress steps={steps} currentStep={displayedStep} onStep={goToStep} />
+          <PendingOrderNotice />
           {needsResidentialReconfirm && <div className="sub-pending" role="alert"><p>{copy.residentialReconfirm}</p><button type="button" className="sub-order-button" onClick={() => setLegacyConfirmed(true)}>{copy.residentialConfirm}</button></div>}
 
           <section className="sub-section sub-solution-section" id="sub-section-type">
             <div className="sub-section-heading">
-              <div><span>STEP 01 · NETWORK TYPE</span><h2>{copy.typeSection.title}</h2><p>{copy.typeSection.lead}</p></div>
-              <small>{copy.typeSection.count}</small>
+              <div><h2>{copy.configurator.typeTitle}</h2></div>
+              <p>{copy.configurator.fromNote}</p>
             </div>
             <div className="sub-grid sub-solution-grid" role="radiogroup" aria-label={copy.typeSection.groupLabel} onKeyDown={handleRadioGroupKeyDown}>
               {displayNetworkTypes.map((option) => {
                 const product = copy.productCards[option.id];
-                const typeFromFen = option.id === "residential" ? specMonthlyPriceFen(availability.index, "residential", selection.regionId, selection.ispId, RESIDENTIAL_DEFAULT_SPEC) : typeFromPriceFen(availability.index, option.id);
+                const typeFromFen = typeFromPriceFen(availability.index, option.id);
                 const selected = selection.typeId === option.id;
                 return (
                   <OptionCard key={option.id} selected={selected} onSelect={() => selection.selectType(option.id)} label={ct(option.name)} className="sub-type-option" tabIndex={optionTabIndex(displayNetworkTypes, selection.typeId, option.id)}>
                     <span className="sub-solution-top">
                       <span className="sub-solution-icon"><SolutionIcon typeId={option.id} /></span>
-                      <span className="sub-solution-title"><small>{solutionCodes[option.id]}</small><strong>{ct(option.name)}</strong></span>
+                      <span className="sub-solution-title"><strong>{ct(option.name)}</strong></span>
                     </span>
-                    <span className="sub-product-facts"><i className="sub-product-tag">{product.tag}</i><span>{product.bandwidth}</span></span>
-                    <span className="sub-product-audience">{product.audience}</span>
+                    <span className="sub-product-audience">{product.audience.replace(/^适合人群：|^For: /, "")}</span>
+                    <span className="sub-type-price">{typeFromFen === null ? copy.pricePending : <><b>{formatCardYuan(typeFromFen)}</b><small>{copy.configurator.monthlyFrom}</small></>}</span>
                     <span className="sub-solution-footer">
-                      <b>{option.id === "residential" && <small>{t.residentialOptions.base}</small>}{typeFromFen === null ? copy.pricePending : option.id === "residential" ? copy.perMonth(formatCardYuan(typeFromFen)) : copy.from(formatCardYuan(typeFromFen))}</b>
-                      <strong>{selected ? copy.typeSection.current : copy.typeSection.choose}<i aria-hidden="true">→</i></strong>
+                      <span className="sub-type-specs"><span className="sub-type-spec-label">{product.tag}</span><span>{product.bandwidth}</span></span>
+                      <strong>{selected ? copy.configurator.selected : copy.configurator.choose}</strong>
                     </span>
                   </OptionCard>
                 );
@@ -194,49 +187,37 @@ export function SubscribePage() {
             </div>
           </section>
 
+          <div className="sub-configuration">
           <section className="sub-section" id="sub-section-region">
             <div className="sub-section-heading">
-              <div><span>STEP 02 · LOCATION</span><h2>{copy.regionSection.title}</h2><p>{copy.regionSection.lead}</p></div>
-              <small>{copy.regionSection.count(selection.availableRegions.length)}</small>
+              <div><h2>{copy.configurator.location}</h2></div>
             </div>
-            <div
-              className="sub-grid sub-grid-region"
-              role="radiogroup"
-              aria-label={copy.regionSection.groupLabel}
-              onKeyDown={handleRadioGroupKeyDown}
-            >
-              {selection.availableRegions.map((option) => {
-                return (
-                <OptionCard key={option.id} selected={selection.regionId === option.id} onSelect={() => selection.selectRegion(option.id)} label={ct(option.cardName ?? option.name)} className="sub-region-option" tabIndex={optionTabIndex(selection.availableRegions, selection.regionId, option.id)}>
-                  <span className="sub-region-main">
-                    <span className="sub-option-head"><i className={`sub-flag is-${option.flagClass}`} aria-hidden="true" /><strong>{ct(option.cardName ?? option.name)}</strong></span>
-                  </span>
-                </OptionCard>
-                );
-              })}
-            </div>
+            <label className="sub-location-select"><span>{copy.regionSection.groupLabel}</span>
+              {selection.regionId && <i className={`sub-flag is-${selection.availableRegions.find(option => option.id === selection.regionId)?.flagClass}`} aria-hidden="true" />}
+              <select aria-label={copy.regionSection.groupLabel} value={selection.regionId ?? ""} onChange={event => selection.selectRegion(event.target.value)}>
+                <option value="" disabled>{copy.regionSection.title}</option>
+                {selection.availableRegions.map(option => <option key={option.id} value={option.id}>{ct(option.cardName ?? option.name)}</option>)}
+              </select>
+            </label>
           </section>
 
           {showIspStep && <section className="sub-section" id="sub-section-isp">
             <div className="sub-section-heading">
-              <div><span>STEP 03 · NETWORK OPERATOR</span><h2>{copy.ispSection.title}{selection.regionId && <em>· {ct(selection.summary.region)}</em>}</h2><p>{copy.ispSection.lead}</p></div>
-              <small>{selection.availableIsps.length ? copy.ispSection.count(selection.availableIsps.length) : copy.ispSection.pendingConfig}</small>
+              <div><h2>{copy.ispSection.title}</h2></div>
             </div>
             {selection.availableIsps.length ? (
-              <div className="sub-grid sub-isp-grid" role="radiogroup" aria-label={copy.ispSection.groupLabel} onKeyDown={handleRadioGroupKeyDown}>
-                {selection.availableIsps.map((option) => (
-                  <OptionCard key={option.id} selected={selection.ispId === option.id} onSelect={() => selection.selectIsp(option.id)} label={option.name} className="sub-isp-option" tabIndex={optionTabIndex(selection.availableIsps, selection.ispId, option.id)}>
-                    <span><strong>{option.name}</strong><small>{ct(option.routeInfo ?? option.description)}</small></span>
-                  </OptionCard>
-                ))}
-              </div>
+              <label className="sub-location-select"><span>{copy.ispSection.groupLabel}</span>
+                <select aria-label={copy.ispSection.groupLabel} value={selection.ispId ?? ""} onChange={event => selection.selectIsp(event.target.value)}>
+                  <option value="" disabled>{copy.ispSection.title}</option>
+                  {selection.availableIsps.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}
+                </select>
+              </label>
             ) : <div className="sub-pending" role="status">{copy.ispSection.regionPending}</div>}
           </section>}
 
           {selection.hasSpecStep && <section className="sub-section" id="sub-section-spec">
             <div className="sub-section-heading">
-              <div><span>STEP 04 · SERVICE PROFILE</span><h2>{copy.specSection.title}</h2><p>{copy.specSection.lead}</p></div>
-              <small>{selection.availableSpecs.length ? copy.specSection.count(selection.availableSpecs.length) : copy.specSection.chooseIspFirst}</small>
+              <div><h2>{copy.configurator.profile}</h2></div>
             </div>
             {selection.availableLines.length > 0 ? (
               <div className="sub-package-choice">
@@ -245,6 +226,7 @@ export function SubscribePage() {
                     onSelect={() => selection.selectLine(line.id)} label={ct(line.name)} className="sub-package-option"
                     tabIndex={optionTabIndex(selection.availableLines, selection.selectedLine?.id ?? null, line.id)}>
                     <strong>{ct(line.name)}</strong>{line.notice && <small>{ct(line.notice)}</small>}
+                    {optionAddon(selection.packageSpecId(line.id, selection.selectedTrafficId ?? "")) !== null && <b className="sub-addon">+{formatCardYuan(optionAddon(selection.packageSpecId(line.id, selection.selectedTrafficId ?? ""))!)}{copy.configurator.perMonth}</b>}
                   </OptionCard>)}
                 </div></div>
                 <div><h3>{copy.specSection.trafficTitle}</h3><div className="sub-grid sub-package-traffic" role="radiogroup" aria-label={copy.specSection.trafficGroupLabel} onKeyDown={handleRadioGroupKeyDown}>
@@ -255,6 +237,7 @@ export function SubscribePage() {
                       tabIndex={optionTabIndex(shownTrafficOptions, selection.selectedTrafficId, traffic.id)}>
                       <strong>{traffic.name}</strong>
                       {selection.typeId === "residential" && <small>{copy.residentialTrafficDevices(selection.availableSpecs.find(option => option.lineId === selection.selectedLine?.id && option.trafficId === traffic.id)?.deviceAllowance ?? null)}</small>}
+                      {optionAddon(selection.packageSpecId(selection.selectedLine!.id, traffic.id)) !== null && <b className="sub-addon">+{formatCardYuan(optionAddon(selection.packageSpecId(selection.selectedLine!.id, traffic.id))!)}{copy.configurator.perMonth}</b>}
                     </OptionCard>)}
                 </div></div>
               </div>
@@ -275,15 +258,11 @@ export function SubscribePage() {
           </section>}
 
           <section className="sub-section" id="sub-section-duration">
-            {selection.summary.residentialOptions && <ResidentialOptionDetails options={selection.summary.residentialOptions} />}
             <div className="sub-section-heading">
               <div>
-                <span>{selection.summary.ispImplied ? "STEP 04" : selection.hasSpecStep ? "STEP 05" : "STEP 04"} · SERVICE TERM</span>
-                <h2>{copy.durationSection.title}</h2>
-                <p>{copy.durationSection.lead}</p>
+                <h2>{copy.configurator.term}</h2>
                 {priceStatus && <p className={`sub-price-status${availability.error ? " is-error" : ""}`} role={availability.error ? "alert" : "status"}>{priceStatus}</p>}
               </div>
-              <small>{copy.durationSection.count(selection.availableDurations.length)}</small>
             </div>
             {selection.canSelectDuration ? (
               <div className="sub-grid sub-grid-four" role="radiogroup" aria-label={copy.durationSection.groupLabel} onKeyDown={handleRadioGroupKeyDown}>
@@ -322,9 +301,10 @@ export function SubscribePage() {
               </div>
             ) : <div className="sub-pending">{selection.hasSpecStep ? copy.durationSection.chooseSpecFirst : copy.durationSection.chooseIspFirst}</div>}
           </section>
+          </div>
         </div>
 
-        <aside className="sub-desktop-summary" aria-label={copy.summaryLabel}><OrderSummary summary={selection.summary} canRequest={canRequest} onRequest={goToRequest} /></aside>
+        <aside className="sub-desktop-summary" aria-label={copy.summaryLabel}><OrderSummary summary={selection.summary} presentation={summaryPresentation} canRequest={canRequest} onRequest={goToRequest} /></aside>
       </div>
 
       <aside
@@ -335,9 +315,9 @@ export function SubscribePage() {
         aria-label={copy.summaryDrawerLabel}
       >
         <button type="button" className="sub-drawer-close" onClick={closeDrawer} aria-label={copy.closeSummary}>×</button>
-        <OrderSummary summary={selection.summary} canRequest={canRequest} drawer onRequest={goToRequest} />
+        <OrderSummary summary={selection.summary} presentation={summaryPresentation} canRequest={canRequest} drawer onRequest={goToRequest} />
       </aside>
-      <MobileOrderBar summary={selection.summary} canRequest={canRequest} open={orderOpen} onOpen={(trigger) => openDrawer("order", trigger)} onRequest={goToRequest} />
+      <MobileOrderBar summary={selection.summary} months={summaryPresentation.months} canRequest={canRequest} open={orderOpen} onOpen={(trigger) => openDrawer("order", trigger)} onRequest={goToRequest} />
     </main>
   );
 }

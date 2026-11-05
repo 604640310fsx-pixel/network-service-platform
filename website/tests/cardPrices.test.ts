@@ -56,6 +56,8 @@ test("type and region cards use the lowest purchasable server price", () => {
   assert.equal(regionFromPriceFen(catalog, "residential", "jp"), 7900);
   // Sold-out and inactive tuples never set the "from" price.
   assert.equal(regionFromPriceFen(catalog, "residential", "sg"), 8950);
+  assert.equal(typeFromPriceFen(index([item({durationId:"month-12",priceFen:100}),item({priceFen:14900})]),"residential"),14900);
+  assert.equal(typeFromPriceFen(index([item({durationId:"month-3",priceFen:100})]),"residential"),null);
 });
 
 test("spec cards use the exact tuple's monthly price only", () => {

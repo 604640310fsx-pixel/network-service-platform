@@ -110,9 +110,13 @@ test("each radio group has one enabled tab stop and uses the existing selection 
   const card = source("../app/components/subscribe/OptionCard.tsx");
   const page = source("../app/components/subscribe/SubscribePage.tsx");
   assert.match(card, /role="radio"[\s\S]*?disabled=\{disabled\}[\s\S]*?tabIndex=\{tabIndex\}/);
-  // Route and traffic are independent choices in addition to the five original groups.
-  assert.equal(page.match(/role="radiogroup"/g)?.length, 7);
-  assert.equal(page.match(/onKeyDown=\{handleRadioGroupKeyDown\}/g)?.length, 7);
+  // v11 uses native keyboard-operable region/ISP selects. The remaining radio
+  // groups still use the same roving keyboard handler (route/traffic independent).
+  assert.equal(page.match(/role="radiogroup"/g)?.length, 5);
+  assert.equal(page.match(/onKeyDown=\{handleRadioGroupKeyDown\}/g)?.length, 5);
+  assert.equal(page.match(/<select aria-label=/g)?.length,2);
+  assert.match(page,/selection\.availableRegions\.map\(option => <option/);
+  assert.match(page,/selection\.availableIsps\.map\(option => <option/);
   for (const callback of ["selectType","selectRegion","selectIsp","selectSpec","selectLine","selectTraffic","selectDuration"]) {
     assert.ok(page.includes(`selection.${callback}(`), `missing selection callback ${callback}`);
   }

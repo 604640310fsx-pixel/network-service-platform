@@ -408,6 +408,14 @@ export const zh = {
     statusLabel: "页面状态",
   },
   subscribe: {
+    configurator: {
+      monthlyFrom: "月付起", perMonth: "/月", selected: "✓ 已选择", choose: "选择此套餐",
+      typeTitle: "选择网络类型", fromNote: "起价为该类最低月付价，实付以所选配置为准",
+      location: "地区与运营商", profile: "规格：流量与线路", term: "有效期",
+      baseMonthly: "原套餐月价", lineAddon: "线路月加价", monthlyTotal: "月价合计",
+      payable: "实付金额", catalogTerm: "所选周期目录价", average: (n: string) => `约 ¥${n}/月`, saves: (n: string) => `节省 ¥${n}`,
+      pendingCount: (n: number) => `你有 ${n} 笔待支付订单`, continuePayment: "继续支付", orders: "查看订单",
+    },
     banner: {
       title: "配置适合业务场景的网络方案",
       description: "按网络架构、服务地区与所需选项逐步确认方案。目录价格已接入，未提供的周期价格保持待确认。",
@@ -431,7 +439,7 @@ export const zh = {
       residential: { tag: "真实家宽IP", bandwidth: "带宽100Mbps", audience: "适合人群：长期稳定！社媒运营/直播/Claude Max与Ultra用户" },
       "us-local-carrier": { tag: "500G流量", bandwidth: "带宽200Mbps", audience: "适合人群：独享干净/社媒养号/ChatGPT Plus用户" },
       "local-isp": { tag: "住宅静态IP", bandwidth: "带宽100Mbps", audience: "适合人群：社媒运营/直播/ChatGPT Pro/Claude Pro用户" },
-      "pure-native-ip": { tag: "独享纯净IP", bandwidth: "带宽100Mbps", audience: "适合人群：独享干净！流媒体全解锁/ChatGPT Plus用户" },
+      "pure-native-ip": { tag: "独享纯净IP", bandwidth: "带宽100Mbps", audience: "独享干净•流媒体全解锁、ChatGPT Plus用户" },
     } as Record<string, { tag: string; bandwidth: string; audience: string }>,
     solutions: {
       "us-local-carrier": { label: "美国本地运营商", highlights: ["NTT", "GTT", "Cogent", "Charter"] },
