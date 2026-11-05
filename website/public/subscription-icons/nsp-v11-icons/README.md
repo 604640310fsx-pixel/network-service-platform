@@ -36,3 +36,8 @@ aede1aa4790a00e2e7c859ac48ae9cfb00a107cf9598da88ef23bd794b7adef3  arrows-split-b
 15de4ec2741b041400983043e0ae68b82d812f09d70b4367d2c122a84de3aa26  dual-isp composite (as used)
 ddbe6082ec3cf979db47e5af549d2849c5d6182b3e005ef91ce1dbb9eb122f11  LICENSE-phosphor-MIT.txt
 ```
+
+The hashes above identify the original exported files. In this repository only
+the license line endings are normalized from CRLF to LF; the license wording is
+unchanged. Its vendored SHA-256 is
+`b5b1f1da112d18ea2147decfd48ddc1bf2b5aeb6c265381579340e95b15a2bb2`.
