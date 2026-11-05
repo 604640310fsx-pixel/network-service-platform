@@ -1,6 +1,7 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useCatalogText, useT } from "../../lib/i18n";
+import { en } from "../../i18n/en";
+import { translateCatalogText, useCatalogText, useT } from "../../lib/i18n";
 import { networkTypes, trafficOptions, residentialTrafficOptions } from "../../lib/subscribeCatalog";
 import { normalizeResidentialNewPurchase, parseSelectionParams, selectionToQuery, type CatalogSelection } from "../../lib/resolveSelection";
 import { monthlyPresentation } from "./subscriptionPresentation";
@@ -9,6 +10,8 @@ import { formatCardYuan, specMonthlyPriceFen, typeFromPriceFen } from "../../lib
 import { PendingOrderNotice } from "./PendingOrderNotice";
 import { useCustomerDrawer } from "../customer/CustomerCenterShell";
 import { MobileOrderBar } from "./MobileOrderBar";
+import { CatalogSelect } from "./CatalogSelect";
+import { hasPurchasablePlan } from "./catalogSelectModel";
 import { getNextEnabledRadioIndex, getRovingRadioTabIndex, OptionCard } from "./OptionCard";
 import { OrderSummary } from "./OrderSummary";
 import { StepProgress } from "./StepProgress";
@@ -153,9 +156,9 @@ export function SubscribePage() {
 
   return (
     <main className="sub-page sub-configurator-v11">
+      <StepProgress steps={steps} currentStep={displayedStep} onStep={goToStep} />
       <div className="sub-layout">
         <div className="sub-content">
-          <StepProgress steps={steps} currentStep={displayedStep} onStep={goToStep} />
           <PendingOrderNotice />
           {needsResidentialReconfirm && <div className="sub-pending" role="alert"><p>{copy.residentialReconfirm}</p><button type="button" className="sub-order-button" onClick={() => setLegacyConfirmed(true)}>{copy.residentialConfirm}</button></div>}
 
@@ -192,13 +195,21 @@ export function SubscribePage() {
             <div className="sub-section-heading">
               <div><h2>{copy.configurator.location}</h2></div>
             </div>
-            <label className="sub-location-select"><span>{copy.regionSection.groupLabel}</span>
-              {selection.regionId && <i className={`sub-flag is-${selection.availableRegions.find(option => option.id === selection.regionId)?.flagClass}`} aria-hidden="true" />}
-              <select aria-label={copy.regionSection.groupLabel} value={selection.regionId ?? ""} onChange={event => selection.selectRegion(event.target.value)}>
-                <option value="" disabled>{copy.regionSection.title}</option>
-                {selection.availableRegions.map(option => <option key={option.id} value={option.id}>{ct(option.cardName ?? option.name)}</option>)}
-              </select>
-            </label>
+            <CatalogSelect
+              label={copy.regionSection.groupLabel}
+              placeholder={copy.regionSection.title}
+              value={selection.regionId}
+              options={selection.availableRegions.map(option => ({
+                id: option.id,
+                label: ct(option.cardName ?? option.name),
+                // Existing catalogue flag CSS; the search matches both Chinese and English names.
+                flagClass: option.flagClass,
+                search: [option.name, option.cardName, translateCatalogText(en, "en", option.cardName ?? option.name), translateCatalogText(en, "en", option.name), option.id].join(" "),
+                note: hasPurchasablePlan(availability.index, selection.typeId, option.id) === false ? copy.regionSection.unavailable : null,
+              }))}
+              onSelect={id => selection.selectRegion(id)}
+              search={{ label: copy.regionSection.searchLabel, placeholder: copy.regionSection.searchPlaceholder, noMatch: copy.regionSection.noMatch }}
+            />
           </section>
 
           {showIspStep && <section className="sub-section" id="sub-section-isp">
@@ -206,12 +217,17 @@ export function SubscribePage() {
               <div><h2>{copy.ispSection.title}</h2></div>
             </div>
             {selection.availableIsps.length ? (
-              <label className="sub-location-select"><span>{copy.ispSection.groupLabel}</span>
-                <select aria-label={copy.ispSection.groupLabel} value={selection.ispId ?? ""} onChange={event => selection.selectIsp(event.target.value)}>
-                  <option value="" disabled>{copy.ispSection.title}</option>
-                  {selection.availableIsps.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}
-                </select>
-              </label>
+              <CatalogSelect
+                label={copy.ispSection.groupLabel}
+                placeholder={copy.ispSection.title}
+                value={selection.ispId}
+                options={selection.availableIsps.map(option => ({
+                  id: option.id,
+                  label: option.name,
+                  note: selection.regionId && hasPurchasablePlan(availability.index, selection.typeId, selection.regionId, option.id) === false ? copy.ispSection.unavailable : null,
+                }))}
+                onSelect={id => selection.selectIsp(id)}
+              />
             ) : <div className="sub-pending" role="status">{copy.ispSection.regionPending}</div>}
           </section>}
 
@@ -229,16 +245,30 @@ export function SubscribePage() {
                     {optionAddon(selection.packageSpecId(line.id, selection.selectedTrafficId ?? "")) !== null && <b className="sub-addon">+{formatCardYuan(optionAddon(selection.packageSpecId(line.id, selection.selectedTrafficId ?? ""))!)}{copy.configurator.perMonth}</b>}
                   </OptionCard>)}
                 </div></div>
-                <div><h3>{copy.specSection.trafficTitle}</h3><div className="sub-grid sub-package-traffic" role="radiogroup" aria-label={copy.specSection.trafficGroupLabel} onKeyDown={handleRadioGroupKeyDown}>
+                <div><h3>{copy.specSection.trafficTitle}</h3><div className={`sub-grid sub-package-traffic${selection.typeId === "residential" ? " is-residential" : ""}`} role="radiogroup" aria-label={copy.specSection.trafficGroupLabel} onKeyDown={handleRadioGroupKeyDown}>
                   {shownTrafficOptions.filter((traffic) => selection.selectedLine &&
-                    selection.packageSpecId(selection.selectedLine.id, traffic.id) !== undefined).map((traffic) =>
+                    selection.packageSpecId(selection.selectedLine.id, traffic.id) !== undefined).map((traffic) => {
+                    const specId = selection.packageSpecId(selection.selectedLine!.id, traffic.id);
+                    // Display only: each tier resolves its own exact monthly offer.
+                    // A missing month must not change selected-period eligibility.
+                    const trafficMonthly = selection.typeId === "residential" && specId !== undefined
+                      ? monthlyPresentation(availability.index, { ...currentSelection, specId }) : null;
+                    return (
                     <OptionCard key={traffic.id} selected={selection.selectedTrafficId === traffic.id}
                       onSelect={() => selection.selectTraffic(traffic.id)} label={traffic.name} className="sub-package-option"
                       tabIndex={optionTabIndex(shownTrafficOptions, selection.selectedTrafficId, traffic.id)}>
                       <strong>{traffic.name}</strong>
                       {selection.typeId === "residential" && <small>{copy.residentialTrafficDevices(selection.availableSpecs.find(option => option.lineId === selection.selectedLine?.id && option.trafficId === traffic.id)?.deviceAllowance ?? null)}</small>}
-                      {optionAddon(selection.packageSpecId(selection.selectedLine!.id, traffic.id)) !== null && <b className="sub-addon">+{formatCardYuan(optionAddon(selection.packageSpecId(selection.selectedLine!.id, traffic.id))!)}{copy.configurator.perMonth}</b>}
-                    </OptionCard>)}
+                      {selection.typeId === "residential" ? <span className="sub-traffic-monthly">
+                        <b className={`sub-traffic-monthly-price${trafficMonthly ? "" : " is-pending"}`}>{trafficMonthly
+                          ? copy.residentialMonthlyPrice(formatCardYuan(trafficMonthly.monthlyFen))
+                          : copy.residentialMonthlyPending}</b>
+                        {trafficMonthly?.addonMonthlyFen != null && trafficMonthly.addonMonthlyFen > 0 &&
+                          <small className="sub-traffic-included">{copy.residentialIncludedAddon(formatCardYuan(trafficMonthly.addonMonthlyFen))}</small>}
+                      </span> : optionAddon(specId) !== null && <b className="sub-addon">+{formatCardYuan(optionAddon(specId)!)}{copy.configurator.perMonth}</b>}
+                    </OptionCard>
+                    );
+                  })}
                 </div></div>
               </div>
             ) : selection.availableSpecs.length ? (

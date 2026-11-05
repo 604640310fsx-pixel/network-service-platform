@@ -436,6 +436,9 @@ export const en: Messages = {
     residentialConfirm: "Confirm new selection",
     residentialDevices: (n: number | null) => n === null ? "Device allowance unspecified (retain existing plan records)" : `${n} devices (manual configuration)`,
     residentialTrafficDevices: (n: number | null) => n === null ? "Device limit: pending confirmation" : `Device limit: ${n}`,
+    residentialMonthlyPrice: (price: string) => `Monthly ${price}/mo`,
+    residentialMonthlyPending: "Monthly price pending",
+    residentialIncludedAddon: (price: string) => `Includes route fee ${price}/mo`,
     productCards: {
       residential: { tag: "Real residential IP", bandwidth: "100Mbps bandwidth", audience: "For: long-term stability! Social operations / live streaming / Claude Max and Ultra users" },
       "us-local-carrier": { tag: "500G traffic", bandwidth: "200Mbps bandwidth", audience: "For: clean dedicated access / social account growth / ChatGPT Plus users" },
@@ -481,6 +484,10 @@ export const en: Messages = {
       lead: "Confirm the target region for the service.",
       count: (n: number) => `${n} regions available`,
       groupLabel: "Country or region",
+      searchLabel: "Search countries or regions",
+      searchPlaceholder: "Search in English or Chinese",
+      noMatch: (query: string) => `No match for “${query}”. Try the English or Chinese name.`,
+      unavailable: "Unavailable",
     },
     ispSection: {
       title: "Choose a carrier",
@@ -489,6 +496,7 @@ export const en: Messages = {
       pendingConfig: "Coming soon",
       groupLabel: "Carrier",
       regionPending: "Plans for this region are coming soon",
+      unavailable: "Unavailable",
     },
     specSection: {
       lineTitle: "Choose a route",
