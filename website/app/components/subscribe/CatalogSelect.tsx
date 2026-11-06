@@ -25,6 +25,8 @@ type CatalogSelectProps = {
 const PHONE_QUERY = "(max-width: 600px)";
 const GAP = 6;
 const EDGE = 8;
+// Original r33 flag-icons SVGs shipped for the subscription catalogue only.
+const COUNTRY_FLAG_CODES = new Set(["br", "de", "fr", "gb", "id", "jp", "kr", "my", "sg", "th", "tw", "us", "vn"]);
 
 function ChevronIcon() {
   return <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>;
@@ -249,7 +251,9 @@ export function CatalogSelect({ label, options, value, placeholder, onSelect, se
         onKeyDown={onTriggerKeyDown}
       >
         <span className="sub-select-label" id={`${uid}-label`}>{label}</span>
-        {selected?.flagClass && <i className={`sub-flag is-${selected.flagClass}`} aria-hidden="true" />}
+        {selected?.flagClass && (COUNTRY_FLAG_CODES.has(selected.flagClass)
+          ? <img className="sub-flag" src={`/subscription-flags/${selected.flagClass}.svg`} width={20} height={15} alt="" />
+          : <i className="sub-flag is-globe" aria-hidden="true" />)}
         <span className={`sub-select-value${selected ? "" : " is-placeholder"}`} id={`${uid}-value`}>{selected?.label ?? placeholder}</span>
         <span className="sub-select-chevron"><ChevronIcon /></span>
       </button>
@@ -302,7 +306,9 @@ export function CatalogSelect({ label, options, value, placeholder, onSelect, se
                 onClick={() => choose(option)}
                 onMouseMove={() => { if (!option.disabled && activeId !== option.id) setActiveId(option.id); }}
               >
-                {option.flagClass && <i className={`sub-flag is-${option.flagClass}`} aria-hidden="true" />}
+                {option.flagClass && (COUNTRY_FLAG_CODES.has(option.flagClass)
+                  ? <img className="sub-flag" src={`/subscription-flags/${option.flagClass}.svg`} width={20} height={15} alt="" />
+                  : <i className="sub-flag is-globe" aria-hidden="true" />)}
                 <span className="sub-select-name">{option.label}</span>
                 {option.note && <span className="sub-select-note">{option.note}</span>}
                 {option.id === value && <span className="sub-select-check"><CheckIcon /></span>}

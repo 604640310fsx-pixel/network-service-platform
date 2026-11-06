@@ -100,8 +100,8 @@ test("card prices come only from the server availability index", () => {
   assert.doesNotMatch(regionSection, /regionFromPriceFen|regionFromFen|sub-region-meta|sub-region-tags|sub-tag/);
   assert.match(regionSection, /flagClass: option\.flagClass/);
   const select = readFileSync(new URL("../app/components/subscribe/CatalogSelect.tsx", import.meta.url), "utf8");
-  assert.match(select, /sub-flag is-\$\{selected\.flagClass\}/);
-  assert.match(select, /sub-flag is-\$\{option\.flagClass\}/);
+  assert.match(select, /<img className="sub-flag" src=\{`\/subscription-flags\/\$\{selected\.flagClass\}\.svg`\}/);
+  assert.match(select, /<img className="sub-flag" src=\{`\/subscription-flags\/\$\{option\.flagClass\}\.svg`\}/);
   assert.match(regionSection, /ct\(option\.cardName \?\? option\.name\)/);
   assert.match(page, /specMonthlyPriceFen\(availability\.index, selection\.typeId, selection\.regionId, selection\.ispId, option\.id\)/);
   // The two remaining card-price surfaces still fail closed.
