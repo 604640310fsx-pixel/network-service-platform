@@ -556,9 +556,8 @@ test("a fixed coupon discount that would push the payable amount to zero or belo
   });
 });
 
-test("an active plan actively priced above the single-payment cap is rejected amount_limit_exceeded (guard exercised in isolation, independent of the seeded off-sale combos)", async () => {
+test("an active plan above the old business cap uses its authoritative current price", async () => {
   await withAuthenticationDatabase(async (database) => {
-    const dependencies = paymentDependencies(database);
     const adminId = insertAuthenticationUser(database, {
       email: "admin5@example.test",
       passwordHash: "hash",
@@ -573,19 +572,9 @@ test("an active plan actively priced above the single-payment cap is rejected am
       adminUserId: adminId,
       now: () => new Date(TEST_NOW),
     });
-    assert.throws(
-      () =>
-        resolveQuote(database, {
-          selection: localIspSelection(),
-          couponCode: null,
-          now: () => new Date(TEST_NOW),
-        }),
-      (error: unknown) =>
-        error instanceof PaymentDomainError &&
-        error.code === "amount_limit_exceeded" &&
-        error.details.maxSingleFen === 200_000,
-    );
-    void dependencies;
+    assert.equal(resolveQuote(database, {
+      selection: localIspSelection(), couponCode: null, now: () => new Date(TEST_NOW),
+    }).amountFen, 250_000);
   });
 });
 

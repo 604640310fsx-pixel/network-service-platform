@@ -10,6 +10,7 @@ import {
 } from "../../lib/payment-api";
 import { useT } from "../../lib/i18n";
 import { resolveSelection } from "../../lib/resolveSelection";
+import { ResidentialOptionDetails } from "../subscribe/ResidentialOptionDetails";
 
 const SCENARIO_LABELS: Record<string, string> = {
   ai: "AI 工具",
@@ -254,6 +255,7 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
                 <div><dt>使用场景</dt><dd>{scenarios}</dd></div>
                 <div><dt>补充说明</dt><dd>{item.notes?.trim() || "—"}</dd></div>
               </dl>
+              {item.residentialOptions && <ResidentialOptionDetails options={item.residentialOptions} />}
               <fieldset className="dash-delivery-form">
                 <legend>交付订阅线路</legend>
                 {serviceDeliveryItems.map((deliveryItem, index) => (

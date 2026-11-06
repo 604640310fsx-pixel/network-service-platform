@@ -25,6 +25,7 @@ const MIGRATED = [
   "app/components/subscribe/StepProgress.tsx",
   "app/components/subscribe/MobileOrderBar.tsx",
   "app/components/subscribe/OrderSummary.tsx",
+  "app/components/subscribe/PendingOrderNotice.tsx",
   "app/components/subscribe/SubmitRequestPage.tsx",
   "app/components/subscribe/RequirementForm.tsx",
   "app/components/subscribe/OrderStatusPanel.tsx",
@@ -252,7 +253,7 @@ function dashboardRenderer() {
 
 const DASHBOARD_PAGES: Array<{ url: string; zh: string[]; en: string[] }> = [
   { url: "/dashboard", zh: ["仪表板", "买家概览", "快捷操作"], en: ["Dashboard", "Buyer overview", "Quick actions"] },
-  { url: "/subscribe", zh: ["套餐订阅", "选择网络方案架构", "真住宅宽带"], en: ["Plans", "Choose a network architecture", "Real Residential Broadband"] },
+  { url: "/subscribe", zh: ["套餐订阅", "选择网络类型", "真住宅宽带"], en: ["Plans", "Choose a network type", "Real Residential Broadband"] },
   { url: "/subscribe/request?typeId=residential&regionId=vn&ispId=vnpt-corp&specId=shared-3&durationId=month-1", zh: ["提交方案需求", "核对已选方案"], en: ["Submit plan details", "Review the selected plan"] },
   { url: "/services", zh: ["当前套餐", "正在读取服务状态…"], en: ["My plans", "Loading service status…"] },
   { url: "/orders", zh: ["订单", "正在读取订单…"], en: ["Orders", "Loading orders…"] },

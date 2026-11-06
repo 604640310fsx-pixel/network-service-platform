@@ -408,6 +408,14 @@ export const zh = {
     statusLabel: "页面状态",
   },
   subscribe: {
+    configurator: {
+      monthlyFrom: "月付起", perMonth: "/月", selected: "✓ 已选择", choose: "选择此套餐",
+      typeTitle: "选择网络类型", fromNote: "起价为该类最低月付价，实付以所选配置为准",
+      location: "地区与运营商", profile: "规格：流量与线路", term: "有效期",
+      baseMonthly: "原套餐月价", lineAddon: "线路月加价", monthlyTotal: "月价合计",
+      payable: "实付金额", catalogTerm: "所选周期目录价", average: (n: string) => `约 ¥${n}/月`, saves: (n: string) => `节省 ¥${n}`,
+      pendingCount: (n: number) => `你有 ${n} 笔待支付订单`, continuePayment: "继续支付", orders: "查看订单",
+    },
     banner: {
       title: "配置适合业务场景的网络方案",
       description: "按网络架构、服务地区与所需选项逐步确认方案。目录价格已接入，未提供的周期价格保持待确认。",
@@ -423,6 +431,19 @@ export const zh = {
     },
     stepsNavLabel: "套餐选择步骤",
     mobileStep: "步骤",
+    residentialReconfirm: "原链接已更新为新购住宅规格，初始为默认直连、200G、月付。旧订单权益不变，请核对当前线路、流量和价格并确认新购方案。",
+    residentialConfirm: "确认新购方案",
+    residentialDevices: (n: number | null) => n === null ? "设备额度未指定（沿用原套餐资料）" : `${n}台设备（人工配置）`,
+    residentialTrafficDevices: (n: number | null) => n === null ? "设备限制：待确认" : `设备限制：${n}台`,
+    residentialMonthlyPrice: (price: string) => `月付 ${price}/月`,
+    residentialMonthlyPending: "月付价格待确认",
+    residentialIncludedAddon: (price: string) => `已含线路费 ${price}/月`,
+    productCards: {
+      residential: { tag: "真实家宽IP", bandwidth: "带宽100Mbps", audience: "适合人群：长期稳定！社媒运营/直播/Claude Max与Ultra用户" },
+      "us-local-carrier": { tag: "500G流量", bandwidth: "带宽200Mbps", audience: "适合人群：独享干净/社媒养号/ChatGPT Plus用户" },
+      "local-isp": { tag: "住宅静态IP", bandwidth: "带宽100Mbps", audience: "适合人群：社媒运营/直播/ChatGPT Pro/Claude Pro用户" },
+      "pure-native-ip": { tag: "独享纯净IP", bandwidth: "带宽100Mbps", audience: "独享干净•流媒体全解锁、ChatGPT Plus用户" },
+    } as Record<string, { tag: string; bandwidth: string; audience: string }>,
     solutions: {
       "us-local-carrier": { label: "美国本地运营商", highlights: ["NTT", "GTT", "Cogent", "Charter"] },
       "local-isp": { label: "覆盖地区", highlights: ["美国", "台湾", "日本", "马来西亚"] },
@@ -444,7 +465,7 @@ export const zh = {
     typeSection: {
       title: "选择网络方案架构",
       lead: "先确定接入网络的技术方向，再继续配置地区与运营商。",
-      count: "三类方案",
+      count: "四类方案",
       groupLabel: "网络类型",
       residentialEnvironment: "住宅环境",
       capabilities: "能力概览",
@@ -462,6 +483,10 @@ export const zh = {
       lead: "确认网络服务的目标接入区域。",
       count: (n: number) => `${n} 个可用区域`,
       groupLabel: "国家或地区",
+      searchLabel: "搜索国家或地区",
+      searchPlaceholder: "搜索国家或地区（中文或英文）",
+      noMatch: (query: string) => `未找到“${query}”，可尝试中文或英文名称`,
+      unavailable: "暂不可售",
     },
     ispSection: {
       title: "选择运营商",
@@ -470,10 +495,14 @@ export const zh = {
       pendingConfig: "待配置",
       groupLabel: "运营商",
       regionPending: "该地区方案待配置",
+      unavailable: "暂不可售",
     },
     specSection: {
+      lineTitle: "选择线路",
+      trafficTitle: "月流量",
+      trafficGroupLabel: "选择月流量",
       title: "选择使用规格",
-      lead: "按共享方式、流量与使用场景确认接入规格。",
+      lead: "按流量与使用场景确认接入规格。",
       count: (n: number) => `${n} 个规格`,
       chooseIspFirst: "请先选择 ISP",
       groupLabel: "套餐规格",
@@ -976,6 +1005,7 @@ export const zh = {
     zeroItems: "0 项",
   },
   center: {
+    manualChangeTodo: "套餐变更待办",
     navGroups: { overview: "概览", subscription: "订阅管理", support: "支持与帮助", account: "账户设置" },
     nav: {
       "/status": "服务器状态",
@@ -1122,6 +1152,10 @@ export const zh = {
     unavailable: "暂时无法读取服务状态，请稍后重试。",
     deliveryMismatch: "交付数据与当前套餐不一致，请稍后重试。",
     deliveryInvalid: "交付数据返回异常，请稍后重试。",
+    deliveryRenewalTitle: "订阅交付与续费设置",
+    manualFactsRequired: "需管理员补齐套餐资料，当前不能发起收费变更；原订阅交付和续费入口保留。",
+    activationDetailsTitle: "开通状态与说明",
+    giftDeliveryTitle: "赠送交付与说明",
     subscriptionUnavailable: "订阅信息暂不可读取，请稍后重试。",
     subscriptionLabel: (ref: string) => `套餐 ${ref} 的订阅信息`,
     subscriptionLoading: "正在读取此套餐的订阅信息…",
@@ -1451,7 +1485,6 @@ export const zh = {
     emptyBody: "当前没有可展示的已批准正文，本页不会生成或补写教程。",
     noMatchTitle: "没有匹配的文档",
     noMatchBody: "请调整搜索关键词。",
-    clearSearch: "清空搜索",
     groupHeading: (name: string, count: number) => `${name}（${count}）`,
     expand: "点击展开",
     collapse: "点击收起",
@@ -1826,6 +1859,12 @@ export const zh = {
     },
   },
   // 中文直接显示 subscribeCatalog 原文；其他语言按目录原文提供译文（测试保证全覆盖）。
+  residentialOptions: {
+    line: "线路", traffic: "月流量", device: "设备额度", base: "基准月价", addon: "线路月附加", final: "最终月价",
+    basePeriod: "原套餐周期价", addonPeriod: "线路周期附加", finalPeriod: "周期合计",
+    manual: "设备额度为管理员人工配置资料，不代表系统自动执行物理设备限制。",
+    lines: { direct: "默认直连（高峰期不稳定）", optimized: "优化线路", highspeed: "高速线路", live: "直播专线" } as Record<string,string>,
+  },
   catalog: {} as Record<string, string>,
 };
 

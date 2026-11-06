@@ -1,4 +1,5 @@
 import type { DatabaseConnection } from "../db.js";
+import { residentialOrderFields, type ResidentialOptions } from "./residential-options.js";
 import type { TokenHmacKeyring } from "../session/session-token.js";
 import { findSellablePlan, PaymentDomainError } from "./commerce.js";
 import { decryptGrantDeliveryItem, type EncryptedGrantDeliveryItem } from "./delivery-crypto.js";
@@ -144,6 +145,7 @@ export function searchUsersForAdmin(database: DatabaseConnection, query: string)
 }
 
 export interface AdminServiceView {
+  readonly residentialOptions?: ResidentialOptions;
   readonly id: number;
   readonly orderRef: string;
   readonly amountFen: number;
@@ -227,6 +229,7 @@ function adminServiceView(value: unknown, database?: DatabaseConnection): AdminS
   return {
     id: integer(row, "service_id"),
     orderRef: text(row, "order_ref"),
+    ...(database ? residentialOrderFields(database, text(row, "order_ref")) : {}),
     amountFen: integer(row, "amount_fen"),
     orderStatus: text(row, "order_status"),
     serviceStatus,

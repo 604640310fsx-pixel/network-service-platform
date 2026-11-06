@@ -7,9 +7,10 @@ type MobileOrderBarProps = {
   open: boolean;
   onOpen: (trigger: HTMLButtonElement) => void;
   onRequest?: () => void;
+  months?: number | null;
 };
 
-export function MobileOrderBar({ summary, canRequest, open, onOpen, onRequest }: MobileOrderBarProps) {
+export function MobileOrderBar({ summary, canRequest, open, onOpen, onRequest, months }: MobileOrderBarProps) {
   const t = useT();
   const ct = useCatalogText();
   const details = [summary.type, summary.region, summary.spec, summary.duration]
@@ -22,8 +23,9 @@ export function MobileOrderBar({ summary, canRequest, open, onOpen, onRequest }:
   return (
     <div className="sub-mobile-order-bar">
       <button type="button" className="sub-mobile-order-info" aria-expanded={open} onClick={(event) => onOpen(event.currentTarget)}>
+        <span className="sub-mobile-order-label">{t.subscribe.configurator.payable} · {ct(summary.duration)}</span>
         <span className="sub-mobile-order-price">{priceLabel}</span>
-        <span className="sub-mobile-order-detail">{details}<i aria-hidden="true">⌃</i></span>
+        <span className="sub-mobile-order-detail">{months && summary.availability === "available" && summary.total !== null ? t.subscribe.configurator.average((summary.total / months).toFixed(2)) : details}<i aria-hidden="true">⌃</i></span>
       </button>
       <button type="button" className="sub-order-button" disabled={!canRequest} onClick={onRequest}>{t.subscribe.summary.orderNow}</button>
     </div>

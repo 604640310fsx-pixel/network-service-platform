@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { ResidentialOptionDetails } from "../subscribe/ResidentialOptionDetails";
 import { getAdminPlans, type AdminPlanItem } from "../../lib/admin-commerce-api";
 import {
   bindAdminGrantDelivery,
@@ -20,6 +21,7 @@ import { PaymentApiError, getAdminMonitorTargets, type AdminMonitorTarget } from
 import { resolveSelection } from "../../lib/resolveSelection";
 import { endOfUtcDay, serviceTerm, utcDateInput } from "../../lib/serviceTerm";
 import { BILLING_PERIODS, WalletApiError, setAdminNextBillingPeriod, type BillingPeriod } from "../../lib/wallet-api";
+import { AdminManualServiceFacts } from "./AdminServiceChangePanel";
 
 /* 管理员下期续费周期（后端 f1e0898/078231c PUT /api/admin/services/:id/next-billing-period，
    体仅 { period, expectedRevision }，id 为真实 services.id）。管理员不能开启授权；已开启转为需买家重新确认、
@@ -306,6 +308,7 @@ function ServiceRow({
           </span>
         </div>
         <p className="dash-usvc-meta">{copy.snapshot}: {snapshotLabel(service)}</p>
+        {service.residentialOptions && <ResidentialOptionDetails options={service.residentialOptions} />}
         <div className="dash-usvc-grid">
           <label>
             {copy.endsAt}
@@ -336,6 +339,8 @@ function ServiceRow({
           if (csrfToken !== null) onSaved(await bindAdminServiceDelivery(service.id, position, key, csrfToken));
         }}
       />
+      {service.serviceStatus==="open" && ["local-isp","pure-native-ip"].includes(service.typeId) &&
+        <AdminManualServiceFacts serviceId={service.id} csrfToken={csrfToken}/>}
       {service.renewal !== null && (
         <AdminRenewalPeriod service={{ ...service, renewal: service.renewal }} csrfToken={csrfToken} onChanged={onRenewalChanged} />
       )}
