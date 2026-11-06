@@ -435,6 +435,9 @@ export const zh = {
     residentialConfirm: "确认新购方案",
     residentialDevices: (n: number | null) => n === null ? "设备额度未指定（沿用原套餐资料）" : `${n}台设备（人工配置）`,
     residentialTrafficDevices: (n: number | null) => n === null ? "设备限制：待确认" : `设备限制：${n}台`,
+    residentialMonthlyPrice: (price: string) => `月付 ${price}/月`,
+    residentialMonthlyPending: "月付价格待确认",
+    residentialIncludedAddon: (price: string) => `已含线路费 ${price}/月`,
     productCards: {
       residential: { tag: "真实家宽IP", bandwidth: "带宽100Mbps", audience: "适合人群：长期稳定！社媒运营/直播/Claude Max与Ultra用户" },
       "us-local-carrier": { tag: "500G流量", bandwidth: "带宽200Mbps", audience: "适合人群：独享干净/社媒养号/ChatGPT Plus用户" },
@@ -480,6 +483,10 @@ export const zh = {
       lead: "确认网络服务的目标接入区域。",
       count: (n: number) => `${n} 个可用区域`,
       groupLabel: "国家或地区",
+      searchLabel: "搜索国家或地区",
+      searchPlaceholder: "搜索国家或地区（中文或英文）",
+      noMatch: (query: string) => `未找到“${query}”，可尝试中文或英文名称`,
+      unavailable: "暂不可售",
     },
     ispSection: {
       title: "选择运营商",
@@ -488,6 +495,7 @@ export const zh = {
       pendingConfig: "待配置",
       groupLabel: "运营商",
       regionPending: "该地区方案待配置",
+      unavailable: "暂不可售",
     },
     specSection: {
       lineTitle: "选择线路",

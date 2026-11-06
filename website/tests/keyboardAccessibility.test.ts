@@ -110,13 +110,17 @@ test("each radio group has one enabled tab stop and uses the existing selection 
   const card = source("../app/components/subscribe/OptionCard.tsx");
   const page = source("../app/components/subscribe/SubscribePage.tsx");
   assert.match(card, /role="radio"[\s\S]*?disabled=\{disabled\}[\s\S]*?tabIndex=\{tabIndex\}/);
-  // v11 uses native keyboard-operable region/ISP selects. The remaining radio
-  // groups still use the same roving keyboard handler (route/traffic independent).
+  // Region/ISP use the page-local CatalogSelect listbox fed by the real catalogue lists
+  // and the existing callbacks. The remaining radio groups keep the roving keyboard handler.
   assert.equal(page.match(/role="radiogroup"/g)?.length, 5);
   assert.equal(page.match(/onKeyDown=\{handleRadioGroupKeyDown\}/g)?.length, 5);
-  assert.equal(page.match(/<select aria-label=/g)?.length,2);
-  assert.match(page,/selection\.availableRegions\.map\(option => <option/);
-  assert.match(page,/selection\.availableIsps\.map\(option => <option/);
+  assert.doesNotMatch(page, /<select\b/);
+  assert.equal(page.match(/<CatalogSelect\b/g)?.length, 2);
+  assert.match(page, /options=\{selection\.availableRegions\.map\(option =>/);
+  assert.match(page, /options=\{selection\.availableIsps\.map\(option =>/);
+  assert.match(page, /onSelect=\{id => selection\.selectRegion\(id\)\}/);
+  assert.match(page, /onSelect=\{id => selection\.selectIsp\(id\)\}/);
+  assert.match(page, /\{showIspStep && <section className="sub-section" id="sub-section-isp">/);
   for (const callback of ["selectType","selectRegion","selectIsp","selectSpec","selectLine","selectTraffic","selectDuration"]) {
     assert.ok(page.includes(`selection.${callback}(`), `missing selection callback ${callback}`);
   }
