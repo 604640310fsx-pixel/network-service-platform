@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import test from "node:test";
+import test, { mock } from "node:test";
+import { createTsxLoader } from "./support/tsxModules.ts";
 
 import {
   adjacentTabStop,
@@ -15,6 +16,43 @@ import { regionsByType, ispsByTypeAndRegion } from "../app/lib/subscribeCatalog.
 import { en } from "../app/i18n/en.ts";
 
 const source = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
+
+test("country trigger and open rows render local original flags; unknown codes keep the globe fallback", () => {
+  const loader = createTsxLoader();
+  const React = loader.requirePackage("react") as typeof import("react");
+  const { renderToStaticMarkup } = loader.requirePackage("react-dom/server") as typeof import("react-dom/server");
+  const { CatalogSelect } = loader.load("app/components/subscribe/CatalogSelect.tsx");
+  const countries = [...new Map(Object.values(regionsByType).flat().map(region => [region.flagClass, region])).values()];
+  const options = countries.map(region => ({ id: region.id, label: region.name, flagClass: region.flagClass }));
+  const render = (value: string | null, choices = options) => renderToStaticMarkup(React.createElement(CatalogSelect as never, {
+    label: "国家或地区", placeholder: "请选择", value, options: choices, onSelect() {},
+  } as never));
+  for (const option of options) {
+    const html = render(option.id);
+    assert.match(html, new RegExp(`<img[^>]*src="/subscription-flags/${option.flagClass}\\.svg"[^>]*width="20"[^>]*height="15"[^>]*alt=""`));
+    assert.doesNotMatch(html, /<i class="sub-flag/);
+    assert.match(source(`../public/subscription-flags/${option.flagClass}.svg`), /viewBox="0 0 640 480"/);
+  }
+  const fallback = [{ id: "unknown", label: "未知地区", flagClass: "../../unexpected" }, { id: "more", label: "更多地区", flagClass: "globe" }];
+  for (const option of fallback) {
+    const html = render(option.id, fallback);
+    assert.match(html, /<i class="sub-flag is-globe" aria-hidden="true"/);
+    assert.doesNotMatch(html, /<img|unexpected/);
+  }
+  assert.doesNotMatch(render(null), /<img|<i class="sub-flag/);
+  const useState = React.useState;
+  const state = mock.method(React, "useState", (initial: unknown) => useState(initial === false ? true : initial));
+  try {
+    const html = render("vn", [...options, ...fallback]);
+    const list = html.slice(html.indexOf('<ul'));
+    assert.equal((list.match(/<img /g) ?? []).length, options.length);
+    for (const option of options) assert.ok(list.includes(`src="/subscription-flags/${option.flagClass}.svg"`));
+    assert.equal((list.match(/class="sub-flag is-globe"/g) ?? []).length, fallback.length);
+    assert.doesNotMatch(list, /unexpected|class="sub-flag is-vn"/);
+  } finally {
+    state.mock.restore();
+  }
+});
 
 test("listbox keys clamp, skip disabled options and ignore unrelated keys", () => {
   const disabled = [false, true, false, false, true, false, false, false];

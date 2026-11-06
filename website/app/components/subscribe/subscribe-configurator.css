@@ -63,6 +63,8 @@
 /* Country/region + carrier listbox (Claude Design r33). The panel lets an open popover escape its rounded clip. */
 .sub-configurator-v11 .sub-configuration:has(.sub-select.is-open) { overflow: visible; }
 .sub-configurator-v11 .sub-select { position: relative; min-width: 0; }
+.sub-configurator-v11 .sub-select .sub-flag { width: 20px; height: 15px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(16,24,40,.1); object-fit: cover; flex-shrink: 0; align-self: center; justify-self: center; }
+.sub-configurator-v11 .sub-select img.sub-flag { display: block; }
 .sub-configurator-v11 .sub-select-trigger { display: grid; grid-template-columns: auto auto minmax(0,1fr) 16px; align-items: center; column-gap: 10px; box-sizing: border-box; width: 100%; height: 44px; padding: 0 12px; border: 1px solid var(--cc-line); border-radius: 10px; background: var(--cc-card); color: var(--cc-text); font: inherit; text-align: left; cursor: pointer; transition: border-color .12s, box-shadow .12s; }
 .sub-configurator-v11 .sub-select-trigger:not(:has(.sub-flag)) { grid-template-columns: auto minmax(0,1fr) 16px; }
 .sub-configurator-v11 .sub-select-trigger:hover { border-color: var(--cc-accent-line); }
