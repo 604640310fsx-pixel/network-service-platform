@@ -3,6 +3,7 @@ import {
   defaultCatalogSelection,
   LOCAL_ISP_BASE_LINE_ID,
   LOCAL_ISP_BASE_TRAFFIC_ID,
+  residentialTrafficOptions,
   trafficOptions,
 } from "../../lib/subscribeCatalog";
 import {
@@ -155,8 +156,11 @@ export function useSubscriptionSelection(
     return availableSpecs.find((option) => option.lineId === lineId && option.trafficId === trafficId)?.id;
   }
 
+  // 换线路时在这组档位里保留当前流量档，须与订阅页流量卡一致（真住宅宽带 200G / 300G / 1T，其余 200G / 500G / 1T）。
+  const packageTrafficOptions = typeId === "residential" ? residentialTrafficOptions : trafficOptions;
+
   function lineTrafficIds(lineId: string): string[] {
-    return trafficOptions
+    return packageTrafficOptions
       .map((option) => option.id)
       .filter((trafficId) => packageSpecId(lineId, trafficId) !== undefined);
   }
