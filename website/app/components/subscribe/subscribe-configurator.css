@@ -157,6 +157,20 @@
   .sub-configurator-v11 .sub-mobile-order-bar { display: flex; }
   .sub-configurator-v11 .sub-desktop-summary .sub-summary-pay { display: none; }
   .sub-configurator-v11 .sub-summary-total { padding-bottom: 14px; }
+  /* --sub-order-bar-height is the bar's measured height (MobileOrderBar), safe-area padding included. The page end keeps its
+     original reserve unless the bar is taller; the drawer reserves the bar's real height, falling back to the original value.
+     The + 1px covers scroll limits being floored to whole CSS pixels (measured shortfall: the fractional part, always < 1px). */
+  .sub-configurator-v11 .sub-layout { padding-bottom: max(calc(100px + env(safe-area-inset-bottom)), calc(var(--sub-order-bar-height, 0px) + 1px)); }
+  .sub-configurator-v11 .sub-order-drawer { padding-bottom: calc(var(--sub-order-bar-height, calc(72px + env(safe-area-inset-bottom))) + 1px); }
+}
+/* PROPOSAL (not accepted): iPhone Safari hid the lower part of the bottom-anchored bar while CSSOM placed it inside the
+   viewport. Anchor the same fixed bar from the top at the dynamic viewport's bottom (100dvh) and lift it by its own height,
+   so its bottom edge follows the current dynamic viewport instead of the fixed containing block's bottom edge. The measured
+   page and drawer reserves above apply unchanged. Browsers without dvh keep the bottom-anchored rule. */
+@supports (height: 100dvh) {
+  @media (max-width: 900px) {
+    .sub-configurator-v11 .sub-mobile-order-bar { top: 100dvh; bottom: auto; transform: translateY(-100%); }
+  }
 }
 @media (max-width: 600px) {
   .sub-configurator-v11 > .sub-mobile-progress { margin-top: 12px; }
