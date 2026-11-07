@@ -3305,7 +3305,7 @@ test("standard26-31 is explicit, exact, isolated from frozen 026 routes and loca
 
 test("residential31 review CI opts in only the exact same-repo PR and retains mandatory old-route controls", () => {
   const workflow=readFileSync(join(REPOSITORY_ROOT,".github/workflows/ci.yml"),"utf8");
-  const condition="github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && ((github.event.pull_request.head.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.ref == 'integration/consolidate-project') || (github.event.pull_request.head.ref == 'codex/nsp-subscribe-select-ui-20261105-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105'))";
+  const condition="github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && ((github.event.pull_request.head.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.ref == 'integration/consolidate-project') || (github.event.pull_request.head.ref == 'codex/nsp-subscribe-select-ui-20261105-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105') || (github.event.pull_request.head.ref == 'codex/nsp-subscribe-mobile-focus-footer-20261108-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105'))";
   assert.equal(workflow.split(`RESIDENTIAL31_TASK_CONTEXT: \u0024{{ ${condition} }}`).length,2);
   assert.match(workflow,/test "\$\(git rev-parse HEAD\)" = "\$EXPECTED_SHA"/);
   assert.equal(workflow.includes("continue-on-error"),false);
@@ -3325,7 +3325,7 @@ test("residential31 review CI opts in only the exact same-repo PR and retains ma
 });
 
 test("residential31 formal source pins the real push, frozen product ancestor and four control paths", () => {
-  assert.equal(RESIDENTIAL31_PRODUCT_BASELINE, "a2575241c3eb5eae6d24738879e4d9933458d20e");
+  assert.equal(RESIDENTIAL31_PRODUCT_BASELINE, "45fc15a9298cd85d9f54438619139c7e09cbae2f");
   assert.deepEqual(STANDARD26_CONTROL_PATHS, [
     ".github/workflows/ci.yml",
     "scripts/ops/assemble-consolidated-release.mjs",

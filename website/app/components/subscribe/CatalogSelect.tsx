@@ -68,7 +68,11 @@ export function CatalogSelect({ label, options, value, placeholder, onSelect, se
   const inputRef = useRef<HTMLInputElement>(null);
   const returnFocus = useRef(false);
   const typeahead = useRef({ text: "", at: 0 });
+  // Pointer type of the press that opened the menu ("" for keyboard), read once when the menu opens.
+  const openPointer = useRef("");
   const [open, setOpen] = useState(false);
+  // Opened by touch/pen: focus the list, not the search box, so no soft keyboard appears until search is tapped.
+  const [touchOpened, setTouchOpened] = useState(false);
   const [query, setQuery] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [placement, setPlacement] = useState<{ placement: "down" | "up"; maxHeight: number }>({ placement: "down", maxHeight: 300 });
@@ -83,6 +87,8 @@ export function CatalogSelect({ label, options, value, placeholder, onSelect, se
   function openMenu() {
     setQuery("");
     setActiveId(initialActiveId(options, value));
+    setTouchOpened(openPointer.current === "touch" || openPointer.current === "pen");
+    openPointer.current = "";
     setOpen(true);
   }
 
@@ -147,12 +153,12 @@ export function CatalogSelect({ label, options, value, placeholder, onSelect, se
   // Move focus into the popover on open; return it to the trigger after a pick or Escape.
   useEffect(() => {
     if (open) {
-      (searchable ? inputRef.current : listRef.current)?.focus({ preventScroll: true });
+      (searchable && !touchOpened ? inputRef.current : listRef.current)?.focus({ preventScroll: true });
     } else if (returnFocus.current) {
       returnFocus.current = false;
       triggerRef.current?.focus({ preventScroll: true });
     }
-  }, [open, searchable]);
+  }, [open, searchable, touchOpened]);
 
   // Keep the active option inside the scrolled list without scrolling the page.
   useLayoutEffect(() => {
@@ -178,6 +184,7 @@ export function CatalogSelect({ label, options, value, placeholder, onSelect, se
   }, [open]);
 
   function onTriggerKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    openPointer.current = "";
     // Enter / Space reach onClick natively; arrows also open, as in a native select.
     if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
       event.preventDefault();
@@ -204,7 +211,8 @@ export function CatalogSelect({ label, options, value, placeholder, onSelect, se
       (target ?? triggerRef.current)?.focus();
       return;
     }
-    if (key === "Enter" || (key === " " && !search)) {
+    // Space selects from the list itself (including a touch-opened list); in the search box it stays a typed space.
+    if (key === "Enter" || (key === " " && event.currentTarget !== inputRef.current)) {
       event.preventDefault();
       const option = visible[index];
       if (option) choose(option);
@@ -247,6 +255,7 @@ export function CatalogSelect({ label, options, value, placeholder, onSelect, se
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
         aria-labelledby={`${uid}-label ${uid}-value`}
+        onPointerDown={(event) => { openPointer.current = event.pointerType; }}
         onClick={() => (open ? close(true) : openMenu())}
         onKeyDown={onTriggerKeyDown}
       >
@@ -285,13 +294,14 @@ export function CatalogSelect({ label, options, value, placeholder, onSelect, se
             id={listId}
             role="listbox"
             aria-label={label}
-            // Never a sequential tab stop (scrollable lists otherwise become one); focus stays in the search box.
+            // Never a sequential tab stop (scrollable lists otherwise become one); focus stays in the search box,
+            // except after a touch open, where the list holds focus until the search box is tapped.
             tabIndex={-1}
-            onFocus={search ? () => inputRef.current?.focus({ preventScroll: true }) : undefined}
-            aria-activedescendant={search ? undefined : activeDomId}
+            onFocus={search && !touchOpened ? () => inputRef.current?.focus({ preventScroll: true }) : undefined}
+            aria-activedescendant={search && !touchOpened ? undefined : activeDomId}
             className="sub-select-list"
             style={{ maxHeight: placement.maxHeight }}
-            onKeyDown={search ? undefined : onListKeyDown}
+            onKeyDown={search && !touchOpened ? undefined : onListKeyDown}
           >
             {visible.map((option) => (
               <li

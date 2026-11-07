@@ -190,3 +190,69 @@ test("CatalogSelect is a themed listbox with focus return, dismissal and no hard
   assert.match(css, /@media \(max-width: 600px\)[\s\S]*\.sub-select-option \{ height: 48px;/);
   assert.match(css, /\.sub-configuration:has\(\.sub-select\.is-open\) \{ overflow: visible; \}/);
 });
+
+test("a touch/pen open focuses the list, not the search box; mouse and keyboard opens still focus search", () => {
+  const component = source("../app/components/subscribe/CatalogSelect.tsx");
+  // The opening press type is recorded on the trigger and cleared by any trigger key, so keyboard opens count as non-touch.
+  assert.match(component, /onPointerDown=\{\(event\) => \{ openPointer\.current = event\.pointerType; \}\}/);
+  assert.match(component, /function onTriggerKeyDown[^{]*\{\s*openPointer\.current = "";/);
+  assert.match(component, /setTouchOpened\(openPointer\.current === "touch" \|\| openPointer\.current === "pen"\)/);
+  // Only a non-touch open puts focus (and so the soft keyboard) in the search input.
+  assert.match(component, /\(searchable && !touchOpened \? inputRef\.current : listRef\.current\)\?\.focus\(\{ preventScroll: true \}\)/);
+  // A touch-opened list keeps focus (no redirect to the input) and drives its own keys and active descendant.
+  assert.match(component, /onFocus=\{search && !touchOpened \? \(\) => inputRef\.current\?\.focus/);
+  assert.match(component, /aria-activedescendant=\{search && !touchOpened \? undefined : activeDomId\}/);
+  assert.match(component, /onKeyDown=\{search && !touchOpened \? undefined : onListKeyDown\}/);
+  // Space picks from the focused list (also when touch-opened with a search box) but is a typed space inside the input.
+  assert.match(component, /key === "Enter" \|\| \(key === " " && event\.currentTarget !== inputRef\.current\)/);
+  assert.doesNotMatch(component, /key === " " && !search/);
+  // Option presses still keep focus where it is, so picking never re-summons or drops the keyboard mid-tap.
+  assert.match(component, /onMouseDown=\{\(event\) => event\.preventDefault\(\)\}/);
+});
+
+test("PROPOSAL: on phones with dvh support the fixed order bar is top-anchored at the dynamic viewport bottom", () => {
+  const css = source("../app/components/subscribe/subscribe-configurator.css");
+  const base = source("../app/components/subscribe/subscribe.css");
+  const phone = css.slice(css.indexOf("@media (max-width: 900px)"), css.indexOf("@supports (height: 100dvh)"));
+  const candidate = css.slice(css.indexOf("@supports (height: 100dvh)"), css.indexOf("@media (max-width: 600px)"));
+  // The block uses only dvh, so it is gated on dvh alone; without it the bottom-anchored rule and measured reserves above apply.
+  assert.match(candidate, /^@supports \(height: 100dvh\) \{/);
+  assert.doesNotMatch(css, /100svh|100lvh/);
+  // Fallback (no dvh): the original bottom-anchored fixed bar and its reserves.
+  assert.match(phone, /\.sub-configurator-v11 \.sub-mobile-order-bar \{ display: flex; \}/);
+  assert.match(phone, /\.sub-configurator-v11 \.sub-layout \{[^}]*padding-bottom: calc\(100px \+ env\(safe-area-inset-bottom\)\);/);
+  assert.doesNotMatch(css, /position: sticky; left: auto; right: auto;/);
+  // Candidate: same element, lifted by its own height from 100dvh; it sets nothing else (no reserve overrides, no extra offsets).
+  assert.match(candidate, /@media \(max-width: 900px\)/);
+  assert.match(candidate, /\.sub-configurator-v11 \.sub-mobile-order-bar \{ top: 100dvh; bottom: auto; transform: translateY\(-100%\); \}/);
+  assert.doesNotMatch(candidate, /sub-layout|sub-order-drawer|padding/);
+  const declarations = candidate.match(/\.sub-mobile-order-bar \{([^}]*)\}/g) ?? [];
+  assert.equal(declarations.length, 1);
+  assert.doesNotMatch(declarations[0], /\d+px/);
+  // Size, look, z-index and safe-area padding still come from the unchanged base rule.
+  assert.match(base, /\.sub-mobile-order-bar \{ display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 70;[^}]*padding: 10px 14px calc\(10px \+ env\(safe-area-inset-bottom\)\);/);
+});
+
+test("the drawer and page end reserve the order bar's measured height, published on the page like StepProgress", () => {
+  const bar = source("../app/components/subscribe/MobileOrderBar.tsx");
+  const css = source("../app/components/subscribe/subscribe-configurator.css");
+  const phone = css.slice(css.indexOf("@media (max-width: 900px)"), css.indexOf("@supports (height: 100dvh)"));
+  assert.ok(css.indexOf("@supports (height: 100dvh)") > css.indexOf("@media (max-width: 900px)"));
+  // Page-scoped (not document-global), measured from the bar itself, kept in sync and cleaned up.
+  assert.match(bar, /const page = bar\?\.closest<HTMLElement>\("\.sub-configurator-v11"\);/);
+  assert.match(bar, /const height = bar\.getBoundingClientRect\(\)\.height;/);
+  assert.match(bar, /if \(height > 0\) page\.style\.setProperty\("--sub-order-bar-height", `\$\{height\}px`\);\s*else page\.style\.removeProperty\("--sub-order-bar-height"\);/);
+  assert.match(bar, /window\.addEventListener\("resize", syncHeight\);/);
+  assert.match(bar, /new ResizeObserver\(syncHeight\)/);
+  assert.match(bar, /observer\?\.observe\(bar\);/);
+  assert.match(bar, /window\.removeEventListener\("resize", syncHeight\);\s*observer\?\.disconnect\(\);\s*page\.style\.removeProperty\("--sub-order-bar-height"\);/);
+  assert.match(bar, /<div ref=\{barRef\} className="sub-mobile-order-bar">/);
+  assert.doesNotMatch(bar, /document\.documentElement\.style/);
+  // The bar itself never consumes its own measurement (no sizing feedback loop); only the reserves do, without adding env() twice.
+  assert.doesNotMatch(css, /\.sub-mobile-order-bar \{[^}]*--sub-order-bar-height/);
+  // + 1px only: scroll limits are floored to whole CSS pixels, so the measured shortfall is the fractional part (< 1px).
+  assert.match(phone, /\.sub-configurator-v11 \.sub-layout \{ padding-bottom: max\(calc\(100px \+ env\(safe-area-inset-bottom\)\), calc\(var\(--sub-order-bar-height, 0px\) \+ 1px\)\); \}/);
+  assert.match(phone, /\.sub-configurator-v11 \.sub-order-drawer \{ padding-bottom: calc\(var\(--sub-order-bar-height, calc\(72px \+ env\(safe-area-inset-bottom\)\)\) \+ 1px\); \}/);
+  assert.doesNotMatch(css, /var\(--sub-order-bar-height[^;]*\+ (?:[2-9]|\d{2,})px/);
+  assert.doesNotMatch(css, /var\(--sub-order-bar-height[^;]*\)\s*\+\s*env\(safe-area-inset-bottom\)/);
+});
