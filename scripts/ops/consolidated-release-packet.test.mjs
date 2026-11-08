@@ -3325,7 +3325,7 @@ test("residential31 review CI opts in only the exact same-repo PR and retains ma
 });
 
 test("residential31 formal source pins the real push, frozen product ancestor and four control paths", () => {
-  assert.equal(RESIDENTIAL31_PRODUCT_BASELINE, "45fc15a9298cd85d9f54438619139c7e09cbae2f");
+  assert.equal(RESIDENTIAL31_PRODUCT_BASELINE, "11a29f05605014467af47833bc779987f768d935");
   assert.deepEqual(STANDARD26_CONTROL_PATHS, [
     ".github/workflows/ci.yml",
     "scripts/ops/assemble-consolidated-release.mjs",
