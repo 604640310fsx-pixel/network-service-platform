@@ -7,7 +7,8 @@ import {
   trafficOptions,
 } from "../../lib/subscribeCatalog";
 import {
-  resolveSelection,
+  isRetiredNewPurchaseCarrier,
+  resolveNewPurchaseSelection,
   withImpliedIsp,
   withPackageDefaults,
   type CatalogSelection,
@@ -23,7 +24,10 @@ export type { SelectionSummary } from "../../lib/resolveSelection";
 // defaultCatalogSelection 与默认步骤，行为与改动前逐字节一致。
 function seedSelection(initial?: CatalogSelection): { selection: CatalogSelection; step: number } {
   if (initial) {
-    const resolved = resolveSelection(initial);
+    if (isRetiredNewPurchaseCarrier(initial)) {
+      return { selection: { ...initial, ispId: null }, step: 3 };
+    }
+    const resolved = resolveNewPurchaseSelection(initial);
     if (resolved.summary.complete) {
       return {
         selection: {
@@ -48,12 +52,12 @@ function seedSelection(initial?: CatalogSelection): { selection: CatalogSelectio
         durationId: null,
       };
       const defaulted = withPackageDefaults({ ...prefix, durationId: initial.durationId });
-      const defaultedResolved = resolveSelection(defaulted);
+      const defaultedResolved = resolveNewPurchaseSelection(defaulted);
       if (defaultedResolved.summary.complete) {
         return { selection: defaulted, step: defaultedResolved.hasSpecStep ? 6 : 5 };
       }
       const selection = prefix;
-      const partial = resolveSelection(selection);
+      const partial = resolveNewPurchaseSelection(selection);
       // 步骤：1 类型 → 2 地区 → 3 运营商 → [4 规格] → 有效期（有规格步为 5，否则为 4）。
       const durationStep = partial.hasSpecStep ? 5 : 4;
       const step = !selection.regionId ? 2 : !selection.ispId ? 3 : partial.canSelectDuration ? durationStep : 4;
@@ -76,7 +80,7 @@ export function useSubscriptionSelection(
   const [currentStep, setCurrentStep] = useState(seed.step);
 
   const resolved = useMemo(
-    () => resolveSelection({ typeId, regionId, ispId, specId, durationId }, availability),
+    () => resolveNewPurchaseSelection({ typeId, regionId, ispId, specId, durationId }, availability),
     [typeId, regionId, ispId, specId, durationId, availability],
   );
 
@@ -129,6 +133,7 @@ export function useSubscriptionSelection(
   }
 
   function selectIsp(nextId: string) {
+    if (!availableIsps.some((option) => option.id === nextId)) return;
     setIspId(nextId);
     if (isPackageType) {
       const next = withPackageDefaults({ typeId, regionId, ispId: nextId, specId, durationId });

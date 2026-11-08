@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { en } from "../../i18n/en";
 import { translateCatalogText, useCatalogText, useI18n, useT } from "../../lib/i18n";
 import { networkTypes, trafficOptions, residentialTrafficOptions } from "../../lib/subscribeCatalog";
-import { normalizeResidentialNewPurchase, parseSelectionParams, selectionToQuery, type CatalogSelection } from "../../lib/resolveSelection";
+import { isRetiredNewPurchaseCarrier, normalizeResidentialNewPurchase, parseSelectionParams, selectionToQuery, type CatalogSelection } from "../../lib/resolveSelection";
 import { monthlyPresentation } from "./subscriptionPresentation";
 import { usePlanAvailability } from "../../lib/planAvailability";
 import { formatCardYuan, specMonthlyPriceFen, typeFromPriceFen } from "../../lib/cardPrices";
@@ -77,14 +77,16 @@ export function SubscribePage() {
   // 仅在挂载时读取一次 query 作为初始选择；hook 只有在其解析为完整方案时才采纳，
   // 不完整 / 非法参数不会污染 hook（回退默认选择）。
   const [initialEntry] = useState(() => {
-    const entry = normalizeResidentialNewPurchase(parseSelectionParams(searchParams));
-    return { ...entry, reconfirm: entry.selection.typeId === "residential" &&
+    const parsed = parseSelectionParams(searchParams);
+    const entry = normalizeResidentialNewPurchase(parsed);
+    return { ...entry, retiredCarrier: isRetiredNewPurchaseCarrier(parsed), reconfirm: entry.selection.typeId === "residential" &&
       (entry.reconfirm || searchParams.get("reconfirm") === "residential-v2") };
   });
   const [legacyConfirmed, setLegacyConfirmed] = useState(false);
   const availability = usePlanAvailability();
   const selection = useSubscriptionSelection(initialEntry.selection, availability.index ?? undefined);
   const needsResidentialReconfirm = selection.typeId === "residential" && initialEntry.reconfirm && !legacyConfirmed;
+  const needsCarrierRechoose = initialEntry.retiredCarrier && selection.typeId === "us-local-carrier" && selection.ispId === null;
   const shownTrafficOptions = selection.typeId==='residential'?residentialTrafficOptions:trafficOptions;
   const priceStatus = availability.loading
     ? copy.priceLoading
@@ -164,6 +166,7 @@ export function SubscribePage() {
         <div className="sub-content">
           <PendingOrderNotice />
           {needsResidentialReconfirm && <div className="sub-pending" role="alert"><p>{copy.residentialReconfirm}</p><button type="button" className="sub-order-button" onClick={() => setLegacyConfirmed(true)}>{copy.residentialConfirm}</button></div>}
+          {needsCarrierRechoose && <div className="sub-pending sub-retired-carrier-notice" role="alert"><p>{copy.retiredCarrierRechoose}</p></div>}
 
           <section className="sub-section sub-solution-section" id="sub-section-type">
             <div className="sub-section-heading">

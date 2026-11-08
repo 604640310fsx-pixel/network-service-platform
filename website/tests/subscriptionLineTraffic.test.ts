@@ -11,6 +11,8 @@ import { createTsxLoader } from "./support/tsxModules.ts";
 type Selection = { typeId: string | null; regionId: string | null; ispId: string | null; specId: string | null; durationId: string | null };
 type Row = { typeId: string; regionId: string; ispId: string; specId: string | null; durationId: string; priceFen: number; isActive: boolean; soldOut: boolean };
 type Hook = Selection & {
+  currentStep: number;
+  availableIsps: { id: string }[];
   selectedLine: { id: string } | null;
   selectedTrafficId: string | null;
   summary: { traffic: string; total: number | null; availability: string; complete: boolean };
@@ -194,4 +196,23 @@ test("dual-ISP direct/optimized switching preserves traffic and switching traffi
   assert.equal(page.act((hook) => hook.selectLine("direct")).specId, "direct-500g");
   assert.equal(page.act((hook) => hook.selectTraffic("200g")).specId, "direct-200g");
   assert.equal(page.state.durationId, "month-1");
+});
+
+test("retired dual-ISP Charter link stops at carrier, retains valid tier intent, and requires a new choice", () => {
+  const original = { typeId: "us-local-carrier", regionId: "us", ispId: "charter", specId: "optimized-500g", durationId: "month-1" };
+  const next = { ...original, ispId: "ntt", priceFen: 7900, isActive: true, soldOut: false };
+  const page = mount(original, { [planAvailabilityKey(next.typeId, next.regionId, next.ispId, next.specId, next.durationId)]: next });
+  assert.deepEqual(page.state.availableIsps.map((isp) => isp.id), ["ntt", "gtt", "cogent"]);
+  assert.equal(page.state.currentStep, 3);
+  assert.equal(page.state.typeId, "us-local-carrier");
+  assert.equal(page.state.regionId, "us");
+  assert.equal(page.state.ispId, null);
+  assert.equal(page.state.specId, "optimized-500g");
+  assert.equal(page.state.durationId, "month-1");
+  assert.equal(page.state.summary.complete, false);
+  assert.equal(page.act((hook) => hook.selectIsp("charter")).ispId, null);
+  const selected = page.act((hook) => hook.selectIsp("ntt"));
+  assert.equal(selected.specId, "optimized-500g");
+  assert.equal(selected.durationId, "month-1");
+  assert.equal(selected.summary.total, 79);
 });

@@ -434,6 +434,7 @@ export const en: Messages = {
     mobileStep: "Step",
     residentialReconfirm: "This old link now opens the new residential model, initially default direct, 200G and monthly. Existing rights are unchanged. Review the current route, traffic and price and confirm.",
     residentialConfirm: "Confirm new selection",
+    retiredCarrierRechoose: "Charter is no longer available for new purchases of this plan. Choose another carrier. Existing orders and services are unaffected.",
     residentialDevices: (n: number | null) => n === null ? "Device allowance unspecified (retain existing plan records)" : `${n} devices (manual configuration)`,
     residentialTrafficDevices: (n: number | null) => n === null ? "Device limit: pending confirmation" : `Device limit: ${n}`,
     residentialMonthlyPrice: (price: string) => `Monthly ${price}/mo`,

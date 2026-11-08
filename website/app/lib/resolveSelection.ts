@@ -256,6 +256,24 @@ export function resolveSelection(
   };
 }
 
+/** New purchases only: keep the shared catalogue intact for historical orders and services. */
+export function isRetiredNewPurchaseCarrier(selection: Pick<CatalogSelection, "typeId" | "regionId" | "ispId">): boolean {
+  return selection.typeId === "us-local-carrier" && selection.regionId === "us" && selection.ispId === "charter";
+}
+
+export function resolveNewPurchaseSelection(
+  selection: CatalogSelection,
+  availability?: PlanAvailabilityIndex,
+): ResolvedSelection {
+  const retired = isRetiredNewPurchaseCarrier(selection);
+  const resolved = resolveSelection(retired
+    ? { ...selection, ispId: null, specId: null, durationId: null }
+    : selection, availability);
+  return selection.typeId === "us-local-carrier" && selection.regionId === "us"
+    ? { ...resolved, availableIsps: resolved.availableIsps.filter((isp) => isp.id !== "charter") }
+    : resolved;
+}
+
 /* 从 URL query 读取选择 ID；未知附加参数忽略。 */
 export function parseSelectionParams(params: URLSearchParams): CatalogSelection {
   return withImpliedIsp({
