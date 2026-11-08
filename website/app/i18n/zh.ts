@@ -439,11 +439,11 @@ export const zh = {
     residentialMonthlyPending: "月付价格待确认",
     residentialIncludedAddon: (price: string) => `已含线路费 ${price}/月`,
     productCards: {
-      residential: { tag: "真实家宽IP", bandwidth: "带宽100Mbps", audience: "适合人群：长期稳定！社媒运营/直播/Claude Max与Ultra用户" },
-      "us-local-carrier": { tag: "200G / 500G流量", bandwidth: "带宽200Mbps", audience: "适合人群：独享干净/社媒养号/ChatGPT Plus用户" },
-      "local-isp": { tag: "住宅静态IP", bandwidth: "带宽100Mbps", audience: "适合人群：社媒运营/直播/ChatGPT Pro/Claude Pro用户" },
-      "pure-native-ip": { tag: "独享纯净IP", bandwidth: "带宽100Mbps", audience: "独享干净•流媒体全解锁、ChatGPT Plus用户" },
-    } as Record<string, { tag: string; bandwidth: string; audience: string }>,
+      residential: { tag: "真实家宽IP", bandwidth: "带宽100Mbps", audience: "适合人群：长期稳定！社媒运营/直播/Claude Max与Ultra用户", sellingPoints: ["当地合作拉线真家宽"] },
+      "us-local-carrier": { tag: "200G / 500G流量", bandwidth: "带宽200Mbps", audience: "适合人群：独享干净/社媒养号/ChatGPT Plus用户", sellingPoints: ["NTT", "GTT", "Cogent"] },
+      "local-isp": { tag: "住宅静态IP", bandwidth: "带宽100Mbps", audience: "适合人群：社媒运营/直播/ChatGPT Pro/Claude Pro用户", sellingPoints: ["ATT", "Verizon", "Comcast"] },
+      "pure-native-ip": { tag: "独享纯净IP", bandwidth: "带宽100Mbps", audience: "独享干净•流媒体全解锁、ChatGPT Plus用户", sellingPoints: ["IDC", "干净度好", "独享节点"] },
+    } as Record<string, { tag: string; bandwidth: string; audience: string; sellingPoints: string[] }>,
     solutions: {
       "us-local-carrier": { label: "美国本地运营商", highlights: ["NTT", "GTT", "Cogent", "Charter"] },
       "local-isp": { label: "覆盖地区", highlights: ["美国", "台湾", "日本", "马来西亚"] },
