@@ -42,7 +42,7 @@ export const STANDARD26_FORMAL_REF =
 export const STANDARD26_PRODUCT_BASELINE =
   "20b18764ff465cd690a433305fad5124ed4ecb60";
 export const RESIDENTIAL31_FORMAL_REF = "refs/heads/codex/residential-options-local-20261105";
-export const RESIDENTIAL31_PRODUCT_BASELINE = "966d696d598a5a208523af041fd905c3cf6a9b48";
+export const RESIDENTIAL31_PRODUCT_BASELINE = "d3d7297b48a7fd89fb46a8ae508eeec323cf330c";
 export const STANDARD26_CONTROL_PATHS = Object.freeze([
   ".github/workflows/ci.yml",
   "scripts/ops/assemble-consolidated-release.mjs",
