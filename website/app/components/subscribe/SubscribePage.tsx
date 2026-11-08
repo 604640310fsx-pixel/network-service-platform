@@ -1,7 +1,7 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { en } from "../../i18n/en";
-import { translateCatalogText, useCatalogText, useT } from "../../lib/i18n";
+import { translateCatalogText, useCatalogText, useI18n, useT } from "../../lib/i18n";
 import { networkTypes, trafficOptions, residentialTrafficOptions } from "../../lib/subscribeCatalog";
 import { normalizeResidentialNewPurchase, parseSelectionParams, selectionToQuery, type CatalogSelection } from "../../lib/resolveSelection";
 import { monthlyPresentation } from "./subscriptionPresentation";
@@ -15,6 +15,7 @@ import { hasPurchasablePlan } from "./catalogSelectModel";
 import { getNextEnabledRadioIndex, getRovingRadioTabIndex, OptionCard } from "./OptionCard";
 import { OrderSummary } from "./OrderSummary";
 import { StepProgress } from "./StepProgress";
+import { subscriptionLineDisplay } from "./lineDisplay";
 import { useSubscriptionSelection } from "./useSubscriptionSelection";
 import "./subscribe.css";
 import "./subscribe-configurator.css";
@@ -70,6 +71,8 @@ export function SubscribePage() {
   const t = useT();
   const copy = t.subscribe;
   const ct = useCatalogText();
+  const { lang } = useI18n();
+  const lineText = (text: string) => subscriptionLineDisplay(text, lang, ct);
   const [searchParams, setSearchParams] = useSearchParams();
   // 仅在挂载时读取一次 query 作为初始选择；hook 只有在其解析为完整方案时才采纳，
   // 不完整 / 非法参数不会污染 hook（回退默认选择）。
@@ -121,7 +124,7 @@ export function SubscribePage() {
   const monthly = monthlyPresentation(availability.index, currentSelection);
   const summaryPresentation = {
     monthly,
-    line: selection.selectedLine ? ct(selection.selectedLine.name) : null,
+    line: selection.selectedLine ? lineText(selection.selectedLine.name) : null,
     months: selection.availableDurations.find(option => option.id === selection.durationId)?.months ?? null,
   };
   function optionAddon(specId: string | null | undefined) {
@@ -239,9 +242,9 @@ export function SubscribePage() {
               <div className="sub-package-choice">
                 <div><h3>{copy.specSection.lineTitle}</h3><div className="sub-grid sub-package-lines" role="radiogroup" aria-label={copy.specSection.lineTitle} onKeyDown={handleRadioGroupKeyDown}>
                   {selection.availableLines.map((line) => <OptionCard key={line.id} selected={selection.selectedLine?.id === line.id}
-                    onSelect={() => selection.selectLine(line.id)} label={ct(line.name)} className="sub-package-option"
+                    onSelect={() => selection.selectLine(line.id)} label={lineText(line.name)} className="sub-package-option"
                     tabIndex={optionTabIndex(selection.availableLines, selection.selectedLine?.id ?? null, line.id)}>
-                    <strong>{ct(line.name)}</strong>{line.notice && <small>{ct(line.notice)}</small>}
+                    <strong>{lineText(line.name)}</strong>{line.notice && <small>{ct(line.notice)}</small>}
                     {optionAddon(selection.packageSpecId(line.id, selection.selectedTrafficId ?? "")) !== null && <b className="sub-addon">+{formatCardYuan(optionAddon(selection.packageSpecId(line.id, selection.selectedTrafficId ?? ""))!)}{copy.configurator.perMonth}</b>}
                   </OptionCard>)}
                 </div></div>
@@ -251,7 +254,7 @@ export function SubscribePage() {
                     const specId = selection.packageSpecId(selection.selectedLine!.id, traffic.id);
                     // Display only: each tier resolves its own exact monthly offer.
                     // A missing month must not change selected-period eligibility.
-                    const trafficMonthly = selection.typeId === "residential" && specId !== undefined
+                    const trafficMonthly = (selection.typeId === "residential" || selection.typeId === "us-local-carrier") && specId !== undefined
                       ? monthlyPresentation(availability.index, { ...currentSelection, specId }) : null;
                     return (
                     <OptionCard key={traffic.id} selected={selection.selectedTrafficId === traffic.id}
@@ -259,7 +262,11 @@ export function SubscribePage() {
                       tabIndex={optionTabIndex(shownTrafficOptions, selection.selectedTrafficId, traffic.id)}>
                       <strong>{traffic.name}</strong>
                       {selection.typeId === "residential" && <small>{copy.residentialTrafficDevices(selection.availableSpecs.find(option => option.lineId === selection.selectedLine?.id && option.trafficId === traffic.id)?.deviceAllowance ?? null)}</small>}
-                      {selection.typeId === "residential" ? <span className="sub-traffic-monthly">
+                      {selection.typeId === "us-local-carrier" ? <span className="sub-traffic-monthly">
+                        <b className={`sub-traffic-monthly-price${trafficMonthly ? "" : " is-pending"}`}>{trafficMonthly
+                          ? `${formatCardYuan(trafficMonthly.monthlyFen)}${copy.configurator.perMonth}`
+                          : copy.pricePending}</b>
+                      </span> : selection.typeId === "residential" ? <span className="sub-traffic-monthly">
                         <b className={`sub-traffic-monthly-price${trafficMonthly ? "" : " is-pending"}`}>{trafficMonthly
                           ? copy.residentialMonthlyPrice(formatCardYuan(trafficMonthly.monthlyFen))
                           : copy.residentialMonthlyPending}</b>

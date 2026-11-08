@@ -13,7 +13,8 @@ export function monthlyPresentation(index: PlanAvailabilityIndex | null, selecti
     baseMonthlyFen: row.residentialOptions.baseMonthlyFen,
     addonMonthlyFen: row.residentialOptions.addonMonthlyFen,
   };
-  const baseSpec = typeId === "local-isp" ? null
+  const baseSpec = typeId === "us-local-carrier" && specId?.startsWith("optimized-") ? `direct-${specId.slice("optimized-".length)}`
+    : typeId === "local-isp" ? null
     : typeId === "pure-native-ip" && specId ? `ordinary-${specId.split("-").at(-1)}` : specId;
   const base = index[planAvailabilityKey(typeId, regionId, ispId, baseSpec, "month-1")];
   return {

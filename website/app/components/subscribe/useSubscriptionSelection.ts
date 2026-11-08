@@ -98,7 +98,7 @@ export function useSubscriptionSelection(
   } = resolved;
 
   // 本地ISP运营商 / 纯净原生独享 IP：选定地区 + 运营商后带默认线路 × 流量与月付（见 withPackageDefaults）。
-  const isPackageType = typeId === "local-isp" || typeId === "pure-native-ip" || typeId === "residential";
+  const isPackageType = typeId === "local-isp" || typeId === "pure-native-ip" || typeId === "residential" || typeId === "us-local-carrier";
 
   function selectType(nextId: string) {
     if (nextId === typeId) return;
