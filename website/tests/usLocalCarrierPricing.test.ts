@@ -5,11 +5,13 @@ import { createTsxLoader } from "./support/tsxModules.ts";
 const loader = createTsxLoader();
 const catalog = loader.load("app/lib/subscribeCatalog.ts") as {
   networkTypes: { id: string; startingPrice: number }[];
+  ispsByTypeAndRegion: Record<string, Record<string, { id: string; name: string }[]>>;
   packageLinesByTypeAndRegion: Record<string, Record<string, { id: string }[]>>;
   packageSpecsByTypeAndRegion: Record<string, Record<string, { id: string; monthlyPrice: number | null; pricesByDuration: Record<string, number>; surcharge: number }[]>>;
 };
-const { resolveSelection, withPackageDefaults, selectionToQuery } = loader.load("app/lib/resolveSelection.ts") as {
+const { resolveSelection, resolveNewPurchaseSelection, withPackageDefaults, selectionToQuery } = loader.load("app/lib/resolveSelection.ts") as {
   resolveSelection: (selection: Selection, index?: Record<string, unknown>) => { summary: { total: number | null; complete: boolean; availability: string }; selectedLine: { id: string } | null };
+  resolveNewPurchaseSelection: (selection: Selection, index?: Record<string, unknown>) => { summary: { total: number | null; complete: boolean }; availableIsps: { id: string }[] };
   withPackageDefaults: (selection: Selection) => Selection;
   selectionToQuery: (selection: Selection) => string;
 };
@@ -71,4 +73,20 @@ test("other product price rules remain unchanged", () => {
   assert.equal(resolvePriceFen({ typeId: "local-isp", regionId: "us", ispId: "us-verizon", specId: "half-200g", durationId: "month-1" }), 8900);
   assert.equal(resolvePriceFen({ typeId: "pure-native-ip", regionId: "us", ispId: "native-ip", specId: "ordinary-200g", durationId: "month-1" }), 1900);
   assert.equal(resolvePriceFen({ typeId: "us-local-carrier", regionId: "us", ispId: "ntt", specId: null, durationId: "month-6" }), 29900);
+});
+
+test("new dual-ISP purchase omits only Charter while shared history and other Charter remain intact", () => {
+  assert.deepEqual(catalog.ispsByTypeAndRegion[base.typeId]?.us?.map((isp) => isp.id), ["ntt", "gtt", "cogent", "charter"]);
+  assert.equal(catalog.ispsByTypeAndRegion["local-isp"]?.us?.find((isp) => isp.id === "us-charter")?.name, "Charter");
+  const newPurchase = resolveNewPurchaseSelection({ ...base, specId: "direct-200g" }, index);
+  assert.deepEqual(newPurchase.availableIsps.map((isp) => isp.id), ["ntt", "gtt", "cogent"]);
+  assert.equal(newPurchase.summary.total, 49);
+  const legacy = { ...base, ispId: "charter", specId: "optimized-500g" };
+  const oldRow = { ...legacy, priceFen: 7900, isActive: true, soldOut: false };
+  const oldIndex = { [`${legacy.typeId}|${legacy.regionId}|${legacy.ispId}|${legacy.specId}|${legacy.durationId}`]: oldRow };
+  assert.equal(resolveSelection(legacy, oldIndex).summary.complete, true); // Historical reader unchanged.
+  assert.equal(resolveNewPurchaseSelection(legacy, oldIndex).summary.complete, false);
+  assert.equal(resolveNewPurchaseSelection(legacy, oldIndex).summary.total, null);
+  assert.equal(resolveNewPurchaseSelection({ ...legacy, typeId: "local-isp", ispId: "us-charter", specId: null }).summary.complete, true);
+  assert.equal(resolvePriceFen({ ...base, ispId: "charter", specId: "direct-200g" }), 4900); // Server pricing remains unchanged this round.
 });

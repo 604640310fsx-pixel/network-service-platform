@@ -21,7 +21,7 @@ function readInitialResult(state: unknown, orderRef: string): PaymentOrderResult
   const result = candidate as PaymentOrderResult;
   return result.orderRef === orderRef ? result : undefined;
 }
-import { parseSelectionParams, resolveSelection, selectionToQuery } from "../../lib/resolveSelection";
+import { parseSelectionParams, resolveNewPurchaseSelection, selectionToQuery } from "../../lib/resolveSelection";
 import { usePlanAvailability } from "../../lib/planAvailability";
 import "./subscribe.css";
 
@@ -42,7 +42,7 @@ export function SubmitRequestPage() {
   // orderRef 是本站显式定位参数；支付宝同步回跳只用 out_trade_no 定位查询，不据此判断支付结果。
   const orderRef = explicitOrderRef || alipayOrderRef;
   const selection = parseSelectionParams(searchParams);
-  const { summary } = resolveSelection(selection, availability.index ?? undefined);
+  const { summary } = resolveNewPurchaseSelection(selection, availability.index ?? undefined);
   const restoredOrderRef = orderRef === "" && searchParams.size === 0 && !summary.complete
     ? readLastOrderRef() ?? ""
     : "";

@@ -6,6 +6,7 @@
 .sub-configurator-v11 .sub-solution-section,
 .sub-configurator-v11 .sub-pending-orders,
 .sub-configurator-v11 .sub-content > .sub-pending { grid-column: 1 / -1; }
+.sub-configurator-v11 .sub-retired-carrier-notice { padding: 10px 12px; border: 1px solid var(--cc-accent-line); background: var(--cc-accent-tint); color: var(--cc-text); text-align: left; }
 /* Direct page children: the sticky boundary is the full subscription page,
    not a short grid row or a display:contents wrapper. Keep the original gutters. */
 .sub-configurator-v11 > .sub-steps,

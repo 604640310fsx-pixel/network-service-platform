@@ -433,6 +433,7 @@ export const zh = {
     mobileStep: "步骤",
     residentialReconfirm: "原链接已更新为新购住宅规格，初始为默认直连、200G、月付。旧订单权益不变，请核对当前线路、流量和价格并确认新购方案。",
     residentialConfirm: "确认新购方案",
+    retiredCarrierRechoose: "Charter 已不再提供此套餐的新购选择，请重新选择运营商。原有订单和服务不受影响。",
     residentialDevices: (n: number | null) => n === null ? "设备额度未指定（沿用原套餐资料）" : `${n}台设备（人工配置）`,
     residentialTrafficDevices: (n: number | null) => n === null ? "设备限制：待确认" : `设备限制：${n}台`,
     residentialMonthlyPrice: (price: string) => `月付 ${price}/月`,

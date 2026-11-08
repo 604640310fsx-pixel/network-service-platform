@@ -297,6 +297,21 @@ test("subscribe selling points render as separate non-interactive labels in both
   }
 }));
 
+test("retired Charter link prompts carrier re-selection and cannot render the purchase form", () => withBrowserStub(() => {
+  const render = dashboardRenderer();
+  const query = "type=us-local-carrier&region=us&isp=charter&spec=optimized-500g&duration=month-1";
+  for (const [lang, notice, invalid] of [
+    ["zh", "Charter 已不再提供此套餐的新购选择", "方案信息已失效"],
+    ["en", "Charter is no longer available for new purchases", "Plan details have expired"],
+  ] as const) {
+    const page = render(`/subscribe?${query}`, lang);
+    assert.ok(page.includes(notice));
+    const request = render(`/subscribe/request?${query}`, lang);
+    assert.ok(request.includes(invalid));
+    assert.doesNotMatch(request, /<form[\s>]/);
+  }
+}));
+
 test("the diagnosis and referral landing pages render in both languages", () => withBrowserStub(() => {
   const loader = createTsxLoader({ "app/lib/auth.tsx": { useAuth: () => ({ status: "unauthenticated" }) } });
   const react = loader.requirePackage("react") as typeof import("react");
