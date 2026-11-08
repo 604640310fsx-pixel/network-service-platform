@@ -440,10 +440,10 @@ export const en: Messages = {
     residentialMonthlyPending: "Monthly price pending",
     residentialIncludedAddon: (price: string) => `Includes route fee ${price}/mo`,
     productCards: {
-      residential: { tag: "Real residential IP", bandwidth: "100Mbps bandwidth", audience: "For: long-term stability! Social operations / live streaming / Claude Max and Ultra users" },
-      "us-local-carrier": { tag: "200G / 500G traffic", bandwidth: "200Mbps bandwidth", audience: "For: clean dedicated access / social account growth / ChatGPT Plus users" },
-      "local-isp": { tag: "Static residential IP", bandwidth: "100Mbps bandwidth", audience: "For: social operations / live streaming / ChatGPT Pro / Claude Pro users" },
-      "pure-native-ip": { tag: "Clean dedicated IP", bandwidth: "100Mbps bandwidth", audience: "For: clean dedicated access! Full streaming access / ChatGPT Plus users" },
+      residential: { tag: "Real residential IP", bandwidth: "100Mbps bandwidth", audience: "For: long-term stability! Social operations / live streaming / Claude Max and Ultra users", sellingPoints: ["Locally arranged residential broadband"] },
+      "us-local-carrier": { tag: "200G / 500G traffic", bandwidth: "200Mbps bandwidth", audience: "For: clean dedicated access / social account growth / ChatGPT Plus users", sellingPoints: ["NTT", "GTT", "Cogent"] },
+      "local-isp": { tag: "Static residential IP", bandwidth: "100Mbps bandwidth", audience: "For: social operations / live streaming / ChatGPT Pro / Claude Pro users", sellingPoints: ["ATT", "Verizon", "Comcast"] },
+      "pure-native-ip": { tag: "Clean dedicated IP", bandwidth: "100Mbps bandwidth", audience: "For: clean dedicated access! Full streaming access / ChatGPT Plus users", sellingPoints: ["IDC", "Clean IP", "Dedicated node"] },
     },
     solutions: {
       "us-local-carrier": { label: "US local carriers", highlights: ["NTT", "GTT", "Cogent", "Charter"] },

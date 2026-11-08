@@ -181,7 +181,10 @@ export function SubscribePage() {
                       <span className="sub-solution-icon"><SolutionIcon typeId={option.id} /></span>
                       <span className="sub-solution-title"><strong>{ct(option.name)}</strong></span>
                     </span>
-                    <span className="sub-product-audience">{product.audience.replace(/^适合人群：|^For: /, "")}</span>
+                    <span className="sub-product-details">
+                      <span className="sub-product-audience">{product.audience.replace(/^适合人群：|^For: /, "")}</span>
+                      <span className="sub-product-points">{product.sellingPoints.map((point) => <span className="sub-product-point" key={point}>{point}</span>)}</span>
+                    </span>
                     <span className="sub-type-price">{typeFromFen === null ? copy.pricePending : <><b>{formatCardYuan(typeFromFen)}</b><small>{copy.configurator.monthlyFrom}</small></>}</span>
                     <span className="sub-solution-footer">
                       <span className="sub-type-specs"><span className="sub-type-spec-label">{product.tag}</span><span>{product.bandwidth}</span></span>
