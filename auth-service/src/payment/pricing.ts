@@ -128,6 +128,21 @@ const RESIDENTIAL_DURATION_MULTIPLIERS: Readonly<Record<string, DurationMultipli
    服务端报价与下单以 sellable_plans 为准；单独枚举，不并入 enumeratePriceTuples() 的 Migration 012 种子集合。 */
 const PACKAGE_DURATION_ID = "month-1";
 
+// 独享双 ISP 新购四档仅获准月付；金额为含线路费的最终价，不再在报价阶段叠加。
+const US_LOCAL_CARRIER_MONTHLY_FEN_BY_SPEC: Readonly<Record<string, number>> = {
+  "direct-200g": 4_900,
+  "direct-500g": 5_900,
+  "optimized-200g": 5_900,
+  "optimized-500g": 7_900,
+};
+
+export function enumerateUsLocalCarrierOptionTuples(): PriceTuple[] {
+  const ispIds = FIXED_PRICE_PRODUCTS["us-local-carrier"]!.ispsByRegion.us!;
+  return ispIds.flatMap((ispId) => Object.entries(US_LOCAL_CARRIER_MONTHLY_FEN_BY_SPEC).map(([specId, priceFen]) => ({
+    typeId: "us-local-carrier", regionId: "us", ispId, specId, durationId: PACKAGE_DURATION_ID, priceFen,
+  })));
+}
+
 const LOCAL_ISP_LINE_SURCHARGE_FEN_BY_GROUP: Readonly<
   Record<string, Readonly<Record<string, Readonly<Record<string, number>>>>>
 > = {
@@ -278,6 +293,12 @@ function hasLinkedIsp(
 export function resolvePriceFen(selection: PriceSelection): number | null {
   const { typeId, regionId, ispId, specId, durationId } = selection;
   if (!typeId || !regionId || !ispId || !durationId) return null;
+
+  if (typeId === "us-local-carrier" && specId !== null) {
+    if (regionId !== "us" || durationId !== PACKAGE_DURATION_ID ||
+        !hasLinkedIsp(FIXED_PRICE_PRODUCTS["us-local-carrier"]!.ispsByRegion, regionId, ispId)) return null;
+    return US_LOCAL_CARRIER_MONTHLY_FEN_BY_SPEC[specId] ?? null;
+  }
 
   if (specId !== null && (typeId === "local-isp" || typeId === "pure-native-ip")) {
     return resolvePackageOptionPriceFen(selection);

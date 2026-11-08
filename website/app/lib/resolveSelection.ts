@@ -67,6 +67,7 @@ export function withImpliedIsp(selection: CatalogSelection): CatalogSelection {
    只在地区与运营商已经由用户（或 URL）确定且合法之后生效；不替用户挑地区或运营商。 */
 const PACKAGE_DEFAULT_SPEC_ID: Record<string, string | null> = {
   residential: RESIDENTIAL_DEFAULT_SPEC,
+  "us-local-carrier": "direct-200g",
   "local-isp": null,
   "pure-native-ip": "ordinary-200g",
 };
@@ -154,7 +155,8 @@ export function resolveSelection(
   const selectedSpec = availableSpecs.find((option) => option.id === specId) ?? null;
   // 本地ISP运营商：specId 为 null 即现有套餐（普通线路 / 现有线路 + 200G）。
   // 有可选线路的地区里，非 null 且不在目录内的 specId 视为无效，不回落到现有套餐。
-  const isBaseSelection = !requiresSpec && specId === null;
+  // 独享双 ISP 的旧 NULL 规格只供历史记录；新购必须明确选择四档之一。
+  const isBaseSelection = !requiresSpec && specId === null && typeId !== "us-local-carrier";
   const specSatisfied = requiresSpec
     ? selectedSpec !== null
     : selectedSpec !== null || isBaseSelection || !hasPackageOptions;

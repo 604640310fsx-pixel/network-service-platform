@@ -441,7 +441,7 @@ export const en: Messages = {
     residentialIncludedAddon: (price: string) => `Includes route fee ${price}/mo`,
     productCards: {
       residential: { tag: "Real residential IP", bandwidth: "100Mbps bandwidth", audience: "For: long-term stability! Social operations / live streaming / Claude Max and Ultra users" },
-      "us-local-carrier": { tag: "500G traffic", bandwidth: "200Mbps bandwidth", audience: "For: clean dedicated access / social account growth / ChatGPT Plus users" },
+      "us-local-carrier": { tag: "200G / 500G traffic", bandwidth: "200Mbps bandwidth", audience: "For: clean dedicated access / social account growth / ChatGPT Plus users" },
       "local-isp": { tag: "Static residential IP", bandwidth: "100Mbps bandwidth", audience: "For: social operations / live streaming / ChatGPT Pro / Claude Pro users" },
       "pure-native-ip": { tag: "Clean dedicated IP", bandwidth: "100Mbps bandwidth", audience: "For: clean dedicated access! Full streaming access / ChatGPT Plus users" },
     },
@@ -1866,6 +1866,7 @@ export const en: Messages = {
     lines: { direct: "Default direct (unstable at peak times)", optimized: "Optimized route", highspeed: "High-speed route", live: "Live-stream route" },
   },
   catalog: {
+    "默认线路": "Default route",
     "默认直连（高峰期不稳定）": "Default direct (unstable at peak times)",
     "优化线路": "Optimized route",
     "默认直连 · 300G": "Default direct · 300G",
@@ -1900,7 +1901,7 @@ export const en: Messages = {
     "美国本地运营商网络方案": "US local carrier network plan",
     "双 ISP 独享静态原生 IP": "Dual-ISP dedicated static native IP",
     "美国直连优化路线": "Optimized direct US route",
-    "500G 流量": "500 GB traffic",
+    "200G / 500G 流量": "200 GB / 500 GB traffic",
     "200M 带宽": "200 Mbps bandwidth",
     "仅支持": "Supported",
     "支持": "Supported",

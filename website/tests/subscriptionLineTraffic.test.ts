@@ -184,3 +184,14 @@ test("non-residential packages keep their own 200G/500G/1T tiers and catalogue-o
   assert.equal(sea.act((hook) => hook.selectLine("live")).specId, "live-1t");
   assert.equal(sea.act((hook) => hook.selectLine("half")).specId, "half-1t");
 });
+
+test("dual-ISP direct/optimized switching preserves traffic and switching traffic preserves line", () => {
+  const page = mount({ typeId: "us-local-carrier", regionId: "us", ispId: "ntt", specId: "direct-200g", durationId: "month-1" });
+  assert.deepEqual(page.state.lineTrafficIds("direct"), ["200g", "500g"]);
+  assert.deepEqual(page.state.lineTrafficIds("optimized"), ["200g", "500g"]);
+  assert.equal(page.act((hook) => hook.selectLine("optimized")).specId, "optimized-200g");
+  assert.equal(page.act((hook) => hook.selectTraffic("500g")).specId, "optimized-500g");
+  assert.equal(page.act((hook) => hook.selectLine("direct")).specId, "direct-500g");
+  assert.equal(page.act((hook) => hook.selectTraffic("200g")).specId, "direct-200g");
+  assert.equal(page.state.durationId, "month-1");
+});

@@ -81,7 +81,7 @@ export type DurationOption = {
 };
 
 // 展示顺序与标题（用户 2026-11-02 确认）：真住宅宽带 → 独享双ISP静态原生 → 本地住宅原生静态IP → 纯净静态独享IP。
-// 只改展示名称与顺序；type id、价格、默认选择与下单快照不变。
+// 展示顺序固定；各商品价格与默认选择按各自获准目录维护，订单快照由服务端保存。
 export const networkTypes: NetworkTypeOption[] = [
   {
     id: "residential",
@@ -100,11 +100,11 @@ export const networkTypes: NetworkTypeOption[] = [
   {
     id: "us-local-carrier",
     name: "独享双ISP静态原生",
-    startingPrice: 59,
+    startingPrice: 49,
     description: "美国本地运营商网络方案",
-    features: ["双 ISP 独享静态原生 IP", "美国直连优化路线", "500G 流量", "200M 带宽"],
+    features: ["双 ISP 独享静态原生 IP", "美国直连优化路线", "200G / 500G 流量", "200M 带宽"],
     requiresSpec: false,
-    traffic: "500G",
+    traffic: "200G",
     bandwidth: "200M",
     // "独享"这个事实归到 specLabel；ipType 单独表示协议版本。
     // 原始的完整描述"双 ISP 独享静态原生 IP"仍保留在上面 features 里，没有丢。
@@ -145,7 +145,7 @@ export const networkTypes: NetworkTypeOption[] = [
 
 export const regionsByType: Record<string, RegionOption[]> = {
   "us-local-carrier": [
-    { id: "us", name: "美国", flagClass: "us", startingPrice: 59, configured: true },
+    { id: "us", name: "美国", flagClass: "us", startingPrice: 49, configured: true },
   ],
   "local-isp": [
     { id: "us", name: "美国", flagClass: "us", startingPrice: 79, configured: true },
@@ -395,6 +395,30 @@ export const trafficOptions: TrafficOption[] = [
   { id: "1t", name: "1T" },
 ];
 
+// 独享双 ISP 新购月付四档：规格只承载选择身份与获准加价展示，结算仍以服务端 sellable_plans 为准。
+const US_LOCAL_CARRIER_LINES: LineOption[] = [
+  { id: "direct", name: "默认线路", description: "" },
+  { id: "optimized", name: "优化线路", description: "" },
+];
+const US_LOCAL_CARRIER_SPECS: SpecOption[] = US_LOCAL_CARRIER_LINES.flatMap((line) =>
+  (["200g", "500g"] as const).map((trafficId) => {
+    const traffic = trafficId === "200g" ? "200G" : "500G";
+    return {
+      id: `${line.id}-${trafficId}`,
+      name: `${line.name} · ${traffic}`,
+      monthlyPrice: null,
+      pricesByDuration: {},
+      traffic,
+      bandwidth: "200M",
+      features: [`${traffic} 流量`, "200M 带宽"],
+      description: "",
+      lineId: line.id,
+      trafficId,
+      surcharge: line.id === "direct" ? 0 : trafficId === "200g" ? 10 : 20,
+    };
+  }),
+);
+
 type TrafficPrices = Partial<Record<string, number>>;
 
 function trafficName(trafficId: string): string {
@@ -540,6 +564,7 @@ function mapRegions<T>(regionIds: string[], build: (regionId: string) => T): Rec
 const localIspRegionIds = Object.keys(LOCAL_ISP_GROUP_BY_REGION);
 
 export const packageLinesByTypeAndRegion: Record<string, Record<string, LineOption[]>> = {
+  "us-local-carrier": { us: US_LOCAL_CARRIER_LINES },
   "local-isp": mapRegions(localIspRegionIds, (regionId) => {
     const group = LOCAL_ISP_LINE_GROUPS[LOCAL_ISP_GROUP_BY_REGION[regionId]!]!;
     return [group.baseLine, ...group.surcharges.map((item) => item.line)];
@@ -550,6 +575,7 @@ export const packageLinesByTypeAndRegion: Record<string, Record<string, LineOpti
 };
 
 export const packageSpecsByTypeAndRegion: Record<string, Record<string, SpecOption[]>> = {
+  "us-local-carrier": { us: US_LOCAL_CARRIER_SPECS },
   "local-isp": mapRegions(localIspRegionIds, (regionId) =>
     localIspSpecs(LOCAL_ISP_LINE_GROUPS[LOCAL_ISP_GROUP_BY_REGION[regionId]!]!),
   ),
@@ -577,6 +603,7 @@ function standardDurations(monthlyPrice: number | null): DurationOption[] {
 }
 
 export const durationsByType: Record<string, DurationOption[]> = {
+  // 旧 NULL 规格的固定周期价保留作历史目录事实；新购四档由服务端按 specId 报价，长期周期无已批准价格。
   "us-local-carrier": [
     { id: "month-1", name: "月付", months: 1, price: 59 },
     { id: "month-6", name: "半年", months: 6, price: 299 },

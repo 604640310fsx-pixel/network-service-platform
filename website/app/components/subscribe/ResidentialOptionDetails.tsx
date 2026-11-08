@@ -1,11 +1,13 @@
-import { useT } from "../../lib/i18n";
+import { useI18n, useT } from "../../lib/i18n";
+import { subscriptionLineDisplay } from "./lineDisplay";
 import type { ResidentialOptions } from "../../lib/residential-options";
 export function ResidentialOptionDetails({ options }: { options: ResidentialOptions }) {
   const t = useT(), copy = t.residentialOptions;
+  const { lang } = useI18n();
   const money = (fen: number) => `¥${(fen / 100).toFixed(2).replace(/\.00$/, "")}`;
   return <div className="sub-residential-details" data-residential-version={options.version}>
     <dl>
-      <div><dt>{copy.line}</dt><dd>{copy.lines[options.lineId]}</dd></div>
+      <div><dt>{copy.line}</dt><dd>{subscriptionLineDisplay(copy.lines[options.lineId] ?? "", lang, (text) => text)}</dd></div>
       <div><dt>{copy.traffic}</dt><dd>{options.trafficGb === 1000 ? "1T" : `${options.trafficGb}G`}</dd></div>
       <div><dt>{copy.device}</dt><dd>{t.subscribe.residentialDevices(options.deviceAllowance)}</dd></div>
       <div><dt>{copy.base}</dt><dd>{money(options.baseMonthlyFen)}</dd></div>

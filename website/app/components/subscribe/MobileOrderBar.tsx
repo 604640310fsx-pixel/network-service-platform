@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
-import { useCatalogText, useT } from "../../lib/i18n";
+import { useCatalogText, useI18n, useT } from "../../lib/i18n";
+import { subscriptionLineDisplay } from "./lineDisplay";
 import type { SelectionSummary } from "./useSubscriptionSelection";
 
 type MobileOrderBarProps = {
@@ -14,6 +15,7 @@ type MobileOrderBarProps = {
 export function MobileOrderBar({ summary, canRequest, open, onOpen, onRequest, months }: MobileOrderBarProps) {
   const t = useT();
   const ct = useCatalogText();
+  const { lang } = useI18n();
   const barRef = useRef<HTMLDivElement>(null);
   // Same pattern as StepProgress: publish the bar's rendered height (including its safe-area padding) on this page only,
   // for the drawer and page-end reserves. The bar never reads it, so there is no sizing feedback loop. A hidden bar has no
@@ -39,7 +41,7 @@ export function MobileOrderBar({ summary, canRequest, open, onOpen, onRequest, m
   }, []);
   const details = [summary.type, summary.region, summary.spec, summary.duration]
     .filter((item) => item !== "—" && item !== "不适用")
-    .map(ct)
+    .map((item) => subscriptionLineDisplay(item, lang, ct))
     .join(" · ") || t.subscribe.summary.notSelected;
   const priceLabel = summary.availability === "available" && summary.total !== null
     ? `¥${summary.total}`

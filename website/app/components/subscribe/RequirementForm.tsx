@@ -2,7 +2,8 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
 import { ResidentialOptionDetails } from "./ResidentialOptionDetails";
-import { useCatalogText, useT, type Messages } from "../../lib/i18n";
+import { useCatalogText, useI18n, useT, type Messages } from "../../lib/i18n";
+import { subscriptionLineDisplay } from "./lineDisplay";
 import {
   PaymentApiError,
   bindOrderAccess,
@@ -81,6 +82,7 @@ export function RequirementForm({
   const t = useT();
   const copy = t.subscribe.form;
   const ct = useCatalogText();
+  const { lang } = useI18n();
   const recapValue = (value: string) => (value ? ct(value) : "—");
   // 新建订单必须登录（服务端同样强制）；检查中与未登录都不允许提交。
   const { status: authStatus, csrfToken } = useAuth();
@@ -208,7 +210,7 @@ export function RequirementForm({
           <div><span>{t.subscribe.summary.type}</span><b>{recapValue(summary.type)}</b></div>
           <div><span>{t.subscribe.summary.region}</span><b>{recapValue(summary.region)}</b></div>
           {!summary.ispImplied && <div><span>{t.subscribe.summary.isp}</span><b>{recapValue(summary.isp)}</b></div>}
-          <div><span>{t.subscribe.summary.spec}</span><b>{recapValue(summary.spec)}</b></div>
+          <div><span>{t.subscribe.summary.spec}</span><b>{subscriptionLineDisplay(summary.spec, lang, recapValue)}</b></div>
           <div><span>{copy.term}</span><b>{recapValue(summary.duration)}</b></div>
         </div>
         <div className="sub-request-recap-price">

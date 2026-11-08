@@ -440,7 +440,7 @@ export const zh = {
     residentialIncludedAddon: (price: string) => `已含线路费 ${price}/月`,
     productCards: {
       residential: { tag: "真实家宽IP", bandwidth: "带宽100Mbps", audience: "适合人群：长期稳定！社媒运营/直播/Claude Max与Ultra用户" },
-      "us-local-carrier": { tag: "500G流量", bandwidth: "带宽200Mbps", audience: "适合人群：独享干净/社媒养号/ChatGPT Plus用户" },
+      "us-local-carrier": { tag: "200G / 500G流量", bandwidth: "带宽200Mbps", audience: "适合人群：独享干净/社媒养号/ChatGPT Plus用户" },
       "local-isp": { tag: "住宅静态IP", bandwidth: "带宽100Mbps", audience: "适合人群：社媒运营/直播/ChatGPT Pro/Claude Pro用户" },
       "pure-native-ip": { tag: "独享纯净IP", bandwidth: "带宽100Mbps", audience: "独享干净•流媒体全解锁、ChatGPT Plus用户" },
     } as Record<string, { tag: string; bandwidth: string; audience: string }>,
