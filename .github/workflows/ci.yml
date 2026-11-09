@@ -482,7 +482,7 @@ jobs:
 
       - name: Retain exact residential31 push formal candidate
         id: upload-residential31-formal
-        if: env.RESIDENTIAL31_FORMAL_CONTEXT == 'true' && github.sha == env.EXPECTED_SHA
+        if: env.RESIDENTIAL31_FORMAL_CONTEXT == 'true' && env.ADMIN32_FORMAL_CONTEXT != 'true' && github.sha == env.EXPECTED_SHA
         uses: actions/upload-artifact@v4
         with:
           name: consolidated-release-residential31-${{ env.EXPECTED_SHA }}
@@ -492,7 +492,7 @@ jobs:
           include-hidden-files: false
 
       - name: Record residential31 artifact proof
-        if: env.RESIDENTIAL31_FORMAL_CONTEXT == 'true' && github.sha == env.EXPECTED_SHA
+        if: env.RESIDENTIAL31_FORMAL_CONTEXT == 'true' && env.ADMIN32_FORMAL_CONTEXT != 'true' && github.sha == env.EXPECTED_SHA
         env:
           ARTIFACT_ID: ${{ steps.upload-residential31-formal.outputs.artifact-id }}
           ARTIFACT_DIGEST: ${{ steps.upload-residential31-formal.outputs.artifact-digest }}

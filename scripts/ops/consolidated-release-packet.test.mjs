@@ -3415,6 +3415,18 @@ test("admin32 review CI selects only Draft PR 165 and retains a forbidden-use ar
     schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE,environment}),error=>error.code==="PROVENANCE_REQUIRED");
 });
 
+test("formal31 upload and proof exclude only an explicitly selected formal32 push", () => {
+  const workflow=readFileSync(join(REPOSITORY_ROOT,".github/workflows/ci.yml"),"utf8");
+  const old31Gate="env.RESIDENTIAL31_FORMAL_CONTEXT == 'true' && env.ADMIN32_FORMAL_CONTEXT != 'true' && github.sha == env.EXPECTED_SHA";
+  assert.equal(workflow.split(`if: ${old31Gate}`).length,3,"both old31 artifact steps retain exact SHA and skip formal32");
+  assert.ok(workflow.includes(`- name: Retain exact residential31 push formal candidate\n        id: upload-residential31-formal\n        if: ${old31Gate}`));
+  assert.ok(workflow.includes(`- name: Record residential31 artifact proof\n        if: ${old31Gate}`));
+  assert.ok(workflow.includes("if: env.ADMIN32_FORMAL_CONTEXT == 'true' && github.sha == env.EXPECTED_SHA"));
+  assert.ok(workflow.includes('path: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}/admin32-first/'));
+  assert.ok(workflow.includes("ADMIN32_FORMAL_CONTEXT: false"));
+  assert.ok(workflow.includes("if test -f auth-service/src/migrations/032_catalog_directory_and_last_login.sql; then"));
+});
+
 test("formal32 pins the existing branch, exact push SHA, approved source paths and 381 pricing", () => {
   const parent=mkdtempSync(join(tmpdir(),"admin32-formal-source-"));
   try {
