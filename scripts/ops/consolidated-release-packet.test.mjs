@@ -61,6 +61,9 @@ import {
   ADMIN32_FORMAL_REF,
   ADMIN32_PRODUCT_BASELINE,
   ADMIN32_PRICING_SOURCE_SHA256,
+  ADMIN32_UPLOAD_FIX_BASE_SHA,
+  ADMIN32_UPLOAD_FIX_HEAD_REF,
+  ADMIN32_UPLOAD_FIX_PR_NUMBER,
   ADMIN32_ROLLBACK_PATCH,
   ADMIN32_ALLOWED_PATHS,
   verifyAdmin32ProductSource,
@@ -3395,7 +3398,7 @@ test("admin32 review CI selects only Draft PR 165 and retains a forbidden-use ar
   const condition="github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 165 && github.event.pull_request.draft == true && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin-manage-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105'";
   assert.equal(workflow.split(`ADMIN32_TASK_CONTEXT: \u0024{{ ${condition} }}`).length,2);
   assert.match(workflow,/test "\$\(git rev-parse HEAD\)" = "\$EXPECTED_SHA"/);
-  assert.ok(workflow.includes('if [ "$ADMIN32_TASK_CONTEXT" = "true" ]; then'));
+  assert.ok(workflow.includes('elif [ "$ADMIN32_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_UPLOAD_FIX_TASK_CONTEXT" = "true" ]; then'));
   assert.ok(workflow.includes('--schema-route standard31-32'));
   assert.ok(workflow.includes('"$BUNDLE_PARENT/admin32-first/release-manifest.json"'));
   assert.ok(workflow.includes('consolidated-release-admin32-review-${{ env.EXPECTED_SHA }}'));
@@ -3413,6 +3416,63 @@ test("admin32 review CI selects only Draft PR 165 and retains a forbidden-use ar
   assert.equal(review.releaseUse,"forbidden");
   assert.throws(()=>createReleaseProvenance({mode:"github-actions",expectedSha:sha,
     schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE,environment}),error=>error.code==="PROVENANCE_REQUIRED");
+});
+
+test("formal31 upload and proof exclude only an explicitly selected formal32 push", () => {
+  const workflow=readFileSync(join(REPOSITORY_ROOT,".github/workflows/ci.yml"),"utf8");
+  const old31Gate="env.RESIDENTIAL31_FORMAL_CONTEXT == 'true' && env.ADMIN32_FORMAL_CONTEXT != 'true' && github.sha == env.EXPECTED_SHA";
+  assert.equal(workflow.split(`if: ${old31Gate}`).length,3,"both old31 artifact steps retain exact SHA and skip formal32");
+  assert.ok(workflow.includes(`- name: Retain exact residential31 push formal candidate\n        id: upload-residential31-formal\n        if: ${old31Gate}`));
+  assert.ok(workflow.includes(`- name: Record residential31 artifact proof\n        if: ${old31Gate}`));
+  assert.ok(workflow.includes("if: env.ADMIN32_FORMAL_CONTEXT == 'true' && github.sha == env.EXPECTED_SHA"));
+  assert.ok(workflow.includes('path: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}/admin32-first/'));
+  assert.ok(workflow.includes("ADMIN32_FORMAL_CONTEXT: false"));
+  assert.ok(workflow.includes("if test -f auth-service/src/migrations/032_catalog_directory_and_last_login.sql; then"));
+});
+
+test("admin32 upload-fix review binds PR 166 in Draft or Ready, same repo, frozen base and actual head SHA", () => {
+  const workflow=readFileSync(join(REPOSITORY_ROOT,".github/workflows/ci.yml"),"utf8");
+  const condition="github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 166 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin32-upload-guard-fix-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.sha == '4857c9c62294a2dfdcca2187e17983720e991a2f'";
+  assert.equal(workflow.split(`ADMIN32_UPLOAD_FIX_TASK_CONTEXT: \u0024{{ ${condition} }}`).length,2);
+  assert.ok(workflow.includes('elif [ "$ADMIN32_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_UPLOAD_FIX_TASK_CONTEXT" = "true" ]; then'));
+  assert.ok(workflow.includes('if: env.ADMIN32_TASK_CONTEXT == \'true\' || env.ADMIN32_UPLOAD_FIX_TASK_CONTEXT == \'true\''));
+  assert.equal(ADMIN32_UPLOAD_FIX_PR_NUMBER,166);
+  assert.equal(ADMIN32_UPLOAD_FIX_BASE_SHA,"4857c9c62294a2dfdcca2187e17983720e991a2f");
+  const parent=mkdtempSync(join(tmpdir(),"admin32-upload-fix-review-"));
+  try {
+    const sha="b".repeat(40),eventPath=join(parent,"pull.json");
+    const event={number:166,repository:{full_name:"604640310fsx-pixel/network-service-platform"},
+      pull_request:{number:166,draft:true,
+        head:{ref:ADMIN32_UPLOAD_FIX_HEAD_REF,sha,repo:{full_name:"604640310fsx-pixel/network-service-platform"}},
+        base:{ref:"codex/residential-options-local-20261105",sha:ADMIN32_UPLOAD_FIX_BASE_SHA,
+          repo:{full_name:"604640310fsx-pixel/network-service-platform"}}}};
+    writeFileSync(eventPath,JSON.stringify(event));
+    const environment={...githubEnvironment({sha,candidate:false}),ADMIN32_UPLOAD_FIX_TASK_CONTEXT:"true",
+      GITHUB_REF:"refs/pull/166/merge",GITHUB_EVENT_PATH:eventPath};
+    const args={mode:"github-actions-test",expectedSha:sha,schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE,environment};
+    assert.equal(createReleaseProvenance(args).releaseUse,"forbidden");
+    assert.throws(()=>createReleaseProvenance({...args,mode:"github-actions"}),error=>error.code==="PROVENANCE_REQUIRED");
+    event.pull_request.draft=false;writeFileSync(eventPath,JSON.stringify(event));
+    assert.equal(createReleaseProvenance(args).releaseUse,"forbidden","Ready review cannot become formal");
+    assert.throws(()=>createReleaseProvenance({...args,mode:"github-actions"}),error=>error.code==="PROVENANCE_REQUIRED");
+    event.pull_request.draft=true;writeFileSync(eventPath,JSON.stringify(event));
+    for(const patch of [{GITHUB_REF:"refs/pull/167/merge"},{GITHUB_EVENT_NAME:"push"},
+      {GITHUB_EVENT_PATH:join(parent,"missing-event")}])
+      assert.throws(()=>createReleaseProvenance({...args,environment:{...environment,...patch}}),error=>error.code==="PROVENANCE_REQUIRED");
+    for(const mutate of [
+      (value)=>{value.number=167},(value)=>{value.pull_request.number=167},
+      (value)=>{value.repository.full_name="fork/network-service-platform"},
+      (value)=>{value.pull_request.head.repo.full_name="fork/network-service-platform"},
+      (value)=>{value.pull_request.base.repo.full_name="fork/network-service-platform"},
+      (value)=>{value.pull_request.head.ref="codex/other"},
+      (value)=>{value.pull_request.head.sha="a".repeat(40)},
+      (value)=>{value.pull_request.base.ref="integration/consolidate-project"},
+      (value)=>{value.pull_request.base.sha="a".repeat(40)},
+    ]) {
+      const invalid=structuredClone(event);mutate(invalid);writeFileSync(eventPath,JSON.stringify(invalid));
+      assert.throws(()=>createReleaseProvenance(args),error=>error.code==="PROVENANCE_REQUIRED");
+    }
+  } finally { rmSync(parent,{recursive:true,force:true}); }
 });
 
 test("formal32 pins the existing branch, exact push SHA, approved source paths and 381 pricing", () => {
