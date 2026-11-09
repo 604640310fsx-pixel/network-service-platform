@@ -23,6 +23,9 @@ const { openRollbackDatabase32, prepareDatabaseReadinessProbe } = await rollback
 const { buildApp } = await rollback("app.js");
 const { resolveQuote: rollbackQuote, PaymentDomainError } = await rollback("payment/commerce.js");
 const { createPaymentOrder: rollbackOrder } = await rollback("payment/orders.js");
+const { resolvePriceFen } = await rollback("payment/pricing.js");
+const { scheduleServiceDowngrade: rollbackSchedule, listServiceChangeOptions: rollbackChangeOptions } =
+  await rollback("payment/service-change.js");
 const { loginAndCreateSession: rollbackLogin } = await rollback("session/login-session.js");
 const now = new Date("2026-11-10T08:00:00.000Z");
 const selection = {typeId:"local-isp",regionId:"us",ispId:"us-verizon",specId:"high-200g",durationId:"month-1"};
@@ -106,9 +109,15 @@ try {
   assert.deepEqual(recovered.prepare("SELECT order_ref,status,amount_fen FROM orders ORDER BY id").all(),snapshots.orders);
   assert.deepEqual(recovered.prepare("SELECT service_id,status,target_plan_id FROM service_changes ORDER BY id").all(),snapshots.changes);
   assert.deepEqual(recovered.prepare("SELECT id,price_fen,is_active,occupied_slots FROM sellable_plans WHERE id=?").all(quote.planId),snapshots.plans);
+  const fixed381={typeId:"us-local-carrier",regionId:"us",ispId:"ntt",specId:null,durationId:"month-6"};
+  assert.equal(resolvePriceFen(fixed381),29900);
+  assert.equal(rollbackQuote(recovered,{selection:fixed381,couponCode:null,now:()=>now}).amountFen,29900);
   assert.throws(()=>rollbackQuote(recovered,{selection,couponCode:null,now:()=>now}),
     (error)=>error instanceof PaymentDomainError&&error.code==="plan_unavailable");
   assert.throws(()=>rollbackOrder(paymentDependencies(recovered),input(3)),
+    (error)=>error instanceof PaymentDomainError&&error.code==="plan_unavailable");
+  assert.deepEqual(rollbackChangeOptions(recovered,userId,service.id,now),[]);
+  assert.throws(()=>rollbackSchedule(recovered,userId,service.id,"half-200g",now),
     (error)=>error instanceof PaymentDomainError&&error.code==="plan_unavailable");
   await rollbackLogin(recovered,"new@synthetic.invalid","synthetic-only-password",TOKEN_KEYRING,{now:()=>now});
   assert.equal(recovered.prepare("SELECT last_successful_web_login_at FROM users WHERE email='new@synthetic.invalid'").get().last_successful_web_login_at,now.toISOString());
