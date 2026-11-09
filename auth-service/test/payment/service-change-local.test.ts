@@ -4,6 +4,7 @@ import test from "node:test";
 import { buildApp } from "../../src/app.js";
 import { issueCsrfToken } from "../../src/http/csrf.js";
 import { findSellablePlan } from "../../src/payment/commerce.js";
+import { updateCatalogDirectoryStatus } from "../../src/payment/catalog-directory.js";
 import { createPaymentOrder, listMyOrders, retryPaymentOrder } from "../../src/payment/orders.js";
 import {
   addCalendarMonths, acknowledgeServiceFulfillment, applyDueScheduledDowngrade, cancelServiceDowngrade,
@@ -140,6 +141,8 @@ test("manual due downgrade is a persistent admin TODO only at server due time; n
       periodStart:"2026-08-01T00:00:00.000Z",usageStart:"2026-08-01T00:00:00.000Z",usageUsedGb:80},NOW);
     const version=firstValue(database,"SELECT version FROM service_entitlements WHERE service_id=?",seeded.serviceId) as number;
     scheduleServiceDowngrade(database,owner,seeded.serviceId,"half-500g",NOW);
+    updateCatalogDirectoryStatus(database,{kind:"operator",typeId:"local-isp",regionId:"us",ispId:"us-verizon",
+      isActive:false,adminUserId:admin,now:()=>NOW});
     const changeId=firstValue(database,"SELECT id FROM service_changes WHERE service_id=?",seeded.serviceId) as number;
     const input={ownerId:owner,expectedVersion:version,configured:true as const};
     assert.equal(listManualServiceChanges(database,NOW).counts.total,0);assert.equal(listManualServiceChanges(database,NOW).items[0]?.category,"scheduled");
@@ -584,6 +587,20 @@ test("a dearer line cannot disguise a lower monthly flow quota as an upgrade", a
     assert.throws(() => quoteServiceUpgrade(database,userId,seeded.serviceId,"live-200g",NOW),/invalid_change_target/);
     assert.throws(() => scheduleServiceDowngrade(database,userId,seeded.serviceId,"half-200g",NOW),/invalid_change_target/);
     assert.equal(firstValue(database,"SELECT COUNT(*) FROM service_changes"),0);
+  });
+});
+
+test("disabled directory hides new service-change offers without changing the existing service", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const userId = insertAuthenticationUser(database,{email:"change-directory@example.invalid",passwordHash:"synthetic",status:"active"});
+    const seeded = seedService(database,userId);
+    const existing = serviceChangeSnapshot(database,seeded.serviceId,userId,NOW);
+    updateCatalogDirectoryStatus(database,{kind:"region",typeId:"local-isp",regionId:"us",
+      isActive:false,adminUserId:userId,now:()=>NOW});
+    assert.deepEqual(listServiceChangeOptions(database,userId,seeded.serviceId,NOW),[]);
+    assert.throws(()=>quoteServiceUpgrade(database,userId,seeded.serviceId,"high-500g",NOW),/plan_unavailable/);
+    assert.equal(firstValue(database,"SELECT COUNT(*) FROM service_change_quotes"),0);
+    assert.deepEqual(serviceChangeSnapshot(database,seeded.serviceId,userId,NOW),existing);
   });
 });
 

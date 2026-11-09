@@ -130,7 +130,8 @@ test("admin user search matches email substrings literally and is bounded", asyn
     const found = await app.inject({ method: "GET", url: "/api/admin/users?q=BUYER", headers: json(admin, false) });
     assert.equal(found.statusCode, 200);
     assert.deepEqual(found.json().items.map((item: { email: string }) => item.email), ["buyer@example.com"]);
-    assert.deepEqual(Object.keys(found.json().items[0]).sort(), ["createdAt", "email", "id", "role", "status"]);
+    assert.deepEqual(Object.keys(found.json().items[0]).sort(), ["createdAt", "email", "id", "lastSuccessfulWebLoginAt", "role", "status"]);
+    assert.equal(found.json().items[0].lastSuccessfulWebLoginAt, null);
     const bulk = await app.inject({ method: "GET", url: "/api/admin/users?q=bulk", headers: json(admin, false) });
     assert.equal(bulk.json().items.length, 20);
     const wildcard = await app.inject({ method: "GET", url: "/api/admin/users?q=%25", headers: json(admin, false) });

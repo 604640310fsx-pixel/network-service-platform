@@ -1,4 +1,5 @@
 import type { DatabaseConnection } from "../db.js";
+import { isDirectoryEnabled, isPlanDirectoryEnabled } from "./catalog-directory.js";
 import { createResidentialOptions, isResidentialV2, residentialVariant, residentialBaseSpec,
   residentialSnapshotSql, residentialOptionsFromOrderRow, assertResidentialSnapshotAnchor, parseResidentialOptions, RESIDENTIAL_VARIANTS, RESIDENTIAL_LEGACY_DIRECT_SPEC, type ResidentialOptions } from "./residential-options.js";
 
@@ -50,7 +51,7 @@ export function listPurchaseCatalogPlans(database: DatabaseConnection): Array<Ad
       if (plan?.residentialOptions) items.push({ ...anchor, ...plan, specId: variant.specId, residentialOptions: plan.residentialOptions });
     }
   }
-  return items;
+  return items.map((row) => ({ ...row, isActive: row.isActive && isDirectoryEnabled(database, row.typeId, row.regionId, row.ispId) }));
 }
 
 export const COUPON_CODE_PATTERN = /^[A-Z0-9_-]{3,32}$/;
@@ -250,7 +251,7 @@ export function resolveQuote(
   input: QuoteInput,
 ): QuoteResult {
   const plan = findSellablePlan(database, input.selection, input.residentialHistory);
-  if (plan === null || !plan.isActive) {
+  if (plan === null || !plan.isActive || !isDirectoryEnabled(database, input.selection.typeId, input.selection.regionId, input.selection.ispId)) {
     throw new PaymentDomainError(409, "plan_unavailable");
   }
   if (plan.soldOut || (plan.totalSlots !== null && plan.occupiedSlots >= plan.totalSlots)) {
@@ -317,6 +318,7 @@ export function occupyPlanAndCoupon(
   input: OccupyInput,
 ): void {
   const nowIso = input.now().toISOString();
+  if (!isPlanDirectoryEnabled(database, input.planId)) throw new PaymentDomainError(409, "plan_unavailable");
   const planResult = database
     .prepare(
       `UPDATE sellable_plans SET occupied_slots = occupied_slots + 1, updated_at = ?

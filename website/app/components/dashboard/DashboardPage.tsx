@@ -1,15 +1,6 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
 import { useT } from "../../lib/i18n";
-import { AdminCouponsPanel } from "./AdminCouponsPanel";
-import { AdminDiagnosisPanel } from "./AdminDiagnosisPanel";
-import { AdminInviteCodesPanel } from "./AdminInviteCodesPanel";
-import { AdminOrdersPanel } from "./AdminOrdersPanel";
-import { AdminPendingServices } from "./AdminPendingServices";
-import { AdminServiceChangePanel } from "./AdminServiceChangePanel";
-import { AdminPlansPanel } from "./AdminPlansPanel";
-import { AdminTicketsPanel } from "./AdminTicketsPanel";
-import { AdminUserServicesPanel } from "./AdminUserServicesPanel";
 import { BuyerDashboardOverview } from "./BuyerDashboardOverview";
 import "./dashboard.css";
 
@@ -28,23 +19,18 @@ function ActionIcon() {
 }
 
 export function DashboardPage() {
-  const { principal, csrfToken } = useAuth();
+  const { principal } = useAuth();
   const copy = useT().dashboard;
 
   return (
     <main className="dash-page">
       <div className="dash-layout">
-        {principal?.role === "admin" && <AdminServiceChangePanel csrfToken={csrfToken} />}
         <BuyerDashboardOverview />
-
-        {principal?.role === "admin" && <AdminDiagnosisPanel csrfToken={csrfToken} />}
-        {principal?.role === "admin" && <AdminInviteCodesPanel csrfToken={csrfToken} />}
-        {principal?.role === "admin" && <AdminPendingServices csrfToken={csrfToken} />}
-        {principal?.role === "admin" && <AdminUserServicesPanel csrfToken={csrfToken} />}
-        {principal?.role === "admin" && <AdminOrdersPanel csrfToken={csrfToken} />}
-        {principal?.role === "admin" && <AdminPlansPanel csrfToken={csrfToken} />}
-        {principal?.role === "admin" && <AdminCouponsPanel csrfToken={csrfToken} />}
-        {principal?.role === "admin" && <AdminTicketsPanel csrfToken={csrfToken} />}
+        {principal?.role === "admin" && <section className="dash-panel" aria-label={copy.adminEntryTitle}>
+          <h2><em>ADMIN</em>{copy.adminEntryTitle}</h2>
+          <p>{copy.adminEntryDescription}</p>
+          <Link className="dash-primary-link" to="/admin">{copy.adminEntryAction}</Link>
+        </section>}
 
         <section className="dash-panel" aria-labelledby="dash-actions-title">
           <h2 id="dash-actions-title"><em>ACTIONS</em>{copy.actionsTitle}</h2>

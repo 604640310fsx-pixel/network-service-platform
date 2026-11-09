@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   getAdminPlans,
+  getAdminCatalogDirectory,
+  updateAdminDirectoryRegion,
+  updateAdminDirectoryOperator,
   updateAdminPlan,
   type AdminPlanItem,
+  type AdminCatalogDirectory,
+  type AdminRegionItem,
+  type AdminOperatorItem,
 } from "../../lib/admin-commerce-api";
 import { PaymentApiError } from "../../lib/payment-api";
 import { resolveSelection } from "../../lib/resolveSelection";
@@ -48,10 +54,16 @@ function draftFromItem(item: AdminPlanItem): PlanDraft {
 
 export function AdminPlansPanel({ csrfToken }: { csrfToken: string | null }) {
   const [items, setItems] = useState<AdminPlanItem[]>([]);
+  const [directoryStatus, setDirectoryStatus] = useState<AdminCatalogDirectory | null>(null);
+  const [directorySaving, setDirectorySaving] = useState<string | null>(null);
+  const [directoryError, setDirectoryError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [regionFilter, setRegionFilter] = useState("");
+  const [ispFilter, setIspFilter] = useState("");
   const [drafts, setDrafts] = useState<Record<number, PlanDraft>>({});
   const [savingId, setSavingId] = useState<number | null>(null);
   const [rowError, setRowError] = useState<Record<number, string>>({});
@@ -59,10 +71,11 @@ export function AdminPlansPanel({ csrfToken }: { csrfToken: string | null }) {
   useEffect(() => {
     const controller = new AbortController();
     let stopped = false;
-    void getAdminPlans(controller.signal)
-      .then((nextItems) => {
+    void Promise.all([getAdminPlans(controller.signal), getAdminCatalogDirectory(controller.signal)])
+      .then(([nextItems, nextDirectory]) => {
         if (stopped) return;
         setItems(nextItems);
+        setDirectoryStatus(nextDirectory);
         setError(null);
       })
       .catch((loadError: unknown) => {
@@ -82,6 +95,9 @@ export function AdminPlansPanel({ csrfToken }: { csrfToken: string | null }) {
     return items.filter((item) => {
       if (statusFilter === "active" && !item.isActive) return false;
       if (statusFilter === "inactive" && item.isActive) return false;
+      if (typeFilter !== "" && item.typeId !== typeFilter) return false;
+      if (regionFilter !== "" && item.regionId !== regionFilter) return false;
+      if (ispFilter !== "" && item.ispId !== ispFilter) return false;
       if (query === "") return true;
       const label = planLabel(item);
       const haystack = [
@@ -90,7 +106,56 @@ export function AdminPlansPanel({ csrfToken }: { csrfToken: string | null }) {
       ].join(" ").toLowerCase();
       return haystack.includes(query);
     });
-  }, [items, search, statusFilter]);
+  }, [items, search, statusFilter, typeFilter, regionFilter, ispFilter]);
+
+  const directory = useMemo(() => {
+    const groups = new Map<string, { typeId: string; regionId: string; ispId: string; label: ReturnType<typeof planLabel>; total: number; active: number }>();
+    for (const item of items) {
+      const key = JSON.stringify([item.typeId, item.regionId, item.ispId]);
+      const group = groups.get(key) ?? {
+        typeId: item.typeId, regionId: item.regionId, ispId: item.ispId,
+        label: planLabel(item), total: 0, active: 0,
+      };
+      group.total += 1;
+      if (item.isActive) group.active += 1;
+      groups.set(key, group);
+    }
+    return [...groups.values()].sort((a, b) =>
+      `${a.label.type} ${a.label.region} ${a.label.isp}`.localeCompare(`${b.label.type} ${b.label.region} ${b.label.isp}`, "zh-Hans-CN"));
+  }, [items]);
+
+  const types = [...new Map(directory.map((entry) => [entry.typeId, entry.label.type])).entries()];
+  const regions = [...new Map(directory.filter((entry) => typeFilter === "" || entry.typeId === typeFilter)
+    .map((entry) => [entry.regionId, entry.label.region])).entries()];
+  const isps = [...new Map(directory.filter((entry) =>
+    (typeFilter === "" || entry.typeId === typeFilter) && (regionFilter === "" || entry.regionId === regionFilter))
+    .map((entry) => [entry.ispId, entry.label.isp])).entries()];
+
+  async function toggleRegion(item: AdminRegionItem) {
+    if (csrfToken === null || directorySaving !== null) return;
+    const key = JSON.stringify([item.typeId, item.regionId]);
+    setDirectorySaving(key);
+    setDirectoryError(null);
+    try {
+      const updated = await updateAdminDirectoryRegion(item, csrfToken);
+      setDirectoryStatus((current) => current === null ? null : { ...current,
+        regions: current.regions.map((existing) => existing.typeId === item.typeId && existing.regionId === item.regionId ? updated : existing) });
+    } catch (caught) { setDirectoryError(planErrorMessage(caught)); }
+    finally { setDirectorySaving(null); }
+  }
+
+  async function toggleOperator(item: AdminOperatorItem) {
+    if (csrfToken === null || directorySaving !== null) return;
+    const key = JSON.stringify([item.typeId, item.regionId, item.ispId]);
+    setDirectorySaving(key);
+    setDirectoryError(null);
+    try {
+      const updated = await updateAdminDirectoryOperator(item, csrfToken);
+      setDirectoryStatus((current) => current === null ? null : { ...current,
+        operators: current.operators.map((existing) => existing.typeId === item.typeId && existing.regionId === item.regionId && existing.ispId === item.ispId ? updated : existing) });
+    } catch (caught) { setDirectoryError(planErrorMessage(caught)); }
+    finally { setDirectorySaving(null); }
+  }
 
   function draftFor(item: AdminPlanItem): PlanDraft {
     return drafts[item.id] ?? draftFromItem(item);
@@ -111,8 +176,11 @@ export function AdminPlansPanel({ csrfToken }: { csrfToken: string | null }) {
       return;
     }
     const draft = draftFor(item);
-    const priceYuan = Number(draft.priceYuan);
-    if (!Number.isFinite(priceYuan) || priceYuan <= 0) {
+    const priceText = draft.priceYuan.trim();
+    const validPrice = /^\d+(?:\.\d{1,2})?$/.test(priceText);
+    const [yuan = "", cents = ""] = priceText.split(".");
+    const priceFen = Number(yuan) * 100 + Number(cents.padEnd(2, "0"));
+    if (!validPrice || !Number.isSafeInteger(priceFen) || priceFen <= 0) {
       setRowError((current) => ({ ...current, [item.id]: "请输入有效的价格（元）。" }));
       return;
     }
@@ -125,7 +193,7 @@ export function AdminPlansPanel({ csrfToken }: { csrfToken: string | null }) {
     setRowError((current) => { const next = { ...current }; delete next[item.id]; return next; });
     try {
       const updated = await updateAdminPlan(item.id, csrfToken, {
-        priceFen: Math.round(priceYuan * 100),
+        priceFen,
         totalSlots,
       });
       setItems((current) => current.map((existing) => (existing.id === item.id ? updated : existing)));
@@ -158,6 +226,36 @@ export function AdminPlansPanel({ csrfToken }: { csrfToken: string | null }) {
     <section className="dash-panel" aria-labelledby="dash-admin-plans-title">
       <h2 id="dash-admin-plans-title"><em>COMMERCE</em>套餐管理<span>{loading ? "读取中" : `${filteredItems.length} / ${items.length} 项`}</span></h2>
       {error && <p className="dash-inline-error" role="alert">{error}</p>}
+      {!loading && !error && directoryStatus && <div className="dash-plan-directory" aria-label="国家和运营商目录">
+        <div className="dash-plan-directory-heading">
+          <strong>国家与运营商目录</strong>
+          <span>独立启停仅影响新报价和新订单；套餐的逐项停售与库存仍单独生效</span>
+        </div>
+        {directoryError && <p className="dash-inline-error" role="alert">{directoryError}</p>}
+        {directoryStatus.regions.length === 0 ? <p>暂无已配置套餐。</p> : <div className="dash-plan-directory-list">
+          {directoryStatus.regions.map((region) => {
+            const regionPlans = directory.filter((entry) => entry.typeId === region.typeId && entry.regionId === region.regionId);
+            const label = regionPlans[0]?.label;
+            const operators = directoryStatus.operators.filter((entry) => entry.typeId === region.typeId && entry.regionId === region.regionId);
+            return <div className="dash-plan-directory-card" key={JSON.stringify([region.typeId, region.regionId])}>
+              <strong>{label?.type ?? region.typeId} · {label?.region ?? region.regionId}</strong>
+              <button type="button" disabled={csrfToken === null || directorySaving !== null} aria-busy={directorySaving === JSON.stringify([region.typeId, region.regionId])}
+                onClick={() => void toggleRegion(region)}>{region.isActive ? "地区已启用 · 点击停用" : "地区已停用 · 点击启用"}</button>
+              {operators.map((operator) => {
+                const plans = regionPlans.find((entry) => entry.ispId === operator.ispId);
+                return <div key={operator.ispId} className="dash-plan-directory-operator">
+                  <button type="button" onClick={() => { setTypeFilter(operator.typeId); setRegionFilter(operator.regionId); setIspFilter(operator.ispId); }}>
+                    {plans?.label.isp ?? operator.ispId} · 查看套餐
+                  </button>
+                  <small>{plans?.active ?? 0}/{plans?.total ?? 0} 项套餐自身启用</small>
+                  <button type="button" disabled={csrfToken === null || directorySaving !== null} aria-busy={directorySaving === JSON.stringify([operator.typeId, operator.regionId, operator.ispId])}
+                    onClick={() => void toggleOperator(operator)}>{operator.isActive ? "运营商已启用 · 点击停用" : "运营商已停用 · 点击启用"}</button>
+                </div>;
+              })}
+            </div>;
+          })}
+        </div>}
+      </div>}
       <div className="dash-plans-toolbar">
         <input
           type="text"
@@ -166,18 +264,34 @@ export function AdminPlansPanel({ csrfToken }: { csrfToken: string | null }) {
           placeholder="搜索类型 / 地区 / 运营商 / 规格 / 周期"
           autoComplete="off"
         />
+        <select aria-label="网络类型" value={typeFilter} onChange={(event) => { setTypeFilter(event.target.value); setRegionFilter(""); setIspFilter(""); }}>
+          <option value="">全部类型</option>
+          {types.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+        </select>
+        <select aria-label="国家或地区" value={regionFilter} onChange={(event) => { setRegionFilter(event.target.value); setIspFilter(""); }}>
+          <option value="">全部地区</option>
+          {regions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+        </select>
+        <select aria-label="运营商" value={ispFilter} onChange={(event) => setIspFilter(event.target.value)}>
+          <option value="">全部运营商</option>
+          {isps.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+        </select>
         <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | "active" | "inactive")}>
           <option value="all">全部状态</option>
-          <option value="active">仅可售</option>
-          <option value="inactive">仅停售</option>
+          <option value="active">仅套餐启用</option>
+          <option value="inactive">仅套餐停售</option>
         </select>
       </div>
+      {(typeFilter || regionFilter || ispFilter || search || statusFilter !== "all") &&
+        <button type="button" className="dash-usvc-ghost" onClick={() => {
+          setTypeFilter(""); setRegionFilter(""); setIspFilter(""); setSearch(""); setStatusFilter("all");
+        }}>清除筛选</button>}
       <div className="dash-plans-table-wrap">
         <table className="dash-plans-table">
           <thead>
             <tr>
               <th>ID</th><th>网络类型</th><th>地区</th><th>运营商</th><th>规格</th><th>周期</th>
-              <th>价格（元）</th><th>状态</th><th>总名额</th><th>已占用</th><th></th>
+              <th>价格（元）</th><th>套餐状态</th><th>总名额</th><th>已占用</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -207,8 +321,15 @@ export function AdminPlansPanel({ csrfToken }: { csrfToken: string | null }) {
                   </td>
                   <td>
                     <button type="button" className={`dash-tag dash-plan-status ${item.isActive ? "is-active" : ""}`} onClick={() => void toggleActive(item)} disabled={saving}>
-                      {item.isActive ? "可售" : "停售"}
+                      {item.isActive ? "套餐启用" : "套餐停售"}
                     </button>
+                    {item.isActive && directoryStatus && (() => {
+                      const region = directoryStatus.regions.find((entry) => entry.typeId === item.typeId && entry.regionId === item.regionId);
+                      const operator = directoryStatus.operators.find((entry) => entry.typeId === item.typeId && entry.regionId === item.regionId && entry.ispId === item.ispId);
+                      const reason = !region?.isActive ? "地区停用" : !operator?.isActive ? "运营商停用" :
+                        item.totalSlots !== null && item.occupiedSlots >= item.totalSlots ? "库存已满" : null;
+                      return reason && <small className="dash-plan-reason">新购不可用：{reason}</small>;
+                    })()}
                   </td>
                   <td>
                     <input

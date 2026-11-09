@@ -13,6 +13,7 @@ export type AdminUserSummary = {
   readonly role: "user" | "admin";
   readonly status: "active" | "disabled";
   readonly createdAt: string;
+  readonly lastSuccessfulWebLoginAt: string | null;
 };
 
 export type AdminUserService = {
@@ -129,7 +130,12 @@ function parseUser(value: unknown): AdminUserSummary {
   if ((role !== "user" && role !== "admin") || (status !== "active" && status !== "disabled")) {
     throw new PaymentApiError("invalid_response");
   }
-  return { id: int(row.id), email: str(row.email), role, status, createdAt: str(row.createdAt) };
+  if (row.lastSuccessfulWebLoginAt !== null &&
+      (typeof row.lastSuccessfulWebLoginAt !== "string" || Number.isNaN(Date.parse(row.lastSuccessfulWebLoginAt)))) {
+    throw new PaymentApiError("invalid_response");
+  }
+  return { id: int(row.id), email: str(row.email), role, status, createdAt: str(row.createdAt),
+    lastSuccessfulWebLoginAt: row.lastSuccessfulWebLoginAt as string | null };
 }
 
 const RENEWAL_PERIODS = ["MONTHLY", "QUARTERLY", "SEMIANNUAL", "ANNUAL"];

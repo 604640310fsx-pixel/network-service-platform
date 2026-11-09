@@ -35,6 +35,7 @@ export const DIRECT14_RELEASE_ARTIFACT_PREFIX = "consolidated-release-direct14-"
 export const STANDARD19_RELEASE_ARTIFACT_PREFIX = "consolidated-release-standard19-";
 export const STANDARD26_RELEASE_ARTIFACT_PREFIX = "consolidated-release-standard26-";
 export const RESIDENTIAL31_RELEASE_ARTIFACT_PREFIX = "consolidated-release-residential31-";
+export const ADMIN32_RELEASE_ARTIFACT_PREFIX = "consolidated-release-admin32-";
 export const RELEASE_INTEGRATION_REF =
   "refs/heads/integration/consolidate-project";
 export const STANDARD26_FORMAL_REF =
@@ -43,6 +44,54 @@ export const STANDARD26_PRODUCT_BASELINE =
   "20b18764ff465cd690a433305fad5124ed4ecb60";
 export const RESIDENTIAL31_FORMAL_REF = "refs/heads/codex/residential-options-local-20261105";
 export const RESIDENTIAL31_PRODUCT_BASELINE = "d3d7297b48a7fd89fb46a8ae508eeec323cf330c";
+export const ADMIN32_FORMAL_REF = RESIDENTIAL31_FORMAL_REF;
+export const ADMIN32_PRODUCT_BASELINE = "518c32e3263d0cdbbd015fec51d200168a33e8d0";
+export const ADMIN32_COMPAT_BASELINE = "381aa5d0a7ad4bfadf68db67227b0321cc3d24f3";
+export const ADMIN32_PRICING_SOURCE_SHA256 = "ed7f59d2ad72d4ff05ac74c0854c9813e1611a58db7672e37dc2c3e8c57f70ba";
+export const ADMIN32_ROLLBACK_PATCH = "scripts/ops/patches/admin32-rollback-from-381.patch";
+export const ADMIN32_ROLLBACK_WEBSITE_SOURCE = ADMIN32_PRODUCT_BASELINE;
+export const ADMIN32_ROLLBACK_PATCH_PATHS = Object.freeze([
+  "auth-service/src/db.ts", "auth-service/src/migrations/032_catalog_directory_and_last_login.sql",
+  "auth-service/src/payment/catalog-directory.ts", "auth-service/src/payment/commerce.ts",
+  "auth-service/src/payment/service-change.ts", "auth-service/src/server.ts",
+  "auth-service/src/session/login-session.ts",
+]);
+export const ADMIN32_COMPAT_AUTH_PATHS = Object.freeze([
+  "auth-service/src/db.ts", "auth-service/src/http/admin-routes.ts",
+  "auth-service/src/migrations/032_catalog_directory_and_last_login.sql",
+  "auth-service/src/payment/admin-services.ts", "auth-service/src/payment/catalog-directory.ts",
+  "auth-service/src/payment/commerce.ts", "auth-service/src/payment/service-change.ts",
+  "auth-service/src/session/login-session.ts",
+]);
+// Only this task's reviewed source, migration, tests and release controls may
+// differ from the exact 031 base in a formal 032 source commit.
+export const ADMIN32_ALLOWED_PATHS = Object.freeze([
+  ".github/workflows/ci.yml",
+  "auth-service/src/db.ts", "auth-service/src/http/admin-routes.ts",
+  "auth-service/src/migrations/032_catalog_directory_and_last_login.sql",
+  "auth-service/src/payment/admin-services.ts", "auth-service/src/payment/catalog-directory.ts",
+  "auth-service/src/payment/commerce.ts", "auth-service/src/payment/pricing.ts",
+  "auth-service/src/payment/service-change.ts", "auth-service/src/session/login-session.ts",
+  "auth-service/test/auth/http-login-me.test.ts", "auth-service/test/auth/login-session.test.ts",
+  "auth-service/test/auth/server-mail-runtime.test.ts", "auth-service/test/db.test.ts",
+  "auth-service/test/diagnosis/migration.test.ts", "auth-service/test/migrations.test.ts",
+  "auth-service/test/payment/admin-services.test.ts", "auth-service/test/payment/catalog-directory.test.ts",
+  "auth-service/test/payment/admin32-rollback-compat.test.ts",
+  "auth-service/test/admin32-independent-rollback.mjs",
+  "auth-service/test/payment/residential-options.test.ts", "auth-service/test/payment/service-change-local.test.ts",
+  "auth-service/test/payment/us-local-carrier-in-memory.test.ts", "auth-service/test/personal-invites.test.ts",
+  "auth-service/test/sqlite-backup.test.ts", "docs/ops/consolidated-release-runbook.md",
+  "scripts/ops/assemble-consolidated-release.mjs", "scripts/ops/consolidated-release-packet.test.mjs",
+  ADMIN32_ROLLBACK_PATCH,
+  "scripts/ops/validate-consolidated-release-packet.mjs",
+  "website/app/components/customer/CustomerCenterShell.tsx",
+  "website/app/components/dashboard/AdminManagementPage.tsx", "website/app/components/dashboard/AdminPlansPanel.tsx",
+  "website/app/components/dashboard/AdminUserServicesPanel.tsx", "website/app/components/dashboard/DashboardPage.tsx",
+  "website/app/components/dashboard/dashboard.css", "website/app/i18n/en.ts", "website/app/i18n/zh.ts",
+  "website/app/lib/admin-commerce-api.ts", "website/app/lib/admin-services-api.ts", "website/src/App.tsx",
+  "website/tests/adminInviteCodes.test.ts", "website/tests/authEntryUx.test.ts",
+  "website/tests/tickets.test.ts", "website/tests/usLocalCarrierPricing.test.ts",
+]);
 export const STANDARD26_CONTROL_PATHS = Object.freeze([
   ".github/workflows/ci.yml",
   "scripts/ops/assemble-consolidated-release.mjs",
@@ -50,6 +99,7 @@ export const STANDARD26_CONTROL_PATHS = Object.freeze([
   "scripts/ops/consolidated-release-packet.test.mjs",
 ]);
 export function releaseFormalRefForRoute(schemaRoute) {
+  if (schemaRoute === STANDARD31_32_RELEASE_SCHEMA_ROUTE) return ADMIN32_FORMAL_REF;
   if (schemaRoute === STANDARD26_31_RELEASE_SCHEMA_ROUTE) return RESIDENTIAL31_FORMAL_REF;
   return schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE
     ? STANDARD26_FORMAL_REF : RELEASE_INTEGRATION_REF;
@@ -92,11 +142,16 @@ export const STANDARD19_26_RELEASE_SCHEMA_ROUTE = "standard19-26";
 // Independent opt-in route. Never changes the frozen default/026 CI routes.
 export const STANDARD26_30_RELEASE_SCHEMA_ROUTE = "standard26-30";
 export const STANDARD26_31_RELEASE_SCHEMA_ROUTE = "standard26-31";
+export const STANDARD31_32_RELEASE_SCHEMA_ROUTE = "standard31-32";
 export function isIndependentStandard26Route(route) {
   return route === STANDARD26_30_RELEASE_SCHEMA_ROUTE || route === STANDARD26_31_RELEASE_SCHEMA_ROUTE;
 }
+export function isFormalBoundRoute(route) {
+  return isIndependentStandard26Route(route) || route === STANDARD31_32_RELEASE_SCHEMA_ROUTE;
+}
 export function releaseProductBaselineForRoute(route) {
-  return route === STANDARD26_31_RELEASE_SCHEMA_ROUTE ? RESIDENTIAL31_PRODUCT_BASELINE :
+  return route === STANDARD31_32_RELEASE_SCHEMA_ROUTE ? ADMIN32_PRODUCT_BASELINE :
+    route === STANDARD26_31_RELEASE_SCHEMA_ROUTE ? RESIDENTIAL31_PRODUCT_BASELINE :
     route === STANDARD26_30_RELEASE_SCHEMA_ROUTE ? STANDARD26_PRODUCT_BASELINE : null;
 }
 export const DEFAULT_RELEASE_SCHEMA_ROUTE = STANDARD16_26_RELEASE_SCHEMA_ROUTE;
@@ -127,9 +182,10 @@ export const RELEASE_SCHEMA_BOUNDARIES = Object.freeze({
   [STANDARD19_26_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 19, candidate: 26 }),
   [STANDARD26_30_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 26, candidate: 30 }),
   [STANDARD26_31_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 26, candidate: 31 }),
+  [STANDARD31_32_RELEASE_SCHEMA_ROUTE]: Object.freeze({ migrationStart: 31, candidate: 32, applicationRollback: 32 }),
 });
 export const RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE =
-  "--schema-route must be standard16-19, direct14-19, standard16-20, direct14-20, standard19-20, standard16-21, direct14-21, standard19-21, standard16-22, direct14-22, standard19-22, standard16-23, direct14-23, standard19-23, standard16-24, direct14-24, standard19-24, standard16-25, direct14-25, standard19-25, standard16-26, direct14-26, standard19-26, standard26-30, or standard26-31";
+  "--schema-route must be standard16-19, direct14-19, standard16-20, direct14-20, standard19-20, standard16-21, direct14-21, standard19-21, standard16-22, direct14-22, standard19-22, standard16-23, direct14-23, standard19-23, standard16-24, direct14-24, standard19-24, standard16-25, direct14-25, standard19-25, standard16-26, direct14-26, standard19-26, standard26-30, standard26-31, or standard31-32";
 const DIRECT14_RELEASE_SCHEMA_ROUTES = Object.freeze(
   new Set([
     DIRECT14_19_RELEASE_SCHEMA_ROUTE,
@@ -163,7 +219,8 @@ export function releaseArtifactNameForRoute(sha, schemaRoute) {
       RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE,
     );
   }
-  const prefix = schemaRoute === STANDARD26_31_RELEASE_SCHEMA_ROUTE ? RESIDENTIAL31_RELEASE_ARTIFACT_PREFIX : schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE
+  const prefix = schemaRoute === STANDARD31_32_RELEASE_SCHEMA_ROUTE ? ADMIN32_RELEASE_ARTIFACT_PREFIX :
+    schemaRoute === STANDARD26_31_RELEASE_SCHEMA_ROUTE ? RESIDENTIAL31_RELEASE_ARTIFACT_PREFIX : schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE
     ? STANDARD26_RELEASE_ARTIFACT_PREFIX
     : isDirect14ReleaseSchemaRoute(schemaRoute)
     ? DIRECT14_RELEASE_ARTIFACT_PREFIX
@@ -238,6 +295,10 @@ export const RELEASE_MIGRATIONS_001_031 = Object.freeze([
   ...RELEASE_MIGRATIONS_001_030,
   "031_residential_order_options.sql",
 ]);
+export const RELEASE_MIGRATIONS_001_032 = Object.freeze([
+  ...RELEASE_MIGRATIONS_001_031,
+  "032_catalog_directory_and_last_login.sql",
+]);
 // Frozen default contract, not a moving alias for the newest source.
 export const RELEASE_MIGRATIONS = RELEASE_MIGRATIONS_001_026;
 export function releaseMigrationsForRoute(schemaRoute) {
@@ -265,6 +326,7 @@ export function releaseMigrationsForRoute(schemaRoute) {
                 : candidate === 30
                   ? RELEASE_MIGRATIONS_001_030
                   : candidate === 31 ? RELEASE_MIGRATIONS_001_031
+                  : candidate === 32 ? RELEASE_MIGRATIONS_001_032
                   : RELEASE_MIGRATIONS_001_026;
 }
 
@@ -600,7 +662,7 @@ export function createReleaseProvenance({
     eventName === "push" &&
     ref === releaseFormalRefForRoute(schemaRoute) &&
     githubSha === sha &&
-    (!isIndependentStandard26Route(schemaRoute) ||
+    (!isFormalBoundRoute(schemaRoute) ||
       workflowRef === `${RELEASE_REPOSITORY}/.github/workflows/ci.yml@${releaseFormalRefForRoute(schemaRoute)}`);
   if (mode === "github-actions-test") {
     if (isReleaseCandidateContext) {
@@ -628,7 +690,7 @@ export function createReleaseProvenance({
       "release-candidate provenance requires an exact integration push SHA",
     );
   }
-  if (isIndependentStandard26Route(schemaRoute)) {
+  if (isFormalBoundRoute(schemaRoute)) {
     let event;
     try { event = JSON.parse(readFileSync(requiredEnvironment(environment, "GITHUB_EVENT_PATH"), "utf8")); }
     catch { throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "formal standard26 source requires the actual push event payload"); }
@@ -650,7 +712,7 @@ export function createReleaseProvenance({
     ref,
     githubSha,
     artifactName,
-    ...(isIndependentStandard26Route(schemaRoute)
+    ...(isFormalBoundRoute(schemaRoute)
       ? { productBaseline: releaseProductBaselineForRoute(schemaRoute) } : {}),
   });
 }
@@ -729,8 +791,29 @@ export function verifyResidential31ProductSource(source, expectedSha) {
     throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH","residential formal source may differ only in the four release controls");
   return RESIDENTIAL31_PRODUCT_BASELINE;
 }
+export function verifyAdmin32ProductSource(source, expectedSha) {
+  source=existingDirectory(source,"source");
+  verifySourceRevision(source,normalizedExpectedSha(expectedSha));
+  const ancestor=spawnSync("git",["-C",source,"merge-base","--is-ancestor",ADMIN32_PRODUCT_BASELINE,expectedSha],{encoding:"utf8"});
+  if(ancestor.status!==0)throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH","frozen 031 product base must be an ancestor of formal 032");
+  const diff=spawnSync("git",["-C",source,"diff","--name-only","--no-renames","-z",ADMIN32_PRODUCT_BASELINE,expectedSha],{encoding:"utf8"});
+  if(diff.status!==0)throw new ReleaseAssemblyError("SOURCE_INVALID","admin32 product tree comparison failed");
+  if(diff.stdout.split("\0").filter(Boolean).some(path=>!ADMIN32_ALLOWED_PATHS.includes(path)))
+    throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH","formal 032 source changed an unapproved path");
+  const compat=spawnSync("git",["-C",source,"merge-base","--is-ancestor",ADMIN32_COMPAT_BASELINE,expectedSha],{encoding:"utf8"});
+  if(compat.status!==0)throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH","production 381 compatible source base must be an ancestor");
+  const authDiff=spawnSync("git",["-C",source,"diff","--name-only","--no-renames","-z",ADMIN32_COMPAT_BASELINE,expectedSha,"--","auth-service/src"],{encoding:"utf8"});
+  if(authDiff.status!==0)throw new ReleaseAssemblyError("SOURCE_INVALID","381 auth source comparison failed");
+  const authChanged=authDiff.stdout.split("\0").filter(Boolean).sort();
+  if(authChanged.join("\0")!==[...ADMIN32_COMPAT_AUTH_PATHS].sort().join("\0"))
+    throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH","formal 032 Auth source differs from 381 beyond approved schema and directory/login compatibility");
+  if(sha256File(join(source,"auth-service/src/payment/pricing.ts"))!==ADMIN32_PRICING_SOURCE_SHA256)
+    throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH","formal 032 source must preserve production 381 pricing logic");
+  return ADMIN32_PRODUCT_BASELINE;
+}
 export function verifyIndependentProductSource(source,expectedSha,route) {
-  return route===STANDARD26_31_RELEASE_SCHEMA_ROUTE ? verifyResidential31ProductSource(source,expectedSha) : verifyStandard26ProductSource(source,expectedSha);
+  return route===STANDARD31_32_RELEASE_SCHEMA_ROUTE ? verifyAdmin32ProductSource(source,expectedSha) :
+    route===STANDARD26_31_RELEASE_SCHEMA_ROUTE ? verifyResidential31ProductSource(source,expectedSha) : verifyStandard26ProductSource(source,expectedSha);
 }
 
 function normalizedRelativePath(path) {
@@ -893,6 +976,7 @@ export function assembleReleaseBundle({
   expectedSha,
   provenanceMode,
   schemaRoute = DEFAULT_RELEASE_SCHEMA_ROUTE,
+  admin32RollbackSource,
   environment = process.env,
 }) {
   if (!isKnownReleaseSchemaRoute(schemaRoute)) {
@@ -913,10 +997,19 @@ export function assembleReleaseBundle({
   });
   const destinationRoot = newDestination(destination, sourceRoot);
   verifySourceRevision(sourceRoot, sha);
-  if (isIndependentStandard26Route(schemaRoute) && provenance.kind === "github-actions") {
+  if (isFormalBoundRoute(schemaRoute) && provenance.kind === "github-actions") {
     verifyIndependentProductSource(sourceRoot, sha, schemaRoute);
   }
   verifyMigrationInputs(sourceRoot, routeMigrations);
+  const isAdmin32 = schemaRoute === STANDARD31_32_RELEASE_SCHEMA_ROUTE;
+  if (!isAdmin32 && admin32RollbackSource !== undefined) {
+    throw new ReleaseAssemblyError("ARGUMENT_ERROR", "admin32 rollback source is only valid on standard31-32");
+  }
+  const rollbackRoot = isAdmin32
+    ? existingDirectory(admin32RollbackSource, "admin32 rollback source") : null;
+  if (isAdmin32 && !pathExists(join(rollbackRoot, "auth-service/dist/src/server.js"))) {
+    throw new ReleaseAssemblyError("ARTIFACT_MISSING", "independent admin32 rollback Auth build is required");
+  }
 
   let created = false;
   try {
@@ -932,6 +1025,14 @@ export function assembleReleaseBundle({
           targetRelative,
         ),
       );
+    }
+    if (isAdmin32) {
+      copiedPaths.push(...copyMappedInput(rollbackRoot, destinationRoot,
+        "auth-service/dist/src", "auth-service/rollback32/dist/src"));
+      copiedPaths.push(...copyMappedInput(sourceRoot, destinationRoot,
+        "auth-service/src/migrations", "auth-service/rollback32/src/migrations"));
+      copiedPaths.push(...copyMappedInput(sourceRoot, destinationRoot,
+        ADMIN32_ROLLBACK_PATCH, ADMIN32_ROLLBACK_PATCH));
     }
 
     for (const requiredPath of REQUIRED_PAYLOAD_PATHS) {
@@ -957,6 +1058,15 @@ export function assembleReleaseBundle({
       sourceSha: sha,
       ...(releaseManifestCarriesSchemaRoute(schemaRoute) ? { schemaRoute } : {}),
       schemaBoundary,
+      ...(isAdmin32 ? { applicationRollback: {
+        authEntrypoint: "auth-service/rollback32/dist/src/server.js",
+        baselineSourceSha: ADMIN32_COMPAT_BASELINE,
+        patchSha256: sha256File(join(sourceRoot, ADMIN32_ROLLBACK_PATCH)),
+        patchSourceSha: sha,
+        migrationStart: 31,
+        runningSchema: 32,
+        websiteSourceCommit: ADMIN32_ROLLBACK_WEBSITE_SOURCE,
+      } } : {}),
       migrations: routeMigrations,
       entrypoints: {
         auth: "auth-service/dist/src/server.js",
@@ -1004,6 +1114,7 @@ export function run(arguments_) {
       "--expected-sha",
       "--provenance-mode",
       "--schema-route",
+      "--admin32-rollback-source",
     ]),
   );
   return assembleReleaseBundle({
@@ -1012,6 +1123,7 @@ export function run(arguments_) {
     expectedSha: requireOption(options, "--expected-sha"),
     provenanceMode: requireOption(options, "--provenance-mode"),
     schemaRoute: options.get("--schema-route") ?? DEFAULT_RELEASE_SCHEMA_ROUTE,
+    admin32RollbackSource: options.get("--admin32-rollback-source"),
   });
 }
 
