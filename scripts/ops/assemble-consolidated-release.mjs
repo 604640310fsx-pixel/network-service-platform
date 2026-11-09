@@ -1030,6 +1030,8 @@ export function assembleReleaseBundle({
       copiedPaths.push(...copyMappedInput(rollbackRoot, destinationRoot,
         "auth-service/dist/src", "auth-service/rollback32/dist/src"));
       copiedPaths.push(...copyMappedInput(sourceRoot, destinationRoot,
+        "auth-service/src/migrations", "auth-service/rollback32/src/migrations"));
+      copiedPaths.push(...copyMappedInput(sourceRoot, destinationRoot,
         ADMIN32_ROLLBACK_PATCH, ADMIN32_ROLLBACK_PATCH));
     }
 

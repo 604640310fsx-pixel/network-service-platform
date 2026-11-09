@@ -98,7 +98,10 @@ source commit `381aa5d0a7ad4bfadf68db67227b0321cc3d24f3` plus the
 versioned `scripts/ops/patches/admin32-rollback-from-381.patch` at the actual
 formal 032 push SHA. Its manifest records both source SHAs, patch digest and
 `auth-service/rollback32/dist/src/server.js`; the inventory covers the actual
-binary. The patch adds only schema-032 recognition, a ledger-exact startup
+binary and its exact separate `auth-service/rollback32/src/migrations/001–032`
+runtime migration inputs. CI starts the assembled rollback entrypoint against
+an isolated changed 032 database; a staging-tree start alone is insufficient.
+The patch adds only schema-032 recognition, a ledger-exact startup
 path that rejects 031/missing/033 **before migration or write**, read-only
 directory sellability guards for new catalog/quote/order/change requests, and
 successful website-login timestamp recording. It keeps 381 pricing and omits

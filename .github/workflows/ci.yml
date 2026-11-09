@@ -252,6 +252,16 @@ jobs:
                 --source "$GITHUB_WORKSPACE" --expected-sha "$EXPECTED_SHA" \
                 --bundle "$BUNDLE_PARENT/admin32-$ordinal" \
                 --validation-mode "$VALIDATION_MODE" --schema-route standard31-32
+              if [ "$ordinal" = first ]; then
+                ln -s "$GITHUB_WORKSPACE/auth-service/node_modules" "$BUNDLE_PARENT/admin32-first/auth-service/node_modules"
+                node auth-service/test/admin32-independent-rollback.mjs \
+                  "$BUNDLE_PARENT/admin32-first/auth-service/rollback32"
+                unlink "$BUNDLE_PARENT/admin32-first/auth-service/node_modules"
+                node scripts/ops/validate-consolidated-release-packet.mjs \
+                  --source "$GITHUB_WORKSPACE" --expected-sha "$EXPECTED_SHA" \
+                  --bundle "$BUNDLE_PARENT/admin32-first" \
+                  --validation-mode "$VALIDATION_MODE" --schema-route standard31-32
+              fi
               if find "$BUNDLE_PARENT/admin32-$ordinal" \
                 \( -type l -o -name node_modules -o -name '.env*' \
                    -o -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \

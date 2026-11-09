@@ -1463,6 +1463,13 @@ export function validateBundle({
     }
     if (sha256(join(bundleRoot, ADMIN32_ROLLBACK_PATCH)) !== manifest.applicationRollback.patchSha256)
       throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", "admin32 rollback patch digest mismatch");
+    for (const migration of routeMigrations) {
+      if (!inventoryPaths.includes(`auth-service/rollback32/src/migrations/${migration}`))
+        throw new ReleaseValidationError("ARTIFACT_MISSING", `admin32 rollback migration missing: ${migration}`);
+      if (sha256(join(bundleRoot,`auth-service/rollback32/src/migrations/${migration}`)) !==
+          sha256(join(bundleRoot,`auth-service/src/migrations/${migration}`)))
+        throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", `admin32 rollback migration differs: ${migration}`);
+    }
     const patchText = readText(join(bundleRoot, ADMIN32_ROLLBACK_PATCH), "admin32 rollback patch");
     const patchBlocks = [...patchText.matchAll(/^diff --git a\/([^\n]+) b\/\1$/gm)].map((match) => match[1]);
     const patchPaths = [...new Set(patchBlocks)].sort();
@@ -1515,6 +1522,11 @@ export function validateBundle({
   assertExactMigrationFiles(
     join(bundleRoot, "auth-service/src/migrations"),
     "bundle",
+    routeMigrations,
+  );
+  if (isAdmin32) assertExactMigrationFiles(
+    join(bundleRoot, "auth-service/rollback32/src/migrations"),
+    "admin32 rollback bundle",
     routeMigrations,
   );
   const bundledOpenValidator = readText(

@@ -16,7 +16,7 @@ import { scheduleServiceDowngrade } from "../dist/src/payment/service-change.js"
 import { updateCatalogDirectoryStatus } from "../dist/src/payment/catalog-directory.js";
 
 const candidate = resolve(process.argv[2] ?? "");
-if (!/(?:admin32-rollback|\.codex-admin-rollback)/.test(candidate) || candidate === resolve(""))
+if (!/(?:admin32-rollback|\.codex-admin-rollback|admin32-first\/auth-service\/rollback32)/.test(candidate) || candidate === resolve(""))
   throw new Error("Expected task-isolated 381-derived rollback build path");
 const rollback = async (path) => import(pathToFileURL(join(candidate, "dist/src", path)).href);
 const { openRollbackDatabase32, prepareDatabaseReadinessProbe } = await rollback("db.js");

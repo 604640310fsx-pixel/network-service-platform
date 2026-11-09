@@ -3349,6 +3349,8 @@ test("standard31-32 review assembly is exact; local bundles remain unreleasable"
     assert.equal(manifest.applicationRollback.migrationStart,31);
     assert.equal(manifest.applicationRollback.runningSchema,32);
     assert.equal(manifest.applicationRollback.patchSourceSha,source.sha);
+    assert.equal(manifest.inventory.filter((entry)=>entry.path.startsWith("auth-service/rollback32/src/migrations/")).length,32);
+    assert.ok(manifest.inventory.some((entry)=>entry.path==="auth-service/rollback32/src/migrations/032_catalog_directory_and_last_login.sql"));
     assert.deepEqual(manifest.migrations,RELEASE_MIGRATIONS_001_032);
     assert.equal(manifest.provenance.releaseUse,"forbidden");
     assert.equal(validateBundle({bundle,expectedSha:source.sha,validationMode:LOCAL_PROVENANCE_MODE,
@@ -3361,6 +3363,12 @@ test("standard31-32 review assembly is exact; local bundles remain unreleasable"
     assert.throws(()=>validateBundle({bundle,expectedSha:source.sha,validationMode:LOCAL_PROVENANCE_MODE,
       schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE}),error=>error.code==="BUNDLE_INTEGRITY_FAILED");
     writeFileSync(join(bundle,"auth-service/rollback32/dist/src/server.js"),originalServer);
+    const rollbackMigration=join(bundle,"auth-service/rollback32/src/migrations/032_catalog_directory_and_last_login.sql");
+    const originalMigration=readFileSync(rollbackMigration);
+    writeFileSync(rollbackMigration,"-- tampered rollback migration\n");
+    assert.throws(()=>validateBundle({bundle,expectedSha:source.sha,validationMode:LOCAL_PROVENANCE_MODE,
+      schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE}),error=>error.code==="BUNDLE_INTEGRITY_FAILED");
+    writeFileSync(rollbackMigration,originalMigration);
     assert.throws(()=>createReleaseProvenance({mode:"github-actions",expectedSha:source.sha,
       schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE,environment:githubEnvironment({sha:source.sha,candidate:true})}),
       error=>error.code==="PROVENANCE_REQUIRED");
