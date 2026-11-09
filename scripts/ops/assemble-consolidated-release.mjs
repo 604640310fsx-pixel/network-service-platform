@@ -48,6 +48,14 @@ export const ADMIN32_FORMAL_REF = RESIDENTIAL31_FORMAL_REF;
 export const ADMIN32_PRODUCT_BASELINE = "518c32e3263d0cdbbd015fec51d200168a33e8d0";
 export const ADMIN32_COMPAT_BASELINE = "381aa5d0a7ad4bfadf68db67227b0321cc3d24f3";
 export const ADMIN32_PRICING_SOURCE_SHA256 = "ed7f59d2ad72d4ff05ac74c0854c9813e1611a58db7672e37dc2c3e8c57f70ba";
+export const ADMIN32_ROLLBACK_PATCH = "scripts/ops/patches/admin32-rollback-from-381.patch";
+export const ADMIN32_ROLLBACK_WEBSITE_SOURCE = ADMIN32_PRODUCT_BASELINE;
+export const ADMIN32_ROLLBACK_PATCH_PATHS = Object.freeze([
+  "auth-service/src/db.ts", "auth-service/src/migrations/032_catalog_directory_and_last_login.sql",
+  "auth-service/src/payment/catalog-directory.ts", "auth-service/src/payment/commerce.ts",
+  "auth-service/src/payment/service-change.ts", "auth-service/src/server.ts",
+  "auth-service/src/session/login-session.ts",
+]);
 export const ADMIN32_COMPAT_AUTH_PATHS = Object.freeze([
   "auth-service/src/db.ts", "auth-service/src/http/admin-routes.ts",
   "auth-service/src/migrations/032_catalog_directory_and_last_login.sql",
@@ -69,10 +77,12 @@ export const ADMIN32_ALLOWED_PATHS = Object.freeze([
   "auth-service/test/diagnosis/migration.test.ts", "auth-service/test/migrations.test.ts",
   "auth-service/test/payment/admin-services.test.ts", "auth-service/test/payment/catalog-directory.test.ts",
   "auth-service/test/payment/admin32-rollback-compat.test.ts",
+  "auth-service/test/admin32-independent-rollback.mjs",
   "auth-service/test/payment/residential-options.test.ts", "auth-service/test/payment/service-change-local.test.ts",
   "auth-service/test/payment/us-local-carrier-in-memory.test.ts", "auth-service/test/personal-invites.test.ts",
   "auth-service/test/sqlite-backup.test.ts", "docs/ops/consolidated-release-runbook.md",
   "scripts/ops/assemble-consolidated-release.mjs", "scripts/ops/consolidated-release-packet.test.mjs",
+  ADMIN32_ROLLBACK_PATCH,
   "scripts/ops/validate-consolidated-release-packet.mjs",
   "website/app/components/customer/CustomerCenterShell.tsx",
   "website/app/components/dashboard/AdminManagementPage.tsx", "website/app/components/dashboard/AdminPlansPanel.tsx",
@@ -172,7 +182,7 @@ export const RELEASE_SCHEMA_BOUNDARIES = Object.freeze({
   [STANDARD19_26_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 19, candidate: 26 }),
   [STANDARD26_30_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 26, candidate: 30 }),
   [STANDARD26_31_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 26, candidate: 31 }),
-  [STANDARD31_32_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 31, candidate: 32 }),
+  [STANDARD31_32_RELEASE_SCHEMA_ROUTE]: Object.freeze({ migrationStart: 31, candidate: 32, applicationRollback: 32 }),
 });
 export const RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE =
   "--schema-route must be standard16-19, direct14-19, standard16-20, direct14-20, standard19-20, standard16-21, direct14-21, standard19-21, standard16-22, direct14-22, standard19-22, standard16-23, direct14-23, standard19-23, standard16-24, direct14-24, standard19-24, standard16-25, direct14-25, standard19-25, standard16-26, direct14-26, standard19-26, standard26-30, standard26-31, or standard31-32";
@@ -966,6 +976,7 @@ export function assembleReleaseBundle({
   expectedSha,
   provenanceMode,
   schemaRoute = DEFAULT_RELEASE_SCHEMA_ROUTE,
+  admin32RollbackSource,
   environment = process.env,
 }) {
   if (!isKnownReleaseSchemaRoute(schemaRoute)) {
@@ -990,6 +1001,15 @@ export function assembleReleaseBundle({
     verifyIndependentProductSource(sourceRoot, sha, schemaRoute);
   }
   verifyMigrationInputs(sourceRoot, routeMigrations);
+  const isAdmin32 = schemaRoute === STANDARD31_32_RELEASE_SCHEMA_ROUTE;
+  if (!isAdmin32 && admin32RollbackSource !== undefined) {
+    throw new ReleaseAssemblyError("ARGUMENT_ERROR", "admin32 rollback source is only valid on standard31-32");
+  }
+  const rollbackRoot = isAdmin32
+    ? existingDirectory(admin32RollbackSource, "admin32 rollback source") : null;
+  if (isAdmin32 && !pathExists(join(rollbackRoot, "auth-service/dist/src/server.js"))) {
+    throw new ReleaseAssemblyError("ARTIFACT_MISSING", "independent admin32 rollback Auth build is required");
+  }
 
   let created = false;
   try {
@@ -1005,6 +1025,12 @@ export function assembleReleaseBundle({
           targetRelative,
         ),
       );
+    }
+    if (isAdmin32) {
+      copiedPaths.push(...copyMappedInput(rollbackRoot, destinationRoot,
+        "auth-service/dist/src", "auth-service/rollback32/dist/src"));
+      copiedPaths.push(...copyMappedInput(sourceRoot, destinationRoot,
+        ADMIN32_ROLLBACK_PATCH, ADMIN32_ROLLBACK_PATCH));
     }
 
     for (const requiredPath of REQUIRED_PAYLOAD_PATHS) {
@@ -1030,6 +1056,15 @@ export function assembleReleaseBundle({
       sourceSha: sha,
       ...(releaseManifestCarriesSchemaRoute(schemaRoute) ? { schemaRoute } : {}),
       schemaBoundary,
+      ...(isAdmin32 ? { applicationRollback: {
+        authEntrypoint: "auth-service/rollback32/dist/src/server.js",
+        baselineSourceSha: ADMIN32_COMPAT_BASELINE,
+        patchSha256: sha256File(join(sourceRoot, ADMIN32_ROLLBACK_PATCH)),
+        patchSourceSha: sha,
+        migrationStart: 31,
+        runningSchema: 32,
+        websiteSourceCommit: ADMIN32_ROLLBACK_WEBSITE_SOURCE,
+      } } : {}),
       migrations: routeMigrations,
       entrypoints: {
         auth: "auth-service/dist/src/server.js",
@@ -1077,6 +1112,7 @@ export function run(arguments_) {
       "--expected-sha",
       "--provenance-mode",
       "--schema-route",
+      "--admin32-rollback-source",
     ]),
   );
   return assembleReleaseBundle({
@@ -1085,6 +1121,7 @@ export function run(arguments_) {
     expectedSha: requireOption(options, "--expected-sha"),
     provenanceMode: requireOption(options, "--provenance-mode"),
     schemaRoute: options.get("--schema-route") ?? DEFAULT_RELEASE_SCHEMA_ROUTE,
+    admin32RollbackSource: options.get("--admin32-rollback-source"),
   });
 }
 

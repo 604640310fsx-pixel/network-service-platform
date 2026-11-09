@@ -61,6 +61,7 @@ import {
   ADMIN32_FORMAL_REF,
   ADMIN32_PRODUCT_BASELINE,
   ADMIN32_PRICING_SOURCE_SHA256,
+  ADMIN32_ROLLBACK_PATCH,
   ADMIN32_ALLOWED_PATHS,
   verifyAdmin32ProductSource,
   RELEASE_MIGRATIONS_001_031,
@@ -289,6 +290,10 @@ function createFixtureRepository(parent, migrations = RELEASE_MIGRATIONS) {
       `-- ${migration}\n`,
     );
   }
+  if (migrations.includes("032_catalog_directory_and_last_login.sql")) {
+    writeFixtureFile(root, ADMIN32_ROLLBACK_PATCH,
+      readFileSync(join(REPOSITORY_ROOT, ADMIN32_ROLLBACK_PATCH), "utf8"));
+  }
   writeFixtureFile(
     root,
     "website/dist/index.html",
@@ -326,6 +331,15 @@ function createFixtureRepository(parent, migrations = RELEASE_MIGRATIONS) {
   runGit(root, "add", "--all");
   runGit(root, "commit", "-m", "fixture");
   return { root, sha: runGit(root, "rev-parse", "HEAD") };
+}
+
+function createSyntheticRollbackBuild(parent) {
+  const root = join(parent, "rollback-build");
+  writeFixtureFile(root, "auth-service/dist/src/server.js", "export const independentRollback = true;\n");
+  writeFixtureFile(root, "auth-service/dist/src/db.js", "export const exact32 = true;\n");
+  writeFixtureFile(root, "auth-service/dist/src/http/admin-routes.js", "export const oldRoutes = true;\n");
+  writeFixtureFile(root, "auth-service/dist/src/payment/catalog-directory.js", "export const directoryGuard = true;\n");
+  return root;
 }
 
 function allFiles(root, relative = "") {
@@ -3322,17 +3336,31 @@ test("standard31-32 review assembly is exact; local bundles remain unreleasable"
     assert.deepEqual(RELEASE_MIGRATIONS_001_032.slice(0,31), RELEASE_MIGRATIONS_001_031);
     assert.deepEqual(releaseMigrationsForRoute(STANDARD31_32_RELEASE_SCHEMA_ROUTE), RELEASE_MIGRATIONS_001_032);
     const source = createFixtureRepository(parent, RELEASE_MIGRATIONS_001_032);
+    const rollback = createSyntheticRollbackBuild(parent);
     const bundle = join(parent, "bundle-032");
+    assert.throws(()=>assembleReleaseBundle({source:source.root,destination:join(parent,"missing-rollback"),expectedSha:source.sha,
+      provenanceMode:LOCAL_PROVENANCE_MODE,schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE}),error=>error.code==="SOURCE_INVALID");
     assembleReleaseBundle({source:source.root,destination:bundle,expectedSha:source.sha,
-      provenanceMode:LOCAL_PROVENANCE_MODE,schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE});
+      provenanceMode:LOCAL_PROVENANCE_MODE,schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE,
+      admin32RollbackSource:rollback});
     const manifest = JSON.parse(readFileSync(join(bundle,"release-manifest.json"),"utf8"));
-    assert.deepEqual(manifest.schemaBoundary,{rollback:31,candidate:32});
+    assert.deepEqual(manifest.schemaBoundary,{migrationStart:31,candidate:32,applicationRollback:32});
+    assert.equal(manifest.applicationRollback.baselineSourceSha,"381aa5d0a7ad4bfadf68db67227b0321cc3d24f3");
+    assert.equal(manifest.applicationRollback.migrationStart,31);
+    assert.equal(manifest.applicationRollback.runningSchema,32);
+    assert.equal(manifest.applicationRollback.patchSourceSha,source.sha);
     assert.deepEqual(manifest.migrations,RELEASE_MIGRATIONS_001_032);
     assert.equal(manifest.provenance.releaseUse,"forbidden");
     assert.equal(validateBundle({bundle,expectedSha:source.sha,validationMode:LOCAL_PROVENANCE_MODE,
       schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE}).status,"ok");
     assert.throws(()=>validateBundle({bundle,expectedSha:source.sha,validationMode:"candidate",
       schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE}),error=>error.code==="PROVENANCE_REQUIRED");
+    const originalServer=readFileSync(join(bundle,"auth-service/rollback32/dist/src/server.js"));
+    writeFileSync(join(bundle,"auth-service/rollback32/dist/src/server.js"),
+      readFileSync(join(bundle,"auth-service/dist/src/server.js")));
+    assert.throws(()=>validateBundle({bundle,expectedSha:source.sha,validationMode:LOCAL_PROVENANCE_MODE,
+      schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE}),error=>error.code==="BUNDLE_INTEGRITY_FAILED");
+    writeFileSync(join(bundle,"auth-service/rollback32/dist/src/server.js"),originalServer);
     assert.throws(()=>createReleaseProvenance({mode:"github-actions",expectedSha:source.sha,
       schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE,environment:githubEnvironment({sha:source.sha,candidate:true})}),
       error=>error.code==="PROVENANCE_REQUIRED");
@@ -3411,10 +3439,11 @@ test("formal32 pins the existing branch, exact push SHA, approved source paths a
     writeFixtureFile(source,"website/dist/referral.html",'<script type="module" src="/assets/referral-12345678.js"></script>\n');
     writeFixtureFile(source,"website/dist/assets/referral-12345678.js","export {};\n");
     const bundle=join(parent,"formal-bundle");
+    const rollback=createSyntheticRollbackBuild(parent);
     assembleReleaseBundle({source,destination:bundle,expectedSha:sha,provenanceMode:"github-actions",
-      schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE,environment});
+      schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE,admin32RollbackSource:rollback,environment});
     const manifest=JSON.parse(readFileSync(join(bundle,"release-manifest.json"),"utf8"));
-    assert.deepEqual(manifest.schemaBoundary,{rollback:31,candidate:32});
+    assert.deepEqual(manifest.schemaBoundary,{migrationStart:31,candidate:32,applicationRollback:32});
     assert.equal(manifest.provenance.artifactName,`consolidated-release-admin32-${sha}`);
     assert.equal(validateBundle({source,bundle,expectedSha:sha,validationMode:"ci-build",
       schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE,environment}).status,"ok");

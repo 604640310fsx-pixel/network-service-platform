@@ -110,6 +110,7 @@ jobs:
       PROVENANCE_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'github-actions' || 'github-actions-test' }}
       VALIDATION_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'ci-build' || 'ci-test' }}
       MONITOR_ORIGIN_POLICY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'required' || 'optional' }}
+      ADMIN32_ROLLBACK_ROOT: ${{ runner.temp }}/admin32-rollback-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout exact task head
         uses: actions/checkout@v6
@@ -214,6 +215,20 @@ jobs:
           node scripts/ops/verify-website-monitor-origin.mjs \
             --phase embedded --policy "$MONITOR_ORIGIN_POLICY" --dist website/dist
 
+      - name: Build and exercise independent admin32 rollback Auth
+        if: env.ADMIN32_TASK_CONTEXT == 'true' || env.ADMIN32_FORMAL_CONTEXT == 'true'
+        run: |
+          test ! -e "$ADMIN32_ROLLBACK_ROOT"
+          mkdir -p "$ADMIN32_ROLLBACK_ROOT"
+          git archive 381aa5d0a7ad4bfadf68db67227b0321cc3d24f3 auth-service | tar -x -C "$ADMIN32_ROLLBACK_ROOT"
+          (cd "$ADMIN32_ROLLBACK_ROOT" && git apply --check "$GITHUB_WORKSPACE/scripts/ops/patches/admin32-rollback-from-381.patch")
+          (cd "$ADMIN32_ROLLBACK_ROOT" && git apply "$GITHUB_WORKSPACE/scripts/ops/patches/admin32-rollback-from-381.patch")
+          ln -s "$GITHUB_WORKSPACE/auth-service/node_modules" "$ADMIN32_ROLLBACK_ROOT/auth-service/node_modules"
+          node "$GITHUB_WORKSPACE/auth-service/node_modules/typescript/bin/tsc" -p "$ADMIN32_ROLLBACK_ROOT/auth-service/tsconfig.json"
+          test "$(sha256sum "$ADMIN32_ROLLBACK_ROOT/auth-service/dist/src/payment/pricing.js" | awk '{print $1}')" = \
+            "6aff457355395f275ed88eca51510741fb1fe226170b8ab5fdf3453f8a57cb36"
+          node auth-service/test/admin32-independent-rollback.mjs "$ADMIN32_ROLLBACK_ROOT/auth-service"
+
       - name: Test release tooling
         run: node --test scripts/ops/consolidated-release-packet.test.mjs scripts/ops/release-safety-guards.test.mjs
 
@@ -228,7 +243,7 @@ jobs:
               node scripts/ops/assemble-consolidated-release.mjs \
                 --source "$GITHUB_WORKSPACE" --destination "$BUNDLE_PARENT/admin32-$ordinal" \
                 --expected-sha "$EXPECTED_SHA" --provenance-mode "$PROVENANCE_MODE" \
-                --schema-route standard31-32
+                --schema-route standard31-32 --admin32-rollback-source "$ADMIN32_ROLLBACK_ROOT"
               node scripts/ops/validate-release-open-http-contract.mjs \
                 --source "$BUNDLE_PARENT/admin32-$ordinal"
               node scripts/ops/validate-consolidated-release-packet.mjs \

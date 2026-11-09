@@ -83,19 +83,42 @@ registry/readiness, administrator directory routes and lookup, catalog and new
 quote/order gates, and nullable successful-login recording/administrator read.
 Verify the current production artifact and prices again at execution.
 
-`032_AWARE_ROLLBACK`: The old 031 Auth binary cannot start against an unknown
-032 ledger and would not enforce the new directory sellability gates if merely
-made to ignore the version. An approved recovery binary must understand 032,
-retain both status tables and the nullable login field, block new quotes and
-orders for closed directory keys, and preserve all post-migration users, login
-times, orders, payments and existing scheduled changes. A pre-migration
-snapshot may establish recoverability before writes; after any new write or
-external effect, do not replace the live database with it. A rollback artifact
-needs its own exact source, CI and artifact proof before use.
-The local 032-aware restart test uses the same forward Auth source and build;
-it proves data and directory-gate compatibility only. It is not an independent
-Auth rollback artifact for a defect in that code. A frontend rollback may be
-separate, but it must leave the 032-aware backend gates active.
+`032_AWARE_ROLLBACK`: Before migration, the verified running 381 Auth and
+accepted 518 static website remain the 031 application recovery pair. After
+migration, **application rollback remains on the latest 032 database**. The
+032 manifest uses `schemaBoundary.migrationStart: 31`,
+`schemaBoundary.candidate: 32`, and `schemaBoundary.applicationRollback: 32`;
+the old `rollback: 31` field and database-restore commands do not apply to this
+route. Do not lower `user_version`, delete the two directory tables or login
+column, rerun migration during rollback, or replace a database after new writes
+or external effects with the earlier backup.
+
+The independent Auth rollback candidate is built by existing CI from exact
+source commit `381aa5d0a7ad4bfadf68db67227b0321cc3d24f3` plus the
+versioned `scripts/ops/patches/admin32-rollback-from-381.patch` at the actual
+formal 032 push SHA. Its manifest records both source SHAs, patch digest and
+`auth-service/rollback32/dist/src/server.js`; the inventory covers the actual
+binary. The patch adds only schema-032 recognition, a ledger-exact startup
+path that rejects 031/missing/033 **before migration or write**, read-only
+directory sellability guards for new catalog/quote/order/change requests, and
+successful website-login timestamp recording. It keeps 381 pricing and omits
+the forward-only directory-edit admin routes and admin user lookup changes.
+The independent local synthetic test must start this separate build against
+the same changed 032 database and show retained users/login times, paid and
+pending orders, scheduled changes, and closed-directory new-sale rejection.
+The older same-forward-binary restart test is only restart/data evidence.
+
+The website rollback is the separately accepted 518 **formal static artifact**,
+not an unverified rebuild from the 518 source SHA. Bind its exact artifact
+digest and provenance at the release gate; `websiteSourceCommit` in the 032
+manifest is only the expected source identity, not artifact proof. Bind the
+rollback Auth artifact to the actual successful formal GitHub run after the
+PR merge, never to the Draft PR head or a local bundle. This candidate can
+recover defects isolated to the forward management UI/endpoints; it cannot
+repair database corruption, baseline Auth/dependency defects, or a bug in the
+shared directory guard. A guard failure must deny new transactions, never
+bypass a closed directory or silently restore an old database. Without an
+independently verified 032 rollback artifact, do not release.
 
 ## Runtime configuration inventory gate
 

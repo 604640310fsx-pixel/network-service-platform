@@ -18,6 +18,11 @@ import {
   DEFAULT_RELEASE_SCHEMA_ROUTE,
   STANDARD26_30_RELEASE_SCHEMA_ROUTE,
   STANDARD26_31_RELEASE_SCHEMA_ROUTE,
+  STANDARD31_32_RELEASE_SCHEMA_ROUTE,
+  ADMIN32_COMPAT_BASELINE,
+  ADMIN32_ROLLBACK_PATCH,
+  ADMIN32_ROLLBACK_PATCH_PATHS,
+  ADMIN32_ROLLBACK_WEBSITE_SOURCE,
   ADMIN32_FORMAL_REF,
   RESIDENTIAL31_FORMAL_REF,
   RESIDENTIAL31_PRODUCT_BASELINE,
@@ -583,6 +588,20 @@ export function validateRepository({
     "repository",
     routeMigrations,
   );
+  if (schemaRoute === STANDARD31_32_RELEASE_SCHEMA_ROUTE) {
+    const patchText = readText(join(sourceRoot, ADMIN32_ROLLBACK_PATCH), "admin32 rollback patch");
+    const patchBlocks = [...patchText.matchAll(/^diff --git a\/([^\n]+) b\/\1$/gm)].map((match) => match[1]);
+    const patchPaths = [...new Set(patchBlocks)].sort();
+    if (patchBlocks.length !== patchPaths.length + 1 ||
+        patchBlocks.filter((path) => path === "auth-service/src/db.ts").length !== 2 ||
+        patchPaths.join(",") !== [...ADMIN32_ROLLBACK_PATCH_PATHS].sort().join(",") ||
+        !patchText.includes("openRollbackDatabase32") ||
+        !patchText.includes("fileMustExist: true") ||
+        patchText.includes("/api/admin/catalog-directory") ||
+        patchText.includes("updateCatalogDirectoryStatus")) {
+      throw new ReleaseValidationError("SOURCE_INVALID", "admin32 rollback patch violates frozen source boundary");
+    }
+  }
 
   const databaseSource = readText(
     join(sourceRoot, "auth-service/src/db.ts"),
@@ -1303,13 +1322,16 @@ export function validateBundle({
   const expectedBoundary = RELEASE_SCHEMA_BOUNDARIES[schemaRoute];
   const routeMigrations = releaseMigrationsForRoute(schemaRoute);
   const carriesSchemaRoute = releaseManifestCarriesSchemaRoute(schemaRoute);
+  const isAdmin32 = schemaRoute === STANDARD31_32_RELEASE_SCHEMA_ROUTE;
   const bundleRoot = existingDirectory(bundle, "bundle");
   const sha = normalizedExpectedSha(expectedSha);
   const manifest = parsedManifest(bundleRoot);
 
   if (
     Object.keys(manifest).sort().join(",") !==
-      (carriesSchemaRoute
+      (isAdmin32
+        ? "applicationRollback,entrypoints,format,inventory,migrations,provenance,schemaBoundary,schemaRoute,sourceSha"
+        : carriesSchemaRoute
         ? "entrypoints,format,inventory,migrations,provenance,schemaBoundary,schemaRoute,sourceSha"
         : "entrypoints,format,inventory,migrations,provenance,schemaBoundary,sourceSha") ||
     (carriesSchemaRoute && manifest.schemaRoute !== schemaRoute) ||
@@ -1318,10 +1340,20 @@ export function validateBundle({
     typeof manifest.schemaBoundary !== "object" ||
     manifest.schemaBoundary === null ||
     Array.isArray(manifest.schemaBoundary) ||
-    Object.keys(manifest.schemaBoundary).sort().join(",") !==
-      "candidate,rollback" ||
-    manifest.schemaBoundary?.rollback !== expectedBoundary.rollback ||
-    manifest.schemaBoundary?.candidate !== expectedBoundary.candidate ||
+    JSON.stringify(manifest.schemaBoundary) !== JSON.stringify(expectedBoundary) ||
+    (isAdmin32 && (
+      typeof manifest.applicationRollback !== "object" ||
+      manifest.applicationRollback === null || Array.isArray(manifest.applicationRollback) ||
+      Object.keys(manifest.applicationRollback).sort().join(",") !==
+        "authEntrypoint,baselineSourceSha,migrationStart,patchSha256,patchSourceSha,runningSchema,websiteSourceCommit" ||
+      manifest.applicationRollback.authEntrypoint !== "auth-service/rollback32/dist/src/server.js" ||
+      manifest.applicationRollback.baselineSourceSha !== ADMIN32_COMPAT_BASELINE ||
+      manifest.applicationRollback.patchSourceSha !== sha ||
+      manifest.applicationRollback.migrationStart !== 31 ||
+      manifest.applicationRollback.runningSchema !== 32 ||
+      manifest.applicationRollback.websiteSourceCommit !== ADMIN32_ROLLBACK_WEBSITE_SOURCE ||
+      !/^[a-f0-9]{64}$/.test(manifest.applicationRollback.patchSha256)
+    )) ||
     !Array.isArray(manifest.migrations) ||
     manifest.migrations.length !== routeMigrations.length ||
     manifest.migrations.some(
@@ -1423,6 +1455,29 @@ export function validateBundle({
         `required bundle artifact is missing: ${requiredPath}`,
       );
     }
+  }
+  if (isAdmin32) {
+    for (const path of [ADMIN32_ROLLBACK_PATCH, "auth-service/rollback32/dist/src/server.js",
+      "auth-service/rollback32/dist/src/db.js", "auth-service/rollback32/dist/src/payment/catalog-directory.js"]) {
+      if (!inventoryPaths.includes(path)) throw new ReleaseValidationError("ARTIFACT_MISSING", `admin32 rollback artifact missing: ${path}`);
+    }
+    if (sha256(join(bundleRoot, ADMIN32_ROLLBACK_PATCH)) !== manifest.applicationRollback.patchSha256)
+      throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", "admin32 rollback patch digest mismatch");
+    const patchText = readText(join(bundleRoot, ADMIN32_ROLLBACK_PATCH), "admin32 rollback patch");
+    const patchBlocks = [...patchText.matchAll(/^diff --git a\/([^\n]+) b\/\1$/gm)].map((match) => match[1]);
+    const patchPaths = [...new Set(patchBlocks)].sort();
+    if (patchBlocks.length !== patchPaths.length + 1 ||
+        patchBlocks.filter((path) => path === "auth-service/src/db.ts").length !== 2 ||
+        patchPaths.join(",") !== [...ADMIN32_ROLLBACK_PATCH_PATHS].sort().join(","))
+      throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", "admin32 rollback patch path set mismatch");
+    const rollbackRoutes = readText(join(bundleRoot,"auth-service/rollback32/dist/src/http/admin-routes.js"),"rollback admin routes");
+    const rollbackDirectory = readText(join(bundleRoot,"auth-service/rollback32/dist/src/payment/catalog-directory.js"),"rollback directory guard");
+    if (rollbackRoutes.includes("/api/admin/catalog-directory") || rollbackDirectory.includes("updateCatalogDirectoryStatus") ||
+        rollbackDirectory.includes("listCatalogDirectory"))
+      throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", "rollback Auth includes forward administrator directory editing");
+    if (sha256(join(bundleRoot,"auth-service/rollback32/dist/src/server.js")) ===
+        sha256(join(bundleRoot,"auth-service/dist/src/server.js")))
+      throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", "rollback Auth server is not independent");
   }
   const referralHtml = readText(
     join(bundleRoot, "website/dist/referral.html"),

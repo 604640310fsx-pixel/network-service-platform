@@ -1,0 +1,252 @@
+diff --git a/auth-service/src/db.ts b/auth-service/src/db.ts
+index c32b89d..43034b5 100644
+--- a/auth-service/src/db.ts
++++ b/auth-service/src/db.ts
+@@ -79,6 +79,7 @@ export const MIGRATION_FILES = [
+   "029_remove_single_payment_cap.sql",
+   "030_service_change_local.sql",
+   "031_residential_order_options.sql",
++  "032_catalog_directory_and_last_login.sql",
+ ] as const;
+ 
+ // Migrations that rebuild a table other tables reference with ON DELETE
+@@ -92,7 +93,8 @@ const FOREIGN_KEYS_OFF_PRESERVED_TABLES = ["users", "pending_registrations"] as
+ 
+ const DATABASE_READINESS_SQL =
+   "SELECT version FROM schema_migrations ORDER BY version LIMIT ?";
+-const DATABASE_READINESS_ROW_LIMIT = 32;
++// Fetch one row beyond the known sequence so an appended unknown migration is visible.
++const DATABASE_READINESS_ROW_LIMIT = MIGRATION_FILES.length + 1;
+ const EXPECTED_MIGRATION_VERSIONS = Object.freeze(
+   MIGRATION_FILES.map((file) => Number.parseInt(file.slice(0, 3), 10)),
+ );
+diff --git a/auth-service/src/migrations/032_catalog_directory_and_last_login.sql b/auth-service/src/migrations/032_catalog_directory_and_last_login.sql
+new file mode 100644
+index 0000000..0a5b111
+--- /dev/null
++++ b/auth-service/src/migrations/032_catalog_directory_and_last_login.sql
+@@ -0,0 +1,29 @@
++-- Preserve current purchase behavior for every configured plan tuple, including
++-- plans individually stopped or sold out. Missing future keys remain unavailable.
++CREATE TABLE sellable_regions (
++  type_id TEXT NOT NULL,
++  region_id TEXT NOT NULL,
++  is_active INTEGER NOT NULL CHECK(is_active IN (0, 1)),
++  updated_at TEXT NOT NULL,
++  PRIMARY KEY (type_id, region_id)
++);
++
++CREATE TABLE sellable_operators (
++  type_id TEXT NOT NULL,
++  region_id TEXT NOT NULL,
++  isp_id TEXT NOT NULL,
++  is_active INTEGER NOT NULL CHECK(is_active IN (0, 1)),
++  updated_at TEXT NOT NULL,
++  PRIMARY KEY (type_id, region_id, isp_id),
++  FOREIGN KEY (type_id, region_id) REFERENCES sellable_regions(type_id, region_id) ON DELETE RESTRICT
++);
++
++INSERT INTO sellable_regions (type_id, region_id, is_active, updated_at)
++SELECT type_id, region_id, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
++FROM sellable_plans GROUP BY type_id, region_id;
++
++INSERT INTO sellable_operators (type_id, region_id, isp_id, is_active, updated_at)
++SELECT type_id, region_id, isp_id, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
++FROM sellable_plans GROUP BY type_id, region_id, isp_id;
++
++ALTER TABLE users ADD COLUMN last_successful_web_login_at TEXT;
+diff --git a/auth-service/src/payment/commerce.ts b/auth-service/src/payment/commerce.ts
+index 70ed043..4fd482e 100644
+--- a/auth-service/src/payment/commerce.ts
++++ b/auth-service/src/payment/commerce.ts
+@@ -1,4 +1,5 @@
+ import type { DatabaseConnection } from "../db.js";
++import { isDirectoryEnabled, isPlanDirectoryEnabled } from "./catalog-directory.js";
+ import { createResidentialOptions, isResidentialV2, residentialVariant, residentialBaseSpec,
+   residentialSnapshotSql, residentialOptionsFromOrderRow, assertResidentialSnapshotAnchor, parseResidentialOptions, RESIDENTIAL_VARIANTS, RESIDENTIAL_LEGACY_DIRECT_SPEC, type ResidentialOptions } from "./residential-options.js";
+ 
+@@ -50,7 +51,7 @@ export function listPurchaseCatalogPlans(database: DatabaseConnection): Array<Ad
+       if (plan?.residentialOptions) items.push({ ...anchor, ...plan, specId: variant.specId, residentialOptions: plan.residentialOptions });
+     }
+   }
+-  return items;
++  return items.map((row) => ({ ...row, isActive: row.isActive && isDirectoryEnabled(database, row.typeId, row.regionId, row.ispId) }));
+ }
+ 
+ export const COUPON_CODE_PATTERN = /^[A-Z0-9_-]{3,32}$/;
+@@ -250,7 +251,7 @@ export function resolveQuote(
+   input: QuoteInput,
+ ): QuoteResult {
+   const plan = findSellablePlan(database, input.selection, input.residentialHistory);
+-  if (plan === null || !plan.isActive) {
++  if (plan === null || !plan.isActive || !isDirectoryEnabled(database, input.selection.typeId, input.selection.regionId, input.selection.ispId)) {
+     throw new PaymentDomainError(409, "plan_unavailable");
+   }
+   if (plan.soldOut || (plan.totalSlots !== null && plan.occupiedSlots >= plan.totalSlots)) {
+@@ -317,6 +318,7 @@ export function occupyPlanAndCoupon(
+   input: OccupyInput,
+ ): void {
+   const nowIso = input.now().toISOString();
++  if (!isPlanDirectoryEnabled(database, input.planId)) throw new PaymentDomainError(409, "plan_unavailable");
+   const planResult = database
+     .prepare(
+       `UPDATE sellable_plans SET occupied_slots = occupied_slots + 1, updated_at = ?
+diff --git a/auth-service/src/payment/service-change.ts b/auth-service/src/payment/service-change.ts
+index aa0acb2..d9aa4e8 100644
+--- a/auth-service/src/payment/service-change.ts
++++ b/auth-service/src/payment/service-change.ts
+@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
+ 
+ import type { DatabaseConnection } from "../db.js";
+ import { findSellablePlan, PaymentDomainError, type PlanSelection } from "./commerce.js";
++import { isDirectoryEnabled } from "./catalog-directory.js";
+ import { createStoredOrder, paymentResponse, type OrderServiceDependencies } from "./orders.js";
+ 
+ type DbRow = Record<string, unknown>;
+@@ -471,6 +472,8 @@ export function applyDueScheduledDowngrade(database: DatabaseConnection, mode: "
+ export function quoteServiceUpgrade(database: DatabaseConnection, userId: number, serviceId: number, specId: string | null, now: Date) {
+   const operation = database.transaction(() => {
+     const current = entitlement(database, serviceId, userId, now);
++    if (!isDirectoryEnabled(database, string(current, "type_id"), string(current, "region_id"), string(current, "isp_id")))
++      throw new PaymentDomainError(409, "plan_unavailable");
+     if (activeChange(database, serviceId) !== null || hasPaidConflict(database,serviceId))
+       throw new PaymentDomainError(409, "change_already_pending");
+     const next = target(database, current, specId, "upgrade");
+@@ -522,6 +525,8 @@ export function createServiceUpgradeOrder(dependencies: OrderServiceDependencies
+     }
+     const now = (dependencies.now ?? (() => new Date()))();
+     const current = entitlement(database, input.serviceId, input.userId, now);
++    if (!isDirectoryEnabled(database, string(current, "type_id"), string(current, "region_id"), string(current, "isp_id")))
++      throw new PaymentDomainError(409, "plan_unavailable");
+     const quote = one(database, "SELECT * FROM service_change_quotes WHERE quote_ref = ? AND service_id = ? AND user_id = ?", input.quoteRef, input.serviceId, input.userId);
+     if (quote === null || string(quote, "expires_at") <= now.toISOString() ||
+         number(quote, "service_version") !== number(current, "version") ||
+@@ -561,6 +566,8 @@ export function createServiceUpgradeOrder(dependencies: OrderServiceDependencies
+ export function scheduleServiceDowngrade(database: DatabaseConnection, userId: number, serviceId: number, specId: string | null, now: Date) {
+   const operation = database.transaction(() => {
+     const current = entitlement(database, serviceId, userId, now);
++    if (!isDirectoryEnabled(database, string(current, "type_id"), string(current, "region_id"), string(current, "isp_id")))
++      throw new PaymentDomainError(409, "plan_unavailable");
+     if (activeChange(database, serviceId) !== null || hasPaidConflict(database,serviceId))
+       throw new PaymentDomainError(409, "change_already_pending");
+     const next = target(database, current, specId, "downgrade");
+@@ -653,6 +660,7 @@ export function serviceChangeSnapshot(database: DatabaseConnection, serviceId: n
+ 
+ export function listServiceChangeOptions(database: DatabaseConnection, userId: number, serviceId: number, now: Date) {
+   const current = entitlement(database, serviceId, userId, now);
++  if (!isDirectoryEnabled(database, string(current, "type_id"), string(current, "region_id"), string(current, "isp_id"))) return [];
+   const rows = database.prepare(`SELECT month.spec_id,month.price_fen,period.id AS period_plan_id
+     FROM sellable_plans month JOIN sellable_plans period
+       ON period.type_id=month.type_id AND period.region_id=month.region_id
+diff --git a/auth-service/src/session/login-session.ts b/auth-service/src/session/login-session.ts
+index 4310281..16c59e8 100644
+--- a/auth-service/src/session/login-session.ts
++++ b/auth-service/src/session/login-session.ts
+@@ -105,6 +105,10 @@ export function createLoginSession(
+         now,
+       );
+ 
++    database
++      .prepare("UPDATE users SET last_successful_web_login_at = ? WHERE id = ?")
++      .run(now, candidate.id);
++
+     return currentUser.role;
+   });
+ 
+diff --git a/auth-service/src/payment/catalog-directory.ts b/auth-service/src/payment/catalog-directory.ts
+new file mode 100644
+--- /dev/null
++++ b/auth-service/src/payment/catalog-directory.ts
+@@ -0,0 +1,33 @@
++import type { DatabaseConnection } from "../db.js";
++
++function record(value: unknown): Record<string, unknown> {
++  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("Catalog directory invariant failed");
++  return value as Record<string, unknown>;
++}
++
++function readStatus(value: unknown): boolean {
++  if (value !== 0 && value !== 1) throw new Error("Catalog directory status invariant failed");
++  return value === 1;
++}
++
++export function isDirectoryEnabled(database: DatabaseConnection, typeId: string, regionId: string, ispId: string): boolean {
++  const rows = database.prepare(
++    `SELECT r.is_active AS region_active, o.is_active AS operator_active
++     FROM sellable_regions r
++     JOIN sellable_operators o ON o.type_id = r.type_id AND o.region_id = r.region_id
++     WHERE r.type_id = ? AND r.region_id = ? AND o.isp_id = ?`,
++  ).all(typeId, regionId, ispId);
++  if (rows.length === 0) return false;
++  if (rows.length !== 1) throw new Error("Catalog directory key invariant failed");
++  const row = record(rows[0]);
++  return readStatus(row.region_active) && readStatus(row.operator_active);
++}
++
++export function isPlanDirectoryEnabled(database: DatabaseConnection, planId: number): boolean {
++  const rows = database.prepare("SELECT type_id, region_id, isp_id FROM sellable_plans WHERE id = ?").all(planId);
++  if (rows.length !== 1) return false;
++  const row = record(rows[0]);
++  if (typeof row.type_id !== "string" || typeof row.region_id !== "string" || typeof row.isp_id !== "string")
++    throw new Error("Catalog plan key invariant failed");
++  return isDirectoryEnabled(database, row.type_id, row.region_id, row.isp_id);
++}
+diff --git a/auth-service/src/db.ts b/auth-service/src/db.ts
+--- a/auth-service/src/db.ts
++++ b/auth-service/src/db.ts
+@@ -37,3 +37,3 @@
+ interface DatabaseConstructor {
+-  new (filename: string): DatabaseConnection;
++  new (filename: string, options?: { readonly fileMustExist?: boolean }): DatabaseConnection;
+ }
+@@ -430,1 +432,28 @@
+ }
++
++export function openRollbackDatabase32(dbPath: string): DatabaseConnection {
++  if (!dbPath.trim()) throw new Error("DB_PATH is required");
++  verifyMigrationFiles(resolveDefaultMigrationsDirectory());
++  // fileMustExist prevents this recovery path from creating a replacement DB.
++  // Check the complete ledger before any pragma or migration write.
++  const database = new Database(dbPath, { fileMustExist: true });
++  try {
++    const versions = readAppliedMigrationVersions(database);
++    if (versions.length !== MIGRATION_FILES.length ||
++        versions.some((version, index) => version !== index + 1)) {
++      throw new Error("Rollback Auth requires exact existing 001-032 ledger");
++    }
++    database.pragma("foreign_keys = ON");
++    database.pragma("journal_mode = WAL");
++    database.pragma(`busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
++    database.pragma("synchronous = NORMAL");
++    verifyPragmaState(readPragmaState(database));
++    if (!prepareDatabaseReadinessProbe(database).isReady()) {
++      throw new Error("Rollback Auth requires ready 001-032 ledger");
++    }
++    return database;
++  } catch (error) {
++    database.close();
++    throw error;
++  }
++}
+diff --git a/auth-service/src/server.ts b/auth-service/src/server.ts
+--- a/auth-service/src/server.ts
++++ b/auth-service/src/server.ts
+@@ -16,5 +16,5 @@
+ import {
+-  initializeDatabase,
++  openRollbackDatabase32,
+   prepareDatabaseReadinessProbe,
+   type DatabaseReadinessProbe,
+ } from "./db.js";
+@@ -40,5 +40,5 @@
+ interface RuntimeLifecycleOptions {
+   readonly database: Pick<
+-    ReturnType<typeof initializeDatabase>,
++    ReturnType<typeof openRollbackDatabase32>,
+     "close" | "prepare"
+   >;
+@@ -253,3 +253,3 @@
+         });
+-  const database = initializeDatabase(config.dbPath);
++  const database = openRollbackDatabase32(config.dbPath);
+   await runRuntimeLifecycle({
