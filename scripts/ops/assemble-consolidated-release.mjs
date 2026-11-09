@@ -50,6 +50,9 @@ export const ADMIN32_COMPAT_BASELINE = "381aa5d0a7ad4bfadf68db67227b0321cc3d24f3
 export const ADMIN32_PRICING_SOURCE_SHA256 = "ed7f59d2ad72d4ff05ac74c0854c9813e1611a58db7672e37dc2c3e8c57f70ba";
 export const ADMIN32_ROLLBACK_PATCH = "scripts/ops/patches/admin32-rollback-from-381.patch";
 export const ADMIN32_ROLLBACK_WEBSITE_SOURCE = ADMIN32_PRODUCT_BASELINE;
+export const ADMIN32_UPLOAD_FIX_BASE_SHA = "4857c9c62294a2dfdcca2187e17983720e991a2f";
+export const ADMIN32_UPLOAD_FIX_HEAD_REF = "codex/nsp-admin32-upload-guard-fix-20261110-01";
+export const ADMIN32_UPLOAD_FIX_PR_NUMBER = 166;
 export const ADMIN32_ROLLBACK_PATCH_PATHS = Object.freeze([
   "auth-service/src/db.ts", "auth-service/src/migrations/032_catalog_directory_and_last_login.sql",
   "auth-service/src/payment/catalog-directory.ts", "auth-service/src/payment/commerce.ts",
@@ -670,6 +673,25 @@ export function createReleaseProvenance({
         "PROVENANCE_REQUIRED",
         "an integration push must use release-candidate provenance",
       );
+    }
+    if (environment.ADMIN32_UPLOAD_FIX_TASK_CONTEXT === "true") {
+      let event;
+      try { event = JSON.parse(readFileSync(requiredEnvironment(environment, "GITHUB_EVENT_PATH"), "utf8")); }
+      catch { throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "admin32 upload-fix review event is unavailable"); }
+      if (schemaRoute !== STANDARD31_32_RELEASE_SCHEMA_ROUTE || eventName !== "pull_request" ||
+          ref !== `refs/pull/${ADMIN32_UPLOAD_FIX_PR_NUMBER}/merge` ||
+          event.repository?.full_name !== RELEASE_REPOSITORY ||
+          event.number !== ADMIN32_UPLOAD_FIX_PR_NUMBER ||
+          event.pull_request?.number !== ADMIN32_UPLOAD_FIX_PR_NUMBER ||
+          event.pull_request?.draft !== true ||
+          event.pull_request?.head?.repo?.full_name !== RELEASE_REPOSITORY ||
+          event.pull_request?.base?.repo?.full_name !== RELEASE_REPOSITORY ||
+          event.pull_request?.head?.ref !== ADMIN32_UPLOAD_FIX_HEAD_REF ||
+          event.pull_request?.head?.sha !== sha ||
+          event.pull_request?.base?.ref !== "codex/residential-options-local-20261105" ||
+          event.pull_request?.base?.sha !== ADMIN32_UPLOAD_FIX_BASE_SHA) {
+        throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "admin32 upload-fix review source does not match exact PR/base/head");
+      }
     }
     return Object.freeze({
       kind: "github-actions-test",

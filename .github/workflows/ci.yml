@@ -106,6 +106,7 @@ jobs:
       RESIDENTIAL31_FORMAL_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'push' && github.ref == 'refs/heads/codex/residential-options-local-20261105' }}
       # This exact same-repo Draft PR gets review-only 032 provenance; formal 032 is a separate exact push gate.
       ADMIN32_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 165 && github.event.pull_request.draft == true && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin-manage-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' }}
+      ADMIN32_UPLOAD_FIX_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 166 && github.event.pull_request.draft == true && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin32-upload-guard-fix-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.sha == '4857c9c62294a2dfdcca2187e17983720e991a2f' }}
       ADMIN32_FORMAL_CONTEXT: false
       PROVENANCE_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'github-actions' || 'github-actions-test' }}
       VALIDATION_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'ci-build' || 'ci-test' }}
@@ -152,7 +153,7 @@ jobs:
             node scripts/ops/validate-consolidated-release-packet.mjs \
               --source "$GITHUB_WORKSPACE" --expected-sha "$EXPECTED_SHA" \
               --schema-route standard31-32 --validation-mode ci-build
-          elif [ "$ADMIN32_TASK_CONTEXT" = "true" ]; then
+          elif [ "$ADMIN32_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_UPLOAD_FIX_TASK_CONTEXT" = "true" ]; then
             node scripts/ops/validate-consolidated-release-packet.mjs \
               --source "$GITHUB_WORKSPACE" --expected-sha "$EXPECTED_SHA" \
               --schema-route standard31-32
@@ -202,7 +203,7 @@ jobs:
           node scripts/ops/verify-website-monitor-origin.mjs \
             --phase configured --policy "$MONITOR_ORIGIN_POLICY"
           npm --prefix auth-service test
-          if [ "$ADMIN32_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_FORMAL_CONTEXT" = "true" ]; then
+          if [ "$ADMIN32_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_UPLOAD_FIX_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_FORMAL_CONTEXT" = "true" ]; then
             test "$(sha256sum auth-service/dist/src/payment/pricing.js | awk '{print $1}')" = \
               "6aff457355395f275ed88eca51510741fb1fe226170b8ab5fdf3453f8a57cb36"
           fi
@@ -215,7 +216,7 @@ jobs:
             --phase embedded --policy "$MONITOR_ORIGIN_POLICY" --dist website/dist
 
       - name: Build and exercise independent admin32 rollback Auth
-        if: env.ADMIN32_TASK_CONTEXT == 'true' || env.ADMIN32_FORMAL_CONTEXT == 'true'
+        if: env.ADMIN32_TASK_CONTEXT == 'true' || env.ADMIN32_UPLOAD_FIX_TASK_CONTEXT == 'true' || env.ADMIN32_FORMAL_CONTEXT == 'true'
         env:
           ADMIN32_ROLLBACK_ROOT: ${{ runner.temp }}/admin32-rollback-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
@@ -240,7 +241,7 @@ jobs:
         run: |
           test ! -e "$BUNDLE_PARENT"
           mkdir -p "$BUNDLE_PARENT"
-          if [ "$ADMIN32_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_FORMAL_CONTEXT" = "true" ]; then
+          if [ "$ADMIN32_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_UPLOAD_FIX_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_FORMAL_CONTEXT" = "true" ]; then
             for ordinal in first second; do
               node scripts/ops/assemble-consolidated-release.mjs \
                 --source "$GITHUB_WORKSPACE" --destination "$BUNDLE_PARENT/admin32-$ordinal" \
@@ -436,7 +437,7 @@ jobs:
           fi
 
       - name: Retain admin32 PR review bundle (never production)
-        if: env.ADMIN32_TASK_CONTEXT == 'true'
+        if: env.ADMIN32_TASK_CONTEXT == 'true' || env.ADMIN32_UPLOAD_FIX_TASK_CONTEXT == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: consolidated-release-admin32-review-${{ env.EXPECTED_SHA }}
