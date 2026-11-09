@@ -26,10 +26,10 @@ export function DashboardPage() {
     <main className="dash-page">
       <div className="dash-layout">
         <BuyerDashboardOverview />
-        {principal?.role === "admin" && <section className="dash-panel" aria-label="管理员入口">
-          <h2><em>ADMIN</em>管理中心</h2>
-          <p>管理套餐、用户、订单与现有服务事项。</p>
-          <Link className="dash-primary-link" to="/admin">进入管理中心</Link>
+        {principal?.role === "admin" && <section className="dash-panel" aria-label={copy.adminEntryTitle}>
+          <h2><em>ADMIN</em>{copy.adminEntryTitle}</h2>
+          <p>{copy.adminEntryDescription}</p>
+          <Link className="dash-primary-link" to="/admin">{copy.adminEntryAction}</Link>
         </section>}
 
         <section className="dash-panel" aria-labelledby="dash-actions-title">

@@ -24,6 +24,11 @@ test("dual-ISP catalogue and quote read exact synthetic sellable rows without ad
     }
     // An old NULL row must never supply a missing new specification's price.
     insert.run("ntt", null, 5_900);
+    database.exec(`CREATE TABLE sellable_regions (type_id TEXT, region_id TEXT, is_active INTEGER, PRIMARY KEY(type_id,region_id));
+      CREATE TABLE sellable_operators (type_id TEXT, region_id TEXT, isp_id TEXT, is_active INTEGER,
+        PRIMARY KEY(type_id,region_id,isp_id));
+      INSERT INTO sellable_regions VALUES ('us-local-carrier','us',1);
+      INSERT INTO sellable_operators SELECT DISTINCT type_id,region_id,isp_id,1 FROM sellable_plans;`);
 
     const catalogue = listPurchaseCatalogPlans(database);
     for (const ispId of ["ntt", "gtt", "cogent", "charter"]) {

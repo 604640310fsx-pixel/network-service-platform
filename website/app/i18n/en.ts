@@ -1008,6 +1008,7 @@ export const en: Messages = {
   },
   center: {
     manualChangeTodo: "Plan change tasks",
+    adminCenter: "Admin center",
     navGroups: { overview: "Overview", subscription: "Subscriptions", support: "Support", account: "Account" },
     nav: {
       "/status": "Server status",
@@ -1056,6 +1057,9 @@ export const en: Messages = {
   },
   dashboard: {
     actionsTitle: "Quick actions",
+    adminEntryTitle: "Admin center",
+    adminEntryDescription: "Manage plans, users, orders, and existing service tasks.",
+    adminEntryAction: "Open admin center",
     actions: {
       "/subscribe": { label: "Plans", hint: "Choose and configure a new plan" },
       "/services": { label: "My plans", hint: "Paid services and activation progress" },

@@ -305,7 +305,7 @@ function CustomerCenterContent({
           <nav className="cc-navigation" aria-label={t.center.navLabel}>
             {principal?.role === "admin" && <div className="cc-nav-group"><p>ADMIN</p>
               <NavLink to="/admin" onClick={closeDrawer} className={({ isActive }) => isActive ? "is-active" : ""}>
-                <NavIcon href="/dashboard" /><span>管理中心</span>
+                <NavIcon href="/dashboard" /><span>{t.center.adminCenter}</span>
               </NavLink>
               <NavLink to="/admin#admin-service-changes" onClick={closeDrawer}>
                 <NavIcon href="/services"/><span>{t.center.manualChangeTodo} <AdminServiceChangeBadge/></span>

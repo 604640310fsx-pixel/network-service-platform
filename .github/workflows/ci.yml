@@ -104,6 +104,8 @@ jobs:
       STANDARD26_FORMAL_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'push' && github.ref == 'refs/heads/codex/service-change-release-prepare-20261103' }}
       RESIDENTIAL31_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && ((github.event.pull_request.head.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.ref == 'integration/consolidate-project') || (github.event.pull_request.head.ref == 'codex/nsp-subscribe-select-ui-20261105-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105') || (github.event.pull_request.head.ref == 'codex/nsp-subscribe-mobile-focus-footer-20261108-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105') || (github.event.pull_request.head.ref == 'codex/nsp-subscribe-line-price-20261108-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105') || (github.event.pull_request.head.ref == 'codex/nsp-subscribe-line-price-release-control-20261108-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105') || (github.event.pull_request.head.ref == 'codex/subscribe-design-tags-v13-r42-20261109' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105') || (github.event.pull_request.head.ref == 'codex/subscribe-us-dual-isp-charter-remove-20261109' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105')) }}
       RESIDENTIAL31_FORMAL_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'push' && github.ref == 'refs/heads/codex/residential-options-local-20261105' }}
+      # Review-only 031→032 route for this exact same-repo Draft PR. No formal 032 provenance is issued.
+      ADMIN32_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 165 && github.event.pull_request.draft == true && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin-manage-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' }}
       PROVENANCE_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'github-actions' || 'github-actions-test' }}
       VALIDATION_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'ci-build' || 'ci-test' }}
       MONITOR_ORIGIN_POLICY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'required' || 'optional' }}
@@ -138,7 +140,11 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           node scripts/ops/validate-release-open-http-contract.mjs \
             --source "$GITHUB_WORKSPACE"
-          if [ "$RESIDENTIAL31_FORMAL_CONTEXT" = "true" ]; then
+          if [ "$ADMIN32_TASK_CONTEXT" = "true" ]; then
+            node scripts/ops/validate-consolidated-release-packet.mjs \
+              --source "$GITHUB_WORKSPACE" --expected-sha "$EXPECTED_SHA" \
+              --schema-route standard31-32
+          elif [ "$RESIDENTIAL31_FORMAL_CONTEXT" = "true" ]; then
             node scripts/ops/validate-consolidated-release-packet.mjs \
               --source "$GITHUB_WORKSPACE" --expected-sha "$EXPECTED_SHA" \
               --schema-route standard26-31 --validation-mode ci-build
@@ -201,7 +207,28 @@ jobs:
         run: |
           test ! -e "$BUNDLE_PARENT"
           mkdir -p "$BUNDLE_PARENT"
-          if [ "$RESIDENTIAL31_TASK_CONTEXT" = "true" ] || [ "$RESIDENTIAL31_FORMAL_CONTEXT" = "true" ]; then
+          if [ "$ADMIN32_TASK_CONTEXT" = "true" ]; then
+            for ordinal in first second; do
+              node scripts/ops/assemble-consolidated-release.mjs \
+                --source "$GITHUB_WORKSPACE" --destination "$BUNDLE_PARENT/admin32-$ordinal" \
+                --expected-sha "$EXPECTED_SHA" --provenance-mode "$PROVENANCE_MODE" \
+                --schema-route standard31-32
+              node scripts/ops/validate-release-open-http-contract.mjs \
+                --source "$BUNDLE_PARENT/admin32-$ordinal"
+              node scripts/ops/validate-consolidated-release-packet.mjs \
+                --source "$GITHUB_WORKSPACE" --expected-sha "$EXPECTED_SHA" \
+                --bundle "$BUNDLE_PARENT/admin32-$ordinal" \
+                --validation-mode "$VALIDATION_MODE" --schema-route standard31-32
+              if find "$BUNDLE_PARENT/admin32-$ordinal" \
+                \( -type l -o -name node_modules -o -name '.env*' \
+                   -o -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
+                   -o -name '*.pem' -o -name '*.key' \) -print -quit | grep -q .; then
+                echo "forbidden admin32 review bundle entry detected" >&2
+                exit 1
+              fi
+            done
+            cmp "$BUNDLE_PARENT/admin32-first/release-manifest.json" "$BUNDLE_PARENT/admin32-second/release-manifest.json"
+          elif [ "$RESIDENTIAL31_TASK_CONTEXT" = "true" ] || [ "$RESIDENTIAL31_FORMAL_CONTEXT" = "true" ]; then
             for ordinal in first second; do
               node scripts/ops/assemble-consolidated-release.mjs \
                 --source "$GITHUB_WORKSPACE" --destination "$BUNDLE_PARENT/residential31-$ordinal" \
@@ -364,6 +391,16 @@ jobs:
           fi
 
           fi
+
+      - name: Retain admin32 PR review bundle (never production)
+        if: env.ADMIN32_TASK_CONTEXT == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-release-admin32-review-${{ env.EXPECTED_SHA }}
+          path: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}/admin32-first/
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
 
       - name: Retain residential31 PR review bundle (never production)
         if: env.RESIDENTIAL31_TASK_CONTEXT == 'true'

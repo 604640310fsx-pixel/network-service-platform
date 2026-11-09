@@ -1007,6 +1007,7 @@ export const zh = {
   },
   center: {
     manualChangeTodo: "套餐变更待办",
+    adminCenter: "管理中心",
     navGroups: { overview: "概览", subscription: "订阅管理", support: "支持与帮助", account: "账户设置" },
     nav: {
       "/status": "服务器状态",
@@ -1055,6 +1056,9 @@ export const zh = {
   },
   dashboard: {
     actionsTitle: "快捷操作",
+    adminEntryTitle: "管理中心",
+    adminEntryDescription: "管理套餐、用户、订单与现有服务事项。",
+    adminEntryAction: "进入管理中心",
     actions: {
       "/subscribe": { label: "套餐订阅", hint: "选择并配置新套餐" },
       "/services": { label: "当前套餐", hint: "查看已支付服务与开通进度" },

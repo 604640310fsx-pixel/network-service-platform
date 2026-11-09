@@ -2635,7 +2635,11 @@ function createArchiveSource(parent, name, { generation = 26 } = {}) {
     '<!doctype html><script type="module" src="/assets/referral-12345678.js"></script>\n',
   );
   writeFixtureFile(root, "website/dist/assets/referral-12345678.js", "export {};\n");
-  // Model exact historical sources;031 must never leak into frozen030/026 fixtures.
+  // Model exact historical sources; later migrations must not leak into older fixtures.
+  if(generation<32){
+    rmSync(join(root,'auth-service/src/migrations/032_catalog_directory_and_last_login.sql'));
+    const p=join(root,'auth-service/src/db.ts');writeFileSync(p,readFileSync(p,'utf8').replace('  "032_catalog_directory_and_last_login.sql",\n',''));
+  }
   if(generation<31){
     rmSync(join(root,'auth-service/src/migrations/031_residential_order_options.sql'));
     const p=join(root,'auth-service/src/db.ts');writeFileSync(p,readFileSync(p,'utf8').replace('  "031_residential_order_options.sql",\n',''));
@@ -3343,6 +3347,27 @@ test("standard31-32 is exact local-only assembly; default and formal gates stay 
         provenanceMode:LOCAL_PROVENANCE_MODE,schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE}),error=>error.code==="SCHEMA_BOUNDARY_MISMATCH");
     }
   } finally { rmSync(parent,{recursive:true,force:true}); }
+});
+
+test("admin32 review CI selects only Draft PR 165 and retains a forbidden-use artifact", () => {
+  const workflow=readFileSync(join(REPOSITORY_ROOT,".github/workflows/ci.yml"),"utf8");
+  const condition="github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 165 && github.event.pull_request.draft == true && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin-manage-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105'";
+  assert.equal(workflow.split(`ADMIN32_TASK_CONTEXT: \u0024{{ ${condition} }}`).length,2);
+  assert.match(workflow,/test "\$\(git rev-parse HEAD\)" = "\$EXPECTED_SHA"/);
+  assert.ok(workflow.includes('if [ "$ADMIN32_TASK_CONTEXT" = "true" ]; then'));
+  assert.ok(workflow.includes('--schema-route standard31-32'));
+  assert.ok(workflow.includes('"$BUNDLE_PARENT/admin32-first/release-manifest.json"'));
+  assert.ok(workflow.includes('consolidated-release-admin32-review-${{ env.EXPECTED_SHA }}'));
+  assert.ok(workflow.includes('npm --prefix auth-service test'));
+  assert.ok(workflow.includes('npm --prefix website test'));
+  assert.equal(workflow.includes('ADMIN32_FORMAL_CONTEXT'),false);
+  assert.equal(workflow.includes('continue-on-error'),false);
+  const sha="b".repeat(40),environment=githubEnvironment({sha,candidate:false});
+  const review=createReleaseProvenance({mode:"github-actions-test",expectedSha:sha,
+    schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE,environment});
+  assert.equal(review.releaseUse,"forbidden");
+  assert.throws(()=>createReleaseProvenance({mode:"github-actions",expectedSha:sha,
+    schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE,environment}),error=>error.code==="PROVENANCE_REQUIRED");
 });
 
 test("residential31 review CI opts in only the exact same-repo PR and retains mandatory old-route controls", () => {

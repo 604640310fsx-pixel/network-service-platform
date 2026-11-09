@@ -13,8 +13,6 @@ import {
   runMigrations,
   type DatabaseConnection,
 } from "../src/db.js";
-import { createPaymentOrder } from "../src/payment/orders.js";
-import { finalizePaid } from "../src/payment/state-machine.js";
 import { ensureReferralProfile } from "../src/referral/profile.js";
 import { computeInviteCodeHash } from "../src/registration/invite-code.js";
 import {
@@ -27,13 +25,10 @@ import {
 import { REGISTRATION_START_PERSONAL_CODE_LIMIT } from "../src/http/rate-limit.js";
 import { insertAuthenticationUser, withAuthenticationDatabase } from "./auth/helpers.js";
 import {
-  ACCESS_TOKEN_A,
   CSRF_KEY,
   TEST_NOW,
   TOKEN_KEYRING,
   insertWebSession,
-  localIspSelection,
-  paymentDependencies,
 } from "./payment/helpers.js";
 
 const MIGRATIONS_DIRECTORY = [
@@ -94,16 +89,19 @@ function seed020(path: string) {
   const doomedId = insertAuthenticationUser(database, { email: "doomed@example.test", passwordHash: "h", status: "active" });
   database.prepare("DELETE FROM users WHERE id = ?").run(doomedId);
   insertWebSession(database, customerId);
-  let sequence = 0;
-  const payment = paymentDependencies(database, undefined, () => `${String(++sequence).padStart(8, "0")}-9999-4999-8999-999999999999`);
-  const order = createPaymentOrder(payment, {
-    idempotencyKey: "seed-order", rawAccessToken: ACCESS_TOKEN_A, selection: localIspSelection(), contact: "c",
-    scenarios: [], notes: null, acknowledgedAmountFen: 7_900, userId: customerId,
-  });
-  finalizePaid(payment, {
-    outTradeNo: order.orderRef, tradeNo: "seed-trade", tradeStatus: "TRADE_SUCCESS", totalAmount: "79.00",
-    totalAmountFen: 7_900, appId: "app-123", sellerId: "seller-456", notification: { notifyId: "seed", payloadHash: "seed" },
-  });
+  // Seed historical 020 rows directly: current purchase code requires the 032
+  // directory tables, which must not exist while testing the 020→032 upgrade.
+  database.prepare(`INSERT INTO orders (order_ref,idempotency_key,request_fingerprint,user_id,type_id,region_id,isp_id,
+    spec_id,duration_id,catalog_version,amount_fen,currency,contact,scenarios,notes,status,created_at,updated_at)
+    VALUES ('DLSEED020','seed-order','seed-fingerprint',?,'local-isp','us','us-verizon',NULL,'month-1',
+      'SUBSCRIBE-CATALOG-V1',7900,'CNY','synthetic','[]',NULL,'paid',?,?)`).run(customerId,NOW.toISOString(),NOW.toISOString());
+  database.prepare(`INSERT INTO payments (order_id,out_trade_no,channel,app_id,amount_fen,currency,status,trade_no,
+    alipay_trade_status,paid_at,created_at,updated_at)
+    VALUES ((SELECT id FROM orders WHERE order_ref='DLSEED020'),'DLSEED020','alipay_page','synthetic-app',7900,'CNY',
+      'paid','seed-trade','TRADE_SUCCESS',?,?,?)`).run(NOW.toISOString(),NOW.toISOString(),NOW.toISOString());
+  database.prepare(`INSERT INTO services (payment_id,status,created_at,updated_at)
+    VALUES ((SELECT id FROM payments WHERE out_trade_no='DLSEED020'),'pending_open',?,?)`)
+    .run(NOW.toISOString(),NOW.toISOString());
   const profile = ensureReferralProfile(database, customerId, { now: () => NOW });
   const profileId = value(database, "SELECT id FROM referral_profiles WHERE user_id = ?", customerId);
   database.prepare("INSERT INTO referral_attribution_candidates (referred_user_id, source_profile_id, status, created_at) VALUES (?, ?, 'pending', ?)")
@@ -235,7 +233,7 @@ test("Migration 021 rebuild preserves every 020 user, reference, index, trigger,
 
     const restarted = initializeDatabase(path);
     try {
-      assert.equal(value(restarted, "SELECT COUNT(*) FROM schema_migrations"), 31);
+      assert.equal(value(restarted, "SELECT COUNT(*) FROM schema_migrations"), 32);
       assert.deepEqual(snapshot(restarted).users, before.users);
       assert.equal(restarted.pragma("foreign_keys", { simple: true }), 1);
     } finally {
