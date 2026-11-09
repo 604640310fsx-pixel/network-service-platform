@@ -863,6 +863,10 @@ export function AdminUserServicesPanel({ csrfToken }: { csrfToken: string | null
         <button type="submit" className="dash-primary-link" disabled={searching || query.trim() === ""} aria-busy={searching}>
           {searching ? copy.searching : copy.search}
         </button>
+        <button type="button" className="dash-usvc-ghost" disabled={searching || (query === "" && results === null && selected === null)}
+          onClick={() => { setQuery(""); setResults(null); setSelected(null); setDetail(null); setSearchError(null); setDetailError(null); }}>
+          {copy.clearSearch}
+        </button>
       </form>
       {searchError && <p className="dash-inline-error" role="alert">{searchError}</p>}
       {results !== null && (

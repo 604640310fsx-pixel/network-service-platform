@@ -1536,6 +1536,7 @@ export const zh = {
     searchPlaceholder: "输入邮箱的一部分",
     search: "搜索",
     searching: "搜索中…",
+    clearSearch: "清除筛选",
     noUsers: "没有匹配的用户。",
     selectUser: "选择",
     selectedUser: (email: string) => `当前用户：${email}`,

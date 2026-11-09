@@ -1537,6 +1537,7 @@ export const en: Messages = {
     searchPlaceholder: "Part of an email address",
     search: "Search",
     searching: "Searching…",
+    clearSearch: "Clear search",
     noUsers: "No matching users.",
     selectUser: "Select",
     selectedUser: (email: string) => `Selected: ${email}`,

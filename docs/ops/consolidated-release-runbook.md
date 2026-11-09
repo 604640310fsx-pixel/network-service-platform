@@ -47,6 +47,56 @@ counts, timestamps, pass/fail results, and binding names. It must not contain
 secret values, customer rows, database contents, credential material, or
 private configuration bodies.
 
+## Schema 032 administrator route
+
+`standard31-32` is an explicit 001–031 to 032 route for the administrator
+directory and nullable successful web-login field. It does not change the
+frozen default 026 route or any 030/031 route. The review bundle for same-repo
+Draft PR 165 (`codex/nsp-admin-manage-20261110-01` into
+`codex/residential-options-local-20261105`) has `releaseUse: forbidden`.
+Source and bundle checks select `--schema-route standard31-32` explicitly.
+Only a separately authorized push to the exact
+`refs/heads/codex/residential-options-local-20261105` formal ref may produce a
+032 candidate after the PR is merged. Bind the artifact to the actual final
+merge commit SHA from that push and its successful CI run; the PR head, planned
+merge SHA, local build and review artifact are not substitutes.
+
+`EXACT_031_PRECHECK`: Before any formal 032 migration, re-read the exact
+production `schema_migrations` ledger and prove it is continuous 001–031.
+Manager's earlier read-only observation of 001–031 and nonempty WAL is a
+starting fact, not an execution-time binding. A different version is DRIFT:
+stop, enumerate every intervening migration and seek a new decision. Do not
+let application startup silently apply 027–031 from an older production schema.
+Bind the exact database identity and create and independently verify a
+consistent backup with its WAL/SHM, SHA-256, file mode, byte count,
+`quick_check`, `foreign_key_check`, and 001–031 boundary before migration.
+Migration 032 adds two status tables and one nullable user field; it does not
+backfill login history or rewrite plan price, inventory, activation or orders.
+
+The accepted production 381 pricing runtime hash reported by the manager is
+`6aff457355395f275ed88eca51510741fb1fe226170b8ab5fdf3453f8a57cb36`
+for `auth-service/dist/src/payment/pricing.js` in its bound release manifest.
+The formal 032 source must retain the matching 381 `pricing.ts` logic; new
+configured `sellable_plans` rows remain authoritative for their exact amounts.
+Against the 381 Auth source, the only approved differences are the 032 migration
+registry/readiness, administrator directory routes and lookup, catalog and new
+quote/order gates, and nullable successful-login recording/administrator read.
+Verify the current production artifact and prices again at execution.
+
+`032_AWARE_ROLLBACK`: The old 031 Auth binary cannot start against an unknown
+032 ledger and would not enforce the new directory sellability gates if merely
+made to ignore the version. An approved recovery binary must understand 032,
+retain both status tables and the nullable login field, block new quotes and
+orders for closed directory keys, and preserve all post-migration users, login
+times, orders, payments and existing scheduled changes. A pre-migration
+snapshot may establish recoverability before writes; after any new write or
+external effect, do not replace the live database with it. A rollback artifact
+needs its own exact source, CI and artifact proof before use.
+The local 032-aware restart test uses the same forward Auth source and build;
+it proves data and directory-gate compatibility only. It is not an independent
+Auth rollback artifact for a defect in that code. A frontend rollback may be
+separate, but it must leave the 032-aware backend gates active.
+
 ## Runtime configuration inventory gate
 
 Before the pre-window artifact gate, an authorized operator uses only the

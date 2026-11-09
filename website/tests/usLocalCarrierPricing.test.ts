@@ -15,52 +15,41 @@ const { resolveSelection, resolveNewPurchaseSelection, withPackageDefaults, sele
   withPackageDefaults: (selection: Selection) => Selection;
   selectionToQuery: (selection: Selection) => string;
 };
-const { resolvePriceFen, enumerateUsLocalCarrierOptionTuples } = loader.load("../auth-service/src/payment/pricing.ts") as {
+const { resolvePriceFen } = loader.load("../auth-service/src/payment/pricing.ts") as {
   resolvePriceFen: (selection: Selection) => number | null;
-  enumerateUsLocalCarrierOptionTuples: () => (Selection & { priceFen: number })[];
 };
 const { monthlyPresentation } = loader.load("app/components/subscribe/subscriptionPresentation.ts") as {
   monthlyPresentation: (index: Record<string, unknown>, selection: Selection) => { monthlyFen: number; baseMonthlyFen: number | null; addonMonthlyFen: number | null } | null;
 };
 type Selection = { typeId: string; regionId: string; ispId: string; specId: string | null; durationId: string };
 const base = { typeId: "us-local-carrier", regionId: "us", ispId: "ntt", durationId: "month-1" };
-const prices = { "direct-200g": 4900, "direct-500g": 5900, "optimized-200g": 5900, "optimized-500g": 7900 } as const;
-const index = Object.fromEntries(Object.entries(prices).map(([specId, priceFen]) => [
-  [base.typeId, base.regionId, base.ispId, specId, base.durationId].join("|"),
-  { ...base, specId, priceFen, isActive: true, soldOut: false },
-])); // Isolated synthetic availability. Never a live quote.
+const specs = ["direct-200g", "direct-500g", "optimized-200g", "optimized-500g"] as const;
+const index = {}; // Production 381 has only the fixed, spec-null dual-ISP rows.
 
-test("four exact month-only tuples are final prices for all four existing US carriers", () => {
-  const rows = enumerateUsLocalCarrierOptionTuples();
-  assert.equal(rows.length, 16);
+test("production 381 dual-ISP fixed SKUs retain their exact period prices and no new spec quote", () => {
   for (const ispId of ["ntt", "gtt", "cogent", "charter"]) {
-    for (const [specId, priceFen] of Object.entries(prices)) {
-      const selection = { ...base, ispId, specId };
-      assert.equal(resolvePriceFen(selection), priceFen);
-      assert.equal(rows.find((row) => row.ispId === ispId && row.specId === specId)?.priceFen, priceFen);
+    for (const [durationId, priceFen] of [["month-1", 5900], ["month-6", 29900], ["month-12", 49900]] as const) {
+      assert.equal(resolvePriceFen({ ...base, ispId, specId: null, durationId }), priceFen);
     }
+    for (const specId of specs) assert.equal(resolvePriceFen({ ...base, ispId, specId }), null);
   }
   assert.equal(resolvePriceFen({ ...base, specId: "optimized-500g", durationId: "month-6" }), null);
   assert.equal(resolvePriceFen({ ...base, specId: "optimized-500g", ispId: "forged" }), null);
   assert.equal(resolvePriceFen({ ...base, specId: "optimized-1t" }), null);
 });
 
-test("catalogue has only the four requested tiers; synthetic server rows determine display price exactly once", () => {
-  assert.equal(catalog.networkTypes.find((type) => type.id === base.typeId)?.startingPrice, 49);
+test("new dual-ISP option UI shows no authoritative price without a matching server row", () => {
   assert.deepEqual(catalog.packageLinesByTypeAndRegion[base.typeId]?.us?.map((line) => line.id), ["direct", "optimized"]);
-  const specs = catalog.packageSpecsByTypeAndRegion[base.typeId]?.us ?? [];
-  assert.deepEqual(Object.fromEntries(specs.map((spec) => [spec.id, spec.surcharge])), {
+  const catalogSpecs = catalog.packageSpecsByTypeAndRegion[base.typeId]?.us ?? [];
+  assert.deepEqual(Object.fromEntries(catalogSpecs.map((spec) => [spec.id, spec.surcharge])), {
     "direct-200g": 0, "direct-500g": 0, "optimized-200g": 10, "optimized-500g": 20,
   });
-  for (const spec of specs) {
+  for (const spec of catalogSpecs) {
     assert.equal(spec.monthlyPrice, null);
     assert.deepEqual(spec.pricesByDuration, {});
     const selection = { ...base, specId: spec.id };
-    assert.equal(resolveSelection(selection, index).summary.total, prices[spec.id as keyof typeof prices] / 100);
-    const presentation = monthlyPresentation(index, selection);
-    assert.equal(presentation?.monthlyFen, prices[spec.id as keyof typeof prices]);
-    assert.equal(presentation?.baseMonthlyFen, spec.id.endsWith("200g") ? 4900 : 5900);
-    assert.equal(presentation?.addonMonthlyFen, spec.surcharge * 100);
+    assert.equal(resolveSelection(selection, index).summary.total, null);
+    assert.equal(monthlyPresentation(index, selection), null);
     assert.match(selectionToQuery(selection), new RegExp(`spec=${spec.id}`));
   }
   assert.equal(resolveSelection({ ...base, specId: null }, index).summary.complete, false);
@@ -80,13 +69,10 @@ test("new dual-ISP purchase omits only Charter while shared history and other Ch
   assert.equal(catalog.ispsByTypeAndRegion["local-isp"]?.us?.find((isp) => isp.id === "us-charter")?.name, "Charter");
   const newPurchase = resolveNewPurchaseSelection({ ...base, specId: "direct-200g" }, index);
   assert.deepEqual(newPurchase.availableIsps.map((isp) => isp.id), ["ntt", "gtt", "cogent"]);
-  assert.equal(newPurchase.summary.total, 49);
+  assert.equal(newPurchase.summary.total, null);
   const legacy = { ...base, ispId: "charter", specId: "optimized-500g" };
-  const oldRow = { ...legacy, priceFen: 7900, isActive: true, soldOut: false };
-  const oldIndex = { [`${legacy.typeId}|${legacy.regionId}|${legacy.ispId}|${legacy.specId}|${legacy.durationId}`]: oldRow };
-  assert.equal(resolveSelection(legacy, oldIndex).summary.complete, true); // Historical reader unchanged.
-  assert.equal(resolveNewPurchaseSelection(legacy, oldIndex).summary.complete, false);
-  assert.equal(resolveNewPurchaseSelection(legacy, oldIndex).summary.total, null);
-  assert.equal(resolveNewPurchaseSelection({ ...legacy, typeId: "local-isp", ispId: "us-charter", specId: null }).summary.complete, true);
-  assert.equal(resolvePriceFen({ ...base, ispId: "charter", specId: "direct-200g" }), 4900); // Server pricing remains unchanged this round.
+  assert.equal(resolveNewPurchaseSelection(legacy, index).summary.complete, false);
+  assert.equal(resolveNewPurchaseSelection(legacy, index).summary.total, null);
+  assert.equal(resolvePriceFen({ ...base, ispId: "charter", specId: "direct-200g" }), null);
+  assert.equal(resolvePriceFen({ ...base, ispId: "charter", specId: null }), 5900); // Historical fixed SKU remains in 381 pricing.
 });

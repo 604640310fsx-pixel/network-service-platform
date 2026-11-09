@@ -14,6 +14,8 @@ import {
   runMigrations,
   type DatabaseConnection,
 } from "../src/db.js";
+import { PaymentDomainError, resolveQuote } from "../src/payment/commerce.js";
+import { updateCatalogDirectoryStatus } from "../src/payment/catalog-directory.js";
 
 const NOW = "2026-08-17T12:00:00.000Z";
 const LATER = "2026-08-18T12:00:00.000Z";
@@ -144,6 +146,7 @@ test("032 upgrades populated030 with nullable snapshots, directory states and lo
  const db=openAndVerifyDatabase(join(directory,'synthetic.sqlite'));
  try{
   applyMigrationPrefix(db,30);const {userId}=createBootstrapUser(db);
+  db.prepare("UPDATE sellable_plans SET is_active=0 WHERE type_id='us-local-carrier' AND region_id='us' AND isp_id='charter'").run();
   db.prepare(`INSERT INTO orders(order_ref,idempotency_key,request_fingerprint,user_id,type_id,region_id,isp_id,spec_id,duration_id,catalog_version,amount_fen,currency,contact,scenarios,notes,status,created_at,updated_at)
     VALUES ('SYNTHETIC030','synthetic031','synthetic031',?,'residential','sg','sptel','shared-5','month-1','SUBSCRIBE-CATALOG-V1',14900,'CNY','synthetic@example.invalid','[]',NULL,'paid',?,?)`).run(userId,NOW,NOW);
   const columns=columnNames(db,'orders'),order=db.prepare('SELECT * FROM orders').all(),plans=db.prepare('SELECT * FROM sellable_plans ORDER BY id').all(),history=db.prepare('SELECT * FROM schema_migrations ORDER BY version').all();
@@ -156,6 +159,18 @@ test("032 upgrades populated030 with nullable snapshots, directory states and lo
   assert.equal(firstNumber(db,"SELECT COUNT(*) FROM sellable_regions"),firstNumber(db,"SELECT COUNT(DISTINCT type_id || ':' || region_id) FROM sellable_plans"));
   assert.equal(firstNumber(db,"SELECT COUNT(*) FROM sellable_operators"),firstNumber(db,"SELECT COUNT(DISTINCT type_id || ':' || region_id || ':' || isp_id) FROM sellable_plans"));
   assert.equal((db.prepare("SELECT last_successful_web_login_at FROM users WHERE id=?").all(userId)[0] as {last_successful_web_login_at:string|null}).last_successful_web_login_at,null);
+  const withdrawn={typeId:"us-local-carrier",regionId:"us",ispId:"charter",specId:null,durationId:"month-1"};
+  const quoteWithdrawn=()=>resolveQuote(db,{selection:withdrawn,couponCode:null,now:()=>new Date(NOW)});
+  assert.equal(firstNumber(db,"SELECT is_active FROM sellable_operators WHERE type_id='us-local-carrier' AND region_id='us' AND isp_id='charter'"),1);
+  assert.equal(firstNumber(db,"SELECT COUNT(*) FROM sellable_plans WHERE type_id='us-local-carrier' AND region_id='us' AND isp_id='charter' AND is_active=1"),0);
+  assert.throws(quoteWithdrawn,(error:unknown)=>error instanceof PaymentDomainError && error.code==="plan_unavailable");
+  const control={typeId:"us-local-carrier",regionId:"us",adminUserId:userId,now:()=>new Date(NOW)};
+  updateCatalogDirectoryStatus(db,{...control,kind:"operator",ispId:"charter",isActive:false});
+  updateCatalogDirectoryStatus(db,{...control,kind:"operator",ispId:"charter",isActive:true});
+  updateCatalogDirectoryStatus(db,{...control,kind:"region",isActive:false});
+  updateCatalogDirectoryStatus(db,{...control,kind:"region",isActive:true});
+  assert.equal(firstNumber(db,"SELECT COUNT(*) FROM sellable_plans WHERE type_id='us-local-carrier' AND region_id='us' AND isp_id='charter' AND is_active=1"),0);
+  assert.throws(quoteWithdrawn,(error:unknown)=>error instanceof PaymentDomainError && error.code==="plan_unavailable");
   for(const raw of ['null','[]','1','"string"','invalid'])assert.throws(()=>db.prepare('UPDATE orders SET residential_options_json=?').run(raw));
   db.prepare('UPDATE orders SET residential_options_json=?').run('{}');
   db.prepare('UPDATE orders SET residential_options_json=NULL').run();

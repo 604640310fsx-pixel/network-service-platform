@@ -58,6 +58,11 @@ import {
   STANDARD26_30_RELEASE_SCHEMA_ROUTE,
   STANDARD26_31_RELEASE_SCHEMA_ROUTE,
   STANDARD31_32_RELEASE_SCHEMA_ROUTE,
+  ADMIN32_FORMAL_REF,
+  ADMIN32_PRODUCT_BASELINE,
+  ADMIN32_PRICING_SOURCE_SHA256,
+  ADMIN32_ALLOWED_PATHS,
+  verifyAdmin32ProductSource,
   RELEASE_MIGRATIONS_001_031,
   RELEASE_MIGRATIONS_001_032,
   releaseMigrationsForRoute,
@@ -3310,7 +3315,7 @@ test("standard26-31 is explicit, exact, isolated from frozen 026 routes and loca
   } finally { rmSync(parent,{recursive:true,force:true}); }
 });
 
-test("standard31-32 is exact local-only assembly; default and formal gates stay closed", () => {
+test("standard31-32 review assembly is exact; local bundles remain unreleasable", () => {
   const parent = mkdtempSync(join(tmpdir(), "consolidated-release-031-032-"));
   try {
     assert.equal(RELEASE_MIGRATIONS.length, 26);
@@ -3360,7 +3365,11 @@ test("admin32 review CI selects only Draft PR 165 and retains a forbidden-use ar
   assert.ok(workflow.includes('consolidated-release-admin32-review-${{ env.EXPECTED_SHA }}'));
   assert.ok(workflow.includes('npm --prefix auth-service test'));
   assert.ok(workflow.includes('npm --prefix website test'));
-  assert.equal(workflow.includes('ADMIN32_FORMAL_CONTEXT'),false);
+  assert.ok(workflow.includes('ADMIN32_FORMAL_CONTEXT: false'));
+  assert.ok(workflow.includes('if test -f auth-service/src/migrations/032_catalog_directory_and_last_login.sql; then'));
+  assert.ok(workflow.includes('consolidated-release-admin32-${{ env.EXPECTED_SHA }}'));
+  assert.ok(workflow.includes('sha256sum auth-service/dist/src/payment/pricing.js'));
+  assert.ok(workflow.includes('6aff457355395f275ed88eca51510741fb1fe226170b8ab5fdf3453f8a57cb36'));
   assert.equal(workflow.includes('continue-on-error'),false);
   const sha="b".repeat(40),environment=githubEnvironment({sha,candidate:false});
   const review=createReleaseProvenance({mode:"github-actions-test",expectedSha:sha,
@@ -3368,6 +3377,63 @@ test("admin32 review CI selects only Draft PR 165 and retains a forbidden-use ar
   assert.equal(review.releaseUse,"forbidden");
   assert.throws(()=>createReleaseProvenance({mode:"github-actions",expectedSha:sha,
     schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE,environment}),error=>error.code==="PROVENANCE_REQUIRED");
+});
+
+test("formal32 pins the existing branch, exact push SHA, approved source paths and 381 pricing", () => {
+  const parent=mkdtempSync(join(tmpdir(),"admin32-formal-source-"));
+  try {
+    const source=join(parent,"source");
+    runGit(parent,"clone","--shared","--no-checkout",REPOSITORY_ROOT,source);
+    runGit(source,"checkout","--detach",ADMIN32_PRODUCT_BASELINE);
+    for(const path of ADMIN32_ALLOWED_PATHS) {
+      const current=join(REPOSITORY_ROOT,path);
+      if(existsSync(current)) writeFixtureFile(source,path,readFileSync(current,"utf8"));
+    }
+    runGit(source,"add","--",...ADMIN32_ALLOWED_PATHS);
+    runGit(source,"commit","-m","synthetic approved admin32 source");
+    const sha=runGit(source,"rev-parse","HEAD");
+    assert.equal(sha256(join(source,"auth-service/src/payment/pricing.ts")),ADMIN32_PRICING_SOURCE_SHA256);
+    assert.equal(verifyAdmin32ProductSource(source,sha),ADMIN32_PRODUCT_BASELINE);
+    const sourceGate=cli(VALIDATOR_PATH,["--source",source,"--expected-sha",sha,"--schema-route",STANDARD31_32_RELEASE_SCHEMA_ROUTE]);
+    assert.equal(sourceGate.status,0,JSON.stringify(sourceGate.json));
+    const eventPath=join(parent,"push.json");
+    const event={ref:ADMIN32_FORMAL_REF,after:sha,deleted:false,
+      repository:{full_name:"604640310fsx-pixel/network-service-platform"}};
+    writeFileSync(eventPath,JSON.stringify(event));
+    const environment={...githubEnvironment({sha,candidate:true}),GITHUB_REF:ADMIN32_FORMAL_REF,
+      GITHUB_WORKFLOW_REF:`604640310fsx-pixel/network-service-platform/.github/workflows/ci.yml@${ADMIN32_FORMAL_REF}`,
+      GITHUB_EVENT_PATH:eventPath};
+    const args={mode:"github-actions",expectedSha:sha,schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE,environment};
+    assert.equal(createReleaseProvenance(args).productBaseline,ADMIN32_PRODUCT_BASELINE);
+    writeFixtureFile(source,"auth-service/dist/src/db.js","export const db = true;\n");
+    writeFixtureFile(source,"auth-service/dist/src/server.js","export const server = true;\n");
+    writeFixtureFile(source,"website/dist/index.html","<!doctype html><title>synthetic</title>\n");
+    writeFixtureFile(source,"website/dist/referral.html",'<script type="module" src="/assets/referral-12345678.js"></script>\n');
+    writeFixtureFile(source,"website/dist/assets/referral-12345678.js","export {};\n");
+    const bundle=join(parent,"formal-bundle");
+    assembleReleaseBundle({source,destination:bundle,expectedSha:sha,provenanceMode:"github-actions",
+      schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE,environment});
+    const manifest=JSON.parse(readFileSync(join(bundle,"release-manifest.json"),"utf8"));
+    assert.deepEqual(manifest.schemaBoundary,{rollback:31,candidate:32});
+    assert.equal(manifest.provenance.artifactName,`consolidated-release-admin32-${sha}`);
+    assert.equal(validateBundle({source,bundle,expectedSha:sha,validationMode:"ci-build",
+      schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE,environment}).status,"ok");
+    for(const patch of [{GITHUB_EVENT_NAME:"pull_request"},{GITHUB_REPOSITORY:"fork/network-service-platform"},
+      {GITHUB_REF:"refs/heads/main"},{GITHUB_SHA:"a".repeat(40)},
+      {GITHUB_WORKFLOW_REF:"604640310fsx-pixel/network-service-platform/.github/workflows/ci.yml@refs/heads/main"},
+      {GITHUB_EVENT_PATH:join(parent,"missing-event")}])
+      assert.throws(()=>createReleaseProvenance({...args,environment:{...environment,...patch}}),error=>error.code==="PROVENANCE_REQUIRED");
+    for(const patch of [{after:"a".repeat(40)},{ref:"refs/heads/main"},{deleted:true},
+      {repository:{full_name:"fork/network-service-platform"}}]) {
+      writeFileSync(eventPath,JSON.stringify({...event,...patch}));
+      assert.throws(()=>createReleaseProvenance(args),error=>error.code==="PROVENANCE_REQUIRED");
+    }
+    writeFileSync(eventPath,JSON.stringify(event));
+    assert.throws(()=>createReleaseProvenance({...args,mode:"github-actions-test"}),error=>error.code==="PROVENANCE_REQUIRED");
+    writeFixtureFile(source,"website/README.md",readFileSync(join(source,"website/README.md"),"utf8")+"\nsynthetic unapproved change\n");
+    runGit(source,"add","--","website/README.md");runGit(source,"commit","-m","synthetic unapproved path");
+    assert.throws(()=>verifyAdmin32ProductSource(source,runGit(source,"rev-parse","HEAD")),error=>error.code==="PRODUCT_SOURCE_MISMATCH");
+  } finally { rmSync(parent,{recursive:true,force:true}); }
 });
 
 test("residential31 review CI opts in only the exact same-repo PR and retains mandatory old-route controls", () => {
