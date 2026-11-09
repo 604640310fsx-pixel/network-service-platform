@@ -57,7 +57,10 @@ import {
   DIRECT14_26_RELEASE_SCHEMA_ROUTE,
   STANDARD26_30_RELEASE_SCHEMA_ROUTE,
   STANDARD26_31_RELEASE_SCHEMA_ROUTE,
+  STANDARD31_32_RELEASE_SCHEMA_ROUTE,
   RELEASE_MIGRATIONS_001_031,
+  RELEASE_MIGRATIONS_001_032,
+  releaseMigrationsForRoute,
   RESIDENTIAL31_FORMAL_REF,
   RESIDENTIAL31_PRODUCT_BASELINE,
   verifyResidential31ProductSource,
@@ -3299,6 +3302,45 @@ test("standard26-31 is explicit, exact, isolated from frozen 026 routes and loca
       assert.equal(existsSync(destination),false);
       const rejected=cli(VALIDATOR_PATH,["--source",fixture.root,"--expected-sha",fixture.sha,"--schema-route",STANDARD26_31_RELEASE_SCHEMA_ROUTE]);
       assert.equal(rejected.json.code,"SCHEMA_BOUNDARY_MISMATCH");
+    }
+  } finally { rmSync(parent,{recursive:true,force:true}); }
+});
+
+test("standard31-32 is exact local-only assembly; default and formal gates stay closed", () => {
+  const parent = mkdtempSync(join(tmpdir(), "consolidated-release-031-032-"));
+  try {
+    assert.equal(RELEASE_MIGRATIONS.length, 26);
+    assert.deepEqual(RELEASE_MIGRATIONS_001_032.slice(0,31), RELEASE_MIGRATIONS_001_031);
+    assert.deepEqual(releaseMigrationsForRoute(STANDARD31_32_RELEASE_SCHEMA_ROUTE), RELEASE_MIGRATIONS_001_032);
+    const source = createFixtureRepository(parent, RELEASE_MIGRATIONS_001_032);
+    const bundle = join(parent, "bundle-032");
+    assembleReleaseBundle({source:source.root,destination:bundle,expectedSha:source.sha,
+      provenanceMode:LOCAL_PROVENANCE_MODE,schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE});
+    const manifest = JSON.parse(readFileSync(join(bundle,"release-manifest.json"),"utf8"));
+    assert.deepEqual(manifest.schemaBoundary,{rollback:31,candidate:32});
+    assert.deepEqual(manifest.migrations,RELEASE_MIGRATIONS_001_032);
+    assert.equal(manifest.provenance.releaseUse,"forbidden");
+    assert.equal(validateBundle({bundle,expectedSha:source.sha,validationMode:LOCAL_PROVENANCE_MODE,
+      schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE}).status,"ok");
+    assert.throws(()=>validateBundle({bundle,expectedSha:source.sha,validationMode:"candidate",
+      schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE}),error=>error.code==="PROVENANCE_REQUIRED");
+    assert.throws(()=>createReleaseProvenance({mode:"github-actions",expectedSha:source.sha,
+      schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE,environment:githubEnvironment({sha:source.sha,candidate:true})}),
+      error=>error.code==="PROVENANCE_REQUIRED");
+    for(const route of [STANDARD16_26_RELEASE_SCHEMA_ROUTE,STANDARD26_31_RELEASE_SCHEMA_ROUTE]) {
+      assert.throws(()=>assembleReleaseBundle({source:source.root,destination:join(parent,route),expectedSha:source.sha,
+        provenanceMode:LOCAL_PROVENANCE_MODE,schemaRoute:route}),error=>error.code==="SCHEMA_BOUNDARY_MISMATCH");
+      assert.throws(()=>validateBundle({bundle,expectedSha:source.sha,validationMode:LOCAL_PROVENANCE_MODE,
+        schemaRoute:route}),error=>error.code==="BUNDLE_INTEGRITY_FAILED");
+    }
+    assert.throws(()=>releaseMigrationsForRoute("standard30-32"),error=>error.code==="ARGUMENT_ERROR");
+    for (const mode of ["missing","future"]) {
+      const fixtureParent=join(parent,mode);mkdirSync(fixtureParent);
+      const migrations=[...RELEASE_MIGRATIONS_001_032];
+      if(mode==="missing") migrations.pop(); else migrations.push("033_unapproved.sql");
+      const invalid=createFixtureRepository(fixtureParent,migrations);
+      assert.throws(()=>assembleReleaseBundle({source:invalid.root,destination:join(fixtureParent,"bundle"),expectedSha:invalid.sha,
+        provenanceMode:LOCAL_PROVENANCE_MODE,schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE}),error=>error.code==="SCHEMA_BOUNDARY_MISMATCH");
     }
   } finally { rmSync(parent,{recursive:true,force:true}); }
 });

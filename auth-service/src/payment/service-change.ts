@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { DatabaseConnection } from "../db.js";
 import { findSellablePlan, PaymentDomainError, type PlanSelection } from "./commerce.js";
+import { isDirectoryEnabled } from "./catalog-directory.js";
 import { createStoredOrder, paymentResponse, type OrderServiceDependencies } from "./orders.js";
 
 type DbRow = Record<string, unknown>;
@@ -471,6 +472,8 @@ export function applyDueScheduledDowngrade(database: DatabaseConnection, mode: "
 export function quoteServiceUpgrade(database: DatabaseConnection, userId: number, serviceId: number, specId: string | null, now: Date) {
   const operation = database.transaction(() => {
     const current = entitlement(database, serviceId, userId, now);
+    if (!isDirectoryEnabled(database, string(current, "type_id"), string(current, "region_id"), string(current, "isp_id")))
+      throw new PaymentDomainError(409, "plan_unavailable");
     if (activeChange(database, serviceId) !== null || hasPaidConflict(database,serviceId))
       throw new PaymentDomainError(409, "change_already_pending");
     const next = target(database, current, specId, "upgrade");
@@ -522,6 +525,8 @@ export function createServiceUpgradeOrder(dependencies: OrderServiceDependencies
     }
     const now = (dependencies.now ?? (() => new Date()))();
     const current = entitlement(database, input.serviceId, input.userId, now);
+    if (!isDirectoryEnabled(database, string(current, "type_id"), string(current, "region_id"), string(current, "isp_id")))
+      throw new PaymentDomainError(409, "plan_unavailable");
     const quote = one(database, "SELECT * FROM service_change_quotes WHERE quote_ref = ? AND service_id = ? AND user_id = ?", input.quoteRef, input.serviceId, input.userId);
     if (quote === null || string(quote, "expires_at") <= now.toISOString() ||
         number(quote, "service_version") !== number(current, "version") ||
@@ -561,6 +566,8 @@ export function createServiceUpgradeOrder(dependencies: OrderServiceDependencies
 export function scheduleServiceDowngrade(database: DatabaseConnection, userId: number, serviceId: number, specId: string | null, now: Date) {
   const operation = database.transaction(() => {
     const current = entitlement(database, serviceId, userId, now);
+    if (!isDirectoryEnabled(database, string(current, "type_id"), string(current, "region_id"), string(current, "isp_id")))
+      throw new PaymentDomainError(409, "plan_unavailable");
     if (activeChange(database, serviceId) !== null || hasPaidConflict(database,serviceId))
       throw new PaymentDomainError(409, "change_already_pending");
     const next = target(database, current, specId, "downgrade");
@@ -653,6 +660,7 @@ export function serviceChangeSnapshot(database: DatabaseConnection, serviceId: n
 
 export function listServiceChangeOptions(database: DatabaseConnection, userId: number, serviceId: number, now: Date) {
   const current = entitlement(database, serviceId, userId, now);
+  if (!isDirectoryEnabled(database, string(current, "type_id"), string(current, "region_id"), string(current, "isp_id"))) return [];
   const rows = database.prepare(`SELECT month.spec_id,month.price_fen,period.id AS period_plan_id
     FROM sellable_plans month JOIN sellable_plans period
       ON period.type_id=month.type_id AND period.region_id=month.region_id

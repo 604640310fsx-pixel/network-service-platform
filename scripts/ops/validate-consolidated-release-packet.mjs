@@ -686,7 +686,7 @@ export function validateRepository({
             "## Migration 025 forward-only ticket attachments and grant link",
           ]
         : []),
-      ...(candidate === 26 || candidate === 30 || candidate === 31
+      ...(candidate === 26 || candidate === 30 || candidate === 31 || candidate === 32
         ? [
             "## Explicit DIRECT14 to 26 route",
             "--schema-route direct14-26",
@@ -786,7 +786,7 @@ export function validateRepository({
       "consolidated-release-direct14-${{ env.EXPECTED_SHA }}",
       // This independent route does not claim that the frozen 026 CI job
       // creates 030 artifacts. Its old flags must remain intact.
-      ...(candidate === 26 || candidate === 30 || candidate === 31
+      ...(candidate === 26 || candidate === 30 || candidate === 31 || candidate === 32
         ? [
             "--schema-route direct14-26",
             "--schema-route standard16-26",

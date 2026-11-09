@@ -886,6 +886,8 @@ export function AdminUserServicesPanel({ csrfToken }: { csrfToken: string | null
 
       {selected && (
         <div className="dash-usvc-detail">
+          <p className="dash-usvc-meta">最近成功登录：{selected.lastSuccessfulWebLoginAt === null
+            ? "暂无记录" : new Date(selected.lastSuccessfulWebLoginAt).toLocaleString()}</p>
           {detailError && <p className="dash-inline-error" role="alert">{detailError}</p>}
           {detail === null && !detailError && <p className="dash-usvc-meta" role="status">{copy.loading}</p>}
           {detail && (

@@ -1,15 +1,6 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
 import { useT } from "../../lib/i18n";
-import { AdminCouponsPanel } from "./AdminCouponsPanel";
-import { AdminDiagnosisPanel } from "./AdminDiagnosisPanel";
-import { AdminInviteCodesPanel } from "./AdminInviteCodesPanel";
-import { AdminOrdersPanel } from "./AdminOrdersPanel";
-import { AdminPendingServices } from "./AdminPendingServices";
-import { AdminServiceChangePanel } from "./AdminServiceChangePanel";
-import { AdminPlansPanel } from "./AdminPlansPanel";
-import { AdminTicketsPanel } from "./AdminTicketsPanel";
-import { AdminUserServicesPanel } from "./AdminUserServicesPanel";
 import { BuyerDashboardOverview } from "./BuyerDashboardOverview";
 import "./dashboard.css";
 
@@ -28,23 +19,18 @@ function ActionIcon() {
 }
 
 export function DashboardPage() {
-  const { principal, csrfToken } = useAuth();
+  const { principal } = useAuth();
   const copy = useT().dashboard;
 
   return (
     <main className="dash-page">
       <div className="dash-layout">
-        {principal?.role === "admin" && <AdminServiceChangePanel csrfToken={csrfToken} />}
         <BuyerDashboardOverview />
-
-        {principal?.role === "admin" && <AdminDiagnosisPanel csrfToken={csrfToken} />}
-        {principal?.role === "admin" && <AdminInviteCodesPanel csrfToken={csrfToken} />}
-        {principal?.role === "admin" && <AdminPendingServices csrfToken={csrfToken} />}
-        {principal?.role === "admin" && <AdminUserServicesPanel csrfToken={csrfToken} />}
-        {principal?.role === "admin" && <AdminOrdersPanel csrfToken={csrfToken} />}
-        {principal?.role === "admin" && <AdminPlansPanel csrfToken={csrfToken} />}
-        {principal?.role === "admin" && <AdminCouponsPanel csrfToken={csrfToken} />}
-        {principal?.role === "admin" && <AdminTicketsPanel csrfToken={csrfToken} />}
+        {principal?.role === "admin" && <section className="dash-panel" aria-label="管理员入口">
+          <h2><em>ADMIN</em>管理中心</h2>
+          <p>管理套餐、用户、订单与现有服务事项。</p>
+          <Link className="dash-primary-link" to="/admin">进入管理中心</Link>
+        </section>}
 
         <section className="dash-panel" aria-labelledby="dash-actions-title">
           <h2 id="dash-actions-title"><em>ACTIONS</em>{copy.actionsTitle}</h2>

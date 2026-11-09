@@ -30,7 +30,7 @@ function orderInput(specId: string, amount: number, userId: number | null = null
 
 test("031 is nullable JSON-object only; no backfill; new direct device allowance is explicit, never inferred from sharing count", async () => {
   await withAuthenticationDatabase(async db => {
-    assert.equal(firstValue(db,"SELECT max(version) FROM schema_migrations"),31);
+    assert.equal(firstValue(db,"SELECT max(version) FROM schema_migrations"),32);
     assert.equal(firstValue(db,"SELECT count(*) FROM sellable_plans"),1014);
     const deps=paymentDependencies(db),old=createPaymentOrder(deps,{...orderInput("shared-3",21900)});
     assert.equal(firstValue(db,"SELECT residential_options_json FROM orders WHERE order_ref=?",old.orderRef),null);
@@ -187,7 +187,7 @@ test('marked031 missing its snapshot column is corruption, not historical NULL f
   const serviceId=firstValue(db,'SELECT s.id FROM services s JOIN payments p ON p.id=s.payment_id WHERE p.out_trade_no=?',old.orderRef)as number;
   db.prepare("UPDATE services SET status='open',opened_by_admin_id=?,opened_at=?,ends_at='2026-09-21T00:00:00.000Z' WHERE id=?").run(owner,TEST_NOW.toISOString(),serviceId);
   db.exec('ALTER TABLE orders DROP COLUMN residential_options_json');
-  assert.equal(firstValue(db,'SELECT MAX(version) FROM schema_migrations'),31);
+  assert.equal(firstValue(db,'SELECT MAX(version) FROM schema_migrations'),32);
   assert.throws(()=>residentialSnapshotSql(db),{message:'Residential snapshot schema missing'});
   assert.throws(()=>resolveQuote(db,{selection:selection(),couponCode:null,now:()=>TEST_NOW}),{message:'Residential snapshot schema missing'});
   assert.throws(()=>produceRenewalQuote(db,serviceId,'MONTHLY',owner),{message:'QUOTE_UNAVAILABLE'});

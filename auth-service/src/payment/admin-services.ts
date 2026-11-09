@@ -116,6 +116,7 @@ export interface AdminUserSummary {
   readonly role: "user" | "admin";
   readonly status: "active" | "disabled";
   readonly createdAt: string;
+  readonly lastSuccessfulWebLoginAt: string | null;
 }
 
 /** Case-insensitive email substring search; LIKE wildcards in the query are matched literally. */
@@ -127,7 +128,7 @@ export function searchUsersForAdmin(database: DatabaseConnection, query: string)
   const pattern = `%${trimmed.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
   return database
     .prepare(
-      `SELECT id, email, role, status, created_at FROM users
+      `SELECT id, email, role, status, created_at, last_successful_web_login_at FROM users
        WHERE lower(email) LIKE ? ESCAPE '\\'
        ORDER BY email ASC
        LIMIT ?`,
@@ -140,7 +141,8 @@ export function searchUsersForAdmin(database: DatabaseConnection, query: string)
       if ((role !== "user" && role !== "admin") || (status !== "active" && status !== "disabled")) {
         throw new Error("Admin user database invariant failed");
       }
-      return { id: integer(row, "id"), email: text(row, "email"), role, status, createdAt: text(row, "created_at") };
+      return { id: integer(row, "id"), email: text(row, "email"), role, status, createdAt: text(row, "created_at"),
+        lastSuccessfulWebLoginAt: row.last_successful_web_login_at === null ? null : text(row, "last_successful_web_login_at") };
     });
 }
 

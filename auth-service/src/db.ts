@@ -79,6 +79,7 @@ export const MIGRATION_FILES = [
   "029_remove_single_payment_cap.sql",
   "030_service_change_local.sql",
   "031_residential_order_options.sql",
+  "032_catalog_directory_and_last_login.sql",
 ] as const;
 
 // Migrations that rebuild a table other tables reference with ON DELETE
@@ -92,7 +93,8 @@ const FOREIGN_KEYS_OFF_PRESERVED_TABLES = ["users", "pending_registrations"] as 
 
 const DATABASE_READINESS_SQL =
   "SELECT version FROM schema_migrations ORDER BY version LIMIT ?";
-const DATABASE_READINESS_ROW_LIMIT = 32;
+// Fetch one row beyond the known sequence so an appended unknown migration is visible.
+const DATABASE_READINESS_ROW_LIMIT = MIGRATION_FILES.length + 1;
 const EXPECTED_MIGRATION_VERSIONS = Object.freeze(
   MIGRATION_FILES.map((file) => Number.parseInt(file.slice(0, 3), 10)),
 );

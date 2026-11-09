@@ -35,6 +35,7 @@ export const DIRECT14_RELEASE_ARTIFACT_PREFIX = "consolidated-release-direct14-"
 export const STANDARD19_RELEASE_ARTIFACT_PREFIX = "consolidated-release-standard19-";
 export const STANDARD26_RELEASE_ARTIFACT_PREFIX = "consolidated-release-standard26-";
 export const RESIDENTIAL31_RELEASE_ARTIFACT_PREFIX = "consolidated-release-residential31-";
+export const ADMIN32_RELEASE_ARTIFACT_PREFIX = "consolidated-release-admin32-";
 export const RELEASE_INTEGRATION_REF =
   "refs/heads/integration/consolidate-project";
 export const STANDARD26_FORMAL_REF =
@@ -50,6 +51,8 @@ export const STANDARD26_CONTROL_PATHS = Object.freeze([
   "scripts/ops/consolidated-release-packet.test.mjs",
 ]);
 export function releaseFormalRefForRoute(schemaRoute) {
+  // Local 031→032 assembly is available; formal CI binding remains a separate frozen decision.
+  if (schemaRoute === STANDARD31_32_RELEASE_SCHEMA_ROUTE) return null;
   if (schemaRoute === STANDARD26_31_RELEASE_SCHEMA_ROUTE) return RESIDENTIAL31_FORMAL_REF;
   return schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE
     ? STANDARD26_FORMAL_REF : RELEASE_INTEGRATION_REF;
@@ -92,6 +95,7 @@ export const STANDARD19_26_RELEASE_SCHEMA_ROUTE = "standard19-26";
 // Independent opt-in route. Never changes the frozen default/026 CI routes.
 export const STANDARD26_30_RELEASE_SCHEMA_ROUTE = "standard26-30";
 export const STANDARD26_31_RELEASE_SCHEMA_ROUTE = "standard26-31";
+export const STANDARD31_32_RELEASE_SCHEMA_ROUTE = "standard31-32";
 export function isIndependentStandard26Route(route) {
   return route === STANDARD26_30_RELEASE_SCHEMA_ROUTE || route === STANDARD26_31_RELEASE_SCHEMA_ROUTE;
 }
@@ -127,9 +131,10 @@ export const RELEASE_SCHEMA_BOUNDARIES = Object.freeze({
   [STANDARD19_26_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 19, candidate: 26 }),
   [STANDARD26_30_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 26, candidate: 30 }),
   [STANDARD26_31_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 26, candidate: 31 }),
+  [STANDARD31_32_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 31, candidate: 32 }),
 });
 export const RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE =
-  "--schema-route must be standard16-19, direct14-19, standard16-20, direct14-20, standard19-20, standard16-21, direct14-21, standard19-21, standard16-22, direct14-22, standard19-22, standard16-23, direct14-23, standard19-23, standard16-24, direct14-24, standard19-24, standard16-25, direct14-25, standard19-25, standard16-26, direct14-26, standard19-26, standard26-30, or standard26-31";
+  "--schema-route must be standard16-19, direct14-19, standard16-20, direct14-20, standard19-20, standard16-21, direct14-21, standard19-21, standard16-22, direct14-22, standard19-22, standard16-23, direct14-23, standard19-23, standard16-24, direct14-24, standard19-24, standard16-25, direct14-25, standard19-25, standard16-26, direct14-26, standard19-26, standard26-30, standard26-31, or standard31-32";
 const DIRECT14_RELEASE_SCHEMA_ROUTES = Object.freeze(
   new Set([
     DIRECT14_19_RELEASE_SCHEMA_ROUTE,
@@ -163,7 +168,8 @@ export function releaseArtifactNameForRoute(sha, schemaRoute) {
       RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE,
     );
   }
-  const prefix = schemaRoute === STANDARD26_31_RELEASE_SCHEMA_ROUTE ? RESIDENTIAL31_RELEASE_ARTIFACT_PREFIX : schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE
+  const prefix = schemaRoute === STANDARD31_32_RELEASE_SCHEMA_ROUTE ? ADMIN32_RELEASE_ARTIFACT_PREFIX :
+    schemaRoute === STANDARD26_31_RELEASE_SCHEMA_ROUTE ? RESIDENTIAL31_RELEASE_ARTIFACT_PREFIX : schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE
     ? STANDARD26_RELEASE_ARTIFACT_PREFIX
     : isDirect14ReleaseSchemaRoute(schemaRoute)
     ? DIRECT14_RELEASE_ARTIFACT_PREFIX
@@ -238,6 +244,10 @@ export const RELEASE_MIGRATIONS_001_031 = Object.freeze([
   ...RELEASE_MIGRATIONS_001_030,
   "031_residential_order_options.sql",
 ]);
+export const RELEASE_MIGRATIONS_001_032 = Object.freeze([
+  ...RELEASE_MIGRATIONS_001_031,
+  "032_catalog_directory_and_last_login.sql",
+]);
 // Frozen default contract, not a moving alias for the newest source.
 export const RELEASE_MIGRATIONS = RELEASE_MIGRATIONS_001_026;
 export function releaseMigrationsForRoute(schemaRoute) {
@@ -265,6 +275,7 @@ export function releaseMigrationsForRoute(schemaRoute) {
                 : candidate === 30
                   ? RELEASE_MIGRATIONS_001_030
                   : candidate === 31 ? RELEASE_MIGRATIONS_001_031
+                  : candidate === 32 ? RELEASE_MIGRATIONS_001_032
                   : RELEASE_MIGRATIONS_001_026;
 }
 
@@ -565,6 +576,9 @@ export function createReleaseProvenance({
       "ARGUMENT_ERROR",
       "--provenance-mode must be local-dry-run, github-actions-test, or github-actions",
     );
+  }
+  if (schemaRoute === STANDARD31_32_RELEASE_SCHEMA_ROUTE && mode === "github-actions") {
+    throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "formal 032 CI ref and source binding are not frozen");
   }
   if (environment.GITHUB_ACTIONS !== "true") {
     throw new ReleaseAssemblyError(

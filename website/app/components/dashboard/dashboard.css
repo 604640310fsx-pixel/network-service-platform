@@ -3,6 +3,26 @@
 
 .cc-shell .dash-page { width: 100%; max-width: none; flex: 1; min-width: 0; margin: 0; padding: 0; background: var(--cc-bg); color: var(--cc-text); }
 .dash-layout { width: 100%; max-width: 1680px; margin: 0 auto; padding: 20px var(--cc-gutter) 44px; display: flex; flex-direction: column; gap: 14px; }
+.admin-workspace-heading { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
+.admin-preview-label { margin: 0 0 14px; padding: 8px 10px; border-radius: 7px; background: var(--cc-inset); color: var(--cc-text-3); font-size: 12px; }
+.admin-workspace-heading h2 { margin: 0; font-size: 19px; }
+.admin-workspace-heading p { margin: 6px 0 0; color: var(--cc-text-3); font-size: 13px; }
+.admin-workspace-heading > span { color: var(--cc-text-4); font-size: 12px; white-space: nowrap; }
+.admin-workspace-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.admin-workspace-tabs button { border: 1px solid var(--cc-line); border-radius: 8px; padding: 9px 13px; background: var(--cc-card); color: var(--cc-text); font: inherit; cursor: pointer; }
+.admin-workspace-tabs button.is-active { border-color: var(--cc-accent-line); background: var(--cc-inset); font-weight: 650; }
+.admin-workspace-tabs button:focus-visible, .dash-plan-directory-list button:focus-visible { outline: 2px solid var(--cc-accent-line); outline-offset: 2px; }
+.dash-plan-directory { margin-bottom: 16px; padding: 13px; border: 1px solid var(--cc-hairline); border-radius: 10px; background: var(--cc-inset); }
+.dash-plan-directory-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 10px; }
+.dash-plan-directory-heading span { color: var(--cc-text-4); font-size: 12px; }
+.dash-plan-directory-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; max-height: 230px; overflow: auto; }
+.dash-plan-directory-card { display: flex; flex-direction: column; gap: 9px; padding: 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); }
+.dash-plan-directory-card button { width: fit-content; max-width: 100%; border: 1px solid var(--cc-line); border-radius: 7px; padding: 6px 8px; background: var(--cc-inset); color: var(--cc-text); text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
+.dash-plan-directory-card button:disabled { cursor: not-allowed; opacity: .6; }
+.dash-plan-directory-operator { display: flex; flex-direction: column; align-items: start; gap: 4px; padding: 8px 0 0; border-top: 1px solid var(--cc-hairline); }
+.dash-plan-directory-operator small { color: var(--cc-text-4); }
+.dash-plan-reason { display: block; margin-top: 4px; color: var(--cc-text-4); white-space: normal; }
+.dash-plan-directory-list small { color: var(--cc-text-4); }
 
 .dash-panel { padding: 17px 20px 20px; border: 1px solid var(--cc-hairline); border-radius: 14px; background: var(--cc-panel); box-shadow: var(--cc-shadow); }
 .dash-panel > h2 { display: flex; align-items: baseline; gap: 10px; margin: 0 0 16px; font-size: 15px; font-weight: 600; }

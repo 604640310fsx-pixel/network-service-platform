@@ -321,7 +321,7 @@ test("applies Migrations 016-031 to an existing 001-015 database without changin
       before,
     );
     assert.equal(firstNumber(database, "SELECT COUNT(*) FROM schema_migrations"), 31);
-    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 31);
+    assert.equal(firstNumber(database, "SELECT MAX(version) FROM schema_migrations"), 32);
     assert.deepEqual(
       database.prepare("SELECT * FROM diagnosis_requests").all(),
       legacyDiagnosisBefore,
