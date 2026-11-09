@@ -683,7 +683,6 @@ export function createReleaseProvenance({
           event.repository?.full_name !== RELEASE_REPOSITORY ||
           event.number !== ADMIN32_UPLOAD_FIX_PR_NUMBER ||
           event.pull_request?.number !== ADMIN32_UPLOAD_FIX_PR_NUMBER ||
-          event.pull_request?.draft !== true ||
           event.pull_request?.head?.repo?.full_name !== RELEASE_REPOSITORY ||
           event.pull_request?.base?.repo?.full_name !== RELEASE_REPOSITORY ||
           event.pull_request?.head?.ref !== ADMIN32_UPLOAD_FIX_HEAD_REF ||

@@ -807,7 +807,7 @@ export function validateRepository({
       "consolidated-release-${{ env.EXPECTED_SHA }}",
       "consolidated-release-direct14-${{ env.EXPECTED_SHA }}",
       ...(candidate === 32 ? ["ADMIN32_TASK_CONTEXT", "ADMIN32_FORMAL_CONTEXT",
-        "ADMIN32_UPLOAD_FIX_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 166 && github.event.pull_request.draft == true && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin32-upload-guard-fix-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.sha == '4857c9c62294a2dfdcca2187e17983720e991a2f' }}",
+        "ADMIN32_UPLOAD_FIX_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 166 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin32-upload-guard-fix-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.sha == '4857c9c62294a2dfdcca2187e17983720e991a2f' }}",
         "--schema-route standard31-32", "consolidated-release-admin32-review-${{ env.EXPECTED_SHA }}",
         "consolidated-release-admin32-${{ env.EXPECTED_SHA }}",
         "sha256sum auth-service/dist/src/payment/pricing.js",

@@ -3430,9 +3430,9 @@ test("formal31 upload and proof exclude only an explicitly selected formal32 pus
   assert.ok(workflow.includes("if test -f auth-service/src/migrations/032_catalog_directory_and_last_login.sql; then"));
 });
 
-test("admin32 upload-fix review binds Draft PR 166, same repo, frozen base and actual head SHA", () => {
+test("admin32 upload-fix review binds PR 166 in Draft or Ready, same repo, frozen base and actual head SHA", () => {
   const workflow=readFileSync(join(REPOSITORY_ROOT,".github/workflows/ci.yml"),"utf8");
-  const condition="github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 166 && github.event.pull_request.draft == true && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin32-upload-guard-fix-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.sha == '4857c9c62294a2dfdcca2187e17983720e991a2f'";
+  const condition="github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 166 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin32-upload-guard-fix-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.sha == '4857c9c62294a2dfdcca2187e17983720e991a2f'";
   assert.equal(workflow.split(`ADMIN32_UPLOAD_FIX_TASK_CONTEXT: \u0024{{ ${condition} }}`).length,2);
   assert.ok(workflow.includes('elif [ "$ADMIN32_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_UPLOAD_FIX_TASK_CONTEXT" = "true" ]; then'));
   assert.ok(workflow.includes('if: env.ADMIN32_TASK_CONTEXT == \'true\' || env.ADMIN32_UPLOAD_FIX_TASK_CONTEXT == \'true\''));
@@ -3451,12 +3451,16 @@ test("admin32 upload-fix review binds Draft PR 166, same repo, frozen base and a
       GITHUB_REF:"refs/pull/166/merge",GITHUB_EVENT_PATH:eventPath};
     const args={mode:"github-actions-test",expectedSha:sha,schemaRoute:STANDARD31_32_RELEASE_SCHEMA_ROUTE,environment};
     assert.equal(createReleaseProvenance(args).releaseUse,"forbidden");
+    assert.throws(()=>createReleaseProvenance({...args,mode:"github-actions"}),error=>error.code==="PROVENANCE_REQUIRED");
+    event.pull_request.draft=false;writeFileSync(eventPath,JSON.stringify(event));
+    assert.equal(createReleaseProvenance(args).releaseUse,"forbidden","Ready review cannot become formal");
+    assert.throws(()=>createReleaseProvenance({...args,mode:"github-actions"}),error=>error.code==="PROVENANCE_REQUIRED");
+    event.pull_request.draft=true;writeFileSync(eventPath,JSON.stringify(event));
     for(const patch of [{GITHUB_REF:"refs/pull/167/merge"},{GITHUB_EVENT_NAME:"push"},
       {GITHUB_EVENT_PATH:join(parent,"missing-event")}])
       assert.throws(()=>createReleaseProvenance({...args,environment:{...environment,...patch}}),error=>error.code==="PROVENANCE_REQUIRED");
     for(const mutate of [
       (value)=>{value.number=167},(value)=>{value.pull_request.number=167},
-      (value)=>{value.pull_request.draft=false},
       (value)=>{value.repository.full_name="fork/network-service-platform"},
       (value)=>{value.pull_request.head.repo.full_name="fork/network-service-platform"},
       (value)=>{value.pull_request.base.repo.full_name="fork/network-service-platform"},
