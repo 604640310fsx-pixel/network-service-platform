@@ -110,7 +110,6 @@ jobs:
       PROVENANCE_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'github-actions' || 'github-actions-test' }}
       VALIDATION_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'ci-build' || 'ci-test' }}
       MONITOR_ORIGIN_POLICY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'required' || 'optional' }}
-      ADMIN32_ROLLBACK_ROOT: ${{ runner.temp }}/admin32-rollback-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout exact task head
         uses: actions/checkout@v6
@@ -217,6 +216,8 @@ jobs:
 
       - name: Build and exercise independent admin32 rollback Auth
         if: env.ADMIN32_TASK_CONTEXT == 'true' || env.ADMIN32_FORMAL_CONTEXT == 'true'
+        env:
+          ADMIN32_ROLLBACK_ROOT: ${{ runner.temp }}/admin32-rollback-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           test ! -e "$ADMIN32_ROLLBACK_ROOT"
           mkdir -p "$ADMIN32_ROLLBACK_ROOT"
@@ -235,6 +236,7 @@ jobs:
       - name: Assemble twice and validate inventories
         env:
           BUNDLE_PARENT: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}
+          ADMIN32_ROLLBACK_ROOT: ${{ runner.temp }}/admin32-rollback-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           test ! -e "$BUNDLE_PARENT"
           mkdir -p "$BUNDLE_PARENT"
