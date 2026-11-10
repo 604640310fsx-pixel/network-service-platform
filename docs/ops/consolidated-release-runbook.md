@@ -123,6 +123,45 @@ shared directory guard. A guard failure must deny new transactions, never
 bypass a closed directory or silently restore an old database. Without an
 independently verified 032 rollback artifact, do not release.
 
+## Schema 032 same-schema administrator update
+
+`standard32-32` is the explicit administrator mobile/list update from the
+already-running schema 032 application. It is **not** the prior 031→032
+migration route. The exact same-repository PR 167 from
+`codex/nsp-admin-mobile-paging-20261110-01` into
+`codex/residential-options-local-20261105` at base
+`d5cafdbd9ae76432c80994771f490fde2509e3e2` is review-only, in Draft or
+Ready state; its artifact has `releaseUse: forbidden`. Only the actual merge
+push to the exact formal ref with `before` equal to that d5 SHA may yield a
+formal `--schema-route standard32-32` candidate. Bind its real merge SHA,
+successful three-job run, artifact ID/digest, manifest, and full inventory.
+Neither a PR review artifact nor the previous d5 artifact is the new candidate.
+
+`EXACT_032_PRECHECK`: Immediately before this cutover, verify the production
+ledger is exactly continuous 001–032, the same absolute SQLite realpath and
+device/inode as the running d5 Auth, and no unknown 033. No migration is
+scheduled or permitted. A missing/extra ledger entry or a changed database
+binding is DRIFT: keep the two approved API locations closed and stop; do not
+start an application that might auto-migrate or write to another database.
+After the old Auth exits and every DB/WAL/SHM writer is zero, take and verify
+a new consistent private 032 backup plus isolated SQLite integrity/foreign-key
+and exact-ledger recovery proof. The earlier online backup is not the final
+cutover snapshot. Keep static website and independent monitor available while
+only the authorized website business APIs are briefly closed.
+
+`D5_SAME_SCHEMA_ROLLBACK`: The new formal bundle contains a separately built
+Auth and static website from the exact deployed d5 Git source and unchanged
+lockfiles, under `auth-service/rollback32` and `website/rollback32`. The
+manifest records d5 for both rollback sources, `migrationStart: 32` and
+`runningSchema: 32`; the inventory hashes every rollback file. CI requires
+the known d5 website index and pricing runtime digests. The live d5 release
+directory remains an additional previously verified recovery source. If the
+new code fails after cutover, stop it under the API-only gate and switch both
+Auth and static root back to verified d5 against the **same latest 032 DB**,
+restore original flags and permanent unset, verify actual `/ready`, then
+reopen APIs. Never run 031→032 again, lower schema, or replace newer business
+with the backup. Unknown/partial state stays closed for reconciliation.
+
 ## Runtime configuration inventory gate
 
 Before the pre-window artifact gate, an authorized operator uses only the

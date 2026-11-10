@@ -19,6 +19,10 @@ import {
   STANDARD26_30_RELEASE_SCHEMA_ROUTE,
   STANDARD26_31_RELEASE_SCHEMA_ROUTE,
   STANDARD31_32_RELEASE_SCHEMA_ROUTE,
+  STANDARD32_32_RELEASE_SCHEMA_ROUTE,
+  ADMIN32_SAME_SCHEMA_BASELINE,
+  ADMIN32_SAME_SCHEMA_WEBSITE_INDEX_SHA256,
+  ADMIN32_SAME_SCHEMA_PRICING_RUNTIME_SHA256,
   ADMIN32_COMPAT_BASELINE,
   ADMIN32_ROLLBACK_PATCH,
   ADMIN32_ROLLBACK_PATCH_PATHS,
@@ -27,6 +31,7 @@ import {
   RESIDENTIAL31_FORMAL_REF,
   RESIDENTIAL31_PRODUCT_BASELINE,
   isFormalBoundRoute,
+  isAdmin32Route,
   releaseProductBaselineForRoute,
   verifyIndependentProductSource,
   isForbiddenBundlePath,
@@ -588,7 +593,7 @@ export function validateRepository({
     "repository",
     routeMigrations,
   );
-  if (schemaRoute === STANDARD31_32_RELEASE_SCHEMA_ROUTE) {
+  if (isAdmin32Route(schemaRoute)) {
     const patchText = readText(join(sourceRoot, ADMIN32_ROLLBACK_PATCH), "admin32 rollback patch");
     const patchBlocks = [...patchText.matchAll(/^diff --git a\/([^\n]+) b\/\1$/gm)].map((match) => match[1]);
     const patchPaths = [...new Set(patchBlocks)].sort();
@@ -708,6 +713,8 @@ export function validateRepository({
         : []),
       ...(candidate === 32 ? ["## Schema 032 administrator route", "--schema-route standard31-32",
         "EXACT_031_PRECHECK", "032_AWARE_ROLLBACK"] : []),
+      ...(schemaRoute === STANDARD32_32_RELEASE_SCHEMA_ROUTE ? ["## Schema 032 same-schema administrator update",
+        "--schema-route standard32-32", "EXACT_032_PRECHECK", "D5_SAME_SCHEMA_ROLLBACK"] : []),
       ...(candidate === 26 || candidate === 30 || candidate === 31 || candidate === 32
         ? [
             "## Explicit DIRECT14 to 26 route",
@@ -812,6 +819,12 @@ export function validateRepository({
         "consolidated-release-admin32-${{ env.EXPECTED_SHA }}",
         "sha256sum auth-service/dist/src/payment/pricing.js",
         "6aff457355395f275ed88eca51510741fb1fe226170b8ab5fdf3453f8a57cb36"] : []),
+      ...(schemaRoute === STANDARD32_32_RELEASE_SCHEMA_ROUTE ? [
+        "ADMIN32_SAME_SCHEMA_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 167 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin-mobile-paging-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.sha == 'd5cafdbd9ae76432c80994771f490fde2509e3e2' }}",
+        "ADMIN32_SAME_SCHEMA_FORMAL_CONTEXT: false", "--schema-route standard32-32",
+        "consolidated-release-admin32-${{ env.EXPECTED_SHA }}",
+        "Build exact deployed d5 schema32 application rollback",
+      ] : []),
       // This independent route does not claim that the frozen 026 CI job
       // creates 030 artifacts. Its old flags must remain intact.
       ...(candidate === 26 || candidate === 30 || candidate === 31 || candidate === 32
@@ -1222,7 +1235,7 @@ function archiveFile(archive, path) {
   return result.stdout;
 }
 
-function validateGithubArtifactProof({
+export function validateGithubArtifactProof({
   artifactId,
   artifactArchive,
   expectedSha,
@@ -1230,6 +1243,8 @@ function validateGithubArtifactProof({
   inventory,
   bundleRoot,
   provenance,
+  schemaRoute,
+  source,
 }) {
   const id = requiredArtifactId(artifactId);
   const archive = existingArtifactArchive(artifactArchive);
@@ -1271,6 +1286,22 @@ function validateGithubArtifactProof({
         matching[0].status !== "completed" || matching[0].conclusion !== "success") {
         throw new ReleaseValidationError("PROVENANCE_REQUIRED", "formal standard26 candidate requires all three mandatory jobs to succeed at its exact head");
       }
+    }
+  }
+  if (schemaRoute === STANDARD32_32_RELEASE_SCHEMA_ROUTE) {
+    const pr = githubApiJson(`repos/${RELEASE_REPOSITORY}/pulls/167`);
+    const parents = spawnSync("git", ["-C", existingDirectory(source, "source"), "rev-list", "--parents", "-n", "1", expectedSha],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const commits = parents.status === 0 ? parents.stdout.trim().split(/\s+/) : [];
+    if (pr?.number !== 167 || pr?.merged !== true || !pr?.merged_at ||
+        pr?.merge_commit_sha !== expectedSha ||
+        pr?.head?.repo?.full_name !== RELEASE_REPOSITORY ||
+        pr?.base?.repo?.full_name !== RELEASE_REPOSITORY ||
+        pr?.head?.ref !== "codex/nsp-admin-mobile-paging-20261110-01" ||
+        pr?.base?.ref !== "codex/residential-options-local-20261105" ||
+        commits.length !== 3 || commits[0] !== expectedSha ||
+        commits[1] !== ADMIN32_SAME_SCHEMA_BASELINE || commits[2] !== pr?.head?.sha) {
+      throw new ReleaseValidationError("PROVENANCE_REQUIRED", "schema32 candidate is not the exact approved PR167 normal merge from d5");
     }
   }
 
@@ -1323,7 +1354,8 @@ export function validateBundle({
   const expectedBoundary = RELEASE_SCHEMA_BOUNDARIES[schemaRoute];
   const routeMigrations = releaseMigrationsForRoute(schemaRoute);
   const carriesSchemaRoute = releaseManifestCarriesSchemaRoute(schemaRoute);
-  const isAdmin32 = schemaRoute === STANDARD31_32_RELEASE_SCHEMA_ROUTE;
+  const isAdmin32 = isAdmin32Route(schemaRoute);
+  const isSameSchema32 = schemaRoute === STANDARD32_32_RELEASE_SCHEMA_ROUTE;
   const bundleRoot = existingDirectory(bundle, "bundle");
   const sha = normalizedExpectedSha(expectedSha);
   const manifest = parsedManifest(bundleRoot);
@@ -1344,7 +1376,19 @@ export function validateBundle({
     JSON.stringify(manifest.schemaBoundary) !== JSON.stringify(expectedBoundary) ||
     (isAdmin32 && (
       typeof manifest.applicationRollback !== "object" ||
-      manifest.applicationRollback === null || Array.isArray(manifest.applicationRollback) ||
+      manifest.applicationRollback === null || Array.isArray(manifest.applicationRollback)
+    )) ||
+    (isSameSchema32 && (
+      Object.keys(manifest.applicationRollback).sort().join(",") !==
+        "authEntrypoint,baselineSourceSha,migrationStart,runningSchema,websiteEntrypoint,websiteSourceCommit" ||
+      manifest.applicationRollback.authEntrypoint !== "auth-service/rollback32/dist/src/server.js" ||
+      manifest.applicationRollback.baselineSourceSha !== ADMIN32_SAME_SCHEMA_BASELINE ||
+      manifest.applicationRollback.migrationStart !== 32 ||
+      manifest.applicationRollback.runningSchema !== 32 ||
+      manifest.applicationRollback.websiteEntrypoint !== "website/rollback32/dist/index.html" ||
+      manifest.applicationRollback.websiteSourceCommit !== ADMIN32_SAME_SCHEMA_BASELINE
+    )) ||
+    (schemaRoute === STANDARD31_32_RELEASE_SCHEMA_ROUTE && (
       Object.keys(manifest.applicationRollback).sort().join(",") !==
         "authEntrypoint,baselineSourceSha,migrationStart,patchSha256,patchSourceSha,runningSchema,websiteSourceCommit" ||
       manifest.applicationRollback.authEntrypoint !== "auth-service/rollback32/dist/src/server.js" ||
@@ -1457,7 +1501,26 @@ export function validateBundle({
       );
     }
   }
-  if (isAdmin32) {
+  if (isSameSchema32) {
+    for (const path of ["auth-service/rollback32/dist/src/server.js", "auth-service/rollback32/dist/src/db.js",
+      "auth-service/rollback32/dist/src/http/admin-service-routes.js", "website/rollback32/dist/index.html"]) {
+      if (!inventoryPaths.includes(path)) throw new ReleaseValidationError("ARTIFACT_MISSING", `d5 rollback artifact missing: ${path}`);
+    }
+    if ((validationMode !== "local-dry-run" &&
+        (sha256(join(bundleRoot, "website/rollback32/dist/index.html")) !== ADMIN32_SAME_SCHEMA_WEBSITE_INDEX_SHA256 ||
+         sha256(join(bundleRoot, "auth-service/rollback32/dist/src/payment/pricing.js")) !== ADMIN32_SAME_SCHEMA_PRICING_RUNTIME_SHA256)) ||
+        readText(join(bundleRoot, "auth-service/rollback32/dist/src/http/admin-service-routes.js"), "d5 rollback admin routes")
+          .includes("/api/admin/users/list")) {
+      throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", "schema32 rollback is not the verified d5 application");
+    }
+    for (const migration of routeMigrations) {
+      const path = `auth-service/rollback32/src/migrations/${migration}`;
+      if (!inventoryPaths.includes(path) ||
+          sha256(join(bundleRoot, path)) !== sha256(join(bundleRoot, `auth-service/src/migrations/${migration}`))) {
+        throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", `d5 rollback migration differs: ${migration}`);
+      }
+    }
+  } else if (isAdmin32) {
     for (const path of [ADMIN32_ROLLBACK_PATCH, "auth-service/rollback32/dist/src/server.js",
       "auth-service/rollback32/dist/src/db.js", "auth-service/rollback32/dist/src/payment/catalog-directory.js"]) {
       if (!inventoryPaths.includes(path)) throw new ReleaseValidationError("ARTIFACT_MISSING", `admin32 rollback artifact missing: ${path}`);
@@ -1552,6 +1615,8 @@ export function validateBundle({
           inventory: manifest.inventory,
           bundleRoot,
           provenance,
+          schemaRoute,
+          source,
         })
       : null;
 

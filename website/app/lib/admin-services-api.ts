@@ -259,6 +259,28 @@ export async function searchAdminUsers(query: string, signal?: AbortSignal): Pro
   return body.items.map(parseUser);
 }
 
+export async function getAdminUsersPage(
+  query: string,
+  cursor: number | null,
+  signal?: AbortSignal,
+): Promise<{ readonly items: AdminUserSummary[]; readonly nextCursor: number | null }> {
+  const params = new URLSearchParams();
+  if (query !== "") params.set("q", query);
+  if (cursor !== null) params.set("cursor", String(cursor));
+  const suffix = params.size === 0 ? "" : `?${params}`;
+  const body = record(await requestJson(`/api/admin/users/list${suffix}`, { headers: { Accept: "application/json" } }, signal));
+  if (!Array.isArray(body.items) || body.items.length > 20 || !(body.nextCursor === null ||
+      (typeof body.nextCursor === "number" && Number.isSafeInteger(body.nextCursor) && body.nextCursor > 0))) {
+    throw new PaymentApiError("invalid_response");
+  }
+  const items = body.items.map(parseUser);
+  if (body.nextCursor !== null && (items.length !== 20 || body.nextCursor !== items.at(-1)?.id ||
+      (cursor !== null && body.nextCursor >= cursor))) {
+    throw new PaymentApiError("invalid_response");
+  }
+  return { items, nextCursor: body.nextCursor as number | null };
+}
+
 export async function getAdminUserServices(
   userId: number,
   signal?: AbortSignal,

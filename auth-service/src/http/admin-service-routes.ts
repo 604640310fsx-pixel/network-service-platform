@@ -16,6 +16,7 @@ import {
   bindGrantDeliveryForAdmin,
   bindServiceDeliveryForAdmin,
   createGrantForAdmin,
+  listUsersForAdmin,
   listUserServicesForAdmin,
   openGrantForAdmin,
   parseEndsAt,
@@ -321,6 +322,23 @@ export function registerAdminServiceHttpRoutes(
     if (typeof query !== "string") return reply.code(400).send(errorResponse("invalid_query"));
     try {
       return reply.code(200).send({ items: searchUsersForAdmin(dependencies.database, query) });
+    } catch (error) {
+      return sendDomainError(reply, error);
+    }
+  });
+
+  app.get<{ Querystring: { q?: string; cursor?: string } }>("/api/admin/users/list", async (request, reply) => {
+    setNoStore(reply);
+    if (!dependencies.enabled) return reply.code(503).send(errorResponse("payment_unavailable"));
+    const auth = authorizeAdminSession(request, dependencies);
+    if (!auth.ok) return reply.code(auth.statusCode).send(errorResponse(auth.code));
+    const { q, cursor: rawCursor } = request.query;
+    const cursor = rawCursor === undefined ? null : positiveId(rawCursor);
+    if ((q !== undefined && typeof q !== "string") || (rawCursor !== undefined && cursor === null)) {
+      return reply.code(400).send(errorResponse("invalid_query"));
+    }
+    try {
+      return reply.code(200).send(listUsersForAdmin(dependencies.database, q ?? "", cursor));
     } catch (error) {
       return sendDomainError(reply, error);
     }
