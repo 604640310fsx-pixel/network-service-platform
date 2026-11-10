@@ -56,6 +56,9 @@ export const ADMIN32_UPLOAD_FIX_PR_NUMBER = 166;
 export const ADMIN32_SAME_SCHEMA_BASELINE = "d5cafdbd9ae76432c80994771f490fde2509e3e2";
 export const ADMIN32_SAME_SCHEMA_HEAD_REF = "codex/nsp-admin-mobile-paging-20261110-01";
 export const ADMIN32_SAME_SCHEMA_PR_NUMBER = 167;
+export const ADMIN32_LEGACY_ASSET_FIX_BASE_SHA = "9a75eab4470b5008055c7cc122df541e6b903ae3";
+export const ADMIN32_LEGACY_ASSET_FIX_HEAD_REF = "codex/nsp-admin-mobile-legacy-assets-fix-20261110-01";
+export const ADMIN32_LEGACY_ASSET_FIX_PR_NUMBER = 168;
 export const ADMIN32_SAME_SCHEMA_WEBSITE_INDEX_SHA256 = "201179449c13e4ae2d0cc06d755eda5124bbe089c80f9aba4b4673bb4b6c30ff";
 export const ADMIN32_SAME_SCHEMA_PRICING_RUNTIME_SHA256 = "6aff457355395f275ed88eca51510741fb1fe226170b8ab5fdf3453f8a57cb36";
 // Exactly the hashed assets referenced by the accepted d5 HTML entrypoints.
@@ -743,6 +746,24 @@ export function createReleaseProvenance({
         throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "admin32 same-schema review source does not match exact PR/base/head");
       }
     }
+    if (environment.ADMIN32_LEGACY_ASSET_FIX_TASK_CONTEXT === "true") {
+      let event;
+      try { event = JSON.parse(readFileSync(requiredEnvironment(environment, "GITHUB_EVENT_PATH"), "utf8")); }
+      catch { throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "admin32 legacy-asset review event is unavailable"); }
+      if (schemaRoute !== STANDARD32_32_RELEASE_SCHEMA_ROUTE || eventName !== "pull_request" ||
+          ref !== `refs/pull/${ADMIN32_LEGACY_ASSET_FIX_PR_NUMBER}/merge` ||
+          event.repository?.full_name !== RELEASE_REPOSITORY ||
+          event.number !== ADMIN32_LEGACY_ASSET_FIX_PR_NUMBER ||
+          event.pull_request?.number !== ADMIN32_LEGACY_ASSET_FIX_PR_NUMBER ||
+          event.pull_request?.head?.repo?.full_name !== RELEASE_REPOSITORY ||
+          event.pull_request?.base?.repo?.full_name !== RELEASE_REPOSITORY ||
+          event.pull_request?.head?.ref !== ADMIN32_LEGACY_ASSET_FIX_HEAD_REF ||
+          event.pull_request?.head?.sha !== sha ||
+          event.pull_request?.base?.ref !== "codex/residential-options-local-20261105" ||
+          event.pull_request?.base?.sha !== ADMIN32_LEGACY_ASSET_FIX_BASE_SHA) {
+        throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "admin32 legacy-asset review source does not match exact PR/base/head");
+      }
+    }
     return Object.freeze({
       kind: "github-actions-test",
       releaseUse: "forbidden",
@@ -768,7 +789,8 @@ export function createReleaseProvenance({
     catch { throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "formal standard26 source requires the actual push event payload"); }
     if (event.ref !== releaseFormalRefForRoute(schemaRoute) || event.after !== sha ||
       event.repository?.full_name !== RELEASE_REPOSITORY || event.deleted !== false ||
-      (schemaRoute === STANDARD32_32_RELEASE_SCHEMA_ROUTE && event.before !== ADMIN32_SAME_SCHEMA_BASELINE)) {
+      (schemaRoute === STANDARD32_32_RELEASE_SCHEMA_ROUTE &&
+        ![ADMIN32_SAME_SCHEMA_BASELINE, ADMIN32_LEGACY_ASSET_FIX_BASE_SHA].includes(event.before))) {
       throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "formal standard26 push payload does not match repository/ref/head");
     }
   }

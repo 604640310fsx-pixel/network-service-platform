@@ -62,6 +62,9 @@ import {
   ADMIN32_SAME_SCHEMA_BASELINE,
   ADMIN32_SAME_SCHEMA_HEAD_REF,
   ADMIN32_SAME_SCHEMA_PR_NUMBER,
+  ADMIN32_LEGACY_ASSET_FIX_BASE_SHA,
+  ADMIN32_LEGACY_ASSET_FIX_HEAD_REF,
+  ADMIN32_LEGACY_ASSET_FIX_PR_NUMBER,
   ADMIN32_SAME_SCHEMA_ALLOWED_PATHS,
   ADMIN32_SAME_SCHEMA_LEGACY_PUBLIC_ASSETS,
   ADMIN32_FORMAL_REF,
@@ -167,7 +170,7 @@ function installFakeGithub(parent, { artifact, workflowRun, jobs, pullRequest })
       '  */jobs?*) printf "%s" "$TEST_JOBS_JSON" ;;',
       '  */actions/artifacts/*) printf "%s" "$TEST_ARTIFACT_JSON" ;;',
       '  */actions/runs/*) printf "%s" "$TEST_WORKFLOW_RUN_JSON" ;;',
-      '  */pulls/167) printf "%s" "$TEST_PULL_REQUEST_JSON" ;;',
+      '  */pulls/167|*/pulls/168) printf "%s" "$TEST_PULL_REQUEST_JSON" ;;',
       "  *) exit 14 ;;",
       "esac",
       "",
@@ -3536,6 +3539,50 @@ test("same-schema review pins PR167 and formal push pins d5 before; wrong source
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 
+test("legacy-asset review pins PR168/base9a and only its exact formal before is accepted", () => {
+  const workflow = readFileSync(join(REPOSITORY_ROOT, ".github/workflows/ci.yml"), "utf8");
+  assert.ok(workflow.includes("ADMIN32_LEGACY_ASSET_FIX_TASK_CONTEXT:"));
+  assert.ok(workflow.includes("github.event.pull_request.number == 168"));
+  assert.equal(ADMIN32_LEGACY_ASSET_FIX_PR_NUMBER, 168);
+  const parent = mkdtempSync(join(tmpdir(), "admin32-legacy-review-"));
+  try {
+    const sha = "b".repeat(40), eventPath = join(parent, "event.json");
+    const event = { number: 168, repository: { full_name: "604640310fsx-pixel/network-service-platform" },
+      pull_request: { number: 168, draft: true,
+        head: { ref: ADMIN32_LEGACY_ASSET_FIX_HEAD_REF, sha,
+          repo: { full_name: "604640310fsx-pixel/network-service-platform" } },
+        base: { ref: "codex/residential-options-local-20261105", sha: ADMIN32_LEGACY_ASSET_FIX_BASE_SHA,
+          repo: { full_name: "604640310fsx-pixel/network-service-platform" } } } };
+    writeFileSync(eventPath, JSON.stringify(event));
+    const environment = { ...githubEnvironment({ sha, candidate: false }),
+      ADMIN32_LEGACY_ASSET_FIX_TASK_CONTEXT: "true", GITHUB_REF: "refs/pull/168/merge", GITHUB_EVENT_PATH: eventPath };
+    const args = { mode: "github-actions-test", expectedSha: sha,
+      schemaRoute: STANDARD32_32_RELEASE_SCHEMA_ROUTE, environment };
+    assert.equal(createReleaseProvenance(args).releaseUse, "forbidden");
+    event.pull_request.draft = false; writeFileSync(eventPath, JSON.stringify(event));
+    assert.equal(createReleaseProvenance(args).releaseUse, "forbidden");
+    assert.throws(() => createReleaseProvenance({ ...args, mode: "github-actions" }),
+      (error) => error.code === "PROVENANCE_REQUIRED");
+    for (const change of [{ number: 167 }, { repository: { full_name: "fork/network-service-platform" } },
+      { pull_request: { ...event.pull_request, head: { ...event.pull_request.head, sha: "a".repeat(40) } } },
+      { pull_request: { ...event.pull_request, base: { ...event.pull_request.base, sha: ADMIN32_SAME_SCHEMA_BASELINE } } }]) {
+      writeFileSync(eventPath, JSON.stringify({ ...event, ...change }));
+      assert.throws(() => createReleaseProvenance(args), (error) => error.code === "PROVENANCE_REQUIRED");
+    }
+    const push = { ref: ADMIN32_FORMAL_REF, before: ADMIN32_LEGACY_ASSET_FIX_BASE_SHA,
+      after: sha, deleted: false, repository: { full_name: "604640310fsx-pixel/network-service-platform" } };
+    writeFileSync(eventPath, JSON.stringify(push));
+    const formalEnv = { ...githubEnvironment({ sha, candidate: true }), GITHUB_REF: ADMIN32_FORMAL_REF,
+      GITHUB_WORKFLOW_REF: `604640310fsx-pixel/network-service-platform/.github/workflows/ci.yml@${ADMIN32_FORMAL_REF}`,
+      GITHUB_EVENT_PATH: eventPath };
+    const formal = { mode: "github-actions", expectedSha: sha,
+      schemaRoute: STANDARD32_32_RELEASE_SCHEMA_ROUTE, environment: formalEnv };
+    assert.equal(createReleaseProvenance(formal).releaseUse, "requires-github-artifact-verification");
+    writeFileSync(eventPath, JSON.stringify({ ...push, before: "a".repeat(40) }));
+    assert.throws(() => createReleaseProvenance(formal), (error) => error.code === "PROVENANCE_REQUIRED");
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
 test("same-schema formal source accepts only this d5-descended delta and rejects unknown migration", () => {
   const parent = mkdtempSync(join(tmpdir(), "admin32-same-schema-source-"));
   try {
@@ -3609,6 +3656,51 @@ test("same-schema candidate artifact requires PR167 normal merge parents, exact 
       process.env.TEST_PULL_REQUEST_JSON = JSON.stringify({ ...pullRequest, ...change });
       assert.throws(() => validateGithubArtifactProof(args), (error) => error.code === "PROVENANCE_REQUIRED");
     }
+    process.env.TEST_PULL_REQUEST_JSON = JSON.stringify(pullRequest);
+    assert.throws(() => validateGithubArtifactProof({ ...args, source: parent }),
+      (error) => error.code === "PROVENANCE_REQUIRED");
+  } finally { restore(); rmSync(parent, { recursive: true, force: true }); }
+});
+
+test("legacy-asset candidate proof accepts only PR168 normal merge from9a", () => {
+  const parent = mkdtempSync(join(tmpdir(), "admin32-legacy-candidate-"));
+  let restore = () => {};
+  try {
+    const source = join(parent, "source");
+    runGit(parent, "clone", "--shared", "--no-checkout", REPOSITORY_ROOT, source);
+    runGit(source, "checkout", "-b", "synthetic-head", ADMIN32_LEGACY_ASSET_FIX_BASE_SHA);
+    writeFixtureFile(source, "website/synthetic-review.txt", "synthetic legacy fix\n");
+    runGit(source, "add", "--", "website/synthetic-review.txt");
+    runGit(source, "commit", "-m", "synthetic reviewed legacy fix");
+    const headSha = runGit(source, "rev-parse", "HEAD");
+    runGit(source, "checkout", "-b", "synthetic-base", ADMIN32_LEGACY_ASSET_FIX_BASE_SHA);
+    runGit(source, "merge", "--no-ff", "synthetic-head", "-m", "synthetic normal PR168 merge");
+    const mergeSha = runGit(source, "rev-parse", "HEAD");
+    const bundleRoot = join(parent, "bundle");
+    writeFixtureFile(bundleRoot, "payload.txt", "synthetic\n");
+    writeFixtureFile(bundleRoot, "release-manifest.json", "{\"fixture\":true}\n");
+    const inventory = [{ path: "payload.txt", bytes: 10, sha256: sha256(join(bundleRoot, "payload.txt")) }];
+    const archive = join(parent, "candidate.zip"); createArtifactArchive(bundleRoot, archive);
+    const artifact = { id: 777, name: releaseArtifactNameForRoute(mergeSha, STANDARD32_32_RELEASE_SCHEMA_ROUTE),
+      expired: false, digest: `sha256:${sha256(archive)}`, workflow_run: { id: 123456789, head_sha: mergeSha } };
+    const workflowRun = { id: 123456789, repository: { full_name: "604640310fsx-pixel/network-service-platform" },
+      path: ".github/workflows/ci.yml", event: "push", head_branch: "codex/residential-options-local-20261105",
+      head_sha: mergeSha, status: "completed", conclusion: "success", run_attempt: 1 };
+    const jobs = { jobs: ["Website check and build", "Auth service build and test", "Consolidated release packet"]
+      .map((name) => ({ name, head_sha: mergeSha, status: "completed", conclusion: "success" })) };
+    const pullRequest = { number: 168, merged: true, merged_at: "2026-11-10T00:00:00Z", merge_commit_sha: mergeSha,
+      head: { ref: ADMIN32_LEGACY_ASSET_FIX_HEAD_REF, sha: headSha,
+        repo: { full_name: "604640310fsx-pixel/network-service-platform" } },
+      base: { ref: "codex/residential-options-local-20261105",
+        repo: { full_name: "604640310fsx-pixel/network-service-platform" } } };
+    restore = installFakeGithub(parent, { artifact, workflowRun, jobs, pullRequest });
+    const args = { artifactId: "777", artifactArchive: archive, expectedSha: mergeSha,
+      expectedFiles: ["payload.txt", "release-manifest.json"], inventory, bundleRoot,
+      provenance: { artifactName: artifact.name, runId: "123456789", runAttempt: "1",
+        ref: ADMIN32_FORMAL_REF }, schemaRoute: STANDARD32_32_RELEASE_SCHEMA_ROUTE, source };
+    assert.equal(validateGithubArtifactProof(args).artifactId, "777");
+    process.env.TEST_PULL_REQUEST_JSON = JSON.stringify({ ...pullRequest, number: 167 });
+    assert.throws(() => validateGithubArtifactProof(args), (error) => error.code === "PROVENANCE_REQUIRED");
     process.env.TEST_PULL_REQUEST_JSON = JSON.stringify(pullRequest);
     assert.throws(() => validateGithubArtifactProof({ ...args, source: parent }),
       (error) => error.code === "PROVENANCE_REQUIRED");

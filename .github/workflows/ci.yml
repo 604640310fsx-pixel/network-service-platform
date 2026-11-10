@@ -108,6 +108,7 @@ jobs:
       ADMIN32_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 165 && github.event.pull_request.draft == true && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin-manage-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' }}
       ADMIN32_UPLOAD_FIX_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 166 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin32-upload-guard-fix-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.sha == '4857c9c62294a2dfdcca2187e17983720e991a2f' }}
       ADMIN32_SAME_SCHEMA_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 167 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin-mobile-paging-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.sha == 'd5cafdbd9ae76432c80994771f490fde2509e3e2' }}
+      ADMIN32_LEGACY_ASSET_FIX_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 168 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin-mobile-legacy-assets-fix-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.sha == '9a75eab4470b5008055c7cc122df541e6b903ae3' }}
       ADMIN32_FORMAL_CONTEXT: false
       ADMIN32_SAME_SCHEMA_FORMAL_CONTEXT: false
       PROVENANCE_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'github-actions' || 'github-actions-test' }}
@@ -131,14 +132,14 @@ jobs:
           printf '%s\n' 'PROVENANCE_MODE=github-actions' 'VALIDATION_MODE=ci-build' 'MONITOR_ORIGIN_POLICY=required' >> "$GITHUB_ENV"
 
       - name: Select exact admin32 push formal build modes
-        if: env.RESIDENTIAL31_FORMAL_CONTEXT == 'true' && github.event.before != 'd5cafdbd9ae76432c80994771f490fde2509e3e2'
+        if: env.RESIDENTIAL31_FORMAL_CONTEXT == 'true' && github.event.before != 'd5cafdbd9ae76432c80994771f490fde2509e3e2' && github.event.before != '9a75eab4470b5008055c7cc122df541e6b903ae3'
         run: |
           if test -f auth-service/src/migrations/032_catalog_directory_and_last_login.sql; then
             printf '%s\n' 'ADMIN32_FORMAL_CONTEXT=true' 'PROVENANCE_MODE=github-actions' 'VALIDATION_MODE=ci-build' 'MONITOR_ORIGIN_POLICY=required' >> "$GITHUB_ENV"
           fi
 
       - name: Select exact admin32 same-schema push formal build modes
-        if: env.RESIDENTIAL31_FORMAL_CONTEXT == 'true' && github.event.before == 'd5cafdbd9ae76432c80994771f490fde2509e3e2'
+        if: env.RESIDENTIAL31_FORMAL_CONTEXT == 'true' && (github.event.before == 'd5cafdbd9ae76432c80994771f490fde2509e3e2' || github.event.before == '9a75eab4470b5008055c7cc122df541e6b903ae3')
         run: |
           test -f auth-service/src/migrations/032_catalog_directory_and_last_login.sql
           printf '%s\n' 'ADMIN32_SAME_SCHEMA_FORMAL_CONTEXT=true' 'PROVENANCE_MODE=github-actions' 'VALIDATION_MODE=ci-build' 'MONITOR_ORIGIN_POLICY=required' >> "$GITHUB_ENV"
@@ -161,7 +162,7 @@ jobs:
             node scripts/ops/validate-consolidated-release-packet.mjs \
               --source "$GITHUB_WORKSPACE" --expected-sha "$EXPECTED_SHA" \
               --schema-route standard32-32 --validation-mode ci-build
-          elif [ "$ADMIN32_SAME_SCHEMA_TASK_CONTEXT" = "true" ]; then
+          elif [ "$ADMIN32_SAME_SCHEMA_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_LEGACY_ASSET_FIX_TASK_CONTEXT" = "true" ]; then
             node scripts/ops/validate-consolidated-release-packet.mjs \
               --source "$GITHUB_WORKSPACE" --expected-sha "$EXPECTED_SHA" \
               --schema-route standard32-32
@@ -219,7 +220,7 @@ jobs:
           node scripts/ops/verify-website-monitor-origin.mjs \
             --phase configured --policy "$MONITOR_ORIGIN_POLICY"
           npm --prefix auth-service test
-          if [ "$ADMIN32_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_UPLOAD_FIX_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_FORMAL_CONTEXT" = "true" ] || [ "$ADMIN32_SAME_SCHEMA_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_SAME_SCHEMA_FORMAL_CONTEXT" = "true" ]; then
+          if [ "$ADMIN32_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_UPLOAD_FIX_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_FORMAL_CONTEXT" = "true" ] || [ "$ADMIN32_SAME_SCHEMA_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_LEGACY_ASSET_FIX_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_SAME_SCHEMA_FORMAL_CONTEXT" = "true" ]; then
             test "$(sha256sum auth-service/dist/src/payment/pricing.js | awk '{print $1}')" = \
               "6aff457355395f275ed88eca51510741fb1fe226170b8ab5fdf3453f8a57cb36"
           fi
@@ -248,7 +249,7 @@ jobs:
           node auth-service/test/admin32-independent-rollback.mjs "$ADMIN32_ROLLBACK_ROOT/auth-service"
 
       - name: Build exact deployed d5 schema32 application rollback
-        if: env.ADMIN32_SAME_SCHEMA_TASK_CONTEXT == 'true' || env.ADMIN32_SAME_SCHEMA_FORMAL_CONTEXT == 'true'
+        if: env.ADMIN32_SAME_SCHEMA_TASK_CONTEXT == 'true' || env.ADMIN32_LEGACY_ASSET_FIX_TASK_CONTEXT == 'true' || env.ADMIN32_SAME_SCHEMA_FORMAL_CONTEXT == 'true'
         env:
           D5_ROLLBACK_ROOT: ${{ runner.temp }}/admin32-d5-rollback-${{ github.run_id }}-${{ github.run_attempt }}
           VITE_MONITOR_URL: ${{ secrets.NSP_PUBLIC_MONITOR_ORIGIN }}
@@ -276,7 +277,7 @@ jobs:
         run: |
           test ! -e "$BUNDLE_PARENT"
           mkdir -p "$BUNDLE_PARENT"
-          if [ "$ADMIN32_SAME_SCHEMA_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_SAME_SCHEMA_FORMAL_CONTEXT" = "true" ]; then
+          if [ "$ADMIN32_SAME_SCHEMA_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_LEGACY_ASSET_FIX_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_SAME_SCHEMA_FORMAL_CONTEXT" = "true" ]; then
             for ordinal in first second; do
               node scripts/ops/assemble-consolidated-release.mjs \
                 --source "$GITHUB_WORKSPACE" --destination "$BUNDLE_PARENT/admin32-$ordinal" \
@@ -494,7 +495,7 @@ jobs:
           fi
 
       - name: Retain admin32 PR review bundle (never production)
-        if: env.ADMIN32_TASK_CONTEXT == 'true' || env.ADMIN32_UPLOAD_FIX_TASK_CONTEXT == 'true' || env.ADMIN32_SAME_SCHEMA_TASK_CONTEXT == 'true'
+        if: env.ADMIN32_TASK_CONTEXT == 'true' || env.ADMIN32_UPLOAD_FIX_TASK_CONTEXT == 'true' || env.ADMIN32_SAME_SCHEMA_TASK_CONTEXT == 'true' || env.ADMIN32_LEGACY_ASSET_FIX_TASK_CONTEXT == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: consolidated-release-admin32-review-${{ env.EXPECTED_SHA }}

@@ -176,6 +176,17 @@ must not point to a 404 after the new static root is live. A unique query
 parameter may help identify the new `/admin` page, but cannot substitute for
 missing assets or prove every outside cache has refreshed.
 
+The first PR 167 formal source was merged as
+`9a75eab4470b5008055c7cc122df541e6b903ae3` but **was not deployed**:
+the first cutover returned to d5 after old hashed assets proved missing at the
+new origin. Its package is not the rollback baseline. Only the exact same-repo
+PR 168 (`codex/nsp-admin-mobile-legacy-assets-fix-20261110-01`) into that
+9a75 formal source may review the compatibility repair. Its Draft/Ready review
+bundle remains forbidden for release. A new formal candidate requires the
+actual PR 168 normal merge push with `before` exactly 9a75, all three jobs
+green, and live PR/head/merge-parent/artifact binding. The production recovery
+pair remains accepted d5 Auth plus d5 static on the latest schema 032 DB.
+
 ## Runtime configuration inventory gate
 
 Before the pre-window artifact gate, an authorized operator uses only the
