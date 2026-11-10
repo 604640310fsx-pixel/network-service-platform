@@ -1,11 +1,10 @@
 import { useEffect } from "react";
-import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useSearchParams } from "react-router-dom";
 import { useT } from "../../lib/i18n";
 import { CustomerCenterShell } from "../customer/CustomerCenterShell";
 import { RequirementForm } from "./RequirementForm";
 import { OrderStatusPanel } from "./OrderStatusPanel";
 import {
-  PAYMENT_MAX_SINGLE_FEN_FRONTEND,
   readLastOrderRef,
   type PaymentOrderResult,
 } from "../../lib/payment-api";
@@ -22,7 +21,7 @@ function readInitialResult(state: unknown, orderRef: string): PaymentOrderResult
   const result = candidate as PaymentOrderResult;
   return result.orderRef === orderRef ? result : undefined;
 }
-import { parseSelectionParams, resolveSelection, selectionToQuery } from "../../lib/resolveSelection";
+import { parseSelectionParams, resolveNewPurchaseSelection, selectionToQuery } from "../../lib/resolveSelection";
 import { usePlanAvailability } from "../../lib/planAvailability";
 import "./subscribe.css";
 
@@ -43,13 +42,11 @@ export function SubmitRequestPage() {
   // orderRef 是本站显式定位参数；支付宝同步回跳只用 out_trade_no 定位查询，不据此判断支付结果。
   const orderRef = explicitOrderRef || alipayOrderRef;
   const selection = parseSelectionParams(searchParams);
-  const { summary } = resolveSelection(selection, availability.index ?? undefined);
+  const { summary } = resolveNewPurchaseSelection(selection, availability.index ?? undefined);
   const restoredOrderRef = orderRef === "" && searchParams.size === 0 && !summary.complete
     ? readLastOrderRef() ?? ""
     : "";
   const visibleOrderRef = orderRef || restoredOrderRef;
-  const amountFen = summary.total === null ? null : Math.round(summary.total * 100);
-  const overPaymentLimit = amountFen !== null && amountFen > PAYMENT_MAX_SINGLE_FEN_FRONTEND;
   const unavailable = summary.availability === "sold_out" || summary.availability === "unavailable";
 
   useEffect(() => {
@@ -61,6 +58,9 @@ export function SubmitRequestPage() {
     );
   }, [fromAlipay, orderRef]);
 
+  if (!visibleOrderRef && selection.typeId === "residential" && (["shared-5", "shared-3", "dedicated", "res-v2-direct-default"].includes(selection.specId ?? "") || selection.specId?.endsWith('-500g'))) {
+    return <Navigate replace to={`/subscribe?${selectionToQuery(selection)}`} />;
+  }
   if (visibleOrderRef !== "") {
     const initialResult = readInitialResult(location.state, visibleOrderRef);
     return (
@@ -78,13 +78,7 @@ export function SubmitRequestPage() {
     <CustomerCenterShell title={copy.title} description={copy.description}>
       <main className="sub-page">
         <div className="sub-request-page">
-          {overPaymentLimit ? (
-            <section className="sub-section sub-request-invalid" role="status">
-              <h2>{copy.overLimitTitle}</h2>
-              <p>{copy.overLimitBody}</p>
-              <Link className="sub-request-back-btn" to={`/subscribe?${selectionToQuery(selection)}`}>{copy.backToEdit}</Link>
-            </section>
-          ) : !summary.complete ? (
+          {!summary.complete ? (
             <section className="sub-section sub-request-invalid" role="status">
               <h2>{copy.invalidTitle}</h2>
               <p>{copy.invalidBody}</p>

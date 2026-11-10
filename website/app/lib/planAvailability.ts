@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
+// @ts-ignore TS5097: shared source with Node strip-types tests.
+import { residentialResponseFields, type ResidentialOptions } from "./residential-options.ts";
 
 /* 服务端为每个 (typeId, regionId, ispId, specId, durationId) 五元组维护的可售状态与实时价格；
    前端一律以此为准，不信任 subscribeCatalog 的静态价格作为下单依据。 */
 export type PlanAvailabilityItem = {
+  readonly residentialOptions?: ResidentialOptions;
   readonly typeId: string;
   readonly regionId: string;
   readonly ispId: string;
@@ -70,6 +73,7 @@ function parseItem(raw: unknown): PlanAvailabilityItem {
     priceFen,
     isActive,
     soldOut,
+    ...residentialResponseFields(raw),
   };
 }
 

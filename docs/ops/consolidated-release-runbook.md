@@ -47,6 +47,146 @@ counts, timestamps, pass/fail results, and binding names. It must not contain
 secret values, customer rows, database contents, credential material, or
 private configuration bodies.
 
+## Schema 032 administrator route
+
+`standard31-32` is an explicit 001–031 to 032 route for the administrator
+directory and nullable successful web-login field. It does not change the
+frozen default 026 route or any 030/031 route. The review bundle for same-repo
+Draft PR 165 (`codex/nsp-admin-manage-20261110-01` into
+`codex/residential-options-local-20261105`) has `releaseUse: forbidden`.
+Source and bundle checks select `--schema-route standard31-32` explicitly.
+Only a separately authorized push to the exact
+`refs/heads/codex/residential-options-local-20261105` formal ref may produce a
+032 candidate after the PR is merged. Bind the artifact to the actual final
+merge commit SHA from that push and its successful CI run; the PR head, planned
+merge SHA, local build and review artifact are not substitutes.
+
+`EXACT_031_PRECHECK`: Before any formal 032 migration, re-read the exact
+production `schema_migrations` ledger and prove it is continuous 001–031.
+Manager's earlier read-only observation of 001–031 and nonempty WAL is a
+starting fact, not an execution-time binding. A different version is DRIFT:
+stop, enumerate every intervening migration and seek a new decision. Do not
+let application startup silently apply 027–031 from an older production schema.
+Bind the exact database identity and create and independently verify a
+consistent backup with its WAL/SHM, SHA-256, file mode, byte count,
+`quick_check`, `foreign_key_check`, and 001–031 boundary before migration.
+Migration 032 adds two status tables and one nullable user field; it does not
+backfill login history or rewrite plan price, inventory, activation or orders.
+
+The accepted production 381 pricing runtime hash reported by the manager is
+`6aff457355395f275ed88eca51510741fb1fe226170b8ab5fdf3453f8a57cb36`
+for `auth-service/dist/src/payment/pricing.js` in its bound release manifest.
+The formal 032 source must retain the matching 381 `pricing.ts` logic; new
+configured `sellable_plans` rows remain authoritative for their exact amounts.
+Against the 381 Auth source, the only approved differences are the 032 migration
+registry/readiness, administrator directory routes and lookup, catalog and new
+quote/order gates, and nullable successful-login recording/administrator read.
+Verify the current production artifact and prices again at execution.
+
+`032_AWARE_ROLLBACK`: Before migration, the verified running 381 Auth and
+accepted 518 static website remain the 031 application recovery pair. After
+migration, **application rollback remains on the latest 032 database**. The
+032 manifest uses `schemaBoundary.migrationStart: 31`,
+`schemaBoundary.candidate: 32`, and `schemaBoundary.applicationRollback: 32`;
+the old `rollback: 31` field and database-restore commands do not apply to this
+route. Do not lower `user_version`, delete the two directory tables or login
+column, rerun migration during rollback, or replace a database after new writes
+or external effects with the earlier backup.
+
+The independent Auth rollback candidate is built by existing CI from exact
+source commit `381aa5d0a7ad4bfadf68db67227b0321cc3d24f3` plus the
+versioned `scripts/ops/patches/admin32-rollback-from-381.patch` at the actual
+formal 032 push SHA. Its manifest records both source SHAs, patch digest and
+`auth-service/rollback32/dist/src/server.js`; the inventory covers the actual
+binary and its exact separate `auth-service/rollback32/src/migrations/001–032`
+runtime migration inputs. CI starts the assembled rollback entrypoint against
+an isolated changed 032 database; a staging-tree start alone is insufficient.
+The patch adds only schema-032 recognition, a ledger-exact startup
+path that rejects 031/missing/033 **before migration or write**, read-only
+directory sellability guards for new catalog/quote/order/change requests, and
+successful website-login timestamp recording. It keeps 381 pricing and omits
+the forward-only directory-edit admin routes and admin user lookup changes.
+The independent local synthetic test must start this separate build against
+the same changed 032 database and show retained users/login times, paid and
+pending orders, scheduled changes, and closed-directory new-sale rejection.
+The older same-forward-binary restart test is only restart/data evidence.
+
+The website rollback is the separately accepted 518 **formal static artifact**,
+not an unverified rebuild from the 518 source SHA. Bind its exact artifact
+digest and provenance at the release gate; `websiteSourceCommit` in the 032
+manifest is only the expected source identity, not artifact proof. Bind the
+rollback Auth artifact to the actual successful formal GitHub run after the
+PR merge, never to the Draft PR head or a local bundle. This candidate can
+recover defects isolated to the forward management UI/endpoints; it cannot
+repair database corruption, baseline Auth/dependency defects, or a bug in the
+shared directory guard. A guard failure must deny new transactions, never
+bypass a closed directory or silently restore an old database. Without an
+independently verified 032 rollback artifact, do not release.
+
+## Schema 032 same-schema administrator update
+
+`standard32-32` is the explicit administrator mobile/list update from the
+already-running schema 032 application. It is **not** the prior 031→032
+migration route. The exact same-repository PR 167 from
+`codex/nsp-admin-mobile-paging-20261110-01` into
+`codex/residential-options-local-20261105` at base
+`d5cafdbd9ae76432c80994771f490fde2509e3e2` is review-only, in Draft or
+Ready state; its artifact has `releaseUse: forbidden`. Only the actual merge
+push to the exact formal ref with `before` equal to that d5 SHA may yield a
+formal `--schema-route standard32-32` candidate. Bind its real merge SHA,
+successful three-job run, artifact ID/digest, manifest, and full inventory.
+Neither a PR review artifact nor the previous d5 artifact is the new candidate.
+
+`EXACT_032_PRECHECK`: Immediately before this cutover, verify the production
+ledger is exactly continuous 001–032, the same absolute SQLite realpath and
+device/inode as the running d5 Auth, and no unknown 033. No migration is
+scheduled or permitted. A missing/extra ledger entry or a changed database
+binding is DRIFT: keep the two approved API locations closed and stop; do not
+start an application that might auto-migrate or write to another database.
+After the old Auth exits and every DB/WAL/SHM writer is zero, take and verify
+a new consistent private 032 backup plus isolated SQLite integrity/foreign-key
+and exact-ledger recovery proof. The earlier online backup is not the final
+cutover snapshot. Keep static website and independent monitor available while
+only the authorized website business APIs are briefly closed.
+
+`D5_SAME_SCHEMA_ROLLBACK`: The new formal bundle contains a separately built
+Auth and static website from the exact deployed d5 Git source and unchanged
+lockfiles, under `auth-service/rollback32` and `website/rollback32`. The
+manifest records d5 for both rollback sources, `migrationStart: 32` and
+`runningSchema: 32`; the inventory hashes every rollback file. CI requires
+the known d5 website index and pricing runtime digests. The live d5 release
+directory remains an additional previously verified recovery source. If the
+new code fails after cutover, stop it under the API-only gate and switch both
+Auth and static root back to verified d5 against the **same latest 032 DB**,
+restore original flags and permanent unset, verify actual `/ready`, then
+reopen APIs. Never run 031→032 again, lower schema, or replace newer business
+with the backup. Unknown/partial state stays closed for reconciliation.
+
+`D5_LEGACY_HTML_ASSETS`: Before the mobile update may replace the static root,
+its forward website inventory must also contain exactly the six unique hashed
+same-origin references of the d5 index and referral HTML entrypoints. Two
+existing CSS files are already identical; three missing JavaScript files and
+one missing CSS file are copied only from the
+official d5 rollback build and pinned to the previously accepted d5 formal
+manifest SHA/byte counts. A matching name with different bytes is a stop line;
+do not copy old directory extras, customer data or unreferenced assets. Verify
+each old and new required asset through the actual origin with HTTP 200,
+complete response bytes and the inventoried hash. A stale d5 HTML response
+must not point to a 404 after the new static root is live. A unique query
+parameter may help identify the new `/admin` page, but cannot substitute for
+missing assets or prove every outside cache has refreshed.
+
+The first PR 167 formal source was merged as
+`9a75eab4470b5008055c7cc122df541e6b903ae3` but **was not deployed**:
+the first cutover returned to d5 after old hashed assets proved missing at the
+new origin. Its package is not the rollback baseline. Only the exact same-repo
+PR 168 (`codex/nsp-admin-mobile-legacy-assets-fix-20261110-01`) into that
+9a75 formal source may review the compatibility repair. Its Draft/Ready review
+bundle remains forbidden for release. A new formal candidate requires the
+actual PR 168 normal merge push with `before` exactly 9a75, all three jobs
+green, and live PR/head/merge-parent/artifact binding. The production recovery
+pair remains accepted d5 Auth plus d5 static on the latest schema 032 DB.
+
 ## Runtime configuration inventory gate
 
 Before the pre-window artifact gate, an authorized operator uses only the

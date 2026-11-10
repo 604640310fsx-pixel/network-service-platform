@@ -10,6 +10,8 @@ import {
 } from "../../lib/payment-api";
 import { useT } from "../../lib/i18n";
 import { resolveSelection } from "../../lib/resolveSelection";
+import { ResidentialOptionDetails } from "../subscribe/ResidentialOptionDetails";
+import { subscriptionLineDisplay } from "../subscribe/lineDisplay";
 
 const SCENARIO_LABELS: Record<string, string> = {
   ai: "AI 工具",
@@ -233,6 +235,8 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
             specId: item.specId,
             durationId: item.durationId,
           });
+          const specLabel = item.typeId === "us-local-carrier"
+            ? subscriptionLineDisplay(summary.spec, "zh", (text) => text) : summary.spec;
           const scenarios = item.scenarios.length === 0
             ? "—"
             : item.scenarios.map((scenario) => SCENARIO_LABELS[scenario] ?? scenario).join("、");
@@ -247,13 +251,14 @@ export function AdminPendingServices({ csrfToken }: { csrfToken: string | null }
                 <div><dt>网络类型</dt><dd>{summary.type}</dd></div>
                 <div><dt>国家/地区</dt><dd>{summary.region}</dd></div>
                 <div><dt>运营商</dt><dd>{summary.isp}</dd></div>
-                <div><dt>规格</dt><dd>{summary.spec}</dd></div>
+                <div><dt>规格</dt><dd>{specLabel}</dd></div>
                 <div><dt>周期</dt><dd>{summary.duration}</dd></div>
                 <div><dt>支付金额</dt><dd>{formatFen(item.amountFen)}</dd></div>
                 <div><dt>联系方式</dt><dd>{item.contact}</dd></div>
                 <div><dt>使用场景</dt><dd>{scenarios}</dd></div>
                 <div><dt>补充说明</dt><dd>{item.notes?.trim() || "—"}</dd></div>
               </dl>
+              {item.residentialOptions && <ResidentialOptionDetails options={item.residentialOptions} />}
               <fieldset className="dash-delivery-form">
                 <legend>交付订阅线路</legend>
                 {serviceDeliveryItems.map((deliveryItem, index) => (

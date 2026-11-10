@@ -6,6 +6,7 @@ import { ForgotPasswordPage } from "../app/components/auth/ForgotPasswordPage";
 import { ResetPasswordPage } from "../app/components/auth/ResetPasswordPage";
 import { AuthSessionChecking } from "../app/components/auth/AuthShell";
 import { DashboardShell } from "../app/components/DashboardShell";
+import { AdminManagementPage } from "../app/components/dashboard/AdminManagementPage";
 import { DiagnosisPage } from "../app/components/diagnosis/DiagnosisPage";
 import { NotFoundPage } from "../app/components/not-found/NotFoundPage";
 import { SubmitRequestPage } from "../app/components/subscribe/SubmitRequestPage";
@@ -35,6 +36,14 @@ function SectionRoute() {
   return <DashboardShell />;
 }
 
+function AdminRoute() {
+  const { status, principal } = useAuth();
+  if (status === "checking") return <AuthSessionChecking />;
+  if (status === "unauthenticated") return <Navigate to="/login" replace />;
+  if (principal?.role !== "admin") return <NotFoundPage />;
+  return <AdminManagementPage />;
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -48,6 +57,7 @@ export default function App() {
         <Route path="/diagnosis" element={<DiagnosisPage />} />
         {/* 公开的独立提交页，必须先于动态 /:section，避免两段路径落到兜底重定向。 */}
         <Route path="/subscribe/request" element={<SubmitRequestPage />} />
+        <Route path="/admin" element={<AdminRoute />} />
         <Route path="/:section" element={<SectionRoute />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>

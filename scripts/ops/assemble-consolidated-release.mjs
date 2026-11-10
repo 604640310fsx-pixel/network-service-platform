@@ -33,8 +33,110 @@ export const RELEASE_WORKFLOW_JOB = "consolidated-release-packet";
 export const RELEASE_ARTIFACT_PREFIX = "consolidated-release-";
 export const DIRECT14_RELEASE_ARTIFACT_PREFIX = "consolidated-release-direct14-";
 export const STANDARD19_RELEASE_ARTIFACT_PREFIX = "consolidated-release-standard19-";
+export const STANDARD26_RELEASE_ARTIFACT_PREFIX = "consolidated-release-standard26-";
+export const RESIDENTIAL31_RELEASE_ARTIFACT_PREFIX = "consolidated-release-residential31-";
+export const ADMIN32_RELEASE_ARTIFACT_PREFIX = "consolidated-release-admin32-";
 export const RELEASE_INTEGRATION_REF =
   "refs/heads/integration/consolidate-project";
+export const STANDARD26_FORMAL_REF =
+  "refs/heads/codex/service-change-release-prepare-20261103";
+export const STANDARD26_PRODUCT_BASELINE =
+  "20b18764ff465cd690a433305fad5124ed4ecb60";
+export const RESIDENTIAL31_FORMAL_REF = "refs/heads/codex/residential-options-local-20261105";
+export const RESIDENTIAL31_PRODUCT_BASELINE = "d3d7297b48a7fd89fb46a8ae508eeec323cf330c";
+export const ADMIN32_FORMAL_REF = RESIDENTIAL31_FORMAL_REF;
+export const ADMIN32_PRODUCT_BASELINE = "518c32e3263d0cdbbd015fec51d200168a33e8d0";
+export const ADMIN32_COMPAT_BASELINE = "381aa5d0a7ad4bfadf68db67227b0321cc3d24f3";
+export const ADMIN32_PRICING_SOURCE_SHA256 = "ed7f59d2ad72d4ff05ac74c0854c9813e1611a58db7672e37dc2c3e8c57f70ba";
+export const ADMIN32_ROLLBACK_PATCH = "scripts/ops/patches/admin32-rollback-from-381.patch";
+export const ADMIN32_ROLLBACK_WEBSITE_SOURCE = ADMIN32_PRODUCT_BASELINE;
+export const ADMIN32_UPLOAD_FIX_BASE_SHA = "4857c9c62294a2dfdcca2187e17983720e991a2f";
+export const ADMIN32_UPLOAD_FIX_HEAD_REF = "codex/nsp-admin32-upload-guard-fix-20261110-01";
+export const ADMIN32_UPLOAD_FIX_PR_NUMBER = 166;
+export const ADMIN32_SAME_SCHEMA_BASELINE = "d5cafdbd9ae76432c80994771f490fde2509e3e2";
+export const ADMIN32_SAME_SCHEMA_HEAD_REF = "codex/nsp-admin-mobile-paging-20261110-01";
+export const ADMIN32_SAME_SCHEMA_PR_NUMBER = 167;
+export const ADMIN32_LEGACY_ASSET_FIX_BASE_SHA = "9a75eab4470b5008055c7cc122df541e6b903ae3";
+export const ADMIN32_LEGACY_ASSET_FIX_HEAD_REF = "codex/nsp-admin-mobile-legacy-assets-fix-20261110-01";
+export const ADMIN32_LEGACY_ASSET_FIX_PR_NUMBER = 168;
+export const ADMIN32_SAME_SCHEMA_WEBSITE_INDEX_SHA256 = "201179449c13e4ae2d0cc06d755eda5124bbe089c80f9aba4b4673bb4b6c30ff";
+export const ADMIN32_SAME_SCHEMA_PRICING_RUNTIME_SHA256 = "6aff457355395f275ed88eca51510741fb1fe226170b8ab5fdf3453f8a57cb36";
+// Exactly the hashed assets referenced by the accepted d5 HTML entrypoints.
+// Four are absent from the new build; existing names must match by hash.
+export const ADMIN32_SAME_SCHEMA_LEGACY_PUBLIC_ASSETS = Object.freeze([
+  Object.freeze({ path: "assets/index-JX29Ai5X.js", bytes: 689266, sha256: "db5b12d340fc3d6a2df8d18c1aaf981ea049d534122da88d6dbb53972729bcfa", usedBy: ["index.html"] }),
+  Object.freeze({ path: "assets/globals-CMAYn0tu.js", bytes: 374734, sha256: "002a37a5b631524b77b37fe73bd83c4ef24042e7e5a06aa864121a25a48edb63", usedBy: ["index.html", "referral.html"] }),
+  Object.freeze({ path: "assets/globals-c13hvYBB.css", bytes: 31903, sha256: "e29b8a0194f903cfb8d82baf302bae71af825a3d48e2c8971eab40eb0c939a94", usedBy: ["index.html", "referral.html"] }),
+  Object.freeze({ path: "assets/index-Dz6dNv_X.css", bytes: 244836, sha256: "ee758dce749710840cf55304b10702b4ee874d34142fd572d6a63cb4aa23fb57", usedBy: ["index.html"] }),
+  Object.freeze({ path: "assets/referral-CIPSuQcB.js", bytes: 3746, sha256: "99ab7f28ebc76e04f948dfce2d3cc54b67cd6774fcfa26b07e35557e1dc3415c", usedBy: ["referral.html"] }),
+  Object.freeze({ path: "assets/referral-FknDrLe5.css", bytes: 1145, sha256: "dd8b00e0f5e517e2e850fcbebde52b3808f868a9ff164c7e942a141f1c8ed6ad", usedBy: ["referral.html"] }),
+]);
+export const ADMIN32_SAME_SCHEMA_ALLOWED_PATHS = Object.freeze([
+  ".github/workflows/ci.yml", "auth-service/src/http/admin-service-routes.ts",
+  "auth-service/src/payment/admin-services.ts", "auth-service/test/payment/admin-services.test.ts",
+  "website/app/components/dashboard/AdminManagementPage.tsx",
+  "website/app/components/dashboard/AdminPlansPanel.tsx",
+  "website/app/components/dashboard/AdminUserServicesPanel.tsx",
+  "website/app/components/dashboard/dashboard.css", "website/app/i18n/en.ts", "website/app/i18n/zh.ts",
+  "website/app/lib/admin-services-api.ts", "website/tests/adminUserList.test.ts",
+  "docs/ops/consolidated-release-runbook.md",
+  "scripts/ops/assemble-consolidated-release.mjs", "scripts/ops/validate-consolidated-release-packet.mjs",
+  "scripts/ops/consolidated-release-packet.test.mjs",
+]);
+export const ADMIN32_ROLLBACK_PATCH_PATHS = Object.freeze([
+  "auth-service/src/db.ts", "auth-service/src/migrations/032_catalog_directory_and_last_login.sql",
+  "auth-service/src/payment/catalog-directory.ts", "auth-service/src/payment/commerce.ts",
+  "auth-service/src/payment/service-change.ts", "auth-service/src/server.ts",
+  "auth-service/src/session/login-session.ts",
+]);
+export const ADMIN32_COMPAT_AUTH_PATHS = Object.freeze([
+  "auth-service/src/db.ts", "auth-service/src/http/admin-routes.ts",
+  "auth-service/src/migrations/032_catalog_directory_and_last_login.sql",
+  "auth-service/src/payment/admin-services.ts", "auth-service/src/payment/catalog-directory.ts",
+  "auth-service/src/payment/commerce.ts", "auth-service/src/payment/service-change.ts",
+  "auth-service/src/session/login-session.ts",
+]);
+// Only this task's reviewed source, migration, tests and release controls may
+// differ from the exact 031 base in a formal 032 source commit.
+export const ADMIN32_ALLOWED_PATHS = Object.freeze([
+  ".github/workflows/ci.yml",
+  "auth-service/src/db.ts", "auth-service/src/http/admin-routes.ts",
+  "auth-service/src/migrations/032_catalog_directory_and_last_login.sql",
+  "auth-service/src/payment/admin-services.ts", "auth-service/src/payment/catalog-directory.ts",
+  "auth-service/src/payment/commerce.ts", "auth-service/src/payment/pricing.ts",
+  "auth-service/src/payment/service-change.ts", "auth-service/src/session/login-session.ts",
+  "auth-service/test/auth/http-login-me.test.ts", "auth-service/test/auth/login-session.test.ts",
+  "auth-service/test/auth/server-mail-runtime.test.ts", "auth-service/test/db.test.ts",
+  "auth-service/test/diagnosis/migration.test.ts", "auth-service/test/migrations.test.ts",
+  "auth-service/test/payment/admin-services.test.ts", "auth-service/test/payment/catalog-directory.test.ts",
+  "auth-service/test/payment/admin32-rollback-compat.test.ts",
+  "auth-service/test/admin32-independent-rollback.mjs",
+  "auth-service/test/payment/residential-options.test.ts", "auth-service/test/payment/service-change-local.test.ts",
+  "auth-service/test/payment/us-local-carrier-in-memory.test.ts", "auth-service/test/personal-invites.test.ts",
+  "auth-service/test/sqlite-backup.test.ts", "docs/ops/consolidated-release-runbook.md",
+  "scripts/ops/assemble-consolidated-release.mjs", "scripts/ops/consolidated-release-packet.test.mjs",
+  ADMIN32_ROLLBACK_PATCH,
+  "scripts/ops/validate-consolidated-release-packet.mjs",
+  "website/app/components/customer/CustomerCenterShell.tsx",
+  "website/app/components/dashboard/AdminManagementPage.tsx", "website/app/components/dashboard/AdminPlansPanel.tsx",
+  "website/app/components/dashboard/AdminUserServicesPanel.tsx", "website/app/components/dashboard/DashboardPage.tsx",
+  "website/app/components/dashboard/dashboard.css", "website/app/i18n/en.ts", "website/app/i18n/zh.ts",
+  "website/app/lib/admin-commerce-api.ts", "website/app/lib/admin-services-api.ts", "website/src/App.tsx",
+  "website/tests/adminInviteCodes.test.ts", "website/tests/authEntryUx.test.ts",
+  "website/tests/tickets.test.ts", "website/tests/usLocalCarrierPricing.test.ts",
+]);
+export const STANDARD26_CONTROL_PATHS = Object.freeze([
+  ".github/workflows/ci.yml",
+  "scripts/ops/assemble-consolidated-release.mjs",
+  "scripts/ops/validate-consolidated-release-packet.mjs",
+  "scripts/ops/consolidated-release-packet.test.mjs",
+]);
+export function releaseFormalRefForRoute(schemaRoute) {
+  if (isAdmin32Route(schemaRoute)) return ADMIN32_FORMAL_REF;
+  if (schemaRoute === STANDARD26_31_RELEASE_SCHEMA_ROUTE) return RESIDENTIAL31_FORMAL_REF;
+  return schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE
+    ? STANDARD26_FORMAL_REF : RELEASE_INTEGRATION_REF;
+}
 // Historical routes (001-019) stay recognized so already-built 019 bundles
 // still validate; the current repository sequence is 001-020 (tickets).
 export const STANDARD16_19_RELEASE_SCHEMA_ROUTE = "standard16-19";
@@ -70,6 +172,26 @@ export const STANDARD19_25_RELEASE_SCHEMA_ROUTE = "standard19-25";
 export const STANDARD16_26_RELEASE_SCHEMA_ROUTE = "standard16-26";
 export const DIRECT14_26_RELEASE_SCHEMA_ROUTE = "direct14-26";
 export const STANDARD19_26_RELEASE_SCHEMA_ROUTE = "standard19-26";
+// Independent opt-in route. Never changes the frozen default/026 CI routes.
+export const STANDARD26_30_RELEASE_SCHEMA_ROUTE = "standard26-30";
+export const STANDARD26_31_RELEASE_SCHEMA_ROUTE = "standard26-31";
+export const STANDARD31_32_RELEASE_SCHEMA_ROUTE = "standard31-32";
+export const STANDARD32_32_RELEASE_SCHEMA_ROUTE = "standard32-32";
+export function isAdmin32Route(route) {
+  return route === STANDARD31_32_RELEASE_SCHEMA_ROUTE || route === STANDARD32_32_RELEASE_SCHEMA_ROUTE;
+}
+export function isIndependentStandard26Route(route) {
+  return route === STANDARD26_30_RELEASE_SCHEMA_ROUTE || route === STANDARD26_31_RELEASE_SCHEMA_ROUTE;
+}
+export function isFormalBoundRoute(route) {
+  return isIndependentStandard26Route(route) || isAdmin32Route(route);
+}
+export function releaseProductBaselineForRoute(route) {
+  return route === STANDARD32_32_RELEASE_SCHEMA_ROUTE ? ADMIN32_SAME_SCHEMA_BASELINE :
+    route === STANDARD31_32_RELEASE_SCHEMA_ROUTE ? ADMIN32_PRODUCT_BASELINE :
+    route === STANDARD26_31_RELEASE_SCHEMA_ROUTE ? RESIDENTIAL31_PRODUCT_BASELINE :
+    route === STANDARD26_30_RELEASE_SCHEMA_ROUTE ? STANDARD26_PRODUCT_BASELINE : null;
+}
 export const DEFAULT_RELEASE_SCHEMA_ROUTE = STANDARD16_26_RELEASE_SCHEMA_ROUTE;
 export const DIRECT14_RELEASE_SCHEMA_ROUTE = DIRECT14_26_RELEASE_SCHEMA_ROUTE;
 export const RELEASE_SCHEMA_BOUNDARIES = Object.freeze({
@@ -96,9 +218,13 @@ export const RELEASE_SCHEMA_BOUNDARIES = Object.freeze({
   [STANDARD16_26_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 16, candidate: 26 }),
   [DIRECT14_26_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 14, candidate: 26 }),
   [STANDARD19_26_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 19, candidate: 26 }),
+  [STANDARD26_30_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 26, candidate: 30 }),
+  [STANDARD26_31_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 26, candidate: 31 }),
+  [STANDARD31_32_RELEASE_SCHEMA_ROUTE]: Object.freeze({ migrationStart: 31, candidate: 32, applicationRollback: 32 }),
+  [STANDARD32_32_RELEASE_SCHEMA_ROUTE]: Object.freeze({ migrationStart: 32, candidate: 32, applicationRollback: 32 }),
 });
 export const RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE =
-  "--schema-route must be standard16-19, direct14-19, standard16-20, direct14-20, standard19-20, standard16-21, direct14-21, standard19-21, standard16-22, direct14-22, standard19-22, standard16-23, direct14-23, standard19-23, standard16-24, direct14-24, standard19-24, standard16-25, direct14-25, standard19-25, standard16-26, direct14-26, or standard19-26";
+  "--schema-route must be standard16-19, direct14-19, standard16-20, direct14-20, standard19-20, standard16-21, direct14-21, standard19-21, standard16-22, direct14-22, standard19-22, standard16-23, direct14-23, standard19-23, standard16-24, direct14-24, standard19-24, standard16-25, direct14-25, standard19-25, standard16-26, direct14-26, standard19-26, standard26-30, standard26-31, standard31-32, or standard32-32";
 const DIRECT14_RELEASE_SCHEMA_ROUTES = Object.freeze(
   new Set([
     DIRECT14_19_RELEASE_SCHEMA_ROUTE,
@@ -132,7 +258,10 @@ export function releaseArtifactNameForRoute(sha, schemaRoute) {
       RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE,
     );
   }
-  const prefix = isDirect14ReleaseSchemaRoute(schemaRoute)
+  const prefix = isAdmin32Route(schemaRoute) ? ADMIN32_RELEASE_ARTIFACT_PREFIX :
+    schemaRoute === STANDARD26_31_RELEASE_SCHEMA_ROUTE ? RESIDENTIAL31_RELEASE_ARTIFACT_PREFIX : schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE
+    ? STANDARD26_RELEASE_ARTIFACT_PREFIX
+    : isDirect14ReleaseSchemaRoute(schemaRoute)
     ? DIRECT14_RELEASE_ARTIFACT_PREFIX
     : schemaRoute === STANDARD19_20_RELEASE_SCHEMA_ROUTE ||
         schemaRoute === STANDARD19_21_RELEASE_SCHEMA_ROUTE ||
@@ -194,7 +323,22 @@ export const RELEASE_MIGRATIONS_001_026 = Object.freeze([
   ...RELEASE_MIGRATIONS_001_025,
   "026_wallet.sql",
 ]);
-// The exact sequence of the current repository source.
+export const RELEASE_MIGRATIONS_001_030 = Object.freeze([
+  ...RELEASE_MIGRATIONS_001_026,
+  "027_package_option_plans.sql",
+  "028_period_price_rule.sql",
+  "029_remove_single_payment_cap.sql",
+  "030_service_change_local.sql",
+]);
+export const RELEASE_MIGRATIONS_001_031 = Object.freeze([
+  ...RELEASE_MIGRATIONS_001_030,
+  "031_residential_order_options.sql",
+]);
+export const RELEASE_MIGRATIONS_001_032 = Object.freeze([
+  ...RELEASE_MIGRATIONS_001_031,
+  "032_catalog_directory_and_last_login.sql",
+]);
+// Frozen default contract, not a moving alias for the newest source.
 export const RELEASE_MIGRATIONS = RELEASE_MIGRATIONS_001_026;
 export function releaseMigrationsForRoute(schemaRoute) {
   if (!isKnownReleaseSchemaRoute(schemaRoute)) {
@@ -218,7 +362,101 @@ export function releaseMigrationsForRoute(schemaRoute) {
               ? RELEASE_MIGRATIONS_001_024
               : candidate === 25
                 ? RELEASE_MIGRATIONS_001_025
-                : RELEASE_MIGRATIONS_001_026;
+                : candidate === 30
+                  ? RELEASE_MIGRATIONS_001_030
+                  : candidate === 31 ? RELEASE_MIGRATIONS_001_031
+                  : candidate === 32 ? RELEASE_MIGRATIONS_001_032
+                  : RELEASE_MIGRATIONS_001_026;
+}
+
+/** Pure decision guard, NOT an executor or evidence collector. External facts
+ * must be bound to one closed-traffic release attempt. UNKNOWN is never true.
+ * The existing sqlite-backup verify operation supplies snapshotVerification;
+ * its hash must match the pre-migration snapshot bound to this database/attempt.
+ * No rollback SQL exists: eligible recovery restores that entire 026 snapshot
+ * with independently matched Auth AND Website artifacts. */
+export function assertStandard26RecoveryBoundary({ phase, attemptId, databaseBinding,
+  trafficClosed, oldApplicationStopped, candidateStopped, applicationWriters,
+  applicationWritesSinceSnapshot, paymentsSinceSnapshot, fulfillmentsSinceSnapshot, externalEffectsSinceSnapshot,
+  liveMigrations, snapshot, snapshotVerification, rollbackArtifacts } = {}) {
+  const deny = (message) => { throw new ReleaseAssemblyError("RESTORE_26_FORBIDDEN", message); };
+  const continuous = (versions, max) => Array.isArray(versions) && versions.length === max &&
+    versions.every((version, index) => version === index + 1);
+  const sha = (value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+  const bound = (proof) => proof?.attemptId === attemptId && proof?.databaseBinding === databaseBinding;
+  if (!["before-upgrade", "failed-upgrade"].includes(phase) ||
+      typeof attemptId !== "string" || attemptId.trim() === "" ||
+      typeof databaseBinding !== "string" || databaseBinding.trim() === "" ||
+      trafficClosed !== true || oldApplicationStopped !== true || candidateStopped !== true ||
+      applicationWriters !== 0 || applicationWritesSinceSnapshot !== 0 ||
+      paymentsSinceSnapshot !== 0 || fulfillmentsSinceSnapshot !== 0 || externalEffectsSinceSnapshot !== 0) {
+    deny("closed ingress, stopped applications, zero writers and zero new writes/external effects must all be proven; otherwise preserve current facts and forward-fix/reconcile, never start the old 026 binary");
+  }
+  // A failed migration may have committed a prefix 027..029. It can recover only
+  // before any non-migration write; future/contradictory schema is never eligible.
+  const last = Array.isArray(liveMigrations) ? liveMigrations.length : 0;
+  if ((phase === "before-upgrade" && !continuous(liveMigrations, 26)) ||
+      (phase === "failed-upgrade" && (last < 26 || last > 30 || !continuous(liveMigrations, last)))) {
+    deny("live schema must be exact 001-026 before upgrade or a continuous 026..030 failed-upgrade boundary");
+  }
+  if (!bound(snapshot) || !sha(snapshot?.sha256) ||
+      snapshotVerification?.status !== "ok" || snapshotVerification.operation !== "verify" ||
+      snapshotVerification.sha256 !== snapshot.sha256 || snapshotVerification.fileMode !== "0600" ||
+      snapshotVerification.quickCheck !== "ok" || snapshotVerification.foreignKeyFailures !== 0 ||
+      !Number.isSafeInteger(snapshotVerification.bytes) || snapshotVerification.bytes <= 0 ||
+      snapshotVerification.bytes !== snapshot.bytes || !continuous(snapshotVerification.migrations, 26)) {
+    deny("a matching current-attempt independently verified 001-026 snapshot is required");
+  }
+  if (!bound(rollbackArtifacts) || rollbackArtifacts?.verified !== true ||
+      rollbackArtifacts?.authSchemaBoundary !== 26 || !sha(rollbackArtifacts?.authSha256) ||
+      !sha(rollbackArtifacts?.websiteSha256)) {
+    deny("independently verified matching Auth026 and Website recovery artifacts are required");
+  }
+  return Object.freeze({ status: "ok", schemaRoute: STANDARD26_30_RELEASE_SCHEMA_ROUTE,
+    permittedAction: phase === "before-upgrade" ? "upgrade-026-to-030" : "restore-matched-026-snapshot-and-artifacts",
+    automaticRestore: false, requiresFreshProofAtExecution: true });
+}
+// Independent031 recovery: never widens the accepted030 rollback boundary.
+export function assertResidential31RecoveryBoundary({ phase, attemptId, databaseBinding,
+  trafficClosed, oldApplicationStopped, candidateStopped, applicationWriters,
+  applicationWritesSinceSnapshot, paymentsSinceSnapshot, fulfillmentsSinceSnapshot, externalEffectsSinceSnapshot,
+  liveMigrations, snapshot, snapshotVerification, rollbackArtifacts } = {}) {
+  const deny = (message) => { throw new ReleaseAssemblyError("RESTORE_26_FORBIDDEN", message); };
+  const continuous = (versions, max) => Array.isArray(versions) && versions.length === max &&
+    versions.every((version, index) => version === index + 1);
+  const sha = (value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+  const bound = (proof) => proof?.attemptId === attemptId && proof?.databaseBinding === databaseBinding;
+  if (!["before-upgrade", "failed-upgrade"].includes(phase) ||
+      typeof attemptId !== "string" || attemptId.trim() === "" ||
+      typeof databaseBinding !== "string" || databaseBinding.trim() === "" ||
+      trafficClosed !== true || oldApplicationStopped !== true || candidateStopped !== true ||
+      applicationWriters !== 0 || applicationWritesSinceSnapshot !== 0 ||
+      paymentsSinceSnapshot !== 0 || fulfillmentsSinceSnapshot !== 0 || externalEffectsSinceSnapshot !== 0) {
+    deny("closed ingress, stopped applications, zero writers and zero new writes/external effects must all be proven; otherwise preserve current facts and forward-fix/reconcile, never start the old 026 binary");
+  }
+  // A failed migration may have committed a prefix 027..029. It can recover only
+  // before any non-migration write; future/contradictory schema is never eligible.
+  const last = Array.isArray(liveMigrations) ? liveMigrations.length : 0;
+  if ((phase === "before-upgrade" && !continuous(liveMigrations, 26)) ||
+      (phase === "failed-upgrade" && (last < 26 || last > 31 || !continuous(liveMigrations, last)))) {
+    deny("live schema must be exact 001-026 before upgrade or a continuous 026..031 failed-upgrade boundary");
+  }
+  if (!bound(snapshot) || !sha(snapshot?.sha256) ||
+      snapshotVerification?.status !== "ok" || snapshotVerification.operation !== "verify" ||
+      snapshotVerification.sha256 !== snapshot.sha256 || snapshotVerification.fileMode !== "0600" ||
+      snapshotVerification.quickCheck !== "ok" || snapshotVerification.foreignKeyFailures !== 0 ||
+      !Number.isSafeInteger(snapshotVerification.bytes) || snapshotVerification.bytes <= 0 ||
+      snapshotVerification.bytes !== snapshot.bytes || !continuous(snapshotVerification.migrations, 26)) {
+    deny("a matching current-attempt independently verified 001-026 snapshot is required");
+  }
+  if (!bound(rollbackArtifacts) || rollbackArtifacts?.verified !== true ||
+      rollbackArtifacts?.authSchemaBoundary !== 26 || !sha(rollbackArtifacts?.authSha256) ||
+      !sha(rollbackArtifacts?.websiteSha256)) {
+    deny("independently verified matching Auth026 and Website recovery artifacts are required");
+  }
+  return Object.freeze({ status: "ok", schemaRoute: STANDARD26_31_RELEASE_SCHEMA_ROUTE,
+    permittedAction: phase === "before-upgrade" ? "upgrade-026-to-031" : "restore-matched-026-snapshot-and-artifacts",
+    automaticRestore: false, requiresFreshProofAtExecution: true });
 }
 export const RELEASE_HTTP_CONTRACT_PATHS = Object.freeze([
   "ops/nginx/release-traffic-open.conf.example",
@@ -461,14 +699,70 @@ export function createReleaseProvenance({
 
   const isReleaseCandidateContext =
     eventName === "push" &&
-    ref === RELEASE_INTEGRATION_REF &&
-    githubSha === sha;
+    ref === releaseFormalRefForRoute(schemaRoute) &&
+    githubSha === sha &&
+    (!isFormalBoundRoute(schemaRoute) ||
+      workflowRef === `${RELEASE_REPOSITORY}/.github/workflows/ci.yml@${releaseFormalRefForRoute(schemaRoute)}`);
   if (mode === "github-actions-test") {
     if (isReleaseCandidateContext) {
       throw new ReleaseAssemblyError(
         "PROVENANCE_REQUIRED",
         "an integration push must use release-candidate provenance",
       );
+    }
+    if (environment.ADMIN32_UPLOAD_FIX_TASK_CONTEXT === "true") {
+      let event;
+      try { event = JSON.parse(readFileSync(requiredEnvironment(environment, "GITHUB_EVENT_PATH"), "utf8")); }
+      catch { throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "admin32 upload-fix review event is unavailable"); }
+      if (schemaRoute !== STANDARD31_32_RELEASE_SCHEMA_ROUTE || eventName !== "pull_request" ||
+          ref !== `refs/pull/${ADMIN32_UPLOAD_FIX_PR_NUMBER}/merge` ||
+          event.repository?.full_name !== RELEASE_REPOSITORY ||
+          event.number !== ADMIN32_UPLOAD_FIX_PR_NUMBER ||
+          event.pull_request?.number !== ADMIN32_UPLOAD_FIX_PR_NUMBER ||
+          event.pull_request?.head?.repo?.full_name !== RELEASE_REPOSITORY ||
+          event.pull_request?.base?.repo?.full_name !== RELEASE_REPOSITORY ||
+          event.pull_request?.head?.ref !== ADMIN32_UPLOAD_FIX_HEAD_REF ||
+          event.pull_request?.head?.sha !== sha ||
+          event.pull_request?.base?.ref !== "codex/residential-options-local-20261105" ||
+          event.pull_request?.base?.sha !== ADMIN32_UPLOAD_FIX_BASE_SHA) {
+        throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "admin32 upload-fix review source does not match exact PR/base/head");
+      }
+    }
+    if (environment.ADMIN32_SAME_SCHEMA_TASK_CONTEXT === "true") {
+      let event;
+      try { event = JSON.parse(readFileSync(requiredEnvironment(environment, "GITHUB_EVENT_PATH"), "utf8")); }
+      catch { throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "admin32 same-schema review event is unavailable"); }
+      if (schemaRoute !== STANDARD32_32_RELEASE_SCHEMA_ROUTE || eventName !== "pull_request" ||
+          ref !== `refs/pull/${ADMIN32_SAME_SCHEMA_PR_NUMBER}/merge` ||
+          event.repository?.full_name !== RELEASE_REPOSITORY ||
+          event.number !== ADMIN32_SAME_SCHEMA_PR_NUMBER ||
+          event.pull_request?.number !== ADMIN32_SAME_SCHEMA_PR_NUMBER ||
+          event.pull_request?.head?.repo?.full_name !== RELEASE_REPOSITORY ||
+          event.pull_request?.base?.repo?.full_name !== RELEASE_REPOSITORY ||
+          event.pull_request?.head?.ref !== ADMIN32_SAME_SCHEMA_HEAD_REF ||
+          event.pull_request?.head?.sha !== sha ||
+          event.pull_request?.base?.ref !== "codex/residential-options-local-20261105" ||
+          event.pull_request?.base?.sha !== ADMIN32_SAME_SCHEMA_BASELINE) {
+        throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "admin32 same-schema review source does not match exact PR/base/head");
+      }
+    }
+    if (environment.ADMIN32_LEGACY_ASSET_FIX_TASK_CONTEXT === "true") {
+      let event;
+      try { event = JSON.parse(readFileSync(requiredEnvironment(environment, "GITHUB_EVENT_PATH"), "utf8")); }
+      catch { throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "admin32 legacy-asset review event is unavailable"); }
+      if (schemaRoute !== STANDARD32_32_RELEASE_SCHEMA_ROUTE || eventName !== "pull_request" ||
+          ref !== `refs/pull/${ADMIN32_LEGACY_ASSET_FIX_PR_NUMBER}/merge` ||
+          event.repository?.full_name !== RELEASE_REPOSITORY ||
+          event.number !== ADMIN32_LEGACY_ASSET_FIX_PR_NUMBER ||
+          event.pull_request?.number !== ADMIN32_LEGACY_ASSET_FIX_PR_NUMBER ||
+          event.pull_request?.head?.repo?.full_name !== RELEASE_REPOSITORY ||
+          event.pull_request?.base?.repo?.full_name !== RELEASE_REPOSITORY ||
+          event.pull_request?.head?.ref !== ADMIN32_LEGACY_ASSET_FIX_HEAD_REF ||
+          event.pull_request?.head?.sha !== sha ||
+          event.pull_request?.base?.ref !== "codex/residential-options-local-20261105" ||
+          event.pull_request?.base?.sha !== ADMIN32_LEGACY_ASSET_FIX_BASE_SHA) {
+        throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "admin32 legacy-asset review source does not match exact PR/base/head");
+      }
     }
     return Object.freeze({
       kind: "github-actions-test",
@@ -489,6 +783,17 @@ export function createReleaseProvenance({
       "release-candidate provenance requires an exact integration push SHA",
     );
   }
+  if (isFormalBoundRoute(schemaRoute)) {
+    let event;
+    try { event = JSON.parse(readFileSync(requiredEnvironment(environment, "GITHUB_EVENT_PATH"), "utf8")); }
+    catch { throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "formal standard26 source requires the actual push event payload"); }
+    if (event.ref !== releaseFormalRefForRoute(schemaRoute) || event.after !== sha ||
+      event.repository?.full_name !== RELEASE_REPOSITORY || event.deleted !== false ||
+      (schemaRoute === STANDARD32_32_RELEASE_SCHEMA_ROUTE &&
+        ![ADMIN32_SAME_SCHEMA_BASELINE, ADMIN32_LEGACY_ASSET_FIX_BASE_SHA].includes(event.before))) {
+      throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "formal standard26 push payload does not match repository/ref/head");
+    }
+  }
 
   return Object.freeze({
     kind: "github-actions",
@@ -502,6 +807,8 @@ export function createReleaseProvenance({
     ref,
     githubSha,
     artifactName,
+    ...(isFormalBoundRoute(schemaRoute)
+      ? { productBaseline: releaseProductBaselineForRoute(schemaRoute) } : {}),
   });
 }
 
@@ -546,6 +853,78 @@ function verifySourceRevision(source, expectedSha) {
       "source repository contains uncommitted files",
     );
   }
+}
+
+// This is a single frozen product source, not a general branch publishing rule.
+// Compare the entire tracked tree (not just payload paths), including SQL/locks.
+export function verifyStandard26ProductSource(source, expectedSha) {
+  source = existingDirectory(source, "source");
+  verifySourceRevision(source, normalizedExpectedSha(expectedSha));
+  const ancestor = spawnSync("git", ["-C", source, "merge-base", "--is-ancestor",
+    STANDARD26_PRODUCT_BASELINE, expectedSha], { encoding: "utf8" });
+  if (ancestor.status !== 0) {
+    throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH", "frozen product baseline must be an ancestor of the formal source");
+  }
+  const diff = spawnSync("git", ["-C", source, "diff", "--name-only", "--no-renames", "-z",
+    STANDARD26_PRODUCT_BASELINE, expectedSha], { encoding: "utf8" });
+  if (diff.status !== 0) throw new ReleaseAssemblyError("SOURCE_INVALID", "formal product tree comparison failed");
+  const changed = diff.stdout.split("\0").filter(Boolean);
+  if (changed.some(path => !STANDARD26_CONTROL_PATHS.includes(path))) {
+    throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH", "formal source may differ from the frozen product baseline only in four release controls");
+  }
+  return STANDARD26_PRODUCT_BASELINE;
+}
+// Independent031 policy: it never changes the existing030 baseline or allowance.
+export function verifyResidential31ProductSource(source, expectedSha) {
+  source = existingDirectory(source,"source");
+  verifySourceRevision(source,normalizedExpectedSha(expectedSha));
+  const ancestor=spawnSync("git",["-C",source,"merge-base","--is-ancestor",RESIDENTIAL31_PRODUCT_BASELINE,expectedSha],{encoding:"utf8"});
+  if(ancestor.status!==0)throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH","frozen residential product baseline must be an ancestor");
+  const diff=spawnSync("git",["-C",source,"diff","--name-only","--no-renames","-z",RESIDENTIAL31_PRODUCT_BASELINE,expectedSha],{encoding:"utf8"});
+  if(diff.status!==0)throw new ReleaseAssemblyError("SOURCE_INVALID","residential product tree comparison failed");
+  if(diff.stdout.split("\0").filter(Boolean).some(path=>!STANDARD26_CONTROL_PATHS.includes(path)))
+    throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH","residential formal source may differ only in the four release controls");
+  return RESIDENTIAL31_PRODUCT_BASELINE;
+}
+export function verifyAdmin32ProductSource(source, expectedSha) {
+  source=existingDirectory(source,"source");
+  verifySourceRevision(source,normalizedExpectedSha(expectedSha));
+  const ancestor=spawnSync("git",["-C",source,"merge-base","--is-ancestor",ADMIN32_PRODUCT_BASELINE,expectedSha],{encoding:"utf8"});
+  if(ancestor.status!==0)throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH","frozen 031 product base must be an ancestor of formal 032");
+  const diff=spawnSync("git",["-C",source,"diff","--name-only","--no-renames","-z",ADMIN32_PRODUCT_BASELINE,expectedSha],{encoding:"utf8"});
+  if(diff.status!==0)throw new ReleaseAssemblyError("SOURCE_INVALID","admin32 product tree comparison failed");
+  if(diff.stdout.split("\0").filter(Boolean).some(path=>!ADMIN32_ALLOWED_PATHS.includes(path)))
+    throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH","formal 032 source changed an unapproved path");
+  const compat=spawnSync("git",["-C",source,"merge-base","--is-ancestor",ADMIN32_COMPAT_BASELINE,expectedSha],{encoding:"utf8"});
+  if(compat.status!==0)throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH","production 381 compatible source base must be an ancestor");
+  const authDiff=spawnSync("git",["-C",source,"diff","--name-only","--no-renames","-z",ADMIN32_COMPAT_BASELINE,expectedSha,"--","auth-service/src"],{encoding:"utf8"});
+  if(authDiff.status!==0)throw new ReleaseAssemblyError("SOURCE_INVALID","381 auth source comparison failed");
+  const authChanged=authDiff.stdout.split("\0").filter(Boolean).sort();
+  if(authChanged.join("\0")!==[...ADMIN32_COMPAT_AUTH_PATHS].sort().join("\0"))
+    throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH","formal 032 Auth source differs from 381 beyond approved schema and directory/login compatibility");
+  if(sha256File(join(source,"auth-service/src/payment/pricing.ts"))!==ADMIN32_PRICING_SOURCE_SHA256)
+    throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH","formal 032 source must preserve production 381 pricing logic");
+  return ADMIN32_PRODUCT_BASELINE;
+}
+export function verifyAdmin32SameSchemaProductSource(source, expectedSha) {
+  source = existingDirectory(source, "source");
+  verifySourceRevision(source, normalizedExpectedSha(expectedSha));
+  const ancestor = spawnSync("git", ["-C", source, "merge-base", "--is-ancestor", ADMIN32_SAME_SCHEMA_BASELINE, expectedSha], { encoding: "utf8" });
+  if (ancestor.status !== 0) throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH", "deployed d5 schema32 baseline must be an ancestor");
+  const diff = spawnSync("git", ["-C", source, "diff", "--name-only", "--no-renames", "-z", ADMIN32_SAME_SCHEMA_BASELINE, expectedSha], { encoding: "utf8" });
+  if (diff.status !== 0) throw new ReleaseAssemblyError("SOURCE_INVALID", "admin32 same-schema source comparison failed");
+  if (diff.stdout.split("\0").filter(Boolean).some((path) => !ADMIN32_SAME_SCHEMA_ALLOWED_PATHS.includes(path))) {
+    throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH", "schema32 update changed an unapproved path");
+  }
+  if (sha256File(join(source, "auth-service/src/payment/pricing.ts")) !== ADMIN32_PRICING_SOURCE_SHA256) {
+    throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH", "schema32 update must preserve production pricing");
+  }
+  return ADMIN32_SAME_SCHEMA_BASELINE;
+}
+export function verifyIndependentProductSource(source,expectedSha,route) {
+  return route===STANDARD32_32_RELEASE_SCHEMA_ROUTE ? verifyAdmin32SameSchemaProductSource(source,expectedSha) :
+    route===STANDARD31_32_RELEASE_SCHEMA_ROUTE ? verifyAdmin32ProductSource(source,expectedSha) :
+    route===STANDARD26_31_RELEASE_SCHEMA_ROUTE ? verifyResidential31ProductSource(source,expectedSha) : verifyStandard26ProductSource(source,expectedSha);
 }
 
 function normalizedRelativePath(path) {
@@ -708,6 +1087,7 @@ export function assembleReleaseBundle({
   expectedSha,
   provenanceMode,
   schemaRoute = DEFAULT_RELEASE_SCHEMA_ROUTE,
+  admin32RollbackSource,
   environment = process.env,
 }) {
   if (!isKnownReleaseSchemaRoute(schemaRoute)) {
@@ -728,7 +1108,29 @@ export function assembleReleaseBundle({
   });
   const destinationRoot = newDestination(destination, sourceRoot);
   verifySourceRevision(sourceRoot, sha);
+  if (isFormalBoundRoute(schemaRoute) && provenance.kind === "github-actions") {
+    verifyIndependentProductSource(sourceRoot, sha, schemaRoute);
+  }
   verifyMigrationInputs(sourceRoot, routeMigrations);
+  const isAdmin32 = isAdmin32Route(schemaRoute);
+  const isSameSchema32 = schemaRoute === STANDARD32_32_RELEASE_SCHEMA_ROUTE;
+  if (!isAdmin32 && admin32RollbackSource !== undefined) {
+    throw new ReleaseAssemblyError("ARGUMENT_ERROR", "admin32 rollback source is only valid on an admin32 route");
+  }
+  const rollbackRoot = isAdmin32
+    ? existingDirectory(admin32RollbackSource, "admin32 rollback source") : null;
+  if (isAdmin32 && !pathExists(join(rollbackRoot, "auth-service/dist/src/server.js"))) {
+    throw new ReleaseAssemblyError("ARTIFACT_MISSING", "independent admin32 rollback Auth build is required");
+  }
+  if (isSameSchema32) {
+    verifyMigrationInputs(rollbackRoot, routeMigrations);
+    if ((provenance.kind !== "local-dry-run" &&
+        (sha256File(join(rollbackRoot, "website/dist/index.html")) !== ADMIN32_SAME_SCHEMA_WEBSITE_INDEX_SHA256 ||
+         sha256File(join(rollbackRoot, "auth-service/dist/src/payment/pricing.js")) !== ADMIN32_SAME_SCHEMA_PRICING_RUNTIME_SHA256)) ||
+        readFileSync(join(rollbackRoot, "auth-service/dist/src/http/admin-service-routes.js"), "utf8").includes("/api/admin/users/list")) {
+      throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH", "schema32 rollback build is not the verified d5 application");
+    }
+  }
 
   let created = false;
   try {
@@ -744,6 +1146,45 @@ export function assembleReleaseBundle({
           targetRelative,
         ),
       );
+    }
+    if (isAdmin32) {
+      copiedPaths.push(...copyMappedInput(rollbackRoot, destinationRoot,
+        "auth-service/dist/src", "auth-service/rollback32/dist/src"));
+      copiedPaths.push(...copyMappedInput(isSameSchema32 ? rollbackRoot : sourceRoot, destinationRoot,
+        "auth-service/src/migrations", "auth-service/rollback32/src/migrations"));
+      if (isSameSchema32) {
+        copiedPaths.push(...copyMappedInput(rollbackRoot, destinationRoot,
+          "website/dist", "website/rollback32/dist"));
+        for (const html of ["index.html", "referral.html"]) {
+          const oldHtml = readFileSync(join(rollbackRoot, "website/dist", html), "utf8");
+          const refs = [...new Set(oldHtml.match(/\/assets\/[A-Za-z0-9._-]+/g) ?? [])].sort();
+          const expectedRefs = ADMIN32_SAME_SCHEMA_LEGACY_PUBLIC_ASSETS.filter((item) => item.usedBy.includes(html))
+            .map((item) => `/${item.path}`).sort();
+          if (refs.join("\0") !== expectedRefs.join("\0")) {
+            throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH", "d5 HTML references an unexpected public asset set");
+          }
+        }
+        for (const asset of ADMIN32_SAME_SCHEMA_LEGACY_PUBLIC_ASSETS) {
+          const oldPath = join(rollbackRoot, "website/dist", asset.path);
+          const oldHash = sha256File(oldPath);
+          if (provenance.kind !== "local-dry-run" &&
+              (oldHash !== asset.sha256 || statSync(oldPath).size !== asset.bytes)) {
+            throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH", "d5 legacy asset differs from the accepted formal manifest");
+          }
+          const forwardPath = join(destinationRoot, "website/dist", asset.path);
+          if (pathExists(forwardPath)) {
+            if (sha256File(forwardPath) !== oldHash) {
+              throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH", "new website asset name collides with a different d5 hash");
+            }
+          } else {
+            copiedPaths.push(...copyMappedInput(rollbackRoot, destinationRoot,
+              `website/dist/${asset.path}`, `website/dist/${asset.path}`));
+          }
+        }
+      } else {
+        copiedPaths.push(...copyMappedInput(sourceRoot, destinationRoot,
+          ADMIN32_ROLLBACK_PATCH, ADMIN32_ROLLBACK_PATCH));
+      }
     }
 
     for (const requiredPath of REQUIRED_PAYLOAD_PATHS) {
@@ -769,6 +1210,22 @@ export function assembleReleaseBundle({
       sourceSha: sha,
       ...(releaseManifestCarriesSchemaRoute(schemaRoute) ? { schemaRoute } : {}),
       schemaBoundary,
+      ...(isSameSchema32 ? { applicationRollback: {
+        authEntrypoint: "auth-service/rollback32/dist/src/server.js",
+        baselineSourceSha: ADMIN32_SAME_SCHEMA_BASELINE,
+        migrationStart: 32,
+        runningSchema: 32,
+        websiteEntrypoint: "website/rollback32/dist/index.html",
+        websiteSourceCommit: ADMIN32_SAME_SCHEMA_BASELINE,
+      } } : isAdmin32 ? { applicationRollback: {
+        authEntrypoint: "auth-service/rollback32/dist/src/server.js",
+        baselineSourceSha: ADMIN32_COMPAT_BASELINE,
+        patchSha256: sha256File(join(sourceRoot, ADMIN32_ROLLBACK_PATCH)),
+        patchSourceSha: sha,
+        migrationStart: 31,
+        runningSchema: 32,
+        websiteSourceCommit: ADMIN32_ROLLBACK_WEBSITE_SOURCE,
+      } } : {}),
       migrations: routeMigrations,
       entrypoints: {
         auth: "auth-service/dist/src/server.js",
@@ -816,6 +1273,7 @@ export function run(arguments_) {
       "--expected-sha",
       "--provenance-mode",
       "--schema-route",
+      "--admin32-rollback-source",
     ]),
   );
   return assembleReleaseBundle({
@@ -824,6 +1282,7 @@ export function run(arguments_) {
     expectedSha: requireOption(options, "--expected-sha"),
     provenanceMode: requireOption(options, "--provenance-mode"),
     schemaRoute: options.get("--schema-route") ?? DEFAULT_RELEASE_SCHEMA_ROUTE,
+    admin32RollbackSource: options.get("--admin32-rollback-source"),
   });
 }
 

@@ -105,11 +105,26 @@ test("database readiness prepares the exact bounded statement once", () => {
   assert.deepEqual(calls.prepare, [
     "SELECT version FROM schema_migrations ORDER BY version LIMIT ?",
   ]);
-  assert.deepEqual(calls.all, [[32], [32]]);
+  assert.deepEqual(calls.all, [[MIGRATION_FILES.length + 1], [MIGRATION_FILES.length + 1]]);
   assert.deepEqual(
     { exec: calls.exec, run: calls.run, pragma: calls.pragma, provider: calls.provider },
     { exec: 0, run: 0, pragma: 0, provider: 0 },
   );
+});
+
+test("database readiness rejects unknown 033 appended to a complete 001–032 database", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "auth-service-readiness-033-"));
+  const database = initializeDatabase(join(directory, "synthetic.sqlite"));
+  try {
+    const readiness = prepareDatabaseReadinessProbe(database);
+    assert.equal(readiness.isReady(), true);
+    database.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+      .run(33, "2026-11-10T00:00:00.000Z");
+    assert.equal(readiness.isReady(), false);
+  } finally {
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("database readiness fails closed for incomplete, malformed, unknown, and throwing rows", () => {
@@ -134,8 +149,8 @@ test("database readiness fails closed for incomplete, malformed, unknown, and th
       ),
     },
     {
-      name: "unknown 020",
-      rows: [...exactRows, { version: 20 }],
+      name: "unknown 033",
+      rows: [...exactRows, { version: 33 }],
     },
     { name: "query throws", throwOnAll: true },
     { name: "prepare throws", throwOnPrepare: true },
@@ -153,7 +168,7 @@ test("database readiness fails closed for incomplete, malformed, unknown, and th
         return {
           all: (...parameters: readonly unknown[]): unknown[] => {
             allCalls += 1;
-            assert.deepEqual(parameters, [32]);
+            assert.deepEqual(parameters, [MIGRATION_FILES.length + 1]);
             if (scenario.throwOnAll === true) {
               throw new Error("closed after prepare");
             }

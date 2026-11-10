@@ -1,4 +1,6 @@
 import type { CatalogSelection } from "./resolveSelection";
+// @ts-ignore TS5097: keep the existing Node strip-types test entry compatible.
+import { residentialResponseFields, type ResidentialOptions } from "./residential-options.ts";
 
 export const PAYMENT_MAX_SINGLE_FEN_FRONTEND = 200_000;
 
@@ -45,6 +47,7 @@ export type RequirementDraft = {
 };
 
 export type QuoteResult = {
+  readonly residentialOptions?: ResidentialOptions;
   readonly listPriceFen: number;
   readonly discountFen: number;
   readonly amountFen: number;
@@ -73,6 +76,7 @@ export type OrderCredentials = {
 /* 创建 / 重试 / 获取电脑网站支付页（POST :orderRef/pay-page）三处同一冻结结构。
    payUrl 仅在 pending 时有值，只留在内存并用于导航，绝不写入本站 URL / localStorage / 日志。 */
 export type PaymentOrderResult = {
+  readonly residentialOptions?: ResidentialOptions;
   readonly orderRef: string;
   readonly status: PaymentOrderStatus;
   readonly amountFen: number;
@@ -95,6 +99,7 @@ function parseOptionalQrCode(value: unknown): string | null {
 }
 
 export type PaymentOrderSnapshot = {
+  readonly residentialOptions?: ResidentialOptions;
   readonly orderRef: string;
   readonly status: PaymentOrderStatus;
   readonly amountFen: number;
@@ -108,6 +113,7 @@ export type PaymentOrderSnapshot = {
 };
 
 export type MyServiceItem = {
+  readonly residentialOptions?: ResidentialOptions;
   /** 服务端 services.id（后端 6503430 起随购买项返回），用于钱包续费接口；
       旧服务端不返回时为 null，前端不推算、不显示续费控件。赠送项用 grantId，不在此映射。 */
   readonly serviceId: number | null;
@@ -121,6 +127,38 @@ export type MyServiceItem = {
   readonly endsAt: string | null;
   /** Admin plan-name override; null = no override. */
   readonly planLabel: string | null;
+  /** Authoritative purchased-service projection; absent on older servers. */
+  readonly display?: { readonly typeId: string; readonly regionId: string; readonly ispId: string };
+  readonly entitlement?: ServiceEntitlement | null;
+};
+
+export type ServiceEntitlement = {
+  readonly manualFulfillment?: boolean;
+  readonly canChange?: boolean;
+  readonly serviceId: number;
+  readonly typeId: "local-isp" | "pure-native-ip";
+  readonly regionId: string;
+  readonly ispId: string;
+  readonly specId: string | null;
+  readonly monthlyPriceFen: number;
+  readonly periodEnd: string;
+  readonly usageUsedGb: number;
+  readonly usageQuotaGb: number;
+  readonly usageWindowEnd: string;
+  readonly version: number;
+  readonly periodMonths: 1 | 6 | 12;
+  readonly bindingProvenance: "synthetic" | "verified_opening";
+  readonly paidConflict: boolean;
+  readonly change: null | {
+    readonly id: number;
+    readonly kind: "upgrade" | "downgrade";
+    readonly status: "pending_payment" | "pending_fulfillment" | "fulfillment_failed" | "paid_conflict" | "applied" | "scheduled" | "cancelled" | "closed";
+    readonly amountFen: number;
+    readonly targetSpecId: string | null;
+    readonly targetMonthlyFen: number;
+    readonly effectiveAt: string | null;
+    readonly orderRef: string | null;
+  };
 };
 
 /** An admin gift (no order or payment behind it). Catalog fields are null on gifts
@@ -176,6 +214,7 @@ export type AdminMonitorTarget = {
 
 // GET /api/me/orders 单项。字段严格对应冻结后端契约；serviceStatus 可为 null（无服务）。
 export type MyOrderItem = {
+  readonly residentialOptions?: ResidentialOptions;
   readonly orderRef: string;
   readonly typeId: string;
   readonly regionId: string;
@@ -191,6 +230,7 @@ export type MyOrderItem = {
 };
 
 export type AdminPendingServiceItem = {
+  readonly residentialOptions?: ResidentialOptions;
   readonly serviceId: number;
   readonly orderRef: string;
   readonly amountFen: number;
@@ -396,6 +436,7 @@ function parseOrderResult(value: unknown): PaymentOrderResult {
       reservedUntil: body.reservedUntil,
       payUrl: body.payUrl,
       qrCode: parseOptionalQrCode(body.qrCode),
+      ...residentialResponseFields(body),
     };
   }
 
@@ -409,6 +450,7 @@ function parseOrderResult(value: unknown): PaymentOrderResult {
     reservedUntil: null,
     payUrl: null,
     qrCode: null,
+    ...residentialResponseFields(body),
   };
 }
 
@@ -442,6 +484,7 @@ function parseOrderSnapshot(value: unknown): PaymentOrderSnapshot {
     currency: body.currency,
     reservedUntil: isIsoInstant(body.reservedUntil) ? body.reservedUntil : null,
     service,
+    ...residentialResponseFields(body),
   };
 }
 
@@ -508,6 +551,57 @@ function parseMyServiceListing(value: unknown): MyServiceListing {
   return { services, grants };
 }
 
+function parseServiceChangeFields(item: Record<string, unknown>, serviceId: number | null):
+  Pick<MyServiceItem, "display" | "entitlement"> {
+  let display: MyServiceItem["display"];
+  if (item.display !== undefined) {
+    const value = requireRecord(item.display);
+    if (!isNonEmptyString(value.typeId) || !isNonEmptyString(value.regionId) || !isNonEmptyString(value.ispId)) {
+      throw new PaymentApiError("invalid_response");
+    }
+    display = { typeId: value.typeId, regionId: value.regionId, ispId: value.ispId };
+  }
+  let entitlement: ServiceEntitlement | null | undefined;
+  if (item.entitlement !== undefined) {
+    if (item.entitlement === null) entitlement = null;
+    else {
+      const value = requireRecord(item.entitlement);
+      let change: ServiceEntitlement["change"] = null;
+      if (value.change !== null) {
+        const row = requireRecord(value.change);
+        if (!isPositiveInteger(row.id) || (row.kind !== "upgrade" && row.kind !== "downgrade") ||
+            !["pending_payment", "pending_fulfillment", "fulfillment_failed", "paid_conflict", "applied", "scheduled", "cancelled", "closed"].includes(String(row.status)) ||
+            !isNonNegativeInteger(row.amountFen) || !(row.targetSpecId === null || isNonEmptyString(row.targetSpecId)) ||
+            !isPositiveInteger(row.targetMonthlyFen) || !(row.effectiveAt === null || isCanonicalIsoInstant(row.effectiveAt)) ||
+            !(row.orderRef === null || isNonEmptyString(row.orderRef))) throw new PaymentApiError("invalid_response");
+        change = row as ServiceEntitlement["change"];
+      }
+      if (!isPositiveInteger(value.serviceId) || value.serviceId !== serviceId ||
+          (value.typeId !== "local-isp" && value.typeId !== "pure-native-ip") ||
+          !isNonEmptyString(value.regionId) || !isNonEmptyString(value.ispId) ||
+          !(value.specId === null || isNonEmptyString(value.specId)) ||
+          !isPositiveInteger(value.monthlyPriceFen) || !isCanonicalIsoInstant(value.periodEnd) ||
+          !isNonNegativeInteger(value.usageUsedGb) || !isPositiveInteger(value.usageQuotaGb) ||
+          !isCanonicalIsoInstant(value.usageWindowEnd) || !isPositiveInteger(value.version) ||
+          (value.periodMonths !== 1 && value.periodMonths !== 6 && value.periodMonths !== 12) ||
+          (value.bindingProvenance !== "synthetic" && value.bindingProvenance !== "verified_opening") ||
+          typeof value.paidConflict !== "boolean" ||
+          (display !== undefined && (display.typeId !== value.typeId || display.regionId !== value.regionId || display.ispId !== value.ispId))) {
+        throw new PaymentApiError("invalid_response");
+      }
+      if((value.manualFulfillment!==undefined&&typeof value.manualFulfillment!=="boolean") ||
+        (value.canChange!==undefined&&typeof value.canChange!=="boolean"))throw new PaymentApiError("invalid_response");
+      entitlement = { manualFulfillment:value.manualFulfillment as boolean|undefined,canChange:value.canChange as boolean|undefined,
+        serviceId: value.serviceId, typeId: value.typeId, regionId: value.regionId,
+        ispId: value.ispId, specId: value.specId, monthlyPriceFen: value.monthlyPriceFen,
+        periodEnd: value.periodEnd, usageUsedGb: value.usageUsedGb, usageQuotaGb: value.usageQuotaGb,
+        usageWindowEnd: value.usageWindowEnd, version: value.version, periodMonths: value.periodMonths,
+        bindingProvenance: value.bindingProvenance, paidConflict: value.paidConflict, change };
+    }
+  }
+  return { ...(display === undefined ? {} : { display }), ...(entitlement === undefined ? {} : { entitlement }) };
+}
+
 function parseMyServiceItem(item: Record<string, unknown>): MyServiceItem {
   const endsAt = item.endsAt === undefined ? null : item.endsAt;
   const planLabel = item.planLabel === undefined ? null : item.planLabel;
@@ -536,6 +630,8 @@ function parseMyServiceItem(item: Record<string, unknown>): MyServiceItem {
     createdAt: item.createdAt,
     endsAt,
     planLabel: planLabel as string | null,
+    ...parseServiceChangeFields(item, serviceId as number | null),
+    ...residentialResponseFields(item),
   };
 }
 
@@ -630,6 +726,7 @@ function parseMyOrders(value: unknown): MyOrderItem[] {
       createdAt: item.createdAt,
       reservedUntil: item.reservedUntil,
       serviceStatus: item.serviceStatus,
+      ...residentialResponseFields(item),
     };
   });
 }
@@ -669,6 +766,7 @@ function parseAdminPendingServices(value: unknown): AdminPendingServiceItem[] {
       specId: item.specId,
       durationId: item.durationId,
       createdAt: item.createdAt,
+      ...residentialResponseFields(item),
     };
   });
 }
@@ -810,6 +908,7 @@ function parseQuoteResult(value: unknown): QuoteResult {
     amountFen: body.amountFen,
     currency: body.currency,
     couponCode: body.couponCode === null ? null : body.couponCode,
+    ...residentialResponseFields(body),
   };
 }
 
@@ -914,6 +1013,69 @@ export async function getMyServiceListing(signal?: AbortSignal): Promise<MyServi
     signal,
   });
   return parseMyServiceListing(response);
+}
+
+export type ServiceUpgradeQuote = {
+  readonly quoteRef: string; readonly amountFen: number; readonly currency: "CNY";
+  readonly expiresAt: string; readonly effectiveCondition: "simulated_fulfillment_ack"|"admin_manual_confirmation";
+  readonly periodEnd: string; readonly monthlyUsedGb: number; readonly monthlyWindowEnd: string;
+};
+export type ServiceChangeOption = { readonly specId: string | null; readonly monthlyFen: number;
+  readonly direction: "upgrade" | "downgrade" | "current" };
+
+export async function getServiceChangeOptions(serviceId: number, signal?: AbortSignal): Promise<ServiceChangeOption[]> {
+  const body = requireRecord(await requestJson(`/api/me/services/${serviceId}/change/options`, {
+    method: "GET", headers: { Accept: "application/json" }, signal,
+  }));
+  if (!Array.isArray(body.items)) throw new PaymentApiError("invalid_response");
+  return body.items.map((raw) => {
+    const item = requireRecord(raw);
+    if (!(item.specId === null || isNonEmptyString(item.specId)) || !isPositiveInteger(item.monthlyFen) ||
+        (item.direction !== "upgrade" && item.direction !== "downgrade" && item.direction !== "current")) {
+      throw new PaymentApiError("invalid_response");
+    }
+    return item as ServiceChangeOption;
+  });
+}
+
+export async function quoteServiceUpgrade(serviceId: number, specId: string | null, csrfToken: string,
+  signal?: AbortSignal): Promise<ServiceUpgradeQuote> {
+  const body = requireRecord(await requestJson(`/api/me/services/${serviceId}/change/quote`, {
+    method: "POST", headers: mutationHeaders({ "X-CSRF-Token": csrfToken }), body: JSON.stringify({ specId }), signal,
+  }));
+  if (!isNonEmptyString(body.quoteRef) || !isPositiveInteger(body.amountFen) || body.currency !== "CNY" ||
+      !isCanonicalIsoInstant(body.expiresAt) || !["simulated_fulfillment_ack","admin_manual_confirmation"].includes(body.effectiveCondition as string) ||
+      !isCanonicalIsoInstant(body.periodEnd) || !isNonNegativeInteger(body.monthlyUsedGb) ||
+      !isCanonicalIsoInstant(body.monthlyWindowEnd)) throw new PaymentApiError("invalid_response");
+  return body as ServiceUpgradeQuote;
+}
+
+export async function orderServiceUpgrade(serviceId: number, quote: ServiceUpgradeQuote, csrfToken: string,
+  credentials: OrderCredentials): Promise<PaymentOrderResult> {
+  const response = await requestJson(`/api/me/services/${serviceId}/change/upgrade`, {
+    method: "POST", headers: mutationHeaders({ "X-CSRF-Token": csrfToken,
+      "Idempotency-Key": credentials.idempotencyKey, "X-Order-Access-Token": credentials.accessToken }),
+    body: JSON.stringify({ quoteRef: quote.quoteRef, acknowledgedAmountFen: quote.amountFen }),
+  });
+  return parseOrderResult(response);
+}
+
+export async function scheduleServiceDowngrade(serviceId: number, specId: string | null, csrfToken: string): Promise<void> {
+  await requestJson(`/api/me/services/${serviceId}/change/downgrade`, { method: "POST",
+    headers: mutationHeaders({ "X-CSRF-Token": csrfToken }), body: JSON.stringify({ specId }) });
+}
+export async function cancelServiceDowngrade(serviceId: number, csrfToken: string): Promise<void> {
+  await requestJson(`/api/me/services/${serviceId}/change/cancel`, { method: "POST",
+    headers: mutationHeaders({ "X-CSRF-Token": csrfToken }), body: "{}" });
+}
+export async function simulateServicePayment(serviceId: number, csrfToken: string): Promise<void> {
+  await requestJson(`/api/me/services/${serviceId}/change/simulate-payment`, { method: "POST",
+    headers: mutationHeaders({ "X-CSRF-Token": csrfToken }), body: "{}" });
+}
+export async function simulateServiceFulfillment(serviceId: number, csrfToken: string, succeeded: boolean,
+  receiptRef: string): Promise<void> {
+  await requestJson(`/api/me/services/${serviceId}/change/simulate-fulfillment`, { method: "POST",
+    headers: mutationHeaders({ "X-CSRF-Token": csrfToken }), body: JSON.stringify({ succeeded, receiptRef }) });
 }
 
 /** Decrypted lines of the signed-in buyer's own opened gift. */

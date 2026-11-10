@@ -1,6 +1,8 @@
 // Node's strip-types test runner needs the extension; Vite resolves the same module during build.
 // @ts-ignore TS5097: the website tsconfig does not enable allowImportingTsExtensions.
 import { PaymentApiError } from "./payment-api.ts";
+// @ts-ignore TS5097: shared source with Node strip-types tests.
+import { residentialResponseFields, type ResidentialOptions } from "./residential-options.ts";
 
 /* 管理员管理买家服务（/api/admin/users*、/api/admin/services/:id、/api/admin/grants*）。
    响应逐字段校验，不合约定即 invalid_response；写请求带 CSRF。 */
@@ -11,9 +13,11 @@ export type AdminUserSummary = {
   readonly role: "user" | "admin";
   readonly status: "active" | "disabled";
   readonly createdAt: string;
+  readonly lastSuccessfulWebLoginAt: string | null;
 };
 
 export type AdminUserService = {
+  readonly residentialOptions?: ResidentialOptions;
   readonly id: number;
   readonly orderRef: string;
   readonly amountFen: number;
@@ -126,7 +130,12 @@ function parseUser(value: unknown): AdminUserSummary {
   if ((role !== "user" && role !== "admin") || (status !== "active" && status !== "disabled")) {
     throw new PaymentApiError("invalid_response");
   }
-  return { id: int(row.id), email: str(row.email), role, status, createdAt: str(row.createdAt) };
+  if (row.lastSuccessfulWebLoginAt !== null &&
+      (typeof row.lastSuccessfulWebLoginAt !== "string" || Number.isNaN(Date.parse(row.lastSuccessfulWebLoginAt)))) {
+    throw new PaymentApiError("invalid_response");
+  }
+  return { id: int(row.id), email: str(row.email), role, status, createdAt: str(row.createdAt),
+    lastSuccessfulWebLoginAt: row.lastSuccessfulWebLoginAt as string | null };
 }
 
 const RENEWAL_PERIODS = ["MONTHLY", "QUARTERLY", "SEMIANNUAL", "ANNUAL"];
@@ -160,6 +169,7 @@ function parseService(value: unknown): AdminUserService {
     endsAt: nullableStr(row.endsAt),
     planLabel: nullableStr(row.planLabel),
     adminNote: nullableStr(row.adminNote),
+    ...residentialResponseFields(row),
     renewal: parseRenewal(row.renewal),
     deliveryLines: Array.isArray(row.deliveryLines)
       ? row.deliveryLines.map((line) => {
@@ -249,6 +259,28 @@ export async function searchAdminUsers(query: string, signal?: AbortSignal): Pro
   return body.items.map(parseUser);
 }
 
+export async function getAdminUsersPage(
+  query: string,
+  cursor: number | null,
+  signal?: AbortSignal,
+): Promise<{ readonly items: AdminUserSummary[]; readonly nextCursor: number | null }> {
+  const params = new URLSearchParams();
+  if (query !== "") params.set("q", query);
+  if (cursor !== null) params.set("cursor", String(cursor));
+  const suffix = params.size === 0 ? "" : `?${params}`;
+  const body = record(await requestJson(`/api/admin/users/list${suffix}`, { headers: { Accept: "application/json" } }, signal));
+  if (!Array.isArray(body.items) || body.items.length > 20 || !(body.nextCursor === null ||
+      (typeof body.nextCursor === "number" && Number.isSafeInteger(body.nextCursor) && body.nextCursor > 0))) {
+    throw new PaymentApiError("invalid_response");
+  }
+  const items = body.items.map(parseUser);
+  if (body.nextCursor !== null && (items.length !== 20 || body.nextCursor !== items.at(-1)?.id ||
+      (cursor !== null && body.nextCursor >= cursor))) {
+    throw new PaymentApiError("invalid_response");
+  }
+  return { items, nextCursor: body.nextCursor as number | null };
+}
+
 export async function getAdminUserServices(
   userId: number,
   signal?: AbortSignal,
@@ -285,4 +317,61 @@ export async function bindAdminServiceDelivery(serviceId: number, position: numb
 /** Same for a delivered line of an opened gift. */
 export async function bindAdminGrantDelivery(grantId: number, position: number, monitorTargetKey: string | null, csrfToken: string): Promise<AdminGrant> {
   return parseGrant(await requestJson(`/api/admin/grants/${grantId}/delivery/${position}`, writeInit("PATCH", csrfToken, { monitorTargetKey })));
+}
+
+export type AdminServiceChange = {
+  readonly id:number; readonly serviceId:number; readonly ownerId:number; readonly customer:string;
+  readonly typeId:string; readonly regionId:string; readonly ispId:string;
+  readonly currentSpecId:string|null; readonly targetSpecId:string|null; readonly expectedVersion:number;
+  readonly kind:string; readonly status:string; readonly category:"paid_pending"|"due_downgrade"|"scheduled";
+  readonly orderRef:string|null; readonly paidAt:string|null; readonly amountFen:number;
+  readonly effectiveAt:string|null; readonly periodEnd:string|null; readonly usageUsedGb:number|null;
+  readonly usageQuotaGb:number|null; readonly reason:string|null;
+};
+export type AdminServiceChangeListing = {readonly items:readonly AdminServiceChange[];
+  readonly counts:{readonly paidPending:number;readonly dueDowngrade:number;readonly total:number};readonly serverNow:string};
+export async function getAdminServiceChanges(signal?:AbortSignal):Promise<AdminServiceChangeListing> {
+  const body=record(await requestJson("/api/admin/service-changes",{headers:{Accept:"application/json"}},signal));
+  if(!Array.isArray(body.items)) throw new PaymentApiError("invalid_response");
+  const counts=record(body.counts);
+  const parsed=body.items.map(raw=>{
+    const r=record(raw);
+    if(!["paid_pending","due_downgrade","scheduled"].includes(r.category as string)) throw new PaymentApiError("invalid_response");
+    return {id:int(r.id),serviceId:int(r.serviceId),ownerId:int(r.ownerId),customer:str(r.customer),typeId:str(r.typeId),
+      regionId:str(r.regionId),ispId:str(r.ispId),currentSpecId:nullableStr(r.currentSpecId),targetSpecId:nullableStr(r.targetSpecId),
+      expectedVersion:int(r.expectedVersion),kind:str(r.kind),status:str(r.status),category:r.category as AdminServiceChange["category"],
+      orderRef:nullableStr(r.orderRef),paidAt:nullableStr(r.paidAt),amountFen:int(r.amountFen),effectiveAt:nullableStr(r.effectiveAt),
+      periodEnd:nullableStr(r.periodEnd),usageUsedGb:nullableInt(r.usageUsedGb),usageQuotaGb:nullableInt(r.usageQuotaGb),reason:nullableStr(r.reason)};
+  });
+  const paidPending=int(counts.paidPending),dueDowngrade=int(counts.dueDowngrade),total=int(counts.total);
+  if(paidPending<0 || dueDowngrade<0 || total!==paidPending+dueDowngrade ||
+    paidPending!==parsed.filter(i=>i.category==="paid_pending").length || dueDowngrade!==parsed.filter(i=>i.category==="due_downgrade").length)
+    throw new PaymentApiError("invalid_response");
+  return {items:parsed,counts:{paidPending,dueDowngrade,total},serverNow:str(body.serverNow)};
+}
+export async function confirmAdminServiceChange(item:AdminServiceChange,csrfToken:string) {
+  const r=record(await requestJson(`/api/admin/services/${item.serviceId}/changes/${item.id}/confirm-configured`,
+    writeInit("POST",csrfToken,{ownerId:item.ownerId,expectedVersion:item.expectedVersion,configured:true})));
+  if(r.status!=="applied" || typeof r.replay!=="boolean") throw new PaymentApiError("invalid_response");
+}
+export type AdminManualFacts = {
+  readonly serviceId:number;readonly ownerId:number;readonly orderRef:string;readonly typeId:string;
+  readonly regionId:string;readonly ispId:string;readonly specId:string|null;readonly durationId:string;
+  readonly openedAt:string|null;readonly endsAt:string|null;readonly amountFen:number;readonly version:number;
+  readonly confirmed:boolean;readonly monthlyPriceFen:number|null;readonly periodStart:string|null;
+  readonly usageStart:string|null;readonly usageUsedGb:number|null;readonly usageQuotaGb:number|null;readonly source:string;
+};
+export async function getAdminManualFacts(serviceId:number,signal?:AbortSignal):Promise<AdminManualFacts> {
+  const r=record(await requestJson(`/api/admin/services/${serviceId}/change-facts`,{headers:{Accept:"application/json"}},signal));
+  if(typeof r.confirmed!=="boolean") throw new PaymentApiError("invalid_response");
+  return {serviceId:int(r.serviceId),ownerId:int(r.ownerId),orderRef:str(r.orderRef),typeId:str(r.typeId),regionId:str(r.regionId),
+    ispId:str(r.ispId),specId:nullableStr(r.specId),durationId:str(r.durationId),openedAt:nullableStr(r.openedAt),endsAt:nullableStr(r.endsAt),
+    amountFen:int(r.amountFen),version:int(r.version),confirmed:r.confirmed,monthlyPriceFen:nullableInt(r.monthlyPriceFen),
+    periodStart:nullableStr(r.periodStart),usageStart:nullableStr(r.usageStart),usageUsedGb:nullableInt(r.usageUsedGb),
+    usageQuotaGb:nullableInt(r.usageQuotaGb),source:str(r.source)};
+}
+export async function saveAdminManualFacts(serviceId:number,body:{expectedVersion:number;specId:string|null;
+  monthlyPriceFen:number;periodStart:string;usageStart:string;usageUsedGb:number},csrfToken:string) {
+  const r=record(await requestJson(`/api/admin/services/${serviceId}/change-facts`,writeInit("POST",csrfToken,body)));
+  if(r.status!=="confirmed" || typeof r.replay!=="boolean") throw new PaymentApiError("invalid_response");
 }
