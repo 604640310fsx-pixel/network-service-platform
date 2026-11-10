@@ -56,8 +56,21 @@ export const ADMIN32_UPLOAD_FIX_PR_NUMBER = 166;
 export const ADMIN32_SAME_SCHEMA_BASELINE = "d5cafdbd9ae76432c80994771f490fde2509e3e2";
 export const ADMIN32_SAME_SCHEMA_HEAD_REF = "codex/nsp-admin-mobile-paging-20261110-01";
 export const ADMIN32_SAME_SCHEMA_PR_NUMBER = 167;
+export const ADMIN32_LEGACY_ASSET_FIX_BASE_SHA = "9a75eab4470b5008055c7cc122df541e6b903ae3";
+export const ADMIN32_LEGACY_ASSET_FIX_HEAD_REF = "codex/nsp-admin-mobile-legacy-assets-fix-20261110-01";
+export const ADMIN32_LEGACY_ASSET_FIX_PR_NUMBER = 168;
 export const ADMIN32_SAME_SCHEMA_WEBSITE_INDEX_SHA256 = "201179449c13e4ae2d0cc06d755eda5124bbe089c80f9aba4b4673bb4b6c30ff";
 export const ADMIN32_SAME_SCHEMA_PRICING_RUNTIME_SHA256 = "6aff457355395f275ed88eca51510741fb1fe226170b8ab5fdf3453f8a57cb36";
+// Exactly the hashed assets referenced by the accepted d5 HTML entrypoints.
+// Four are absent from the new build; existing names must match by hash.
+export const ADMIN32_SAME_SCHEMA_LEGACY_PUBLIC_ASSETS = Object.freeze([
+  Object.freeze({ path: "assets/index-JX29Ai5X.js", bytes: 689266, sha256: "db5b12d340fc3d6a2df8d18c1aaf981ea049d534122da88d6dbb53972729bcfa", usedBy: ["index.html"] }),
+  Object.freeze({ path: "assets/globals-CMAYn0tu.js", bytes: 374734, sha256: "002a37a5b631524b77b37fe73bd83c4ef24042e7e5a06aa864121a25a48edb63", usedBy: ["index.html", "referral.html"] }),
+  Object.freeze({ path: "assets/globals-c13hvYBB.css", bytes: 31903, sha256: "e29b8a0194f903cfb8d82baf302bae71af825a3d48e2c8971eab40eb0c939a94", usedBy: ["index.html", "referral.html"] }),
+  Object.freeze({ path: "assets/index-Dz6dNv_X.css", bytes: 244836, sha256: "ee758dce749710840cf55304b10702b4ee874d34142fd572d6a63cb4aa23fb57", usedBy: ["index.html"] }),
+  Object.freeze({ path: "assets/referral-CIPSuQcB.js", bytes: 3746, sha256: "99ab7f28ebc76e04f948dfce2d3cc54b67cd6774fcfa26b07e35557e1dc3415c", usedBy: ["referral.html"] }),
+  Object.freeze({ path: "assets/referral-FknDrLe5.css", bytes: 1145, sha256: "dd8b00e0f5e517e2e850fcbebde52b3808f868a9ff164c7e942a141f1c8ed6ad", usedBy: ["referral.html"] }),
+]);
 export const ADMIN32_SAME_SCHEMA_ALLOWED_PATHS = Object.freeze([
   ".github/workflows/ci.yml", "auth-service/src/http/admin-service-routes.ts",
   "auth-service/src/payment/admin-services.ts", "auth-service/test/payment/admin-services.test.ts",
@@ -733,6 +746,24 @@ export function createReleaseProvenance({
         throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "admin32 same-schema review source does not match exact PR/base/head");
       }
     }
+    if (environment.ADMIN32_LEGACY_ASSET_FIX_TASK_CONTEXT === "true") {
+      let event;
+      try { event = JSON.parse(readFileSync(requiredEnvironment(environment, "GITHUB_EVENT_PATH"), "utf8")); }
+      catch { throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "admin32 legacy-asset review event is unavailable"); }
+      if (schemaRoute !== STANDARD32_32_RELEASE_SCHEMA_ROUTE || eventName !== "pull_request" ||
+          ref !== `refs/pull/${ADMIN32_LEGACY_ASSET_FIX_PR_NUMBER}/merge` ||
+          event.repository?.full_name !== RELEASE_REPOSITORY ||
+          event.number !== ADMIN32_LEGACY_ASSET_FIX_PR_NUMBER ||
+          event.pull_request?.number !== ADMIN32_LEGACY_ASSET_FIX_PR_NUMBER ||
+          event.pull_request?.head?.repo?.full_name !== RELEASE_REPOSITORY ||
+          event.pull_request?.base?.repo?.full_name !== RELEASE_REPOSITORY ||
+          event.pull_request?.head?.ref !== ADMIN32_LEGACY_ASSET_FIX_HEAD_REF ||
+          event.pull_request?.head?.sha !== sha ||
+          event.pull_request?.base?.ref !== "codex/residential-options-local-20261105" ||
+          event.pull_request?.base?.sha !== ADMIN32_LEGACY_ASSET_FIX_BASE_SHA) {
+        throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "admin32 legacy-asset review source does not match exact PR/base/head");
+      }
+    }
     return Object.freeze({
       kind: "github-actions-test",
       releaseUse: "forbidden",
@@ -758,7 +789,8 @@ export function createReleaseProvenance({
     catch { throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "formal standard26 source requires the actual push event payload"); }
     if (event.ref !== releaseFormalRefForRoute(schemaRoute) || event.after !== sha ||
       event.repository?.full_name !== RELEASE_REPOSITORY || event.deleted !== false ||
-      (schemaRoute === STANDARD32_32_RELEASE_SCHEMA_ROUTE && event.before !== ADMIN32_SAME_SCHEMA_BASELINE)) {
+      (schemaRoute === STANDARD32_32_RELEASE_SCHEMA_ROUTE &&
+        ![ADMIN32_SAME_SCHEMA_BASELINE, ADMIN32_LEGACY_ASSET_FIX_BASE_SHA].includes(event.before))) {
       throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "formal standard26 push payload does not match repository/ref/head");
     }
   }
@@ -1123,6 +1155,32 @@ export function assembleReleaseBundle({
       if (isSameSchema32) {
         copiedPaths.push(...copyMappedInput(rollbackRoot, destinationRoot,
           "website/dist", "website/rollback32/dist"));
+        for (const html of ["index.html", "referral.html"]) {
+          const oldHtml = readFileSync(join(rollbackRoot, "website/dist", html), "utf8");
+          const refs = [...new Set(oldHtml.match(/\/assets\/[A-Za-z0-9._-]+/g) ?? [])].sort();
+          const expectedRefs = ADMIN32_SAME_SCHEMA_LEGACY_PUBLIC_ASSETS.filter((item) => item.usedBy.includes(html))
+            .map((item) => `/${item.path}`).sort();
+          if (refs.join("\0") !== expectedRefs.join("\0")) {
+            throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH", "d5 HTML references an unexpected public asset set");
+          }
+        }
+        for (const asset of ADMIN32_SAME_SCHEMA_LEGACY_PUBLIC_ASSETS) {
+          const oldPath = join(rollbackRoot, "website/dist", asset.path);
+          const oldHash = sha256File(oldPath);
+          if (provenance.kind !== "local-dry-run" &&
+              (oldHash !== asset.sha256 || statSync(oldPath).size !== asset.bytes)) {
+            throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH", "d5 legacy asset differs from the accepted formal manifest");
+          }
+          const forwardPath = join(destinationRoot, "website/dist", asset.path);
+          if (pathExists(forwardPath)) {
+            if (sha256File(forwardPath) !== oldHash) {
+              throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH", "new website asset name collides with a different d5 hash");
+            }
+          } else {
+            copiedPaths.push(...copyMappedInput(rollbackRoot, destinationRoot,
+              `website/dist/${asset.path}`, `website/dist/${asset.path}`));
+          }
+        }
       } else {
         copiedPaths.push(...copyMappedInput(sourceRoot, destinationRoot,
           ADMIN32_ROLLBACK_PATCH, ADMIN32_ROLLBACK_PATCH));

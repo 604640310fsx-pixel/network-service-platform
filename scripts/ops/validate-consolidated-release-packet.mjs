@@ -21,8 +21,11 @@ import {
   STANDARD31_32_RELEASE_SCHEMA_ROUTE,
   STANDARD32_32_RELEASE_SCHEMA_ROUTE,
   ADMIN32_SAME_SCHEMA_BASELINE,
+  ADMIN32_LEGACY_ASSET_FIX_BASE_SHA,
+  ADMIN32_LEGACY_ASSET_FIX_HEAD_REF,
   ADMIN32_SAME_SCHEMA_WEBSITE_INDEX_SHA256,
   ADMIN32_SAME_SCHEMA_PRICING_RUNTIME_SHA256,
+  ADMIN32_SAME_SCHEMA_LEGACY_PUBLIC_ASSETS,
   ADMIN32_COMPAT_BASELINE,
   ADMIN32_ROLLBACK_PATCH,
   ADMIN32_ROLLBACK_PATCH_PATHS,
@@ -714,7 +717,7 @@ export function validateRepository({
       ...(candidate === 32 ? ["## Schema 032 administrator route", "--schema-route standard31-32",
         "EXACT_031_PRECHECK", "032_AWARE_ROLLBACK"] : []),
       ...(schemaRoute === STANDARD32_32_RELEASE_SCHEMA_ROUTE ? ["## Schema 032 same-schema administrator update",
-        "--schema-route standard32-32", "EXACT_032_PRECHECK", "D5_SAME_SCHEMA_ROLLBACK"] : []),
+        "--schema-route standard32-32", "EXACT_032_PRECHECK", "D5_SAME_SCHEMA_ROLLBACK", "D5_LEGACY_HTML_ASSETS"] : []),
       ...(candidate === 26 || candidate === 30 || candidate === 31 || candidate === 32
         ? [
             "## Explicit DIRECT14 to 26 route",
@@ -821,6 +824,7 @@ export function validateRepository({
         "6aff457355395f275ed88eca51510741fb1fe226170b8ab5fdf3453f8a57cb36"] : []),
       ...(schemaRoute === STANDARD32_32_RELEASE_SCHEMA_ROUTE ? [
         "ADMIN32_SAME_SCHEMA_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 167 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin-mobile-paging-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.sha == 'd5cafdbd9ae76432c80994771f490fde2509e3e2' }}",
+        "ADMIN32_LEGACY_ASSET_FIX_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 168 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin-mobile-legacy-assets-fix-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.sha == '9a75eab4470b5008055c7cc122df541e6b903ae3' }}",
         "ADMIN32_SAME_SCHEMA_FORMAL_CONTEXT: false", "--schema-route standard32-32",
         "consolidated-release-admin32-${{ env.EXPECTED_SHA }}",
         "Build exact deployed d5 schema32 application rollback",
@@ -1289,19 +1293,26 @@ export function validateGithubArtifactProof({
     }
   }
   if (schemaRoute === STANDARD32_32_RELEASE_SCHEMA_ROUTE) {
-    const pr = githubApiJson(`repos/${RELEASE_REPOSITORY}/pulls/167`);
     const parents = spawnSync("git", ["-C", existingDirectory(source, "source"), "rev-list", "--parents", "-n", "1", expectedSha],
       { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
     const commits = parents.status === 0 ? parents.stdout.trim().split(/\s+/) : [];
-    if (pr?.number !== 167 || pr?.merged !== true || !pr?.merged_at ||
+    const accepted = commits[1] === ADMIN32_SAME_SCHEMA_BASELINE
+      ? { number: 167, headRef: "codex/nsp-admin-mobile-paging-20261110-01" }
+      : commits[1] === ADMIN32_LEGACY_ASSET_FIX_BASE_SHA
+        ? { number: 168, headRef: ADMIN32_LEGACY_ASSET_FIX_HEAD_REF }
+        : null;
+    if (accepted === null || commits.length !== 3 || commits[0] !== expectedSha) {
+      throw new ReleaseValidationError("PROVENANCE_REQUIRED", "schema32 candidate is not an approved normal merge");
+    }
+    const pr = githubApiJson(`repos/${RELEASE_REPOSITORY}/pulls/${accepted.number}`);
+    if (pr?.number !== accepted.number || pr?.merged !== true || !pr?.merged_at ||
         pr?.merge_commit_sha !== expectedSha ||
         pr?.head?.repo?.full_name !== RELEASE_REPOSITORY ||
         pr?.base?.repo?.full_name !== RELEASE_REPOSITORY ||
-        pr?.head?.ref !== "codex/nsp-admin-mobile-paging-20261110-01" ||
+        pr?.head?.ref !== accepted.headRef ||
         pr?.base?.ref !== "codex/residential-options-local-20261105" ||
-        commits.length !== 3 || commits[0] !== expectedSha ||
-        commits[1] !== ADMIN32_SAME_SCHEMA_BASELINE || commits[2] !== pr?.head?.sha) {
-      throw new ReleaseValidationError("PROVENANCE_REQUIRED", "schema32 candidate is not the exact approved PR167 normal merge from d5");
+        commits[2] !== pr?.head?.sha) {
+      throw new ReleaseValidationError("PROVENANCE_REQUIRED", "schema32 candidate is not the exact approved PR normal merge");
     }
   }
 
@@ -1518,6 +1529,25 @@ export function validateBundle({
       if (!inventoryPaths.includes(path) ||
           sha256(join(bundleRoot, path)) !== sha256(join(bundleRoot, `auth-service/src/migrations/${migration}`))) {
         throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", `d5 rollback migration differs: ${migration}`);
+      }
+    }
+    for (const html of ["index.html", "referral.html"]) {
+      const oldHtml = readText(join(bundleRoot, "website/rollback32/dist", html), "d5 rollback HTML");
+      const oldRefs = [...new Set(oldHtml.match(/\/assets\/[A-Za-z0-9._-]+/g) ?? [])].sort();
+      const expectedRefs = ADMIN32_SAME_SCHEMA_LEGACY_PUBLIC_ASSETS.filter((item) => item.usedBy.includes(html))
+        .map((item) => `/${item.path}`).sort();
+      if (oldRefs.join("\0") !== expectedRefs.join("\0")) {
+        throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", "d5 legacy HTML asset references changed");
+      }
+    }
+    for (const asset of ADMIN32_SAME_SCHEMA_LEGACY_PUBLIC_ASSETS) {
+      const forward = `website/dist/${asset.path}`;
+      const rollback = `website/rollback32/dist/${asset.path}`;
+      if (!inventoryPaths.includes(forward) || !inventoryPaths.includes(rollback) ||
+          sha256(join(bundleRoot, forward)) !== sha256(join(bundleRoot, rollback)) ||
+          (validationMode !== "local-dry-run" &&
+            (sha256(join(bundleRoot, rollback)) !== asset.sha256 || statSync(join(bundleRoot, rollback)).size !== asset.bytes))) {
+        throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", `legacy public asset does not match d5: ${asset.path}`);
       }
     }
   } else if (isAdmin32) {
