@@ -162,6 +162,20 @@ restore original flags and permanent unset, verify actual `/ready`, then
 reopen APIs. Never run 031→032 again, lower schema, or replace newer business
 with the backup. Unknown/partial state stays closed for reconciliation.
 
+`D5_LEGACY_HTML_ASSETS`: Before the mobile update may replace the static root,
+its forward website inventory must also contain exactly the six unique hashed
+same-origin references of the d5 index and referral HTML entrypoints. Two
+existing CSS files are already identical; three missing JavaScript files and
+one missing CSS file are copied only from the
+official d5 rollback build and pinned to the previously accepted d5 formal
+manifest SHA/byte counts. A matching name with different bytes is a stop line;
+do not copy old directory extras, customer data or unreferenced assets. Verify
+each old and new required asset through the actual origin with HTTP 200,
+complete response bytes and the inventoried hash. A stale d5 HTML response
+must not point to a 404 after the new static root is live. A unique query
+parameter may help identify the new `/admin` page, but cannot substitute for
+missing assets or prove every outside cache has refreshed.
+
 ## Runtime configuration inventory gate
 
 Before the pre-window artifact gate, an authorized operator uses only the

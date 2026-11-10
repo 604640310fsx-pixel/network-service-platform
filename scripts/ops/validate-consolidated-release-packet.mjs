@@ -23,6 +23,7 @@ import {
   ADMIN32_SAME_SCHEMA_BASELINE,
   ADMIN32_SAME_SCHEMA_WEBSITE_INDEX_SHA256,
   ADMIN32_SAME_SCHEMA_PRICING_RUNTIME_SHA256,
+  ADMIN32_SAME_SCHEMA_LEGACY_PUBLIC_ASSETS,
   ADMIN32_COMPAT_BASELINE,
   ADMIN32_ROLLBACK_PATCH,
   ADMIN32_ROLLBACK_PATCH_PATHS,
@@ -714,7 +715,7 @@ export function validateRepository({
       ...(candidate === 32 ? ["## Schema 032 administrator route", "--schema-route standard31-32",
         "EXACT_031_PRECHECK", "032_AWARE_ROLLBACK"] : []),
       ...(schemaRoute === STANDARD32_32_RELEASE_SCHEMA_ROUTE ? ["## Schema 032 same-schema administrator update",
-        "--schema-route standard32-32", "EXACT_032_PRECHECK", "D5_SAME_SCHEMA_ROLLBACK"] : []),
+        "--schema-route standard32-32", "EXACT_032_PRECHECK", "D5_SAME_SCHEMA_ROLLBACK", "D5_LEGACY_HTML_ASSETS"] : []),
       ...(candidate === 26 || candidate === 30 || candidate === 31 || candidate === 32
         ? [
             "## Explicit DIRECT14 to 26 route",
@@ -1518,6 +1519,25 @@ export function validateBundle({
       if (!inventoryPaths.includes(path) ||
           sha256(join(bundleRoot, path)) !== sha256(join(bundleRoot, `auth-service/src/migrations/${migration}`))) {
         throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", `d5 rollback migration differs: ${migration}`);
+      }
+    }
+    for (const html of ["index.html", "referral.html"]) {
+      const oldHtml = readText(join(bundleRoot, "website/rollback32/dist", html), "d5 rollback HTML");
+      const oldRefs = [...new Set(oldHtml.match(/\/assets\/[A-Za-z0-9._-]+/g) ?? [])].sort();
+      const expectedRefs = ADMIN32_SAME_SCHEMA_LEGACY_PUBLIC_ASSETS.filter((item) => item.usedBy.includes(html))
+        .map((item) => `/${item.path}`).sort();
+      if (oldRefs.join("\0") !== expectedRefs.join("\0")) {
+        throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", "d5 legacy HTML asset references changed");
+      }
+    }
+    for (const asset of ADMIN32_SAME_SCHEMA_LEGACY_PUBLIC_ASSETS) {
+      const forward = `website/dist/${asset.path}`;
+      const rollback = `website/rollback32/dist/${asset.path}`;
+      if (!inventoryPaths.includes(forward) || !inventoryPaths.includes(rollback) ||
+          sha256(join(bundleRoot, forward)) !== sha256(join(bundleRoot, rollback)) ||
+          (validationMode !== "local-dry-run" &&
+            (sha256(join(bundleRoot, rollback)) !== asset.sha256 || statSync(join(bundleRoot, rollback)).size !== asset.bytes))) {
+        throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", `legacy public asset does not match d5: ${asset.path}`);
       }
     }
   } else if (isAdmin32) {

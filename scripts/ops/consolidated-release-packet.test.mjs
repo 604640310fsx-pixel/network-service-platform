@@ -63,6 +63,7 @@ import {
   ADMIN32_SAME_SCHEMA_HEAD_REF,
   ADMIN32_SAME_SCHEMA_PR_NUMBER,
   ADMIN32_SAME_SCHEMA_ALLOWED_PATHS,
+  ADMIN32_SAME_SCHEMA_LEGACY_PUBLIC_ASSETS,
   ADMIN32_FORMAL_REF,
   ADMIN32_PRODUCT_BASELINE,
   ADMIN32_PRICING_SOURCE_SHA256,
@@ -362,7 +363,13 @@ function createSyntheticD5RollbackBuild(parent, source) {
   writeFixtureFile(root, "auth-service/dist/src/db.js", "export const exact32 = true;\n");
   writeFixtureFile(root, "auth-service/dist/src/http/admin-service-routes.js", "export const oldD5AdminRoutes = true;\n");
   writeFixtureFile(root, "auth-service/dist/src/payment/pricing.js", "export const oldD5Pricing = true;\n");
-  writeFixtureFile(root, "website/dist/index.html", "<!doctype html><title>d5 fixture</title>\n");
+  for (const html of ["index.html", "referral.html"]) {
+    writeFixtureFile(root, `website/dist/${html}`, `<!doctype html><title>d5 fixture</title>\n${ADMIN32_SAME_SCHEMA_LEGACY_PUBLIC_ASSETS
+      .filter((asset) => asset.usedBy.includes(html)).map((asset) => `<link href="/${asset.path}">`).join("\n")}\n`);
+  }
+  for (const asset of ADMIN32_SAME_SCHEMA_LEGACY_PUBLIC_ASSETS) {
+    writeFixtureFile(root, `website/dist/${asset.path}`, `synthetic ${asset.path}\n`);
+  }
   for (const migration of RELEASE_MIGRATIONS_001_032) {
     writeFixtureFile(root, `auth-service/src/migrations/${migration}`,
       readFileSync(join(source, `auth-service/src/migrations/${migration}`)));
@@ -3439,6 +3446,11 @@ test("standard32-32 local package declares no migration and inventories d5 Auth 
     });
     assert.equal(manifest.provenance.releaseUse, "forbidden");
     assert.ok(manifest.inventory.some((entry) => entry.path === "website/rollback32/dist/index.html"));
+    for (const asset of ADMIN32_SAME_SCHEMA_LEGACY_PUBLIC_ASSETS) {
+      assert.ok(manifest.inventory.some((entry) => entry.path === `website/dist/${asset.path}`));
+      assert.equal(sha256(join(bundle, `website/dist/${asset.path}`)),
+        sha256(join(bundle, `website/rollback32/dist/${asset.path}`)));
+    }
     assert.equal(manifest.inventory.filter((entry) => entry.path.startsWith("auth-service/rollback32/src/migrations/")).length, 32);
     assert.equal(validateBundle({ bundle, expectedSha: source.sha, validationMode: LOCAL_PROVENANCE_MODE,
       schemaRoute: STANDARD32_32_RELEASE_SCHEMA_ROUTE }).status, "ok");
@@ -3449,6 +3461,13 @@ test("standard32-32 local package declares no migration and inventories d5 Auth 
     assert.throws(() => validateBundle({ bundle, expectedSha: source.sha, validationMode: LOCAL_PROVENANCE_MODE,
       schemaRoute: STANDARD32_32_RELEASE_SCHEMA_ROUTE }), (error) => error.code === "BUNDLE_INTEGRITY_FAILED");
     writeFileSync(join(bundle, "website/rollback32/dist/index.html"), original);
+    const collision = join(parent, "collision-source");
+    cpSync(source.root, collision, { recursive: true });
+    writeFixtureFile(collision, "website/dist/assets/index-JX29Ai5X.js", "different new asset with same name\n");
+    assert.throws(() => assembleReleaseBundle({ source: collision, destination: join(parent, "collision-bundle"),
+      expectedSha: source.sha, provenanceMode: LOCAL_PROVENANCE_MODE,
+      schemaRoute: STANDARD32_32_RELEASE_SCHEMA_ROUTE, admin32RollbackSource: rollback }),
+    (error) => error.code === "PRODUCT_SOURCE_MISMATCH");
     for (const mode of ["missing", "unknown"]) {
       const invalid = join(parent, mode);
       cpSync(rollback, invalid, { recursive: true });
