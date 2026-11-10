@@ -1235,7 +1235,7 @@ function archiveFile(archive, path) {
   return result.stdout;
 }
 
-function validateGithubArtifactProof({
+export function validateGithubArtifactProof({
   artifactId,
   artifactArchive,
   expectedSha,
@@ -1243,6 +1243,8 @@ function validateGithubArtifactProof({
   inventory,
   bundleRoot,
   provenance,
+  schemaRoute,
+  source,
 }) {
   const id = requiredArtifactId(artifactId);
   const archive = existingArtifactArchive(artifactArchive);
@@ -1284,6 +1286,22 @@ function validateGithubArtifactProof({
         matching[0].status !== "completed" || matching[0].conclusion !== "success") {
         throw new ReleaseValidationError("PROVENANCE_REQUIRED", "formal standard26 candidate requires all three mandatory jobs to succeed at its exact head");
       }
+    }
+  }
+  if (schemaRoute === STANDARD32_32_RELEASE_SCHEMA_ROUTE) {
+    const pr = githubApiJson(`repos/${RELEASE_REPOSITORY}/pulls/167`);
+    const parents = spawnSync("git", ["-C", existingDirectory(source, "source"), "rev-list", "--parents", "-n", "1", expectedSha],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const commits = parents.status === 0 ? parents.stdout.trim().split(/\s+/) : [];
+    if (pr?.number !== 167 || pr?.merged !== true || !pr?.merged_at ||
+        pr?.merge_commit_sha !== expectedSha ||
+        pr?.head?.repo?.full_name !== RELEASE_REPOSITORY ||
+        pr?.base?.repo?.full_name !== RELEASE_REPOSITORY ||
+        pr?.head?.ref !== "codex/nsp-admin-mobile-paging-20261110-01" ||
+        pr?.base?.ref !== "codex/residential-options-local-20261105" ||
+        commits.length !== 3 || commits[0] !== expectedSha ||
+        commits[1] !== ADMIN32_SAME_SCHEMA_BASELINE || commits[2] !== pr?.head?.sha) {
+      throw new ReleaseValidationError("PROVENANCE_REQUIRED", "schema32 candidate is not the exact approved PR167 normal merge from d5");
     }
   }
 
@@ -1597,6 +1615,8 @@ export function validateBundle({
           inventory: manifest.inventory,
           bundleRoot,
           provenance,
+          schemaRoute,
+          source,
         })
       : null;
 
