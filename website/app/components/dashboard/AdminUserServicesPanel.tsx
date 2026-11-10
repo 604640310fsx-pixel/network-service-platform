@@ -1,13 +1,13 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ResidentialOptionDetails } from "../subscribe/ResidentialOptionDetails";
 import { getAdminPlans, type AdminPlanItem } from "../../lib/admin-commerce-api";
 import {
   bindAdminGrantDelivery,
   bindAdminServiceDelivery,
   createAdminGrant,
+  getAdminUsersPage,
   getAdminUserServices,
   openAdminGrant,
-  searchAdminUsers,
   updateAdminGrant,
   updateAdminService,
   type AdminDeliveryLine,
@@ -802,13 +802,59 @@ export function AdminUserServicesPanel({ csrfToken }: { csrfToken: string | null
   const t = useT();
   const copy = t.adminServices;
   const [query, setQuery] = useState("");
-  const [searching, setSearching] = useState(false);
+  const [activeQuery, setActiveQuery] = useState("");
+  const [pageCursors, setPageCursors] = useState<Array<number | null>>([null]);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [nextCursor, setNextCursor] = useState<number | null>(null);
+  const [searching, setSearching] = useState(true);
   const [results, setResults] = useState<AdminUserSummary[] | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const requestVersion = useRef(0);
+  const requestController = useRef<AbortController | null>(null);
+  const lastRequest = useRef<{ cursor: number | null; index: number; filter: string; reset: boolean } | null>(null);
   const [selected, setSelected] = useState<AdminUserSummary | null>(null);
   const [detail, setDetail] = useState<{ services: AdminUserService[]; grants: AdminGrant[] } | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailToken, setDetailToken] = useState(0);
+
+  function showUserPanelTop() {
+    window.requestAnimationFrame(() => document.getElementById("dash-admin-usvc-title")?.scrollIntoView({ block: "start" }));
+  }
+
+  async function loadPage(cursor: number | null, index: number, filter: string, reset: boolean) {
+    requestController.current?.abort();
+    const controller = new AbortController();
+    requestController.current = controller;
+    const version = ++requestVersion.current;
+    lastRequest.current = { cursor, index, filter, reset };
+    setSearching(true);
+    setSearchError(null);
+    try {
+      const page = await getAdminUsersPage(filter, cursor, controller.signal);
+      if (controller.signal.aborted || version !== requestVersion.current) return;
+      setResults(page.items);
+      setNextCursor(page.nextCursor);
+      setPageIndex(index);
+      setPageCursors((current) => reset ? [null] : current[index] === cursor ? current : [...current.slice(0, index), cursor]);
+      setActiveQuery(filter);
+      setSelected(null);
+      setDetail(null);
+      setDetailError(null);
+      lastRequest.current = null;
+      if (results !== null) showUserPanelTop();
+    } catch (error) {
+      if (!controller.signal.aborted && version === requestVersion.current) setSearchError(errorMessage(error, copy));
+    } finally {
+      if (version === requestVersion.current) setSearching(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadPage(null, 0, "", true);
+    return () => { requestVersion.current += 1; requestController.current?.abort(); };
+    // Initial list only; subsequent filter/page requests are explicit user actions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (selected === null) return;
@@ -825,20 +871,38 @@ export function AdminUserServicesPanel({ csrfToken }: { csrfToken: string | null
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, detailToken]);
 
-  async function search(event: FormEvent) {
+  function search(event: FormEvent) {
     event.preventDefault();
-    const trimmed = query.trim();
-    if (trimmed === "") return;
-    setSearching(true);
-    setSearchError(null);
-    try {
-      setResults(await searchAdminUsers(trimmed));
-    } catch (error) {
-      setResults(null);
-      setSearchError(errorMessage(error, copy));
-    } finally {
-      setSearching(false);
-    }
+    void loadPage(null, 0, query.trim(), true);
+  }
+
+  function clearSearch() {
+    setQuery("");
+    void loadPage(null, 0, "", true);
+  }
+
+  function retryPage() {
+    const retry = lastRequest.current;
+    if (retry !== null) void loadPage(retry.cursor, retry.index, retry.filter, retry.reset);
+  }
+
+  function previousPage() {
+    if (searching || pageIndex === 0) return;
+    const cursor = pageCursors[pageIndex - 1];
+    if (cursor === undefined) return;
+    void loadPage(cursor, pageIndex - 1, activeQuery, false);
+  }
+
+  function nextPage() {
+    if (searching || nextCursor === null) return;
+    void loadPage(nextCursor, pageIndex + 1, activeQuery, false);
+  }
+
+  function backToUsers() {
+    setSelected(null);
+    setDetail(null);
+    setDetailError(null);
+    showUserPanelTop();
   }
 
   return (
@@ -849,7 +913,8 @@ export function AdminUserServicesPanel({ csrfToken }: { csrfToken: string | null
         {selected && <span>{copy.selectedUser(selected.email)}</span>}
       </h2>
       <p className="dash-usvc-lead">{copy.lead}</p>
-      <form className="dash-plans-toolbar dash-usvc-search" onSubmit={(event) => void search(event)}>
+      {selected === null && <>
+      <form className="dash-plans-toolbar dash-usvc-search" onSubmit={search}>
         <label className="dash-usvc-visually-hidden" htmlFor="dash-usvc-query">{copy.searchLabel}</label>
         <input
           id="dash-usvc-query"
@@ -860,26 +925,29 @@ export function AdminUserServicesPanel({ csrfToken }: { csrfToken: string | null
           autoComplete="off"
           onChange={(event) => setQuery(event.target.value)}
         />
-        <button type="submit" className="dash-primary-link" disabled={searching || query.trim() === ""} aria-busy={searching}>
-          {searching ? copy.searching : copy.search}
+        <button type="submit" className="dash-primary-link" aria-busy={searching}>
+          {searching && lastRequest.current?.reset ? copy.searching : copy.search}
         </button>
-        <button type="button" className="dash-usvc-ghost" disabled={searching || (query === "" && results === null && selected === null)}
-          onClick={() => { setQuery(""); setResults(null); setSelected(null); setDetail(null); setSearchError(null); setDetailError(null); }}>
+        <button type="button" className="dash-usvc-ghost" disabled={query === "" && activeQuery === "" && pageIndex === 0}
+          onClick={clearSearch}>
           {copy.clearSearch}
         </button>
       </form>
-      {searchError && <p className="dash-inline-error" role="alert">{searchError}</p>}
+      {searchError && <p className="dash-inline-error" role="alert">{searchError} <button type="button" className="dash-usvc-ghost" onClick={retryPage}>{copy.retry}</button></p>}
+      {searching && <p className="dash-usvc-meta" role="status">{copy.loading}</p>}
+      {results !== null && <p className="dash-usvc-meta" role="status">{copy.listSummary(results.length, activeQuery !== "")}</p>}
       {results !== null && (
         results.length === 0 ? (
           <p className="dash-usvc-meta" role="status">{copy.noUsers}</p>
         ) : (
           <ul className="dash-usvc-users">
             {results.map((user) => (
-              <li key={user.id} className={selected?.id === user.id ? "is-selected" : undefined}>
-                <span className="dash-usvc-email">{user.email}</span>
-                {user.role === "admin" && <span className="dash-tag">admin</span>}
-                {user.status === "disabled" && <span className="dash-tag">disabled</span>}
-                <button type="button" className="dash-usvc-ghost" onClick={() => setSelected(user)} aria-pressed={selected?.id === user.id}>
+              <li key={user.id}>
+                <span className="dash-usvc-email"><strong>{user.email}</strong><small>{copy.userId(user.id)} · {copy.lastSuccessfulLogin}：{user.lastSuccessfulWebLoginAt === null
+                  ? copy.lastLoginUnknown : new Date(user.lastSuccessfulWebLoginAt).toLocaleString()}</small></span>
+                {user.role === "admin" && <span className="dash-tag">{copy.roleAdmin}</span>}
+                {user.status === "disabled" && <span className="dash-tag">{copy.statusDisabled}</span>}
+                <button type="button" className="dash-usvc-ghost" onClick={() => { setSelected(user); showUserPanelTop(); }}>
                   {copy.selectUser}
                 </button>
               </li>
@@ -887,11 +955,18 @@ export function AdminUserServicesPanel({ csrfToken }: { csrfToken: string | null
           </ul>
         )
       )}
+      {results !== null && <nav className="dash-usvc-pagination" aria-label={copy.paginationLabel}>
+        <button type="button" className="dash-usvc-ghost" disabled={searching || pageIndex === 0} onClick={previousPage}>{copy.previousPage}</button>
+        <span role="status">{copy.pageNumber(pageIndex + 1)}</span>
+        <button type="button" className="dash-usvc-ghost" disabled={searching || nextCursor === null} onClick={nextPage}>{copy.nextPage}</button>
+      </nav>}
+      </>}
 
       {selected && (
         <div className="dash-usvc-detail">
-          <p className="dash-usvc-meta">最近成功登录：{selected.lastSuccessfulWebLoginAt === null
-            ? "暂无记录" : new Date(selected.lastSuccessfulWebLoginAt).toLocaleString()}</p>
+          <button type="button" className="dash-usvc-ghost" onClick={backToUsers}>{copy.backToUsers}</button>
+          <p className="dash-usvc-meta">{copy.lastSuccessfulLogin}：{selected.lastSuccessfulWebLoginAt === null
+            ? copy.lastLoginUnknown : new Date(selected.lastSuccessfulWebLoginAt).toLocaleString()}</p>
           {detailError && <p className="dash-inline-error" role="alert">{detailError}</p>}
           {detail === null && !detailError && <p className="dash-usvc-meta" role="status">{copy.loading}</p>}
           {detail && (

@@ -16,8 +16,8 @@ import "./dashboard.css";
 type AdminTab = "plans" | "users" | "orders" | "services" | "support" | "marketing";
 
 const tabs: ReadonlyArray<{ id: AdminTab; label: string; description: string }> = [
-  { id: "plans", label: "套餐与目录", description: "价格、库存、逐项停售，以及国家和运营商的套餐覆盖" },
-  { id: "users", label: "用户", description: "按邮箱查找用户，查看其已有服务" },
+  { id: "plans", label: "套餐与目录", description: "分开管理目录开关和套餐价格、库存、逐项停售" },
+  { id: "users", label: "用户", description: "浏览用户列表，按邮箱筛选并查看已有服务" },
   { id: "orders", label: "订单", description: "按订单号或用户 ID 筛选并查看已有订单" },
   { id: "services", label: "服务", description: "待开通服务与已有服务变更" },
   { id: "support", label: "支持", description: "工单和诊断请求" },

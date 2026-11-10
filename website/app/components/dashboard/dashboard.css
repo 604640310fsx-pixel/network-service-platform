@@ -11,18 +11,39 @@
 .admin-workspace-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
 .admin-workspace-tabs button { border: 1px solid var(--cc-line); border-radius: 8px; padding: 9px 13px; background: var(--cc-card); color: var(--cc-text); font: inherit; cursor: pointer; }
 .admin-workspace-tabs button.is-active { border-color: var(--cc-accent-line); background: var(--cc-inset); font-weight: 650; }
-.admin-workspace-tabs button:focus-visible, .dash-plan-directory-list button:focus-visible { outline: 2px solid var(--cc-accent-line); outline-offset: 2px; }
-.dash-plan-directory { margin-bottom: 16px; padding: 13px; border: 1px solid var(--cc-hairline); border-radius: 10px; background: var(--cc-inset); }
+.admin-workspace-tabs button:focus-visible, .dash-plan-directory button:focus-visible, .dash-plan-subviews button:focus-visible { outline: 2px solid var(--cc-accent-line); outline-offset: 2px; }
+.dash-plan-subviews { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 0 16px; }
+.dash-plan-subviews button, .dash-plan-type-list button { min-height: 38px; padding: 7px 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text-2); font: inherit; font-size: 12.5px; cursor: pointer; }
+.dash-plan-subviews button.is-active, .dash-plan-type-list button.is-active { border-color: var(--cc-accent-line); background: var(--cc-accent-tint); color: var(--cc-text); font-weight: 600; }
+.dash-plan-directory { padding: 13px; border: 1px solid var(--cc-hairline); border-radius: 10px; background: var(--cc-inset); }
 .dash-plan-directory-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 10px; }
 .dash-plan-directory-heading span { color: var(--cc-text-4); font-size: 12px; }
-.dash-plan-directory-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; max-height: 230px; overflow: auto; }
-.dash-plan-directory-card { display: flex; flex-direction: column; gap: 9px; padding: 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); }
-.dash-plan-directory-card button { width: fit-content; max-width: 100%; border: 1px solid var(--cc-line); border-radius: 7px; padding: 6px 8px; background: var(--cc-inset); color: var(--cc-text); text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
+.dash-plan-type-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.dash-plan-directory-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); align-items: start; gap: 8px; margin-top: 12px; }
+.dash-plan-directory-card { min-width: 0; padding: 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); }
+.dash-plan-directory-card button { max-width: 100%; border: 1px solid var(--cc-line); border-radius: 7px; padding: 7px 9px; background: var(--cc-inset); color: var(--cc-text); text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
+.dash-plan-directory-card button.is-active { border-color: var(--cc-accent-line); color: var(--cc-accent); }
 .dash-plan-directory-card button:disabled { cursor: not-allowed; opacity: .6; }
-.dash-plan-directory-operator { display: flex; flex-direction: column; align-items: start; gap: 4px; padding: 8px 0 0; border-top: 1px solid var(--cc-hairline); }
+.dash-plan-region-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.dash-plan-region-head > button:first-child { flex: 1 1 160px; display: flex; flex-direction: column; gap: 3px; }
+.dash-plan-region-head small { color: var(--cc-text-4); font-size: 11px; }
+.dash-plan-directory-operator { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 7px; padding: 10px 0 0; margin-top: 9px; border-top: 1px solid var(--cc-hairline); }
+.dash-plan-directory-operator > small { grid-column: 1 / -1; }
 .dash-plan-directory-operator small { color: var(--cc-text-4); }
 .dash-plan-reason { display: block; margin-top: 4px; color: var(--cc-text-4); white-space: normal; }
-.dash-plan-directory-list small { color: var(--cc-text-4); }
+.dash-plan-empty { padding: 15px; margin: 12px 0 0; border: 1px dashed var(--cc-line); border-radius: 9px; color: var(--cc-text-3); font-size: 12.5px; line-height: 1.6; }
+.dash-plan-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 10px; margin-top: 12px; }
+.dash-plan-card { min-width: 0; padding: 14px; border: 1px solid var(--cc-line); border-radius: 10px; background: var(--cc-card); }
+.dash-plan-card-head, .dash-plan-card-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.dash-plan-card-head strong { min-width: 0; font-size: 14px; overflow-wrap: anywhere; }
+.dash-plan-card-head small, .dash-plan-card-path { color: var(--cc-text-4); font-size: 11.5px; }
+.dash-plan-card-path { margin: 6px 0 12px; overflow-wrap: anywhere; }
+.dash-plan-card-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.dash-plan-card-fields label { min-width: 0; color: var(--cc-text-3); font-size: 11.5px; }
+.dash-plan-card-fields input { display: block; width: 100%; box-sizing: border-box; height: 36px; margin-top: 5px; padding: 0 9px; border: 1px solid var(--cc-line); border-radius: 7px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 13px; }
+.dash-plan-card-actions { justify-content: flex-start; margin-top: 12px; }
+.dash-plan-card-actions .dash-primary-link { width: auto; }
+.dash-plan-more { margin-top: 12px; }
 
 .dash-panel { padding: 17px 20px 20px; border: 1px solid var(--cc-hairline); border-radius: 14px; background: var(--cc-panel); box-shadow: var(--cc-shadow); }
 .dash-panel > h2 { display: flex; align-items: baseline; gap: 10px; margin: 0 0 16px; font-size: 15px; font-weight: 600; }
@@ -161,6 +182,7 @@
 
 /* 用户服务管理 */
 .dash-usvc-lead { margin: -6px 0 14px; color: var(--cc-text-3); font-size: 12.5px; line-height: 1.6; }
+.dash-usvc > h2 { scroll-margin-top: 76px; }
 .dash-usvc-search { flex-wrap: wrap; }
 .dash-usvc-search input { flex: 1 1 240px; min-width: 0; }
 .dash-usvc-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -169,6 +191,11 @@
 .dash-usvc-users li:last-child { border-bottom: 0; }
 .dash-usvc-users li.is-selected { background: var(--cc-accent-tint); }
 .dash-usvc-email { min-width: 0; flex: 1 1 200px; overflow-wrap: anywhere; color: var(--cc-text); }
+.dash-usvc-email strong { display: block; font-weight: 600; }
+.dash-usvc-email small { display: block; margin-top: 4px; color: var(--cc-text-4); font-size: 11.5px; line-height: 1.5; }
+.dash-usvc-pagination { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 12px; }
+.dash-usvc-pagination > span { color: var(--cc-text-2); font-size: 12.5px; white-space: nowrap; }
+.dash-usvc-detail > .dash-usvc-ghost:first-child { margin-bottom: 12px; }
 .dash-usvc-ghost { height: 30px; padding: 0 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text-2); font: inherit; font-size: 12.5px; cursor: pointer; }
 .dash-usvc-ghost:disabled { cursor: not-allowed; opacity: 0.55; }
 .dash-usvc-detail h3 { margin: 18px 0 10px; font-size: 13.5px; font-weight: 600; }
@@ -286,6 +313,11 @@ button.dash-action strong { color: var(--cc-text-3); font-weight: 500; }
   .dash-diagnosis-resolution { grid-template-columns: minmax(0, 1fr); }
   .dash-diagnosis-form > div { grid-template-columns: minmax(0, 1fr); }
   .dash-action-grid { grid-template-columns: minmax(0, 1fr); }
+  .dash-plans-toolbar select { flex: 1 1 145px; min-width: 0; max-width: 100%; }
+  .dash-plan-directory-list { grid-template-columns: minmax(0, 1fr); }
+  .dash-plan-directory-operator { grid-template-columns: minmax(0, 1fr); }
+  .dash-plan-directory-operator > small { grid-column: auto; }
+  .dash-plan-card-actions .dash-primary-link { width: 100%; }
 }
 
 /* 监控不可用时的「暂不绑定 VPS 开通」确认项 */

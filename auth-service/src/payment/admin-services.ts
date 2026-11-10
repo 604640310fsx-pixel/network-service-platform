@@ -119,6 +119,38 @@ export interface AdminUserSummary {
   readonly lastSuccessfulWebLoginAt: string | null;
 }
 
+function adminUserSummary(value: unknown): AdminUserSummary {
+  const row = asRow(value, "Admin user");
+  const role = text(row, "role");
+  const status = text(row, "status");
+  if ((role !== "user" && role !== "admin") || (status !== "active" && status !== "disabled")) {
+    throw new Error("Admin user database invariant failed");
+  }
+  return { id: integer(row, "id"), email: text(row, "email"), role, status, createdAt: text(row, "created_at"),
+    lastSuccessfulWebLoginAt: row.last_successful_web_login_at === null ? null : text(row, "last_successful_web_login_at") };
+}
+
+/** Admin-only keyset page. No count or unbounded client fetch; newly added users appear on a fresh first page. */
+export function listUsersForAdmin(
+  database: DatabaseConnection,
+  query: string,
+  cursor: number | null,
+): { readonly items: AdminUserSummary[]; readonly nextCursor: number | null } {
+  const trimmed = query.trim().toLowerCase();
+  if (trimmed.length > ADMIN_USER_QUERY_MAX_LENGTH || LABEL_CONTROL.test(trimmed) ||
+      (cursor !== null && (!Number.isSafeInteger(cursor) || cursor <= 0))) {
+    throw new PaymentDomainError(400, "invalid_query");
+  }
+  const pattern = `%${trimmed.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
+  const rows = database.prepare(
+    `SELECT id, email, role, status, created_at, last_successful_web_login_at FROM users
+     WHERE (? IS NULL OR id < ?) AND (? = '' OR lower(email) LIKE ? ESCAPE '\\')
+     ORDER BY id DESC LIMIT ?`,
+  ).all(cursor, cursor, trimmed, pattern, ADMIN_USER_SEARCH_LIMIT + 1).map(adminUserSummary);
+  const items = rows.slice(0, ADMIN_USER_SEARCH_LIMIT);
+  return { items, nextCursor: rows.length > ADMIN_USER_SEARCH_LIMIT ? items.at(-1)!.id : null };
+}
+
 /** Case-insensitive email substring search; LIKE wildcards in the query are matched literally. */
 export function searchUsersForAdmin(database: DatabaseConnection, query: string): AdminUserSummary[] {
   const trimmed = query.trim().toLowerCase();
@@ -134,16 +166,7 @@ export function searchUsersForAdmin(database: DatabaseConnection, query: string)
        LIMIT ?`,
     )
     .all(pattern, ADMIN_USER_SEARCH_LIMIT)
-    .map((value) => {
-      const row = asRow(value, "Admin user");
-      const role = text(row, "role");
-      const status = text(row, "status");
-      if ((role !== "user" && role !== "admin") || (status !== "active" && status !== "disabled")) {
-        throw new Error("Admin user database invariant failed");
-      }
-      return { id: integer(row, "id"), email: text(row, "email"), role, status, createdAt: text(row, "created_at"),
-        lastSuccessfulWebLoginAt: row.last_successful_web_login_at === null ? null : text(row, "last_successful_web_login_at") };
-    });
+    .map(adminUserSummary);
 }
 
 export interface AdminServiceView {
