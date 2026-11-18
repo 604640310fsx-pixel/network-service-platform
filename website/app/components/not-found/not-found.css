@@ -1,0 +1,115 @@
+.not-found-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.cc-home .not-found-main {
+  flex: 1;
+  min-width: 0;
+  min-height: calc(100vh - 74px);
+  min-height: calc(100dvh - 74px);
+  display: grid;
+  place-items: center;
+  padding: 56px var(--home-gutter) 72px;
+  background:
+    radial-gradient(circle at 50% 42%, var(--cc-accent-tint), transparent 34%),
+    var(--cc-bg);
+}
+
+.not-found-card {
+  width: min(100%, 560px);
+  padding: 46px 42px 44px;
+  border: 1px solid var(--cc-line);
+  border-radius: 16px;
+  background: var(--cc-panel);
+  box-shadow: var(--cc-shadow-raised);
+  text-align: center;
+}
+
+.not-found-code {
+  display: inline-block;
+  margin-bottom: 18px;
+  color: var(--cc-accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+}
+
+.not-found-card h1 {
+  margin: 0;
+  color: var(--cc-text);
+  font-size: clamp(28px, 4vw, 42px);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
+}
+
+.not-found-card p {
+  margin: 16px auto 0;
+  max-width: 380px;
+  color: var(--cc-text-2);
+  font-size: 15px;
+  line-height: 1.75;
+  text-wrap: pretty;
+}
+
+.not-found-home-link {
+  min-height: 48px;
+  margin-top: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 0 23px;
+  border: 1px solid var(--cc-accent-line);
+  border-radius: 10px;
+  background: var(--cc-accent-tint);
+  color: var(--cc-accent);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.14s;
+}
+
+.not-found-home-link:hover {
+  background: var(--cc-accent-inset);
+}
+
+.not-found-home-link svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2;
+  transition: transform 0.14s;
+}
+
+.not-found-home-link:hover svg {
+  transform: translateX(3px);
+}
+
+@media (max-width: 640px) {
+  .cc-home .not-found-main {
+    min-height: calc(100vh - 62px);
+    min-height: calc(100dvh - 62px);
+    padding: 32px 16px 48px;
+  }
+
+  .not-found-card {
+    padding: 38px 22px 36px;
+    border-radius: 14px;
+  }
+
+  .not-found-card h1 {
+    font-size: 28px;
+  }
+
+  .not-found-home-link {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .not-found-home-link,
+  .not-found-home-link svg {
+    transition: none;
+  }
+}

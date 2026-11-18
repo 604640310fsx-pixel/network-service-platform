@@ -1,0 +1,188 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+
+import {
+  WalletApiError,
+  formatWalletFen,
+  getMyWallet,
+  getRenewalConsent,
+  getRenewalQuote,
+  putRenewalConsent,
+  // @ts-ignore TS5097: node strip-types needs the explicit .ts specifier
+} from "../app/lib/wallet-api.ts";
+
+type Call = { readonly url: string; readonly init: RequestInit };
+
+async function withFetch<Result>(
+  respond: (call: Call) => { status: number; body: unknown },
+  run: (calls: Call[]) => Promise<Result>,
+): Promise<Result> {
+  const original = globalThis.fetch;
+  const calls: Call[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const call = { url: String(input), init: init ?? {} };
+    calls.push(call);
+    const { status, body } = respond(call);
+    return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+  try {
+    return await run(calls);
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+
+function source(relativePath: string): string {
+  return readFileSync(new URL(relativePath, import.meta.url), "utf8");
+}
+
+test("wallet balance parses the frozen DTO; a real zero balance is a genuine ¥0.00", async () => {
+  await withFetch(() => ({ status: 200, body: { balanceFen: 0, currency: "CNY" } }), async (calls) => {
+    const wallet = await getMyWallet();
+    assert.deepEqual(wallet, { balanceFen: 0, currency: "CNY" });
+    assert.equal(calls[0]?.url, "/api/me/wallet");
+    assert.equal(calls[0]?.init.method, "GET");
+    assert.equal(calls[0]?.init.credentials, "same-origin");
+  });
+  assert.equal(formatWalletFen(0), "¥0.00");
+  assert.equal(formatWalletFen(5), "¥0.05");
+  assert.equal(formatWalletFen(123456), "¥1,234.56");
+  for (const body of [{ balanceFen: -1, currency: "CNY" }, { balanceFen: 1.5, currency: "CNY" }, { balanceFen: 100, currency: "USD" }, { currency: "CNY" }]) {
+    await withFetch(() => ({ status: 200, body }), async () => {
+      await assert.rejects(getMyWallet(), (error: unknown) => error instanceof WalletApiError && error.code === "invalid_response");
+    });
+  }
+});
+
+test("wallet errors keep the server envelope code and status", async () => {
+  for (const [status, code] of [[401, "unauthorized"], [403, "csrf_invalid"], [404, "not_found"], [409, "quote_unavailable"], [409, "revision_conflict"], [400, "invalid_request"], [503, "wallet_unavailable"]] as const) {
+    await withFetch(() => ({ status, body: { error: { code } } }), async () => {
+      await assert.rejects(getMyWallet(), (error: unknown) => error instanceof WalletApiError && error.code === code && error.status === status);
+    });
+  }
+});
+
+test("renewal quote and consent parse the frozen DTOs, including the never-set consent", async () => {
+  const quote = { key: "renewal-quote:v1:t:r:i::month-1:5900", priceFen: 5900, currency: "CNY", durationId: "month-1", period: "MONTHLY", previousEndsAt: "2026-11-01T00:00:00.000Z", newEndsAt: "2026-12-01T00:00:00.000Z" };
+  await withFetch(() => ({ status: 200, body: { quote } }), async (calls) => {
+    assert.deepEqual(await getRenewalQuote(7, "MONTHLY"), quote);
+    assert.equal(calls[0]?.url, "/api/me/services/7/renewal-quote?period=MONTHLY");
+  });
+  // Never-set consent: candidate.ts returns DISABLED / revision 0 / nulls / updatedAt "".
+  await withFetch(() => ({ status: 200, body: { consent: { state: "DISABLED", revision: 0, period: null, priceFen: null, durationId: null, updatedAt: "" } } }), async (calls) => {
+    assert.deepEqual(await getRenewalConsent(7), { state: "DISABLED", revision: 0, period: null, priceFen: null, durationId: null, updatedAt: null });
+    assert.equal(calls[0]?.url, "/api/me/services/7/renewal-consent");
+  });
+  for (const body of [{ quote: { ...quote, period: "WEEKLY" } }, { quote: { ...quote, priceFen: "59" } }, { quote: { ...quote, key: "" } }, {}]) {
+    await withFetch(() => ({ status: 200, body }), async () => {
+      await assert.rejects(getRenewalQuote(7, "MONTHLY"), (error: unknown) => error instanceof WalletApiError && error.code === "invalid_response");
+    });
+  }
+});
+
+test("consent PUT: enabling sends the confirmed quote key; disabling sends three fields only", async () => {
+  await withFetch(() => ({ status: 200, body: { revision: 4 } }), async (calls) => {
+    const revision = await putRenewalConsent("c".repeat(43), 7, { period: "QUARTERLY", expectedRevision: 3, enabled: true, expectedQuoteKey: "renewal-quote:v1:month-3:15900" });
+    assert.equal(revision, 4);
+    assert.equal(calls[0]?.url, "/api/me/services/7/renewal-consent");
+    assert.equal(calls[0]?.init.method, "PUT");
+    assert.equal((calls[0]?.init.headers as Record<string, string>)["X-CSRF-Token"], "c".repeat(43));
+    // Only the confirmed quote's key travels; no price or expiry ever leaves the browser.
+    assert.deepEqual(JSON.parse(String(calls[0]?.init.body)), { period: "QUARTERLY", expectedRevision: 3, enabled: true, expectedQuoteKey: "renewal-quote:v1:month-3:15900" });
+    await putRenewalConsent("c".repeat(43), 7, { period: "QUARTERLY", expectedRevision: 4, enabled: false });
+    assert.deepEqual(JSON.parse(String(calls[1]?.init.body)), { period: "QUARTERLY", expectedRevision: 4, enabled: false });
+  });
+  // Enabling without a key never reaches the network.
+  await withFetch(() => ({ status: 200, body: { revision: 1 } }), async (calls) => {
+    await assert.rejects(
+      putRenewalConsent("c".repeat(43), 7, { period: "MONTHLY", expectedRevision: 0, enabled: true, expectedQuoteKey: "" }),
+      (error: unknown) => error instanceof WalletApiError && error.code === "invalid_request",
+    );
+    assert.equal(calls.length, 0);
+  });
+  await withFetch(() => ({ status: 409, body: { error: { code: "quote_changed" } } }), async () => {
+    await assert.rejects(
+      putRenewalConsent("c".repeat(43), 7, { period: "MONTHLY", expectedRevision: 0, enabled: true, expectedQuoteKey: "k" }),
+      (error: unknown) => error instanceof WalletApiError && error.code === "quote_changed" && error.status === 409,
+    );
+  });
+  await withFetch(() => ({ status: 409, body: { error: { code: "revision_conflict" } } }), async () => {
+    await assert.rejects(
+      putRenewalConsent("c".repeat(43), 7, { period: "MONTHLY", expectedRevision: 0, enabled: false } as const),
+      (error: unknown) => error instanceof WalletApiError && error.code === "revision_conflict" && error.status === 409,
+    );
+  });
+});
+
+test("invalid service ids and periods never reach the network", async () => {
+  await withFetch(() => ({ status: 200, body: {} }), async (calls) => {
+    for (const id of [0, -1, 1.5, Number.NaN]) {
+      await assert.rejects(getRenewalConsent(id), (error: unknown) => error instanceof WalletApiError && error.code === "not_found");
+    }
+    await assert.rejects(getRenewalQuote(7, "WEEKLY" as never), (error: unknown) => error instanceof WalletApiError && error.code === "invalid_request");
+    await assert.rejects(
+      putRenewalConsent("c".repeat(43), 7, { period: "MONTHLY", expectedRevision: -1, enabled: true }),
+      (error: unknown) => error instanceof WalletApiError && error.code === "invalid_request",
+    );
+    assert.equal(calls.length, 0);
+  });
+});
+
+test("the buyer services DTO carries the real purchase serviceId (backend 6503430); gifts keep grantId", async () => {
+  // @ts-ignore TS5097
+  const { getMyServiceListing, PaymentApiError } = await import("../app/lib/payment-api.ts");
+  const purchase = { source: "purchase", orderRef: "DLDEMO0000000001", amountFen: 5900, currency: "CNY", orderStatus: "paid", serviceStatus: "open", createdAt: "2026-10-04T00:00:00.000Z", endsAt: null, planLabel: null };
+  const grant = { source: "grant", grantId: 3, label: "Gift", startsAt: "2026-10-04T00:00:00.000Z", endsAt: null, status: "active", deliveryStatus: "open" };
+  await withFetch(() => ({ status: 200, body: { items: [{ ...purchase, serviceId: 42 }, { ...purchase, orderRef: "DLDEMO0000000002" }, grant] } }), async () => {
+    const listing = await getMyServiceListing();
+    assert.equal(listing.services[0].serviceId, 42);
+    // Older servers send no serviceId: it stays null and no id is inferred from orderRef.
+    assert.equal(listing.services[1].serviceId, null);
+    assert.equal(listing.grants[0].grantId, 3);
+    assert.equal("serviceId" in listing.grants[0], false);
+  });
+  for (const bad of [0, -1, 1.5, "42"]) {
+    await withFetch(() => ({ status: 200, body: { items: [{ ...purchase, serviceId: bad }] } }), async () => {
+      await assert.rejects(getMyServiceListing(), (error: unknown) => error instanceof PaymentApiError && (error as { code: string }).code === "invalid_response");
+    });
+  }
+});
+
+test("the consent control is off by default and enables only after a fresh quote is explicitly confirmed", () => {
+  const page = source("../app/components/customer/CustomerServicesPage.tsx");
+  assert.match(page, /const \[confirmed, setConfirmed\] = useState\(false\);/);
+  assert.match(page, /const canEnable = readyQuote !== null && confirmed && !saving && csrfToken !== null && consent !== null;/);
+  assert.match(page, /disabled=\{!canEnable\}/);
+  // Changing the period or a new quote clears any earlier confirmation.
+  assert.match(page, /function resetDecision\(\) \{\s*setQuote\(\{ kind: "idle" \}\);\s*setConfirmed\(false\);\s*\}/);
+  // A stale revision refetches and asks again; an unavailable quote blocks enabling.
+  assert.match(page, /saveError\.code === "revision_conflict"\) \{\s*resetDecision\(\);\s*setNotice\(copy\.conflict\);\s*setReloadToken/);
+  assert.match(page, /quoteError\.code === "quote_unavailable"\) setQuote\(\{ kind: "unavailable" \}\)/);
+  // Enabling submits the key of the quote that was shown and confirmed.
+  assert.match(page, /enabled: true, expectedQuoteKey: confirmedQuote\.key \}/);
+  // quote_changed: no write happened; refetch consent and the same-period quote, clear the tick, no auto-retry.
+  assert.match(page, /saveError\.code === "quote_changed"\) \{\s*(\/\/[^\n]*\n\s*)?setConfirmed\(false\);\s*setNotice\(copy\.quoteChanged\);\s*setReloadToken\(\(token\) => token \+ 1\);\s*void fetchQuote\(true\);\s*\}/);
+  assert.doesNotMatch(page, /quote_changed[\s\S]{0,400}save\(true\)/);
+  // Only owned OPEN purchases with a real serviceId get the control; pending, legacy and gifts are unavailable.
+  assert.match(page, /\{isOpen && item\.serviceId !== null\s*\? <RenewalConsentControl serviceId=\{item\.serviceId\} \/>/);
+  assert.match(page, /<RenewalUnavailable message=\{t\.wallet\.renewal\.unavailableGift\} \/>/);
+  assert.doesNotMatch(page, /grantId=\{|serviceId=\{grant|orderRef\)\s*as number/);
+});
+
+test("profile and dashboard never show a counterfeit zero while loading or after an error", () => {
+  const profile = source("../app/components/profile/ProfilePage.tsx");
+  const dashboard = source("../app/components/dashboard/BuyerDashboardOverview.tsx");
+  const hook = source("../app/lib/useWallet.ts");
+  assert.match(profile, /state\.kind === "ready" && <span className="cc-profile-wallet-amount">\{formatWalletFen\(state\.wallet\.balanceFen\)\}<\/span>/);
+  assert.match(profile, /state\.kind === "loading" && <span className="cc-profile-wallet-muted">\{copy\.loading\}<\/span>/);
+  assert.match(dashboard, /value: wallet\.state\.kind === "ready" \? formatWalletFen\(wallet\.state\.wallet\.balanceFen\) : "—",/);
+  const shell = source("../app/components/customer/CustomerCenterShell.tsx");
+  // Header: only signed-in sessions read the wallet; non-ready states show "—", never ¥0.00.
+  assert.match(shell, /\{authStatus === "authenticated" && <HeaderWalletChip \/>\}/);
+  assert.match(shell, /<b>\{ready \? formatWalletFen\(state\.wallet\.balanceFen\) : "—"\}<\/b>/);
+  assert.doesNotMatch(shell, /balancePending/);
+  for (const file of [profile, dashboard, hook, shell]) {
+    assert.doesNotMatch(file, /balanceFen \?\? 0|balanceFen: 0|formatWalletFen\(0\)/);
+  }
+});

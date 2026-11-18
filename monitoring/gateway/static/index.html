@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <meta name="monitor-parent-origin" content="__MONITOR_PARENT_ORIGIN__">
+  <title>实时网络监控</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./master.css">
+</head>
+<body>
+  <main class="monitor" aria-labelledby="monitorTitle">
+    <header class="monitor-head">
+      <div>
+        <p class="eyebrow">REAL-TIME OBSERVABILITY</p>
+        <h1 id="monitorTitle">实时网络监控</h1>
+        <p class="description">查看当前三网线路与网络运行状态</p>
+      </div>
+      <div class="head-meta">
+        <p class="fixture-note" id="fixtureNote" hidden>演示数据 · 非报价</p>
+        <div class="sync-state" id="syncState" data-state="loading" aria-live="polite">
+          <i aria-hidden="true"></i><span>读取中</span>
+        </div>
+      </div>
+    </header>
+
+    <section class="wan-grid" aria-label="三网线路摘要">
+      <article class="wan-card" data-wan="telecom" data-state="no_data">
+        <div class="wan-label"><i aria-hidden="true"></i><h2>电信</h2></div>
+        <strong class="latency">—</strong><span class="unit">ms</span>
+        <svg class="trend" viewBox="0 0 180 44" preserveAspectRatio="none" aria-hidden="true">
+          <path></path>
+        </svg>
+        <dl><dt>丢包</dt><dd class="loss">—</dd><dt>更新</dt><dd class="updated">—</dd></dl>
+        <p class="wan-status">暂无数据</p>
+      </article>
+      <article class="wan-card" data-wan="mobile" data-state="no_data">
+        <div class="wan-label"><i aria-hidden="true"></i><h2>移动</h2></div>
+        <strong class="latency">—</strong><span class="unit">ms</span>
+        <svg class="trend" viewBox="0 0 180 44" preserveAspectRatio="none" aria-hidden="true">
+          <path></path>
+        </svg>
+        <dl><dt>丢包</dt><dd class="loss">—</dd><dt>更新</dt><dd class="updated">—</dd></dl>
+        <p class="wan-status">暂无数据</p>
+      </article>
+      <article class="wan-card" data-wan="unicom" data-state="no_data">
+        <div class="wan-label"><i aria-hidden="true"></i><h2>联通</h2></div>
+        <strong class="latency">—</strong><span class="unit">ms</span>
+        <svg class="trend" viewBox="0 0 180 44" preserveAspectRatio="none" aria-hidden="true">
+          <path></path>
+        </svg>
+        <dl><dt>丢包</dt><dd class="loss">—</dd><dt>更新</dt><dd class="updated">—</dd></dl>
+        <p class="wan-status">暂无数据</p>
+      </article>
+    </section>
+
+    <p class="footnote">数据每 15 秒刷新；无可用样本时不会使用历史数值替代。</p>
+  </main>
+  <script src="./app.js" defer></script>
+</body>
+</html>

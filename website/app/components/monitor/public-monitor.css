@@ -1,0 +1,67 @@
+/* 公开 /monitor 页面样式。继承官网 --cc-* 令牌与 .cc-home 基座。
+   监控主体为单层贴边工作面：无边框 / 圆角 / 装饰卡片，占满 header 与标题带之外的
+   视口高度，仅 iframe 自身一处滚动，不出现"文档 + iframe"双层滚动。 */
+
+/* 锁定为视口高度的应用式布局：header + 标题带 + 监控恰好铺满一屏。
+   专用监控页不重复展示大页脚，iframe 依 flex 占据剩余高度并成为唯一滚动面。 */
+.pm-shell.cc-home {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+.pm-shell.cc-home .pm-main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* 与订阅配置器复用同一 WorkbenchBanner；这里只负责相同的页面宽度与外间距。 */
+.pm-head {
+  flex: 0 0 auto;
+  background: var(--cc-bg);
+}
+/* 监控主体：贴边铺满剩余高度，无外框。 */
+.pm-monitor {
+  flex: 1 1 auto;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  background: var(--cc-bg);
+}
+.pm-frame {
+  flex: 1 1 auto;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-height: 0;
+  border: 0;
+  background: var(--cc-bg);
+}
+
+/* 未配置监控地址的真实空状态：简洁、无外框。 */
+.pm-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 24px;
+  background: var(--cc-bg);
+  text-align: center;
+}
+.pm-empty strong {
+  color: var(--cc-text);
+  font-size: 16px;
+  font-weight: 600;
+}
+.pm-empty p {
+  margin: 0;
+  max-width: 360px;
+  color: var(--cc-text-3);
+  font-size: 13.5px;
+  line-height: 1.7;
+  text-wrap: pretty;
+}

@@ -1,0 +1,12 @@
+/* 与 36px 主题按钮同高、同描边与底色，只多一层分段。 */
+.lang-toggle {
+  height: 36px; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px; padding: 3px;
+  border: 1px solid var(--cc-line); border-radius: 9px; background: var(--cc-inset);
+}
+.lang-toggle button {
+  height: 28px; min-width: 34px; padding: 0 8px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--cc-text-2); font-size: 12px; font-weight: 500; line-height: 1;
+  cursor: pointer; transition: background 0.14s, color 0.14s;
+}
+.lang-toggle button:hover { color: var(--cc-text); }
+.lang-toggle button.is-active { background: var(--cc-panel); color: var(--cc-text); box-shadow: 0 0 0 1px var(--cc-line); }

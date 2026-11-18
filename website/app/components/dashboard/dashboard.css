@@ -1,0 +1,285 @@
+/* Dashboard 视觉语言完全继承 customer-center.css 的 --cc-* 令牌，
+   不引入新的配色、圆角、阴影或间距体系。 */
+
+.cc-shell .dash-page { width: 100%; max-width: none; flex: 1; min-width: 0; margin: 0; padding: 0; background: var(--cc-bg); color: var(--cc-text); }
+.dash-layout { width: 100%; max-width: 1680px; margin: 0 auto; padding: 20px var(--cc-gutter) 44px; display: flex; flex-direction: column; gap: 14px; }
+
+.dash-panel { padding: 17px 20px 20px; border: 1px solid var(--cc-hairline); border-radius: 14px; background: var(--cc-panel); box-shadow: var(--cc-shadow); }
+.dash-panel > h2 { display: flex; align-items: baseline; gap: 10px; margin: 0 0 16px; font-size: 15px; font-weight: 600; }
+.dash-panel > h2 em { color: var(--cc-text-4); font-size: 11px; font-style: normal; letter-spacing: 0.14em; }
+.dash-panel > h2 span { margin-left: auto; color: var(--cc-text-4); font-size: 12px; font-weight: 400; }
+
+/* 1. 服务概览 */
+.dash-stat-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(198px, 1fr)); }
+.dash-stat { min-width: 0; padding: 14px 15px; border: 1px solid var(--cc-line); border-radius: 10px; background: var(--cc-card); }
+.dash-stat > span { display: block; color: var(--cc-text-3); font-size: 12.5px; }
+.dash-stat > strong { display: block; margin-top: 6px; color: var(--cc-text-4); font-size: 26px; font-weight: 600; line-height: 1.1; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; }
+.dash-stat > small { display: flex; align-items: center; gap: 7px; margin-top: 9px; color: var(--cc-text-4); font-size: 11.5px; }
+.dash-stat > small i { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--cc-text-4); }
+
+/* 2 + 3 并排 */
+.dash-split { display: grid; gap: 14px; grid-template-columns: minmax(0, 1.62fr) minmax(0, 1fr); align-items: start; }
+
+/* 2. 当前服务 */
+.dash-service { padding: 15px 16px 16px; border: 1px solid var(--cc-line); border-radius: 10px; background: var(--cc-card); }
+.dash-service-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding-bottom: 13px; border-bottom: 1px solid var(--cc-hairline); }
+.dash-service-head strong { color: var(--cc-text-4); font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+.dash-service-head small { display: block; margin-top: 2px; color: var(--cc-text-3); font-size: 12.5px; }
+.dash-tag { padding: 2px 7px; border: 1px solid var(--cc-line); border-radius: 5px; background: var(--cc-inset); color: var(--cc-text-3); font-size: 11.5px; font-style: normal; line-height: 1.6; white-space: nowrap; }
+.dash-service-head .dash-tag { margin-left: auto; }
+.dash-service-facts { display: grid; gap: 12px 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 14px 0 0; }
+.dash-service-facts > div { min-width: 0; }
+.dash-service-facts dt { color: var(--cc-text-3); font-size: 12.5px; }
+.dash-service-facts dd { margin: 4px 0 0; color: var(--cc-text-2); font-size: 14.5px; font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.dash-service-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 16px; padding-top: 15px; border-top: 1px solid var(--cc-hairline); }
+.dash-service-foot p { margin: 0; flex: 1; min-width: 168px; color: var(--cc-text-4); font-size: 12px; }
+.dash-primary-link { height: 40px; display: inline-flex; align-items: center; padding: 0 18px; border: 0; border-radius: 10px; background: #f59e0b; color: var(--cc-accent-ink); font-size: 13.5px; font-weight: 600; text-decoration: none; white-space: nowrap; cursor: pointer; }
+.dash-primary-link:hover { filter: brightness(1.05); }
+.dash-primary-link:disabled { cursor: not-allowed; opacity: 0.55; filter: none; }
+.dash-buyer-card .dash-service-head > div { min-width: 0; }
+.dash-buyer-card .dash-service-head strong { color: var(--cc-text); overflow-wrap: anywhere; }
+.dash-tag.is-accent { border-color: var(--cc-accent-line); background: var(--cc-accent-tint); color: var(--cc-accent); font-weight: 600; }
+.dash-secondary-link { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; padding: 0 14px; border: 1px solid var(--cc-line); border-radius: 9px; background: var(--cc-card); color: var(--cc-text-2); font-size: 12.5px; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.dash-secondary-link:hover { border-color: var(--cc-accent-line); background: var(--cc-accent-tint); color: var(--cc-accent); }
+
+/* 特写卡之后的第二层级：更早的服务 / 订单，只列真实条目。 */
+.dash-more { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--cc-hairline); }
+.dash-more-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 9px; }
+.dash-more-head strong { color: var(--cc-text-3); font-size: 12px; font-weight: 600; }
+.dash-more-head a { margin-left: auto; color: var(--cc-text-3); font-size: 11.5px; text-decoration: none; white-space: nowrap; }
+.dash-more-head a:hover { color: var(--cc-accent); }
+.dash-more-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.dash-more-list li { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 10px 12px; border: 1px solid var(--cc-hairline); border-radius: 9px; background: var(--cc-card); }
+.dash-more-list li > div { min-width: 0; flex: 1 1 160px; }
+.dash-more-list strong { display: block; color: var(--cc-text-2); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.dash-more-list small { display: block; margin-top: 2px; color: var(--cc-text-4); font-size: 11.5px; overflow-wrap: anywhere; }
+.dash-more-list .dash-tag { margin-left: auto; }
+/* 赠送：徽标与状态并排，第二个标签紧随第一个，不再各自推到右侧。 */
+.dash-service-head .dash-tag + .dash-tag,
+.dash-more-list .dash-tag + .dash-tag { margin-left: 6px; }
+
+/* 买家节点入口：账户内数据页与公开实时监控保持为两个清晰入口。 */
+.dash-network-entry-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dash-network-entry { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 11px 13px; align-items: start; padding: 15px 16px; border: 1px solid var(--cc-line); border-radius: 10px; background: var(--cc-card); }
+.dash-network-icon { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--cc-accent-line); border-radius: 10px; background: var(--cc-accent-tint); color: var(--cc-accent); }
+.dash-network-icon svg { width: 19px; height: 19px; stroke-width: 1.6; }
+.dash-network-entry > div { min-width: 0; }
+.dash-network-entry strong { color: var(--cc-text); font-size: 14px; font-weight: 600; }
+.dash-network-entry p { margin: 4px 0 0; color: var(--cc-text-3); font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.dash-network-entry small { display: block; margin-top: 8px; color: var(--cc-text-4); font-size: 11.5px; }
+.dash-network-entry > .dash-secondary-link { grid-column: 2; justify-self: start; }
+
+/* 管理员人工开通：复用现有服务卡，仅补列表间距与错误提示。 */
+.dash-admin-list { display: flex; flex-direction: column; gap: 10px; }
+.dash-inline-error { margin: 0 0 12px; color: #e0575b; font-size: 12.5px; }
+.dash-delivery-form { min-width: 0; margin: 16px 0 0; padding: 14px; border: 1px solid var(--cc-hairline); border-radius: 10px; background: var(--cc-inset); }
+.dash-delivery-form legend { padding: 0 6px; color: var(--cc-text-2); font-size: 12.5px; font-weight: 600; }
+.dash-delivery-row { display: grid; grid-template-columns: minmax(140px, 0.75fr) minmax(170px, 0.9fr) minmax(240px, 1.55fr) auto; align-items: end; gap: 10px; margin-top: 10px; }
+.dash-delivery-row:first-of-type { margin-top: 2px; }
+.dash-delivery-field { min-width: 0; display: flex; flex-direction: column; gap: 6px; color: var(--cc-text-3); font-size: 11.5px; }
+.dash-delivery-field input,
+.dash-delivery-field select { width: 100%; height: 40px; padding: 0 11px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 13px; }
+.dash-delivery-field select { appearance: auto; }
+.dash-delivery-field input:focus,
+.dash-delivery-field select:focus { border-color: var(--cc-accent-line); outline: none; box-shadow: inset 0 0 0 1px var(--cc-accent-inset); }
+.dash-delivery-field select:disabled { cursor: not-allowed; opacity: 0.65; }
+.dash-delivery-remove,
+.dash-delivery-actions button { min-height: 40px; padding: 0 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text-2); font: inherit; font-size: 12.5px; cursor: pointer; }
+.dash-delivery-remove:disabled,
+.dash-delivery-actions button:disabled { cursor: not-allowed; opacity: 0.5; }
+.dash-delivery-actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.dash-delivery-actions small { color: var(--cc-text-4); font-size: 11px; }
+
+/* 管理员诊断请求：沿用 dash-panel / dash-service，不引入新的后台页面层级。 */
+.dash-diagnosis-toolbar { display: flex; align-items: center; gap: 8px; margin: -2px 0 14px; }
+.dash-diagnosis-toolbar button { min-height: 36px; padding: 0 13px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text-3); font: inherit; font-size: 12.5px; cursor: pointer; }
+.dash-diagnosis-toolbar button.is-active { border-color: var(--cc-accent-line); background: var(--cc-accent-tint); color: var(--cc-accent); font-weight: 600; }
+.dash-diagnosis-toolbar .dash-diagnosis-refresh { margin-left: auto; }
+.dash-diagnosis-toolbar button:disabled { cursor: not-allowed; opacity: 0.5; }
+.dash-tag.is-handled { border-color: var(--cc-accent-line); background: var(--cc-accent-tint); color: var(--cc-accent); }
+.dash-diagnosis-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.dash-diagnosis-copy { display: grid; gap: 10px; margin-top: 15px; }
+.dash-diagnosis-copy section { padding: 12px 13px; border: 1px solid var(--cc-hairline); border-radius: 9px; background: var(--cc-inset); }
+.dash-diagnosis-copy h3 { margin: 0; color: var(--cc-text-3); font-size: 11.5px; font-weight: 500; }
+.dash-diagnosis-copy p { margin: 5px 0 0; color: var(--cc-text-2); font-size: 13.5px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dash-diagnosis-form { min-width: 0; margin: 16px 0 0; padding: 14px; border: 1px solid var(--cc-hairline); border-radius: 10px; background: var(--cc-inset); }
+.dash-diagnosis-form legend { padding: 0 6px; color: var(--cc-text-2); font-size: 12.5px; font-weight: 600; }
+.dash-diagnosis-form > div { display: grid; grid-template-columns: minmax(180px, 0.55fr) minmax(280px, 1.45fr); align-items: start; gap: 12px; }
+.dash-diagnosis-form label { min-width: 0; display: flex; flex-direction: column; gap: 6px; color: var(--cc-text-3); font-size: 11.5px; }
+.dash-diagnosis-form label > span { display: flex; }
+.dash-diagnosis-form label small { margin-left: auto; color: var(--cc-text-4); font-size: 10.5px; }
+.dash-diagnosis-form select,
+.dash-diagnosis-form textarea { width: 100%; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 13px; }
+.dash-diagnosis-form select { height: 40px; padding: 0 10px; }
+.dash-diagnosis-form textarea { min-height: 76px; padding: 9px 10px; resize: vertical; line-height: 1.55; }
+.dash-diagnosis-form select:focus,
+.dash-diagnosis-form textarea:focus { border-color: var(--cc-accent-line); outline: none; box-shadow: inset 0 0 0 1px var(--cc-accent-inset); }
+.dash-diagnosis-form .dash-inline-error { margin: 10px 0 0; }
+.dash-diagnosis-form > .dash-primary-link { margin-top: 12px; }
+.dash-diagnosis-resolution { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0 0; padding: 13px; border: 1px solid var(--cc-hairline); border-radius: 9px; background: var(--cc-inset); }
+.dash-diagnosis-resolution dt { color: var(--cc-text-3); font-size: 11.5px; }
+.dash-diagnosis-resolution dd { margin: 4px 0 0; color: var(--cc-text-2); font-size: 13.5px; overflow-wrap: anywhere; }
+
+/* 商业管理:套餐与优惠券,延续既有 dash-panel / dash-service / dash-tag / dash-primary-link 视觉语言。 */
+.dash-plans-toolbar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+.dash-plans-toolbar input[type="text"] { flex: 1 1 260px; min-width: 0; height: 40px; padding: 0 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 13px; }
+.dash-plans-toolbar select { flex: 0 0 auto; height: 40px; padding: 0 10px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 13px; }
+.dash-plans-toolbar input:focus,
+.dash-plans-toolbar select:focus { border-color: var(--cc-accent-line); outline: none; box-shadow: inset 0 0 0 1px var(--cc-accent-inset); }
+
+.dash-plans-table-wrap { max-height: 640px; overflow: auto; border: 1px solid var(--cc-hairline); border-radius: 10px; }
+.dash-plans-table { width: 100%; min-width: 860px; border-collapse: collapse; font-size: 12.5px; }
+.dash-plans-table th,
+.dash-plans-table td { padding: 9px 10px; border-bottom: 1px solid var(--cc-hairline); text-align: left; white-space: nowrap; }
+.dash-plans-table thead th { position: sticky; top: 0; background: var(--cc-inset); color: var(--cc-text-3); font-weight: 600; z-index: 1; }
+.dash-plans-table tbody tr:last-of-type td { border-bottom: 0; }
+.dash-plans-input { width: 88px; height: 32px; padding: 0 9px; border: 1px solid var(--cc-line); border-radius: 7px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 12.5px; }
+.dash-plans-input-slots { width: 76px; }
+.dash-plan-status { border: 1px solid var(--cc-line); background: var(--cc-inset); color: var(--cc-text-3); cursor: pointer; }
+.dash-plan-status.is-active { border-color: var(--cc-accent-line); background: var(--cc-accent-tint); color: var(--cc-accent); }
+.dash-plans-row-error { margin: 6px 0 0; white-space: normal; max-width: 220px; }
+
+/* 用户服务管理 */
+.dash-usvc-lead { margin: -6px 0 14px; color: var(--cc-text-3); font-size: 12.5px; line-height: 1.6; }
+.dash-usvc-search { flex-wrap: wrap; }
+.dash-usvc-search input { flex: 1 1 240px; min-width: 0; }
+.dash-usvc-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.dash-usvc-users { list-style: none; margin: 0 0 14px; padding: 0; border: 1px solid var(--cc-hairline); border-radius: 10px; }
+.dash-usvc-users li { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--cc-hairline); font-size: 13px; }
+.dash-usvc-users li:last-child { border-bottom: 0; }
+.dash-usvc-users li.is-selected { background: var(--cc-accent-tint); }
+.dash-usvc-email { min-width: 0; flex: 1 1 200px; overflow-wrap: anywhere; color: var(--cc-text); }
+.dash-usvc-ghost { height: 30px; padding: 0 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text-2); font: inherit; font-size: 12.5px; cursor: pointer; }
+.dash-usvc-ghost:disabled { cursor: not-allowed; opacity: 0.55; }
+.dash-usvc-detail h3 { margin: 18px 0 10px; font-size: 13.5px; font-weight: 600; }
+.dash-usvc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.dash-usvc-item { min-width: 0; padding: 13px 14px; border: 1px solid var(--cc-line); border-radius: 10px; background: var(--cc-card); }
+.dash-usvc-item.is-revoked { opacity: 0.6; }
+.dash-usvc-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.dash-usvc-head strong { min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
+.dash-usvc-meta { margin: 6px 0 0; color: var(--cc-text-3); font-size: 12px; overflow-wrap: anywhere; }
+/* 管理员下期续费周期：服务卡内一行，沿用 dash-usvc 控件尺寸。 */
+.dash-usvc-renewal { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--cc-hairline); }
+.dash-usvc-renewal .dash-usvc-foot { margin-top: 8px; }
+.dash-usvc-renewal select { height: 30px; padding: 0 8px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 12.5px; }
+.dash-usvc-renewal select:focus-visible,
+.dash-usvc-renewal button:focus-visible { outline: 2px solid var(--cc-accent-line); outline-offset: 2px; }
+/* 管理员订单管理：说明、结果提示、关单确认文字。 */
+.dash-order-intro { margin: -6px 0 14px; color: var(--cc-text-3); font-size: 12.5px; line-height: 1.6; }
+.dash-order-notice { margin: 0 0 12px; padding: 9px 12px; border: 1px solid var(--cc-accent-line); border-radius: 10px; background: var(--cc-accent-tint); color: var(--cc-text-2); font-size: 13px; }
+.dash-order-close-prompt { flex-basis: 100%; margin: 0; color: var(--cc-text-2); font-size: 12.5px; line-height: 1.6; }
+.dash-usvc-head .dash-usvc-meta { margin: 0 0 0 auto; }
+.dash-usvc-grid { display: grid; gap: 10px 14px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 12px; }
+.dash-usvc-grid label { display: flex; flex-direction: column; gap: 6px; min-width: 0; color: var(--cc-text-3); font-size: 11.5px; }
+.dash-usvc-grid input,
+.dash-usvc-grid textarea { min-width: 0; padding: 8px 10px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 13px; }
+.dash-usvc-grid textarea { resize: vertical; }
+.dash-usvc-wide { grid-column: 1 / -1; }
+.dash-usvc-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+.dash-usvc-foot .dash-inline-error { margin: 0; }
+.dash-usvc-grant-form { margin-top: 16px; }
+.dash-usvc-grid select { min-width: 0; height: 38px; padding: 0 10px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 13px; }
+.dash-usvc-open { margin-top: 12px; padding: 12px 13px; border: 1px dashed var(--cc-line); border-radius: 9px; background: var(--cc-inset); }
+.dash-usvc-open .dash-usvc-meta { margin-top: 0; }
+.dash-usvc-line-remove { align-self: end; }
+.dash-usvc-grant-form h3 { margin: 0 0 4px; font-size: 13.5px; }
+
+.dash-coupon-create { padding: 14px 15px; margin-bottom: 14px; border: 1px solid var(--cc-hairline); border-radius: 10px; background: var(--cc-inset); }
+.dash-coupon-create-grid { display: grid; gap: 12px 14px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.dash-coupon-create-grid label { display: flex; flex-direction: column; gap: 6px; color: var(--cc-text-3); font-size: 11.5px; }
+.dash-coupon-create-grid input,
+.dash-coupon-create-grid select { height: 38px; padding: 0 10px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 13px; }
+.dash-coupon-create-foot { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+.dash-coupon-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--cc-hairline); }
+.dash-coupon-inline-edit { display: flex; align-items: center; gap: 8px; }
+.dash-coupon-inline-edit input { height: 36px; padding: 0 9px; border: 1px solid var(--cc-line); border-radius: 7px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 12.5px; }
+.dash-coupon-inline-edit input[type="number"] { width: 88px; }
+.dash-coupon-controls > button:not(.dash-primary-link),
+.dash-coupon-inline-edit button { min-height: 36px; padding: 0 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text-2); font: inherit; font-size: 12.5px; cursor: pointer; }
+.dash-coupon-controls button:disabled { cursor: not-allowed; opacity: 0.5; }
+.dash-coupon-redemptions { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--cc-hairline); overflow-x: auto; }
+.dash-coupon-redemptions p { margin: 0; color: var(--cc-text-4); font-size: 12px; }
+
+/* 邀请码管理沿用优惠券创建区与服务卡，只补一次性明文展示。 */
+.dash-invite-created { margin: 0 0 14px; padding: 14px 15px; border: 1px solid var(--cc-accent-line); border-radius: 10px; background: var(--cc-accent-tint); }
+.dash-invite-created > strong { display: block; color: var(--cc-text-2); font-size: 12.5px; }
+.dash-invite-created > code { display: block; margin-top: 9px; color: var(--cc-text); font-size: 15px; font-weight: 600; overflow-wrap: anywhere; user-select: all; }
+.dash-invite-created > div { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 11px; }
+.dash-invite-created button { min-height: 36px; padding: 0 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-card); color: var(--cc-text-2); font: inherit; font-size: 12.5px; cursor: pointer; }
+.dash-invite-created small,
+.dash-coupon-create-foot small { color: var(--cc-text-4); font-size: 11.5px; }
+
+/* 3. 网络状态 */
+.dash-network > div { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; padding: 9px 0; border-bottom: 1px solid var(--cc-hairline); color: var(--cc-text-2); font-size: 13.5px; }
+.dash-network > div:last-of-type { border-bottom: 0; }
+.dash-network > div b { color: var(--cc-text-4); font-weight: 500; font-variant-numeric: tabular-nums; }
+.dash-network footer { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--cc-hairline); color: var(--cc-text-4); font-size: 11.5px; }
+.dash-network footer i { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--cc-text-4); }
+
+/* 4. 快捷操作 */
+.dash-action-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(212px, 1fr)); }
+.dash-action { min-width: 0; display: flex; align-items: center; gap: 12px; padding: 14px 15px; border: 1px solid var(--cc-line); border-radius: 10px; background: var(--cc-card); color: var(--cc-text); text-align: left; text-decoration: none; transition: border-color 0.16s, background 0.16s; }
+.dash-action svg { width: 18px; height: 18px; flex: 0 0 18px; opacity: 0.8; stroke-width: 1.6; }
+.dash-action span { min-width: 0; }
+.dash-action strong { display: block; font-size: 14px; font-weight: 600; }
+.dash-action small { display: block; margin-top: 2px; color: var(--cc-text-3); font-size: 12px; }
+a.dash-action:hover { border-color: var(--cc-accent-line); background: var(--cc-accent-tint); }
+a.dash-action:hover strong { color: var(--cc-accent); }
+a.dash-action svg { color: var(--cc-accent); opacity: 1; }
+button.dash-action { cursor: not-allowed; opacity: 0.72; }
+button.dash-action strong { color: var(--cc-text-3); font-weight: 500; }
+
+@media (max-width: 1180px) {
+  .dash-split { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 980px) {
+  .dash-network-entry-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* 平板中段：自适应列会退化成 3+1 落单，此处显式降为 2 列。 */
+@media (min-width: 821px) and (max-width: 980px) {
+  .dash-stat-grid,
+  .dash-action-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+
+@media (max-width: 820px) {
+  .dash-layout { padding-top: 14px; gap: 11px; }
+  .dash-split { gap: 11px; }
+  .dash-panel { padding: 15px 14px 16px; border-radius: 12px; }
+  .dash-panel > h2 { margin-bottom: 12px; font-size: 13px; }
+  .dash-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-stat { padding: 12px 13px; }
+  .dash-stat > strong { font-size: 21px; }
+  .dash-service { padding: 13px 14px 14px; }
+  .dash-service-head strong { font-size: 17px; }
+  .dash-primary-link { width: 100%; justify-content: center; }
+  .dash-service-foot .dash-secondary-link { width: 100%; }
+  .dash-more-list li { padding: 10px 11px; }
+  .dash-more-list .dash-tag { margin-left: 0; }
+  .dash-network-entry { grid-template-columns: auto minmax(0, 1fr); padding: 13px 14px; }
+  .dash-network-entry > .dash-secondary-link { grid-column: 1 / -1; width: 100%; }
+  .dash-delivery-row { grid-template-columns: minmax(0, 1fr); }
+  .dash-delivery-remove { width: 100%; }
+  .dash-diagnosis-facts,
+  .dash-diagnosis-resolution { grid-template-columns: minmax(0, 1fr); }
+  .dash-diagnosis-form > div { grid-template-columns: minmax(0, 1fr); }
+  .dash-action-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* 监控不可用时的「暂不绑定 VPS 开通」确认项 */
+.dash-delivery-unbound { display: flex; align-items: flex-start; gap: 10px; margin: 12px 0 0; padding: 11px 12px; border: 1px dashed var(--cc-accent-line); border-radius: 9px; background: var(--cc-accent-tint); cursor: pointer; }
+.dash-delivery-unbound input { margin-top: 3px; flex: 0 0 auto; }
+.dash-delivery-unbound strong { display: block; color: var(--cc-text); font-size: 13px; }
+.dash-delivery-unbound small { display: block; margin-top: 3px; color: var(--cc-text-3); font-size: 12px; line-height: 1.5; }
+.dash-usvc-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 7px 0; border-top: 1px solid var(--cc-hairline); font-size: 12.5px; }
+.dash-usvc-line:first-child { border-top: 0; }
+.dash-usvc-line > span:first-child { min-width: 0; flex: 1 1 160px; overflow-wrap: anywhere; color: var(--cc-text); }
+.dash-usvc-line select { height: 32px; min-width: 0; max-width: 100%; padding: 0 8px; border: 1px solid var(--cc-line); border-radius: 7px; background: var(--cc-card); color: var(--cc-text); font: inherit; font-size: 12.5px; }
+.dash-tag.is-warn { border-style: dashed; color: #b06d05; }
+
+/* NSP-LINE-NAME-10：绑定 VPS 后线路名只读，跟随 VPS 名。 */
+.dash-delivery-name-hint { display: block; margin-top: 4px; color: var(--cc-text-4); font-size: 11px; font-weight: 400; line-height: 1.5; }
+.dash-delivery-form input[readonly],
+.dash-usvc-open input[readonly] { background: var(--cc-inset); color: var(--cc-text-2); cursor: default; }

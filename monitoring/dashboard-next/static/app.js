@@ -5,8 +5,12 @@ const WAN_META = {
 };
 const RANGE_LABELS = {'1h':'1 小时','6h':'6 小时','24h':'24 小时','7d':'7 天'};
 const RANGE_MS = {'1h':3600000,'6h':21600000,'24h':86400000,'7d':604800000};
-const savedVps=(()=>{try{return localStorage.getItem('network-monitor-selected-vps')}catch{return null}})();
-const state = {type:'icmp', range:'24h', target:'AliDNS', lastVps:savedVps||'DMIT Premium', vpsTargets:[], visible:new Set(['telecom','mobile','unicom']), samples:[], chart:null, liveKey:null, targetRequest:0, chartRequest:0, liveRequest:0, refreshPromise:null, chartController:null, vpsStatusRequest:0, vpsStatusPromise:null, vpsStatusTarget:null};
+function normalizeMonitorTarget(value){
+  return typeof value==='string'&&value.length>=1&&value.length<=128&&value===value.trim()&&!/[\u0000-\u001f\u007f]/.test(value)?value:null;
+}
+const savedVps=(()=>{try{return normalizeMonitorTarget(localStorage.getItem('network-monitor-selected-vps'))}catch{return null}})();
+const requestedVps=(()=>{try{return normalizeMonitorTarget(new URLSearchParams(location.search).get('vps'))}catch{return null}})();
+const state = {type:'icmp', range:'24h', target:'AliDNS', lastVps:requestedVps||savedVps||'DMIT Premium', vpsTargets:[], visible:new Set(['telecom','mobile','unicom']), samples:[], chart:null, liveKey:null, targetRequest:0, chartRequest:0, liveRequest:0, refreshPromise:null, chartController:null, vpsCatalogRequest:0, vpsStatusRequest:0, vpsStatusPromise:null, vpsStatusTarget:null};
 const routeState={wan:'telecom',direction:'outbound',protocol:'icmp',target:'DMIT Premium',targets:[],hops:[],expanded:false,request:0,controller:null};
 
 const $ = selector => document.querySelector(selector);
@@ -69,6 +73,8 @@ function renderVpsUnavailable(status,label,target){
 }
 
 function renderVpsStatus(data){
+  if(data.customer_state==='disabled')return renderVpsUnavailable('disabled','已停用',data.target);
+  if(data.customer_state==='retired')return renderVpsUnavailable('missing','已退役',data.target);
   const item=data.item;
   if(!item){
     const label=data.source_status==='connecting'?'读取中':'未接入';
@@ -87,6 +93,15 @@ function renderVpsStatus(data){
 }
 
 async function loadVpsStatus(target=state.lastVps){
+  const targetItem=state.vpsTargets.find(item=>item.target_name===target);
+  if(targetItem?.customer_state==='retired'){
+    renderVpsUnavailable('missing','已退役或移除',target);
+    return true;
+  }
+  if(targetItem?.customer_state==='disabled'){
+    renderVpsUnavailable('disabled','已停用',target);
+    return true;
+  }
   if(state.vpsStatusPromise&&state.vpsStatusTarget===target)return state.vpsStatusPromise;
   const requestId=++state.vpsStatusRequest;state.vpsStatusTarget=target;
   const task=(async()=>{
@@ -95,7 +110,11 @@ async function loadVpsStatus(target=state.lastVps){
       if(requestId!==state.vpsStatusRequest||target!==state.lastVps)return false;
       renderVpsStatus(data);return true;
     }catch(error){
-      if(requestId===state.vpsStatusRequest&&target===state.lastVps)renderVpsUnavailable('stale','暂不可用',target);
+      if(requestId===state.vpsStatusRequest&&target===state.lastVps){
+        const currentTarget=state.vpsTargets.find(item=>item.target_name===target);
+        const removed=currentTarget?.customer_state==='retired';
+        renderVpsUnavailable(removed?'missing':'stale',removed?'已退役或移除':'暂不可用',target);
+      }
       console.error(error);return false;
     }
   })();
@@ -121,20 +140,86 @@ async function loadTargets(){
 function renderVpsPicker(){
   $('#vpsPicker').innerHTML=state.vpsTargets.map(item=>{
     const active=state.lastVps===item.target_name;
-    return `<button class="vps-option${active?' active':''}${item.has_data?'':' no-data'}" data-target="${escapeHtml(item.target_name)}" aria-pressed="${active}" title="${escapeHtml(item.display_name)}"><i></i><span>${escapeHtml(item.display_name)}</span></button>`;
+    const monitorState=['online','offline','disabled'].includes(item.monitor_state)?item.monitor_state:'loading';
+    const monitorLabel=item.customer_state==='retired'
+      ? '已退役'
+      : {online:'在线',offline:'离线或连接不上',disabled:'已停用',loading:'读取中'}[monitorState];
+    return `<button class="vps-option ${monitorState}${active?' active':''}${item.has_data?'':' no-data'}" data-target="${escapeHtml(item.target_name)}" aria-pressed="${active}" title="${escapeHtml(item.display_name)} · ${monitorLabel}"><i></i><span>${escapeHtml(item.display_name)}</span></button>`;
   }).join('');
 }
 
+function normalizeVpsCustomerState(value,collectorEnabled){
+  if(value==='active'||value==='disabled'||value==='retired')return value;
+  if(value==null)return collectorEnabled===false?'disabled':'active';
+  return 'disabled';
+}
+
+function vpsPickerMonitorState(item,data){
+  if(normalizeVpsCustomerState(item.customer_state,item.collector_enabled)!=='active')return 'disabled';
+  return data?.fresh&&data?.item?.online?'online':'offline';
+}
+
+async function refreshVpsPickerStatus(){
+  const targets=[...state.vpsTargets];
+  if(!targets.length)return false;
+
+  const statuses=await Promise.all(targets.map(async item=>{
+    if(item.customer_state!=='active')return [item.target_name,'disabled'];
+    try{
+      const data=await getJSON(`/api/vps-status?target=${encodeURIComponent(item.target_name)}`);
+      return [item.target_name,vpsPickerMonitorState(item,data)];
+    }catch(error){
+      console.error(error);
+      return [item.target_name,'offline'];
+    }
+  }));
+
+  const byTarget=new Map(statuses);
+  state.vpsTargets=state.vpsTargets.map(item=>({
+    ...item,
+    monitor_state:byTarget.get(item.target_name)||item.monitor_state||'offline'
+  }));
+  renderVpsPicker();
+  return true;
+}
+
 async function loadVpsTargets(){
+  const requestId=++state.vpsCatalogRequest;
   const data=await getJSON('/api/vps-targets');
+  if(requestId!==state.vpsCatalogRequest)return false;
   const order=['DMIT Premium','DMIT Eyeball','NetLab Global US','Zillion Network','Evoxt Premium','Alibaba Cloud','NetLab Global HK','Yecaoyun Cloud'];
-  state.vpsTargets=data.targets.filter(item=>item.target_name!=='Yecaoyun Cloud2-current' && !/Yecaoyun Cloud2/i.test(item.display_name ?? '')).sort((a,b)=>{
+  const catalog=data.targets.map(item=>({
+    ...item,
+    customer_state:normalizeVpsCustomerState(item.customer_state,item.collector_enabled)
+  }));
+  const hasRequested=requestedVps&&catalog.some(item=>item.target_name===requestedVps);
+  if(requestedVps&&!hasRequested){
+    catalog.push({
+      target_name:requestedVps,
+      display_name:requestedVps,
+      collector_enabled:false,
+      customer_state:'retired',
+      has_data:false,
+      monitor_state:'disabled'
+    });
+  }
+  state.vpsTargets=catalog.filter(item=>item.customer_state!=='retired'||item.target_name===requestedVps).sort((a,b)=>{
     const ai=order.indexOf(a.target_name),bi=order.indexOf(b.target_name);
-    return (ai<0?99:ai)-(bi<0?99:bi);
+    const orderDifference=(ai<0?99:ai)-(bi<0?99:bi);
+    return orderDifference||String(a.display_name).localeCompare(String(b.display_name),'zh-CN');
   });
   const names=state.vpsTargets.map(item=>item.target_name);
-  if(!names.includes(state.lastVps))state.lastVps=names.includes('DMIT Premium')?'DMIT Premium':names[0];
+  if(requestedVps){
+    state.lastVps=requestedVps;
+  }else if(!names.includes(state.lastVps)){
+    const activeTargets=state.vpsTargets.filter(item=>item.customer_state==='active');
+    state.lastVps=activeTargets.some(item=>item.target_name==='DMIT Premium')
+      ? 'DMIT Premium'
+      : activeTargets[0]?.target_name||state.vpsTargets[0]?.target_name||state.lastVps;
+  }
   renderVpsPicker();
+  await refreshVpsPickerStatus();
+  return true;
 }
 
 async function selectVps(target){
@@ -232,19 +317,20 @@ function drawChart(samples){
   const xAt = epoch => plot.x + (epoch-minTime)/(maxTime-minTime)*plot.w;
   const yAt = value => zeroY-Number(value)/yMax*dataHeight;
 
+  const ct=chartTheme();
   ctx.clearRect(0,0,width,height);
   ctx.font = `${compact ? 12 : 20}px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif`;
   ctx.textBaseline='middle';
   for(let i=0;i<=5;i++){
     const y=plot.y+dataHeight*i/5, value=yMax*(1-i/5);
-    ctx.strokeStyle='rgba(115,130,150,.12)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(plot.x,y);ctx.lineTo(plot.x+plot.w,y);ctx.stroke();
-    ctx.fillStyle='#a0a5ad';ctx.textAlign='right';ctx.fillText(`${Math.round(value)}ms`,plot.x-(compact?8:18),y);
+    ctx.strokeStyle=ct.gridStrong;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(plot.x,y);ctx.lineTo(plot.x+plot.w,y);ctx.stroke();
+    ctx.fillStyle=ct.axis;ctx.textAlign='right';ctx.fillText(`${Math.round(value)}ms`,plot.x-(compact?8:18),y);
   }
   const xDivisions = compact ? 3 : 6;
   for(let i=0;i<=xDivisions;i++){
     const x=plot.x+plot.w*i/xDivisions, epoch=minTime+(maxTime-minTime)*i/xDivisions;
-    ctx.strokeStyle='rgba(115,130,150,.08)';ctx.beginPath();ctx.moveTo(x,plot.y);ctx.lineTo(x,plot.y+plot.h);ctx.stroke();
-    ctx.fillStyle='#a0a5ad';ctx.textAlign=i===0?'left':i===xDivisions?'right':'center';ctx.fillText(axisShanghai(epoch),x,plot.y+plot.h+(compact?18:22));
+    ctx.strokeStyle=ct.gridSoft;ctx.beginPath();ctx.moveTo(x,plot.y);ctx.lineTo(x,plot.y+plot.h);ctx.stroke();
+    ctx.fillStyle=ct.axis;ctx.textAlign=i===0?'left':i===xDivisions?'right':'center';ctx.fillText(axisShanghai(epoch),x,plot.y+plot.h+(compact?18:22));
   }
   ctx.save();ctx.beginPath();ctx.rect(plot.x,plot.y,plot.w,plot.h);ctx.clip();
   for(const [wan,meta] of Object.entries(WAN_META)){
@@ -307,18 +393,19 @@ function drawHover(rows){
     canvas.width=Math.round(rect.width*dpr);canvas.height=Math.round(rect.height*dpr);
   }
   const ctx=canvas.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,rect.width,rect.height);
+  const ct=chartTheme();
   const {plot,zeroY,xAt,yAt}=state.chart;
   const offsetX=baseRect.left-rect.left,offsetY=baseRect.top-rect.top;
   const anchor=rows.reduce((sum,row)=>sum+row.epoch,0)/rows.length;
   const x=Math.max(plot.x,Math.min(plot.x+plot.w,xAt(anchor)))+offsetX;
   ctx.save();ctx.beginPath();ctx.rect(plot.x+offsetX,plot.y+offsetY,plot.w,plot.h);ctx.clip();
-  ctx.strokeStyle='rgba(225,231,239,.78)';ctx.lineWidth=1.35;ctx.setLineDash([6,5]);ctx.beginPath();ctx.moveTo(x,plot.y+offsetY);ctx.lineTo(x,plot.y+plot.h+offsetY);ctx.stroke();ctx.setLineDash([]);
+  ctx.strokeStyle=ct.hoverLine;ctx.lineWidth=1.35;ctx.setLineDash([6,5]);ctx.beginPath();ctx.moveTo(x,plot.y+offsetY);ctx.lineTo(x,plot.y+plot.h+offsetY);ctx.stroke();ctx.setLineDash([]);
   for(const row of rows){
     const meta=WAN_META[row.wan];
     const lineValue=valueOnLine(row.wan,anchor);
     if(lineValue!=null){
       const y=yAt(lineValue)+offsetY;ctx.shadowBlur=0;ctx.fillStyle=meta.color;ctx.beginPath();ctx.arc(x,y,4.5,0,Math.PI*2);ctx.fill();
-      ctx.fillStyle='#f7fafc';ctx.beginPath();ctx.arc(x,y,2,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle=ct.hoverInner;ctx.beginPath();ctx.arc(x,y,2,0,Math.PI*2);ctx.fill();
     }else{
       const y=zeroY+10+offsetY;ctx.strokeStyle='#ff4d4f';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x-5,y-5);ctx.lineTo(x+5,y+5);ctx.moveTo(x+5,y-5);ctx.lineTo(x-5,y+5);ctx.stroke();
     }
@@ -501,11 +588,215 @@ function bindInteractions(){
   let resizeTimer;window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>drawChart(state.samples),120)});
 }
 
+/* ===== 侧栏紧凑三网视图（?view=mini）=====
+   与完整监控同一页面、同一 /api/latency 同源只读数据；仅换一套紧凑呈现，供官网侧栏
+   iframe 嵌入。永不编造延迟：数值只反映真实最新样本，最新样本失败或缺失时显示无响应 /
+   '—'，而非保留过期值当当前；曲线取窗口内最近的真实成功样本作为趋势。每 15 秒刷新一次。 */
+const MINI_WANS=[['telecom','电信'],['mobile','移动'],['unicom','联通']];
+/* 与批准设计「网络状态监控卡片」一致的绘图盒：viewBox 260x46、上下留 5、最多 14 个点。 */
+const MINI_W=260,MINI_H=46,MINI_PAD=5,MINI_MAX_POINTS=14;
+
+/** 由 /api/latency 的 samples 归约出每条线路的紧凑序列（纯函数，供 node --test 校验）。
+    samples 已按时间升序。values 只收集成功且有 avg_ms 的点用于画趋势；current 只在
+    最新样本成功时给出，否则为 null（不把过期样本当当前）。 */
+function buildMiniSeries(samples){
+  const rows=MINI_WANS.map(([wan,name])=>({wan,name,values:[],current:null,latestFailed:false,hasData:false}));
+  const byWan={};
+  for(const row of rows)byWan[row.wan]=row;
+  const list=Array.isArray(samples)?samples:[];
+  for(const sample of list){
+    if(!sample||typeof sample!=='object')continue;
+    const row=byWan[sample.wan];
+    if(!row)continue;
+    const value=Number(sample.avg_ms);
+    const ok=Boolean(sample.success)&&sample.avg_ms!=null&&Number.isFinite(value);
+    if(ok)row.values.push(value);
+    row.current=ok?value:null;
+    row.latestFailed=!ok;
+  }
+  for(const row of rows)row.hasData=row.values.length>0;
+  return rows;
+}
+
+/** 线路展示态：ok(最新成功) / down(有测量但最新失败) / empty(窗口内无样本)。纯函数。 */
+function miniRowState(row){
+  if(!row)return 'empty';
+  if(row.current!=null)return 'ok';
+  if(row.latestFailed||row.hasData)return 'down';
+  return 'empty';
+}
+
+/** 三网共用的纵向刻度（纯函数）。设计源的视觉基准为 6..60ms；真实样本超出时扩展
+    边界而不裁掉数据，处于基准范围内时保持原设计的克制振幅，避免用样本自身最小/最大值
+    把轻微波动夸张成全高尖峰。无有效样本时返回 null。 */
+function buildMiniDomain(rows,maxPoints){
+  const limit=maxPoints||MINI_MAX_POINTS;
+  let lo=Infinity,hi=-Infinity;
+  for(const row of (Array.isArray(rows)?rows:[])){
+    const values=row&&Array.isArray(row.values)?row.values.slice(-limit):[];
+    for(const value of values){
+      if(typeof value!=='number'||!Number.isFinite(value))continue;
+      if(value<lo)lo=value;
+      if(value>hi)hi=value;
+    }
+  }
+  if(!Number.isFinite(lo)||!Number.isFinite(hi))return null;
+  return {lo:Math.min(6,lo),hi:Math.max(60,hi)};
+}
+
+/** 把真实样本序列映射为设计同款折线（纯函数）：等间距 x、y 随延迟增大而下移，
+    超出定域时截断到边界。只取最近 maxPoints 个真实成功样本并与右边缘对齐（最新在最右），
+    既不插值也不外插；有效点少于 2 个时返回 ''，调用方据此不画线，保持诚实空态。 */
+function buildMiniPath(values,domain,w,h,pad,maxPoints){
+  const limit=maxPoints||MINI_MAX_POINTS;
+  const nums=(Array.isArray(values)?values:[]).filter(v=>typeof v==='number'&&Number.isFinite(v)).slice(-limit);
+  if(!domain||nums.length<2)return '';
+  const span=domain.hi-domain.lo||1;
+  const p=pad==null?MINI_PAD:pad;
+  const step=w/(limit-1);
+  const offset=w-step*(nums.length-1);
+  return nums.map((value,index)=>{
+    const t=Math.max(0,Math.min(1,(value-domain.lo)/span));
+    const y=p+t*(h-p*2);
+    return (index?'L':'M')+(offset+index*step).toFixed(1)+' '+y.toFixed(1);
+  }).join(' ');
+}
+
+/** 三网平均延迟（纯函数）：只对最新一次探测成功的线路取平均，失败或无样本的线路不计入，
+    也不用历史值顶替。全部不可用时返回 null，由调用方显示 '—'。 */
+function buildMiniAverage(rows){
+  const nums=(Array.isArray(rows)?rows:[])
+    .map(row=>row&&row.current)
+    .filter(value=>typeof value==='number'&&Number.isFinite(value));
+  if(!nums.length)return null;
+  return nums.reduce((total,value)=>total+value,0)/nums.length;
+}
+
+function setMiniStatus(state){
+  document.documentElement.dataset.miniState=state;
+  const label=$('#miniStatus');
+  // live 态用设计给定的 LIVE 标记；设计未覆盖的读取中 / 同步失败沿用监控既有中文措辞。
+  if(label)label.textContent=state==='live'?'LIVE':state==='stale'?'同步失败':'读取中';
+}
+
+function renderMini(rows){
+  const domain=buildMiniDomain(rows,MINI_MAX_POINTS);
+  for(const row of rows){
+    const state=miniRowState(row);
+    const line=$(`.mini-line[data-wan="${row.wan}"]`);
+    if(line){
+      const d=buildMiniPath(row.values,domain,MINI_W,MINI_H,MINI_PAD,MINI_MAX_POINTS);
+      line.setAttribute('d',d);
+      line.classList.toggle('has-line',d!=='');
+    }
+    const chip=$(`.mini-chip[data-wan="${row.wan}"]`);
+    if(chip){
+      chip.dataset.state=state;
+      const value=chip.querySelector('b');
+      // 只显示真实最新样本；最新失败显示无响应，窗口内无样本显示 '—'，不保留过期值。
+      if(value)value.textContent=state==='ok'?row.current.toFixed(1):state==='down'?'无响应':'—';
+    }
+  }
+  const average=buildMiniAverage(rows);
+  const averageNode=$('#miniAvg');
+  if(averageNode)averageNode.textContent=average==null?'—':average.toFixed(1);
+}
+
+let miniRendered=false;
+function miniLatencyUrl(target){
+  const selected=normalizeMonitorTarget(target)||'DMIT Premium';
+  return `/api/latency?range=6h&type=icmp&target=${encodeURIComponent(selected)}`;
+}
+async function loadMini(first){
+  if(first)setMiniStatus('loading');
+  try{
+    const target=normalizeMonitorTarget(state.lastVps)||'DMIT Premium';
+    const data=await getJSON(miniLatencyUrl(target));
+    if(data.target!==target)throw new Error('mini target mismatch');
+    renderMini(buildMiniSeries(data.samples));
+    miniRendered=true;
+    setMiniStatus('live');
+  }catch(error){
+    // 失败不回退假数据；已渲染过真实曲线时保留并标记过期，从未成功时显示诚实空态。
+    if(!miniRendered)renderMini(buildMiniSeries([]));
+    setMiniStatus('stale');
+  }
+}
+
+function initMini(){
+  loadMini(true);
+  setInterval(()=>{if(!document.hidden)loadMini(false)},15000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)loadMini(false)});
+}
+
+/* ===== 主题嵌入契约（只读接收，监控内不新增任何主题开关） =====
+   监控主题只有两条来源：URL 的 ?theme= 初值（避免首屏闪烁），以及父页面经精确 origin
+   校验后单向下发的版本化 postMessage。直接打开（无父 / 无 query）时保持既有默认深色。
+   主题消息不含任何客户 / 节点 / 监控 / 凭据 / 业务数据，也不提供任何回读通道。 */
+const THEME_MESSAGE_TYPE='nsp-monitor-theme:v1';
+function normalizeTheme(value){return value==='light'?'light':'dark';}
+function isLoopbackOrigin(origin){
+  try{const host=new URL(origin).hostname;return host==='localhost'||host==='127.0.0.1'||host==='[::1]'||host==='::1';}catch{return false;}
+}
+function chartTheme(){
+  const light=typeof document!=='undefined'&&document.documentElement.dataset.theme==='light';
+  return light
+    ? {gridStrong:'rgba(90,102,122,.18)',gridSoft:'rgba(90,102,122,.10)',axis:'#5c6472',hoverLine:'rgba(40,46,57,.55)',hoverInner:'#ffffff'}
+    : {gridStrong:'rgba(115,130,150,.12)',gridSoft:'rgba(115,130,150,.08)',axis:'#a0a5ad',hoverLine:'rgba(225,231,239,.78)',hoverInner:'#f7fafc'};
+}
+/* 生产可信父源：由 <meta name="monitor-embed-origin"> 绑定已冻结的 canonical 网站
+   origin；未配置即对跨源父页面 fail-closed。 */
+function approvedParentOrigins(){
+  const list=[];
+  try{
+    const meta=document.querySelector('meta[name="monitor-embed-origin"]');
+    const raw=meta&&meta.content?meta.content.trim():'';
+    if(raw){for(const item of raw.split(/[\s,]+/)){if(!item)continue;try{list.push(new URL(item).origin);}catch{}}}
+  }catch{}
+  return list;
+}
+/* 纯校验：source 必须是本 iframe 的父窗口；type 必须精确匹配版本化类型；theme 只接受
+   dark|light；origin 必须命中已批准网站 origin、或与监控同源、或仅当监控自身运行在
+   loopback 时接受 loopback 父源。任一不满足即拒绝。 */
+function isTrustedThemeMessage(event,config){
+  if(!event||event.source==null||event.source!==config.parentWindow)return false;
+  const data=event.data;
+  if(!data||typeof data!=='object'||data.type!==THEME_MESSAGE_TYPE)return false;
+  if(data.theme!=='dark'&&data.theme!=='light')return false;
+  const origin=event.origin;
+  if(Array.isArray(config.approvedOrigins)&&config.approvedOrigins.includes(origin))return true;
+  if(origin===config.monitorOrigin)return true;
+  if(config.allowLoopback&&isLoopbackOrigin(origin))return true;
+  return false;
+}
+function applyTheme(theme){document.documentElement.dataset.theme=normalizeTheme(theme);}
+function initThemeEmbed(){
+  document.documentElement.dataset.embedded=window.parent!==window?'true':'false';
+  try{applyTheme(new URLSearchParams(location.search).get('theme'));}catch{applyTheme('dark');}
+  const monitorOrigin=location.origin;
+  const config={parentWindow:window.parent,monitorOrigin,approvedOrigins:approvedParentOrigins(),allowLoopback:isLoopbackOrigin(monitorOrigin)};
+  window.addEventListener('message',event=>{
+    if(!isTrustedThemeMessage(event,config))return;
+    applyTheme(event.data.theme);
+    if(state.chart)drawChart(state.samples);
+  });
+}
+
 async function init(){
   bindInteractions();
   try{await Promise.all([loadOverview(),loadVpsTargets(),loadTargets(),loadRoute()]);await Promise.all([loadChart(),loadLive(false),loadVpsStatus()]);}
   catch(error){console.error(error);$('#chartLoading').innerHTML='<span></span>候选 API 读取失败';setOverall({status:'stale',label:'读取失败'});}
   setInterval(()=>{if(!document.hidden){loadLive(true);loadVpsStatus()}},5000);
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden){loadLive(true);loadVpsStatus()}});
+  setInterval(()=>{if(!document.hidden)loadVpsTargets()},15000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden){loadLive(true);loadVpsStatus();loadVpsTargets()}});
 }
-init();
+if(typeof window!=='undefined'&&typeof document!=='undefined'){
+  initThemeEmbed();
+  // 紧凑侧栏视图只跑轻量 mini 逻辑，不加载完整仪表板与其多路轮询。
+  if(document.documentElement.dataset.view==='mini')initMini();
+  else init();
+}
+/* 供 node --test 校验纯逻辑；浏览器经典脚本里 module 未定义，短路跳过。 */
+if(typeof module!=='undefined'&&module.exports){
+  module.exports={THEME_MESSAGE_TYPE,normalizeTheme,isLoopbackOrigin,isTrustedThemeMessage,normalizeMonitorTarget,normalizeVpsCustomerState,vpsPickerMonitorState,buildMiniSeries,miniRowState,buildMiniDomain,buildMiniPath,buildMiniAverage,miniLatencyUrl};
+}

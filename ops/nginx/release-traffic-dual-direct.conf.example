@@ -1,0 +1,84 @@
+# VALUE-FREE OPT-IN DUAL-DIRECT OPEN CANDIDATE ONLY.
+# Both approved hosts preserve their own hostname on HTTP-to-HTTPS upgrade and
+# serve the same verified release on HTTPS. Never combine this with the bare
+# redirect fragment; render and validate it only for an approved target.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name __OPEN_BARE_HOST__ __OPEN_CANONICAL_HOST__;
+
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name __OPEN_BARE_HOST__ __OPEN_CANONICAL_HOST__;
+
+    __OPEN_EXISTING_TLS_DIRECTIVES__
+
+    root __OPEN_CANDIDATE_WEBSITE_ROOT__;
+    index index.html;
+    autoindex off;
+
+    # OPEN_PRESERVE_MIME_BEGIN: omit this block only when preserving the bound MIME scope.
+    include mime.types;
+    default_type application/octet-stream;
+    # OPEN_PRESERVE_MIME_END
+
+    set $open_cache_control "no-cache, no-store, must-revalidate";
+    add_header Cache-Control $open_cache_control always;
+    # OPEN_PRESERVE_SECURITY_HEADERS_BEGIN: omit this block only when preserving bound headers.
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
+    # OPEN_PRESERVE_SECURITY_HEADERS_END
+    add_header Content-Security-Policy __OPEN_CSP_POLICY__ always;
+    __OPEN_X_FRAME_OPTIONS_DIRECTIVE__
+    __OPEN_HSTS_DIRECTIVE__
+    __OPEN_COMPRESSION_DIRECTIVES__
+
+    location = /api {
+        set $open_cache_control "";
+        proxy_cache off;
+        proxy_no_cache 1;
+        proxy_cache_bypass 1;
+        proxy_intercept_errors off;
+        proxy_pass __OPEN_API_UPSTREAM__;
+    }
+
+    location ^~ /api/ {
+        set $open_cache_control "";
+        proxy_cache off;
+        proxy_no_cache 1;
+        proxy_cache_bypass 1;
+        proxy_intercept_errors off;
+        proxy_pass __OPEN_API_UPSTREAM__;
+    }
+
+    location ~ "^/assets/[A-Za-z0-9._-]+-[A-Fa-f0-9]{8,}\.(?:css|js|mjs|json|map|svg|png|jpe?g|webp|avif|gif|ico|woff2?|ttf|otf)$" {
+        set $open_cache_control "public, max-age=31536000, immutable";
+        try_files $uri =404;
+    }
+
+    location /assets/ {
+        set $open_cache_control "no-cache, must-revalidate";
+        try_files $uri =404;
+    }
+
+    location ~ "^/(?!assets/)(?:.*/)?[^/]+\.[^/]+$" {
+        set $open_cache_control "no-cache, must-revalidate";
+        try_files $uri =404;
+    }
+
+    location = /index.html {
+        set $open_cache_control "no-cache, no-store, must-revalidate";
+        try_files /index.html =404;
+    }
+
+    location / {
+        set $open_cache_control "no-cache, no-store, must-revalidate";
+        try_files $uri $uri/ /index.html;
+    }
+}
