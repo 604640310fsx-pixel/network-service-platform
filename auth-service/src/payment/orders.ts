@@ -24,6 +24,8 @@ import {
 } from "./delivery-crypto.js";
 import { CATALOG_VERSION } from "./pricing.js";
 import { planOverrideLabel } from "./admin-services.js";
+import { RESIDENTIAL_OPTIONS_VERSION, residentialSnapshotSql, residentialOptionsFromOrderRow, residentialOptionsForOrder, assertResidentialSnapshotAnchor,
+  isResidentialV2, parseResidentialOptions, isCurrentResidentialPricing, residentialOrderFields, type ResidentialOptions } from "./residential-options.js";
 
 export type OrderStatus = "pending" | "paid" | "closed";
 export type ServiceStatus = "pending_open" | "open";
@@ -77,6 +79,7 @@ export interface OrderCreationResult {
   readonly amountFen: number;
   readonly currency: "CNY";
   readonly reservedUntil: string | null;
+  readonly residentialOptions?: ResidentialOptions;
 }
 
 export interface OrderStatusResult {
@@ -86,6 +89,7 @@ export interface OrderStatusResult {
   readonly currency: "CNY";
   readonly reservedUntil: string | null;
   readonly service: { readonly status: ServiceStatus } | null;
+  readonly residentialOptions?: ResidentialOptions;
 }
 
 export interface AuthorizedOrderStatus extends OrderStatusResult {
@@ -123,6 +127,7 @@ interface StoredOrder {
   readonly tokenRevokedAt: string | null;
   readonly serviceStatus: ServiceStatus | null;
   readonly serviceId: number | null;
+  readonly residentialOptions: ResidentialOptions | null;
 }
 
 function nowDate(dependencies: Pick<OrderServiceDependencies, "now">): Date {
@@ -225,6 +230,7 @@ function parseStoredOrder(row: unknown): StoredOrder {
     tokenRevokedAt: rowNullableString(value, "revoked_at"),
     serviceStatus,
     serviceId: serviceIdValue,
+    residentialOptions: residentialOptionsFromOrderRow(value),
   };
 }
 
@@ -233,7 +239,8 @@ const ORDER_SELECT = `
     orders.id, orders.order_ref, orders.idempotency_key,
     orders.request_fingerprint, orders.user_id, orders.type_id,
     orders.region_id, orders.isp_id, orders.spec_id, orders.duration_id,
-    orders.amount_fen, orders.contact, orders.scenarios, orders.notes,
+    orders.amount_fen, orders.contact, orders.scenarios, orders.notes, orders.catalog_version,
+    __RESIDENTIAL_SNAPSHOT__ AS residential_options_json,
     orders.status,
     payments.id AS payment_id, payments.out_trade_no,
     payments.trade_no, payments.last_queried_at, payments.reserved_until,
@@ -254,7 +261,7 @@ function findOrder(
   parameter: string,
 ): StoredOrder | null {
   const rows = database
-    .prepare(`${ORDER_SELECT} WHERE ${whereClause}`)
+    .prepare(`${ORDER_SELECT.replace("__RESIDENTIAL_SNAPSHOT__", residentialSnapshotSql(database))} WHERE ${whereClause}`)
     .all(parameter);
   if (rows.length === 0) {
     return null;
@@ -262,7 +269,9 @@ function findOrder(
   if (rows.length !== 1) {
     throw new Error("Order database invariant failed");
   }
-  return parseStoredOrder(rows[0]);
+  const parsed = parseStoredOrder(rows[0]);
+  if (parsed.residentialOptions) assertResidentialSnapshotAnchor(database, parsed.residentialOptions);
+  return parsed;
 }
 
 function normalizeScenarios(scenarios: readonly string[]): readonly string[] {
@@ -342,13 +351,14 @@ function publicReservedUntil(order: StoredOrder): string | null {
   return order.reservedUntil;
 }
 
-function paymentResponse(order: StoredOrder): OrderCreationResult {
+export function paymentResponse(order: StoredOrder): OrderCreationResult {
   return {
     orderRef: order.orderRef,
     status: order.status,
     amountFen: order.amountFen,
     currency: "CNY",
     reservedUntil: publicReservedUntil(order),
+    ...(order.residentialOptions ? { residentialOptions: order.residentialOptions } : {}),
   };
 }
 
@@ -361,7 +371,7 @@ function createReference(dependencies: OrderServiceDependencies): string {
   return `DL${compact}`;
 }
 
-function createStoredOrder(
+export function createStoredOrder(
   dependencies: OrderServiceDependencies,
   input: {
     readonly idempotencyKey: string;
@@ -376,6 +386,8 @@ function createStoredOrder(
     readonly planId: number;
     readonly couponId: number | null;
     readonly discountFen: number;
+    readonly skipPlanOccupancy?: boolean;
+    readonly residentialOptions?: ResidentialOptions;
   },
 ): StoredOrder {
   const existing = findOrder(
@@ -418,6 +430,12 @@ function createStoredOrder(
   }
 
   const created = nowDate(dependencies);
+  if (isResidentialV2(input.selection)) {
+    const snapshot = parseResidentialOptions(JSON.stringify(input.residentialOptions), input.selection, RESIDENTIAL_OPTIONS_VERSION);
+    if (!snapshot || !isCurrentResidentialPricing(snapshot) || snapshot.basePlanId !== input.planId || snapshot.finalPeriodFen! - input.discountFen !== input.amountFen)
+      throw new Error("Residential order quote snapshot conflict");
+    assertResidentialSnapshotAnchor(dependencies.database, snapshot);
+  } else if (input.residentialOptions) throw new Error("Residential snapshot on legacy purchase");
   const now = created.toISOString();
   const orderRef = createReference(dependencies);
   dependencies.database
@@ -439,7 +457,7 @@ function createStoredOrder(
       input.selection.ispId,
       input.selection.specId,
       input.selection.durationId,
-      CATALOG_VERSION,
+      input.residentialOptions ? RESIDENTIAL_OPTIONS_VERSION : CATALOG_VERSION,
       input.amountFen,
       input.contact,
       JSON.stringify(input.scenarios),
@@ -460,6 +478,10 @@ function createStoredOrder(
     throw new Error("Order insertion failed");
   }
   const orderId = idRows[0].id;
+  if (input.residentialOptions) {
+    dependencies.database.prepare("UPDATE orders SET residential_options_json=? WHERE id=?")
+      .run(JSON.stringify(input.residentialOptions), orderId);
+  }
   const reservedUntil = new Date(created.getTime() + ORDER_RESERVATION_MS).toISOString();
   dependencies.database
     .prepare(
@@ -471,14 +493,16 @@ function createStoredOrder(
                  NULL, NULL, NULL, NULL, ?, ?, ?)`,
     )
     .run(orderId, orderRef, dependencies.appId, input.amountFen, reservedUntil, now, now);
-  occupyPlanAndCoupon(dependencies.database, {
-    planId: input.planId,
-    couponId: input.couponId,
-    orderId,
-    userId: input.userId,
-    discountFen: input.discountFen,
-    now: () => created,
-  });
+  if (!input.skipPlanOccupancy) {
+    occupyPlanAndCoupon(dependencies.database, {
+      planId: input.planId,
+      couponId: input.couponId,
+      orderId,
+      userId: input.userId,
+      discountFen: input.discountFen,
+      now: () => created,
+    });
+  }
   dependencies.database
     .prepare(
       `INSERT INTO order_access_tokens (
@@ -557,6 +581,7 @@ export function createPaymentOrder(
   }
 
   // 服务器重新核价：价格、可售状态、库存与优惠券全部以此为准，不信任客户端。
+  const operation = dependencies.database.transaction(() => {
   const quote = resolveQuote(dependencies.database, {
     selection: input.selection,
     couponCode,
@@ -567,8 +592,7 @@ export function createPaymentOrder(
       currentAmountFen: quote.amountFen,
     });
   }
-  const operation = dependencies.database.transaction(() =>
-    createStoredOrder(dependencies, {
+  return createStoredOrder(dependencies, {
       idempotencyKey: input.idempotencyKey,
       rawAccessToken: input.rawAccessToken,
       selection: input.selection,
@@ -581,8 +605,9 @@ export function createPaymentOrder(
       planId: quote.planId,
       couponId: quote.couponId,
       discountFen: quote.discountFen,
-    }),
-  );
+      residentialOptions: quote.residentialOptions,
+    });
+  });
   return paymentResponse(operation.immediate());
 }
 
@@ -642,6 +667,9 @@ export function retryPaymentOrder(
     if (oldOrder === null || !oldOrderAuthorized) {
       throw new PaymentDomainError(404, "not_found");
     }
+    if (dependencies.database.prepare("SELECT id FROM service_changes WHERE order_id = ?").all(oldOrder.id).length !== 0) {
+      throw new PaymentDomainError(409, "service_change_retry_not_supported");
+    }
     const selection: OrderSelection = {
       typeId: oldOrder.typeId,
       regionId: oldOrder.regionId,
@@ -684,12 +712,15 @@ export function retryPaymentOrder(
     if (oldOrder.status !== "closed") {
       throw new PaymentDomainError(409, "invalid_transition");
     }
+    if (oldOrder.residentialOptions && !isCurrentResidentialPricing(oldOrder.residentialOptions))
+      throw new PaymentDomainError(409, "plan_unavailable");
     // 重新核价：价格、有效期、适用套餐范围与剩余次数全部重新校验，验证通过后
     // 由 createStoredOrder 在同一事务内原子占用。
     const quote = resolveQuote(dependencies.database, {
       selection,
       couponCode,
       now: dependencies.now ?? (() => new Date()),
+      residentialHistory: oldOrder.residentialOptions ?? undefined,
     });
     return createStoredOrder(dependencies, {
       idempotencyKey: input.idempotencyKey,
@@ -704,6 +735,7 @@ export function retryPaymentOrder(
       planId: quote.planId,
       couponId: quote.couponId,
       discountFen: quote.discountFen,
+      residentialOptions: quote.residentialOptions,
     });
   });
   return paymentResponse(operation.immediate());
@@ -723,6 +755,7 @@ function orderStatusResult(order: StoredOrder): AuthorizedOrderStatus {
     outTradeNo: order.outTradeNo,
     tradeNo: order.tradeNo,
     lastQueriedAt: order.lastQueriedAt,
+    ...(order.residentialOptions ? { residentialOptions: order.residentialOptions } : {}),
   };
 }
 
@@ -859,6 +892,7 @@ export function claimAlipayQuery(
 }
 
 export interface MyServiceItem {
+  readonly residentialOptions?: ResidentialOptions;
   readonly source: "purchase";
   /** Real services.id for wallet/renewal lookups; grants carry grantId instead and never map here. */
   readonly serviceId: number;
@@ -917,6 +951,7 @@ export function listMyServices(
       createdAt: rowString(value, "created_at"),
       endsAt: rowNullableString(value, "ends_at"),
       planLabel: planOverrideLabel(value.plan_override),
+      ...residentialOrderFields(database, rowString(value, "order_ref")),
     };
   });
 }
@@ -970,6 +1005,7 @@ export function listMyDeliveryLines(
 }
 
 export interface MyOrderItem {
+  readonly residentialOptions?: ResidentialOptions;
   readonly orderRef: string;
   readonly typeId: string;
   readonly regionId: string;
@@ -1028,6 +1064,7 @@ export function listMyOrders(
        JOIN payments ON payments.order_id = orders.id
        LEFT JOIN services ON services.payment_id = payments.id
        WHERE orders.user_id = ?
+         AND NOT EXISTS (SELECT 1 FROM service_changes WHERE service_changes.order_id = orders.id)
        ORDER BY orders.created_at DESC, orders.id DESC`,
     )
     .all(userId);
@@ -1087,11 +1124,13 @@ export function listMyOrders(
       createdAt: requireIsoInstant(rowString(value, "created_at")),
       reservedUntil,
       serviceStatus,
+      ...residentialOrderFields(database, rowString(value, "order_ref")),
     };
   });
 }
 
 export interface AdminPendingServiceItem {
+  readonly residentialOptions?: ResidentialOptions;
   readonly serviceId: number;
   readonly orderRef: string;
   readonly typeId: string;
@@ -1140,6 +1179,7 @@ export function listPendingServicesForAdmin(
         scenarios: parseScenarios(value.scenarios),
         notes: rowNullableString(value, "notes"),
         createdAt: rowString(value, "created_at"),
+        ...residentialOrderFields(database, rowString(value, "order_ref")),
       };
     });
 }
@@ -1188,6 +1228,7 @@ export function openService(
       throw new PaymentDomainError(404, "not_found");
     }
     const row = rows[0] as Record<string, unknown>;
+    residentialOptionsForOrder(database, rowString(row, "order_ref"));
     if (row.status !== "pending_open") {
       throw new PaymentDomainError(409, "invalid_transition");
     }

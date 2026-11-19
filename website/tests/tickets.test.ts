@@ -243,9 +243,12 @@ test("ticket pages render plain text only and promise no SLA or notifications; o
 test("the tickets section is wired into the shell, dashboard, and admin-only panel", () => {
   const shell = source("../app/components/customer/CustomerCenterShell.tsx");
   const dashboard = source("../app/components/dashboard/DashboardPage.tsx");
+  const adminPage = source("../app/components/dashboard/AdminManagementPage.tsx");
+  const app = source("../src/App.tsx");
   assert.match(shell, /"\/tickets",\n  "\/invites",\n\]\);/);
   assert.match(dashboard, /const quickActions = \[[^\]]*"\/tickets"[^\]]*\] as const;/);
   assert.match(source("../app/i18n/zh.ts"), /"\/tickets": \{ label: "工单", hint: "提交问题并查看客服回复" \}/);
   assert.doesNotMatch(dashboard, /pendingActions|工单", hint: "待接入"/);
-  assert.match(dashboard, /\{principal\?\.role === "admin" && <AdminTicketsPanel csrfToken=\{csrfToken\} \/>\}/);
+  assert.match(adminPage, /activeTab === "support" && <>[\s\S]*?<AdminTicketsPanel csrfToken=\{csrfToken\} \/>/);
+  assert.match(app, /if \(principal\?\.role !== "admin"\) return <NotFoundPage \/>;/);
 });

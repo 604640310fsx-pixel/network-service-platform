@@ -9,6 +9,13 @@ import {
   sweepExpiredPendingPayments,
 } from "../../src/payment/order-expiry.js";
 import { createPaymentOrder } from "../../src/payment/orders.js";
+import {
+  observePendingTradeForCancel,
+  refreshExpiredPendingPayment,
+  refreshPaymentFromAlipay,
+  type RefreshTarget,
+} from "../../src/payment/payment-refresh.js";
+import type { DatabaseConnection } from "../../src/db.js";
 import { withAuthenticationDatabase } from "../auth/helpers.js";
 import {
   ACCESS_TOKEN_A,
@@ -54,6 +61,240 @@ function createExpiredOrder(
     },
   );
 }
+
+function databaseFacts(database: DatabaseConnection): string {
+  const names = database.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as Array<{ name: string }>;
+  return JSON.stringify(names.map(({ name }) => [name,
+    database.prepare(`SELECT * FROM "${name.replaceAll('"', '""')}" ORDER BY rowid`).all(),
+  ]));
+}
+
+const observationEntries = ["refresh", "expired", "cancel", "sweep"] as const;
+async function observeThrough(
+  entry: typeof observationEntries[number],
+  dependencies: ReturnType<typeof paymentDependencies>,
+  target: RefreshTarget,
+) {
+  if (entry === "refresh") return refreshPaymentFromAlipay(dependencies, target);
+  if (entry === "expired") return refreshExpiredPendingPayment(dependencies, target);
+  if (entry === "cancel") return observePendingTradeForCancel(dependencies, target);
+  return sweepExpiredPendingPayments(dependencies);
+}
+
+test("wrong-app payments stay UNKNOWN at every observation entry, with zero provider calls and zero database changes", async () => {
+  for (const entry of observationEntries) {
+    await withAuthenticationDatabase(async (database) => {
+      const sdk = new FakeAlipaySdk();
+      const dependencies = paymentDependencies(database, sdk);
+      const order = createExpiredOrder(dependencies, 40);
+      database.prepare("UPDATE payments SET app_id='historical-other-app'").run();
+      const target = { paymentId: firstValue(database, "SELECT id FROM payments") as number,
+        outTradeNo: order.orderRef, amountFen: order.amountFen };
+      // Either answer would be dangerous if queried with the wrong merchant.
+      for (const response of [queryResult({ tradeStatus: "WAIT_BUYER_PAY", outTradeNo: order.orderRef }), tradeNotExistResult()]) {
+        sdk.queryResponse = response;
+        const before = databaseFacts(database);
+        const result = await observeThrough(entry, dependencies, target);
+        if (entry === "cancel") assert.deepEqual(result, { kind: "unknown" });
+        assert.deepEqual(sdk.queryCalls, [], entry);
+        assert.deepEqual(sdk.closeCalls, [], entry);
+        assert.deepEqual(sdk.precreateCalls, [], entry);
+        assert.equal(databaseFacts(database), before, `${entry}: includes throttle/audit/orders/stock/coupons/rights`);
+      }
+    });
+  }
+});
+
+test("payment-order and caller-target mismatches are rejected before throttle or provider side effects", async () => {
+  for (const mismatch of ["target-id", "target-ref", "target-amount", "invalid-id", "order-amount", "order-status"] as const) {
+    await withAuthenticationDatabase(async (database) => {
+      const sdk = new FakeAlipaySdk();
+      const dependencies = paymentDependencies(database, sdk);
+      const order = createExpiredOrder(dependencies, 40);
+      const target = { paymentId: firstValue(database, "SELECT id FROM payments") as number,
+        outTradeNo: order.orderRef, amountFen: order.amountFen };
+      if (mismatch === "target-id") target.paymentId += 100;
+      if (mismatch === "invalid-id") target.paymentId = Number.NaN;
+      if (mismatch === "target-ref") target.outTradeNo = "different-synthetic-ref";
+      if (mismatch === "target-amount") target.amountFen += 1;
+      if (mismatch === "order-amount") database.prepare("UPDATE orders SET amount_fen=amount_fen+1").run();
+      if (mismatch === "order-status") database.prepare("UPDATE orders SET status='closed'").run();
+      const before = databaseFacts(database);
+      // A sweep obtains its own target; only persisted mismatches apply there.
+      for (const entry of observationEntries.filter(e => e !== "sweep" || mismatch.startsWith("order-"))) {
+        const result = await observeThrough(entry, dependencies, target);
+        if (entry === "cancel") assert.deepEqual(result, { kind: "unknown" });
+        assert.equal(databaseFacts(database), before, `${mismatch}/${entry}`);
+      }
+      assert.deepEqual(sdk.queryCalls, []);
+      assert.deepEqual(sdk.closeCalls, []);
+    });
+  }
+});
+
+test("a matching-app normal refresh still accepts signed paid evidence and remains replay safe", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const sdk = new FakeAlipaySdk();
+    const dependencies = paymentDependencies(database, sdk);
+    const order = createExpiredOrder(dependencies, 40);
+    const target = { paymentId: firstValue(database, "SELECT id FROM payments") as number,
+      outTradeNo: order.orderRef, amountFen: order.amountFen };
+    sdk.queryResponse = queryResult({ tradeStatus: "TRADE_SUCCESS", outTradeNo: order.orderRef });
+    await refreshPaymentFromAlipay(dependencies, target);
+    assert.equal(firstValue(database, "SELECT status FROM payments"), "paid");
+    assert.equal(firstValue(database, "SELECT COUNT(*) FROM services"), 1);
+    assert.deepEqual(sdk.queryOptions, [{ validateSign: true }]);
+    const afterPaid = databaseFacts(database);
+    await refreshPaymentFromAlipay(dependencies, target);
+    assert.equal(sdk.queryCalls.length, 1);
+    assert.equal(databaseFacts(database), afterPaid);
+  });
+});
+
+test("a matching-app cancellation observation retains query-close-requery without applying the caller's local transition", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const sdk = new FakeAlipaySdk();
+    const dependencies = paymentDependencies(database, sdk);
+    const order = createExpiredOrder(dependencies, 40);
+    const target = { paymentId: firstValue(database, "SELECT id FROM payments") as number,
+      outTradeNo: order.orderRef, amountFen: order.amountFen };
+    sdk.queryResponse = () => queryResult({ outTradeNo: order.orderRef,
+      tradeStatus: sdk.queryCalls.length === 1 ? "WAIT_BUYER_PAY" : "TRADE_CLOSED" });
+    assert.equal((await observePendingTradeForCancel(dependencies, target)).kind, "closed");
+    assert.deepEqual(sdk.closeCalls, [order.orderRef]);
+    assert.deepEqual(sdk.queryOptions, [{ validateSign: true }, { validateSign: true }]);
+    assert.equal(firstValue(database, "SELECT status FROM payments"), "pending");
+    assert.equal(firstValue(database, "SELECT COUNT(*) FROM services"), 0);
+  });
+});
+
+test("identity drift during a query prevents close and any local finalization at every direct entry", async () => {
+  for (const entry of ["refresh", "expired", "cancel"] as const) {
+    await withAuthenticationDatabase(async (database) => {
+      const sdk = new FakeAlipaySdk();
+      const dependencies = paymentDependencies(database, sdk);
+      const order = createExpiredOrder(dependencies, 40);
+      const target = { paymentId: firstValue(database, "SELECT id FROM payments") as number,
+        outTradeNo: order.orderRef, amountFen: order.amountFen };
+      const protectedFacts = () => JSON.stringify(["orders", "services", "sellable_plans", "coupons", "coupon_redemptions", "audit_log"]
+        .map(name => [name, database.prepare(`SELECT * FROM ${name} ORDER BY rowid`).all()]));
+      const before = protectedFacts();
+      sdk.queryResponse = () => {
+        database.prepare("UPDATE payments SET app_id='different-during-await'").run();
+        return queryResult({ tradeStatus: "WAIT_BUYER_PAY", outTradeNo: order.orderRef });
+      };
+      const result = await observeThrough(entry, dependencies, target);
+      if (entry === "cancel") assert.deepEqual(result, { kind: "unknown" });
+      assert.equal(sdk.queryCalls.length, 1);
+      assert.deepEqual(sdk.closeCalls, []);
+      assert.equal(firstValue(database, "SELECT status FROM payments"), "pending");
+      assert.equal(firstValue(database, "SELECT alipay_trade_status FROM payments"), null);
+      assert.equal(protectedFacts(), before);
+    });
+  }
+});
+
+test("identity drift plus provider throw writes no failure audit after the initially valid throttle", async () => {
+  for (const entry of ["refresh", "expired", "cancel", "sweep"] as const) {
+    for (const throwAt of entry === "refresh" || entry === "sweep" ? ["query"] as const : ["query", "close"] as const) {
+      await withAuthenticationDatabase(async (database) => {
+        const sdk = new FakeAlipaySdk();
+        const dependencies = paymentDependencies(database, sdk);
+        const order = createExpiredOrder(dependencies, 40);
+        const target = { paymentId: firstValue(database, "SELECT id FROM payments") as number,
+          outTradeNo: order.orderRef, amountFen: order.amountFen };
+        sdk.queryResponse = queryResult({ tradeStatus: "WAIT_BUYER_PAY", outTradeNo: order.orderRef });
+        let atDrift: string | undefined;
+        const providerMethods: string[] = [];
+        const originalExec = sdk.exec.bind(sdk);
+        sdk.exec = async (method, parameters, options) => {
+          providerMethods.push(method);
+          if (method === `alipay.trade.${throwAt}`) {
+            // Model a provider await rejecting after an external identity change.
+            await Promise.resolve();
+            database.prepare("UPDATE payments SET app_id='different-before-provider-throw'").run();
+            atDrift = databaseFacts(database);
+            throw new Error("synthetic provider failure after drift");
+          }
+          return originalExec(method, parameters, options);
+        };
+        const result = await observeThrough(entry, dependencies, target);
+        if (entry === "cancel") assert.deepEqual(result, { kind: "unknown" });
+        assert.notEqual(atDrift, undefined, `${entry}/${throwAt} reached controlled await`);
+        assert.equal(databaseFacts(database), atDrift, `${entry}/${throwAt}: no post-drift audit or other write`);
+        assert.notEqual(firstValue(database, "SELECT last_queried_at FROM payments"), null,
+          "the initial valid throttle already occurred and is not claimed unchanged");
+        assert.equal(firstValue(database, "SELECT status FROM payments"), "pending");
+        assert.equal(firstValue(database, "SELECT COUNT(*) FROM services"), 0);
+        assert.deepEqual(providerMethods, throwAt === "query"
+          ? ["alipay.trade.query"] : ["alipay.trade.query", "alipay.trade.close"],
+        "no provider attempt follows the drifted failure");
+      });
+    }
+  }
+});
+
+test("raw WAIT without a validated event never authorizes close or releases local rights", async () => {
+  for (const entry of ["expired", "cancel", "sweep"] as const) {
+    for (const rejection of ["unrecognized", "contradictory-not-exist", "out-trade", "amount", "missing-trade"] as const) {
+      await withAuthenticationDatabase(async (database) => {
+        const sdk = new FakeAlipaySdk();
+        const dependencies = paymentDependencies(database, sdk);
+        const order = createExpiredOrder(dependencies, 40);
+        const target = { paymentId: firstValue(database, "SELECT id FROM payments") as number,
+          outTradeNo: order.orderRef, amountFen: order.amountFen };
+        const response = queryResult({ tradeStatus: "WAIT_BUYER_PAY", outTradeNo: order.orderRef }) as Record<string, unknown>;
+        if (rejection === "unrecognized") response.code = "20000";
+        if (rejection === "contradictory-not-exist") {
+          response.code = "40004";
+          response.subCode = "ACQ.TRADE_NOT_EXIST";
+        }
+        if (rejection === "out-trade") response.outTradeNo = "different-provider-ref";
+        if (rejection === "amount") response.totalAmount = "1.00";
+        if (rejection === "missing-trade") response.tradeNo = null;
+        sdk.queryResponse = response;
+        const protectedFacts = () => JSON.stringify(["orders", "services", "sellable_plans", "coupons", "coupon_redemptions", "payment_notifications"]
+          .map(name => [name, database.prepare(`SELECT * FROM ${name} ORDER BY rowid`).all()]));
+        const before = protectedFacts();
+        const result = await observeThrough(entry, dependencies, target);
+        if (entry === "cancel") assert.deepEqual(result, { kind: "unknown" });
+        assert.deepEqual(sdk.queryCalls, [order.orderRef]);
+        assert.deepEqual(sdk.closeCalls, []);
+        assert.equal(firstValue(database, "SELECT status FROM payments"), "pending");
+        assert.equal(firstValue(database, "SELECT alipay_trade_status FROM payments"), null);
+        assert.equal(firstValue(database, "SELECT close_reason FROM payments"), null);
+        assert.equal(protectedFacts(), before);
+      });
+    }
+  }
+});
+
+test("initial binding database errors propagate before any provider or throttle call", async () => {
+  await withAuthenticationDatabase(async (database) => {
+    const sdk = new FakeAlipaySdk();
+    const dependencies = paymentDependencies(database, sdk);
+    const order = createExpiredOrder(dependencies, 40);
+    const target = { paymentId: firstValue(database, "SELECT id FROM payments") as number,
+      outTradeNo: order.orderRef, amountFen: order.amountFen };
+    const before = databaseFacts(database);
+    const failingDatabase = new Proxy(database, {
+      get(object, key, receiver) {
+        if (key === "prepare") return (source: string) => {
+          if (source.includes("o.amount_fen AS order_amount_fen")) throw new Error("synthetic database failure");
+          return object.prepare(source);
+        };
+        const value = Reflect.get(object, key, receiver) as unknown;
+        return typeof value === "function" ? value.bind(object) : value;
+      },
+    });
+    for (const entry of observationEntries) {
+      await assert.rejects(observeThrough(entry, { ...dependencies, database: failingDatabase }, target), /synthetic database failure/);
+    }
+    assert.deepEqual(sdk.queryCalls, []);
+    assert.deepEqual(sdk.closeCalls, []);
+    assert.equal(databaseFacts(database), before);
+  });
+});
 
 test("the sweep ignores pending payments that have not yet passed the 30-minute deadline plus 2-minute grace", async () => {
   await withAuthenticationDatabase(async (database) => {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
+import { ResidentialOptionDetails } from "./ResidentialOptionDetails";
 import { useT, type Messages } from "../../lib/i18n";
 import {
   PaymentApiError,
@@ -340,6 +341,7 @@ export function OrderStatusPanel({
   return (
     <>
       <div className="pay-stack">
+        {snapshot.residentialOptions && <ResidentialOptionDetails options={snapshot.residentialOptions} />}
         <AlipayQrPay
           phase={phase}
           serviceOpen={snapshot.service?.status === "open"}

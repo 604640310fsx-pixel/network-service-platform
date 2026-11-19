@@ -1,9 +1,10 @@
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
-import { useCatalogText, useT, type Messages } from "../../lib/i18n";
+import { ResidentialOptionDetails } from "./ResidentialOptionDetails";
+import { useCatalogText, useI18n, useT, type Messages } from "../../lib/i18n";
+import { subscriptionLineDisplay } from "./lineDisplay";
 import {
-  PAYMENT_MAX_SINGLE_FEN_FRONTEND,
   PaymentApiError,
   bindOrderAccess,
   clearCheckoutAttempt,
@@ -81,6 +82,7 @@ export function RequirementForm({
   const t = useT();
   const copy = t.subscribe.form;
   const ct = useCatalogText();
+  const { lang } = useI18n();
   const recapValue = (value: string) => (value ? ct(value) : "—");
   // 新建订单必须登录（服务端同样强制）；检查中与未登录都不允许提交。
   const { status: authStatus, csrfToken } = useAuth();
@@ -120,9 +122,8 @@ export function RequirementForm({
       : null;
   const listPriceFen = activeQuote?.listPriceFen ?? (summary.total === null ? null : Math.round(summary.total * 100));
   const discountFen = activeQuote?.discountFen ?? 0;
-  const overPaymentLimit = amountFen !== null && amountFen > PAYMENT_MAX_SINGLE_FEN_FRONTEND;
   const canSubmit =
-    signedIn && priceKnown && amountFen !== null && !overPaymentLimit && contact.trim() !== "" && !submitting && !quoteLoading;
+    signedIn && priceKnown && amountFen !== null && contact.trim() !== "" && !submitting && !quoteLoading;
 
   function toggleScenario(id: string) {
     setScenarios((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
@@ -159,7 +160,7 @@ export function RequirementForm({
     event.preventDefault();
     setContactTouched(true);
     setSubmitError(null);
-    if (!signedIn || csrfToken === null || submitting || contact.trim() === "" || amountFen === null || overPaymentLimit) return;
+    if (!signedIn || csrfToken === null || submitting || contact.trim() === "" || amountFen === null) return;
 
     const draft: RequirementDraft = {
       selection,
@@ -208,8 +209,8 @@ export function RequirementForm({
         <div className="sub-request-recap-grid">
           <div><span>{t.subscribe.summary.type}</span><b>{recapValue(summary.type)}</b></div>
           <div><span>{t.subscribe.summary.region}</span><b>{recapValue(summary.region)}</b></div>
-          <div><span>{t.subscribe.summary.isp}</span><b>{recapValue(summary.isp)}</b></div>
-          <div><span>{t.subscribe.summary.spec}</span><b>{recapValue(summary.spec)}</b></div>
+          {!summary.ispImplied && <div><span>{t.subscribe.summary.isp}</span><b>{recapValue(summary.isp)}</b></div>}
+          <div><span>{t.subscribe.summary.spec}</span><b>{subscriptionLineDisplay(summary.spec, lang, recapValue)}</b></div>
           <div><span>{copy.term}</span><b>{recapValue(summary.duration)}</b></div>
         </div>
         <div className="sub-request-recap-price">
@@ -220,6 +221,7 @@ export function RequirementForm({
       </div>
 
       <div className="sub-field sub-coupon-field">
+        {(activeQuote?.residentialOptions ?? summary.residentialOptions) && <ResidentialOptionDetails options={(activeQuote?.residentialOptions ?? summary.residentialOptions)!} />}
         <label htmlFor={couponId}>{copy.couponLabel} <em>{copy.optional}</em></label>
         <div className="sub-coupon-row">
           <input
@@ -319,9 +321,7 @@ export function RequirementForm({
           <button type="submit" disabled={!canSubmit} aria-busy={submitting}>
             {submitting
               ? copy.submitting
-              : overPaymentLimit
-                ? copy.overLimit
-                : priceKnown && amountFen !== null
+              : priceKnown && amountFen !== null
                   ? copy.submit(formatFen(amountFen))
                   : t.subscribe.pricePending}
           </button>

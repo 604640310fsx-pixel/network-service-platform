@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ResidentialOptionDetails } from "../subscribe/ResidentialOptionDetails";
 import { useCatalogText, useT, type Messages } from "../../lib/i18n";
 import { Link } from "react-router-dom";
 import {
@@ -16,6 +17,7 @@ import { resolveSelection } from "../../lib/resolveSelection";
 import { serviceTerm } from "../../lib/serviceTerm";
 import { SubscriptionImportModule, verifiedSubscriptionDeepLink } from "../subscription-import";
 import { buyerPlanCounts, combineBuyerPlans } from "../dashboard/buyerPlans";
+import { ServiceChangeCard } from "./ServiceChangeCard";
 import { useAuth } from "../../lib/auth";
 import {
   BILLING_PERIODS,
@@ -392,6 +394,13 @@ function PanelHead({ tag }: { tag: string }) {
   );
 }
 
+function ExistingServiceSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return <section className="cc-svc-existing-section" aria-label={title}>
+    <h4>{title}</h4>
+    <div>{children}</div>
+  </section>;
+}
+
 export function ownedDeliveryItems(
   item: MyServiceItem,
   snapshot: PaymentOrderSnapshot,
@@ -546,8 +555,11 @@ function GiftSubscription({ grant }: { grant: MyGrantItem }) {
 
 export function CustomerServicesPage() {
   const t = useT();
+  const { csrfToken } = useAuth();
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [reloadToken, setReloadToken] = useState(0);
+  const [openServiceId, setOpenServiceId] = useState<number | null>(null);
+  const reload = () => { setOpenServiceId(null); setReloadToken((token) => token + 1); };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -677,6 +689,19 @@ export function CustomerServicesPage() {
         <ul className="cc-svc-list">
           {items.map((item) => {
             const isOpen = item.serviceStatus === "open";
+            if (isOpen && item.entitlement) {
+              return <ServiceChangeCard key={item.orderRef} item={item} entitlement={item.entitlement}
+                csrfToken={csrfToken} reload={reload} openServiceId={openServiceId} setOpenServiceId={setOpenServiceId}>
+                <ServiceSubscription item={item} />
+                {item.serviceId !== null ? <RenewalConsentControl serviceId={item.serviceId} />
+                  : <RenewalUnavailable message={t.wallet.renewal.unavailableNoId} />}
+              </ServiceChangeCard>;
+            }
+            return null;
+          })}
+          {items.map((item) => {
+            const isOpen = item.serviceStatus === "open";
+            if (isOpen && item.entitlement) return null;
             return (
               <li className="cc-svc-item" key={item.orderRef}>
                 <div className="cc-svc-item-head">
@@ -697,11 +722,16 @@ export function CustomerServicesPage() {
                     <p>{t.services.pendingNotice}</p>
                   </div>
                 )}
-                {isOpen && <ServiceSubscription item={item} />}
-                {!isOpen && <p className="cc-svc-import-state">{t.services.awaitingDelivery}</p>}
-                {isOpen && item.serviceId !== null
-                  ? <RenewalConsentControl serviceId={item.serviceId} />
-                  : <RenewalUnavailable message={isOpen ? t.wallet.renewal.unavailableNoId : t.wallet.renewal.unavailablePending} />}
+                {isOpen&&item.display&&["local-isp","pure-native-ip"].includes(item.display.typeId)&&!item.entitlement&&
+                  <p className="cc-svc-import-state">{t.services.manualFactsRequired}</p>}
+                <ExistingServiceSection title={isOpen ? t.services.deliveryRenewalTitle : t.services.activationDetailsTitle}>
+                    {item.residentialOptions && <ResidentialOptionDetails options={item.residentialOptions} />}
+                    {isOpen && <ServiceSubscription item={item} />}
+                    {!isOpen && <p className="cc-svc-import-state">{t.services.awaitingDelivery}</p>}
+                    {isOpen && item.serviceId !== null
+                      ? <RenewalConsentControl serviceId={item.serviceId} />
+                      : <RenewalUnavailable message={isOpen ? t.wallet.renewal.unavailableNoId : t.wallet.renewal.unavailablePending} />}
+                </ExistingServiceSection>
               </li>
             );
           })}
@@ -721,10 +751,12 @@ export function CustomerServicesPage() {
                     <TermBadge endsAt={grant.endsAt} />
                   </div>
                 </div>
-                {grant.deliveryStatus === "open"
-                  ? <GiftSubscription grant={grant} />
-                  : <p className="cc-svc-import-state">{grant.typeId === null ? t.services.giftHint : t.services.giftAwaiting}</p>}
-                <RenewalUnavailable message={t.wallet.renewal.unavailableGift} />
+                <ExistingServiceSection title={t.services.giftDeliveryTitle}>
+                  {grant.deliveryStatus === "open"
+                    ? <GiftSubscription grant={grant} />
+                    : <p className="cc-svc-import-state">{grant.typeId === null ? t.services.giftHint : t.services.giftAwaiting}</p>}
+                  <RenewalUnavailable message={t.wallet.renewal.unavailableGift} />
+                </ExistingServiceSection>
               </li>
             ))}
           </ul>

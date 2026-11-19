@@ -13,6 +13,10 @@ export type AdminPlanItem = {
   readonly occupiedSlots: number;
 };
 
+export type AdminRegionItem = { readonly typeId: string; readonly regionId: string; readonly isActive: boolean };
+export type AdminOperatorItem = AdminRegionItem & { readonly ispId: string };
+export type AdminCatalogDirectory = { readonly regions: AdminRegionItem[]; readonly operators: AdminOperatorItem[] };
+
 export type AdminCouponItem = {
   readonly id: number;
   readonly code: string;
@@ -233,6 +237,38 @@ export async function updateAdminPlan(
     body: JSON.stringify(patch),
   });
   return parsePlanItem(response);
+}
+
+function parseDirectoryItem(raw: unknown, operator: false): AdminRegionItem;
+function parseDirectoryItem(raw: unknown, operator: true): AdminOperatorItem;
+function parseDirectoryItem(raw: unknown, operator: boolean): AdminRegionItem | AdminOperatorItem {
+  const value = requireRecord(raw);
+  if (!isNonEmptyString(value.typeId) || !isNonEmptyString(value.regionId) || typeof value.isActive !== "boolean" ||
+      (operator && !isNonEmptyString(value.ispId))) throw new PaymentApiError("invalid_response");
+  return operator
+    ? { typeId: value.typeId, regionId: value.regionId, ispId: value.ispId as string, isActive: value.isActive }
+    : { typeId: value.typeId, regionId: value.regionId, isActive: value.isActive };
+}
+
+export async function getAdminCatalogDirectory(signal?: AbortSignal): Promise<AdminCatalogDirectory> {
+  const body = requireRecord(await requestJson("/api/admin/catalog-directory", { method: "GET", headers: readHeaders() }, signal));
+  if (!Array.isArray(body.regions) || !Array.isArray(body.operators)) throw new PaymentApiError("invalid_response");
+  return { regions: body.regions.map((item) => parseDirectoryItem(item, false)),
+    operators: body.operators.map((item) => parseDirectoryItem(item, true)) };
+}
+
+export async function updateAdminDirectoryRegion(item: AdminRegionItem, csrfToken: string): Promise<AdminRegionItem> {
+  const body = await requestJson(`/api/admin/catalog-directory/regions/${encodeURIComponent(item.typeId)}/${encodeURIComponent(item.regionId)}`, {
+    method: "PATCH", headers: writeHeaders(csrfToken), body: JSON.stringify({ isActive: !item.isActive }),
+  });
+  return parseDirectoryItem(body, false);
+}
+
+export async function updateAdminDirectoryOperator(item: AdminOperatorItem, csrfToken: string): Promise<AdminOperatorItem> {
+  const body = await requestJson(`/api/admin/catalog-directory/operators/${encodeURIComponent(item.typeId)}/${encodeURIComponent(item.regionId)}/${encodeURIComponent(item.ispId)}`, {
+    method: "PATCH", headers: writeHeaders(csrfToken), body: JSON.stringify({ isActive: !item.isActive }),
+  });
+  return parseDirectoryItem(body, true);
 }
 
 export async function getAdminCoupons(signal?: AbortSignal): Promise<AdminCouponItem[]> {

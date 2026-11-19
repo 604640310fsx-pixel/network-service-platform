@@ -132,6 +132,9 @@ test("logs in, sets the frozen host-only Cookie, and serves /me", async () => {
         ),
         false,
       );
+      const successfulLoginAt = (database.prepare("SELECT last_successful_web_login_at AS value FROM users WHERE email = ?")
+        .all("user@example.com")[0] as { readonly value: string | null }).value;
+      assert.equal(successfulLoginAt, NOW.toISOString());
 
       database
         .prepare("UPDATE sessions SET last_seen_at = ?")
@@ -158,6 +161,8 @@ test("logs in, sets the frozen host-only Cookie, and serves /me", async () => {
         .prepare("SELECT last_seen_at FROM sessions")
         .all() as Array<{ readonly last_seen_at: string }>;
       assert.equal(lastSeenRows[0]?.last_seen_at, NOW.toISOString());
+      assert.equal((database.prepare("SELECT last_successful_web_login_at AS value FROM users WHERE email = ?")
+        .all("user@example.com")[0] as { readonly value: string | null }).value, successfulLoginAt);
     } finally {
       await app.close();
     }

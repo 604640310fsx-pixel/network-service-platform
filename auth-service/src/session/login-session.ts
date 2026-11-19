@@ -105,6 +105,10 @@ export function createLoginSession(
         now,
       );
 
+    database
+      .prepare("UPDATE users SET last_successful_web_login_at = ? WHERE id = ?")
+      .run(now, candidate.id);
+
     return currentUser.role;
   });
 

@@ -6,6 +6,8 @@ on:
     branches:
       - main
       - integration/consolidate-project
+      - codex/service-change-release-prepare-20261103
+      - codex/residential-options-local-20261105
 
 permissions:
   contents: read
@@ -96,6 +98,19 @@ jobs:
     timeout-minutes: 30
     env:
       EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      # Only this same-repository review PR opts into the independent 026->030 route.
+      # A fork with the same branch name and every other PR keep the frozen 026 gate.
+      STANDARD26_TASK_CONTEXT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/service-change-release-prepare-20261103' && github.event.pull_request.base.ref == 'integration/consolidate-project' }}
+      STANDARD26_FORMAL_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'push' && github.ref == 'refs/heads/codex/service-change-release-prepare-20261103' }}
+      RESIDENTIAL31_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && ((github.event.pull_request.head.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.ref == 'integration/consolidate-project') || (github.event.pull_request.head.ref == 'codex/nsp-subscribe-select-ui-20261105-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105') || (github.event.pull_request.head.ref == 'codex/nsp-subscribe-mobile-focus-footer-20261108-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105') || (github.event.pull_request.head.ref == 'codex/nsp-subscribe-line-price-20261108-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105') || (github.event.pull_request.head.ref == 'codex/nsp-subscribe-line-price-release-control-20261108-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105') || (github.event.pull_request.head.ref == 'codex/subscribe-design-tags-v13-r42-20261109' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105') || (github.event.pull_request.head.ref == 'codex/subscribe-us-dual-isp-charter-remove-20261109' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105')) }}
+      RESIDENTIAL31_FORMAL_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'push' && github.ref == 'refs/heads/codex/residential-options-local-20261105' }}
+      # This exact same-repo Draft PR gets review-only 032 provenance; formal 032 is a separate exact push gate.
+      ADMIN32_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 165 && github.event.pull_request.draft == true && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin-manage-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' }}
+      ADMIN32_UPLOAD_FIX_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 166 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin32-upload-guard-fix-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.sha == '4857c9c62294a2dfdcca2187e17983720e991a2f' }}
+      ADMIN32_SAME_SCHEMA_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 167 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin-mobile-paging-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.sha == 'd5cafdbd9ae76432c80994771f490fde2509e3e2' }}
+      ADMIN32_LEGACY_ASSET_FIX_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 168 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin-mobile-legacy-assets-fix-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.sha == '9a75eab4470b5008055c7cc122df541e6b903ae3' }}
+      ADMIN32_FORMAL_CONTEXT: false
+      ADMIN32_SAME_SCHEMA_FORMAL_CONTEXT: false
       PROVENANCE_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'github-actions' || 'github-actions-test' }}
       VALIDATION_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'ci-build' || 'ci-test' }}
       MONITOR_ORIGIN_POLICY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'required' || 'optional' }}
@@ -104,6 +119,30 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Select independent standard26 formal build modes
+        if: env.STANDARD26_FORMAL_CONTEXT == 'true'
+        run: |
+          printf '%s\n' 'PROVENANCE_MODE=github-actions' 'VALIDATION_MODE=ci-build' 'MONITOR_ORIGIN_POLICY=required' >> "$GITHUB_ENV"
+
+      - name: Select exact residential31 push formal build modes
+        if: env.RESIDENTIAL31_FORMAL_CONTEXT == 'true'
+        run: |
+          printf '%s\n' 'PROVENANCE_MODE=github-actions' 'VALIDATION_MODE=ci-build' 'MONITOR_ORIGIN_POLICY=required' >> "$GITHUB_ENV"
+
+      - name: Select exact admin32 push formal build modes
+        if: env.RESIDENTIAL31_FORMAL_CONTEXT == 'true' && github.event.before != 'd5cafdbd9ae76432c80994771f490fde2509e3e2' && github.event.before != '9a75eab4470b5008055c7cc122df541e6b903ae3'
+        run: |
+          if test -f auth-service/src/migrations/032_catalog_directory_and_last_login.sql; then
+            printf '%s\n' 'ADMIN32_FORMAL_CONTEXT=true' 'PROVENANCE_MODE=github-actions' 'VALIDATION_MODE=ci-build' 'MONITOR_ORIGIN_POLICY=required' >> "$GITHUB_ENV"
+          fi
+
+      - name: Select exact admin32 same-schema push formal build modes
+        if: env.RESIDENTIAL31_FORMAL_CONTEXT == 'true' && (github.event.before == 'd5cafdbd9ae76432c80994771f490fde2509e3e2' || github.event.before == '9a75eab4470b5008055c7cc122df541e6b903ae3')
+        run: |
+          test -f auth-service/src/migrations/032_catalog_directory_and_last_login.sql
+          printf '%s\n' 'ADMIN32_SAME_SCHEMA_FORMAL_CONTEXT=true' 'PROVENANCE_MODE=github-actions' 'VALIDATION_MODE=ci-build' 'MONITOR_ORIGIN_POLICY=required' >> "$GITHUB_ENV"
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -119,9 +158,45 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           node scripts/ops/validate-release-open-http-contract.mjs \
             --source "$GITHUB_WORKSPACE"
-          node scripts/ops/validate-consolidated-release-packet.mjs \
-            --source "$GITHUB_WORKSPACE" \
-            --expected-sha "$EXPECTED_SHA"
+          if [ "$ADMIN32_SAME_SCHEMA_FORMAL_CONTEXT" = "true" ]; then
+            node scripts/ops/validate-consolidated-release-packet.mjs \
+              --source "$GITHUB_WORKSPACE" --expected-sha "$EXPECTED_SHA" \
+              --schema-route standard32-32 --validation-mode ci-build
+          elif [ "$ADMIN32_SAME_SCHEMA_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_LEGACY_ASSET_FIX_TASK_CONTEXT" = "true" ]; then
+            node scripts/ops/validate-consolidated-release-packet.mjs \
+              --source "$GITHUB_WORKSPACE" --expected-sha "$EXPECTED_SHA" \
+              --schema-route standard32-32
+          elif [ "$ADMIN32_FORMAL_CONTEXT" = "true" ]; then
+            node scripts/ops/validate-consolidated-release-packet.mjs \
+              --source "$GITHUB_WORKSPACE" --expected-sha "$EXPECTED_SHA" \
+              --schema-route standard31-32 --validation-mode ci-build
+          elif [ "$ADMIN32_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_UPLOAD_FIX_TASK_CONTEXT" = "true" ]; then
+            node scripts/ops/validate-consolidated-release-packet.mjs \
+              --source "$GITHUB_WORKSPACE" --expected-sha "$EXPECTED_SHA" \
+              --schema-route standard31-32
+          elif [ "$RESIDENTIAL31_FORMAL_CONTEXT" = "true" ]; then
+            node scripts/ops/validate-consolidated-release-packet.mjs \
+              --source "$GITHUB_WORKSPACE" --expected-sha "$EXPECTED_SHA" \
+              --schema-route standard26-31 --validation-mode ci-build
+          elif [ "$RESIDENTIAL31_TASK_CONTEXT" = "true" ]; then
+            node scripts/ops/validate-consolidated-release-packet.mjs \
+              --source "$GITHUB_WORKSPACE" --expected-sha "$EXPECTED_SHA" \
+              --schema-route standard26-31
+          elif [ "$STANDARD26_FORMAL_CONTEXT" = "true" ]; then
+            node scripts/ops/validate-consolidated-release-packet.mjs \
+              --source "$GITHUB_WORKSPACE" \
+              --expected-sha "$EXPECTED_SHA" \
+              --schema-route standard26-30 --validation-mode ci-build
+          elif [ "$STANDARD26_TASK_CONTEXT" = "true" ]; then
+            node scripts/ops/validate-consolidated-release-packet.mjs \
+              --source "$GITHUB_WORKSPACE" \
+              --expected-sha "$EXPECTED_SHA" \
+              --schema-route standard26-30
+          else
+            node scripts/ops/validate-consolidated-release-packet.mjs \
+              --source "$GITHUB_WORKSPACE" \
+              --expected-sha "$EXPECTED_SHA"
+          fi
 
       - name: Run monitor gateway offline tests
         run: |
@@ -145,6 +220,10 @@ jobs:
           node scripts/ops/verify-website-monitor-origin.mjs \
             --phase configured --policy "$MONITOR_ORIGIN_POLICY"
           npm --prefix auth-service test
+          if [ "$ADMIN32_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_UPLOAD_FIX_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_FORMAL_CONTEXT" = "true" ] || [ "$ADMIN32_SAME_SCHEMA_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_LEGACY_ASSET_FIX_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_SAME_SCHEMA_FORMAL_CONTEXT" = "true" ]; then
+            test "$(sha256sum auth-service/dist/src/payment/pricing.js | awk '{print $1}')" = \
+              "6aff457355395f275ed88eca51510741fb1fe226170b8ab5fdf3453f8a57cb36"
+          fi
           node auth-service/dist/test/db.test.js
           node auth-service/dist/test/diagnosis/migration.test.js
           npm --prefix website test
@@ -153,15 +232,154 @@ jobs:
           node scripts/ops/verify-website-monitor-origin.mjs \
             --phase embedded --policy "$MONITOR_ORIGIN_POLICY" --dist website/dist
 
+      - name: Build and exercise independent admin32 rollback Auth
+        if: env.ADMIN32_TASK_CONTEXT == 'true' || env.ADMIN32_UPLOAD_FIX_TASK_CONTEXT == 'true' || env.ADMIN32_FORMAL_CONTEXT == 'true'
+        env:
+          ADMIN32_ROLLBACK_ROOT: ${{ runner.temp }}/admin32-rollback-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          test ! -e "$ADMIN32_ROLLBACK_ROOT"
+          mkdir -p "$ADMIN32_ROLLBACK_ROOT"
+          git archive 381aa5d0a7ad4bfadf68db67227b0321cc3d24f3 auth-service | tar -x -C "$ADMIN32_ROLLBACK_ROOT"
+          (cd "$ADMIN32_ROLLBACK_ROOT" && git apply --check "$GITHUB_WORKSPACE/scripts/ops/patches/admin32-rollback-from-381.patch")
+          (cd "$ADMIN32_ROLLBACK_ROOT" && git apply "$GITHUB_WORKSPACE/scripts/ops/patches/admin32-rollback-from-381.patch")
+          ln -s "$GITHUB_WORKSPACE/auth-service/node_modules" "$ADMIN32_ROLLBACK_ROOT/auth-service/node_modules"
+          node "$GITHUB_WORKSPACE/auth-service/node_modules/typescript/bin/tsc" -p "$ADMIN32_ROLLBACK_ROOT/auth-service/tsconfig.json"
+          test "$(sha256sum "$ADMIN32_ROLLBACK_ROOT/auth-service/dist/src/payment/pricing.js" | awk '{print $1}')" = \
+            "6aff457355395f275ed88eca51510741fb1fe226170b8ab5fdf3453f8a57cb36"
+          node auth-service/test/admin32-independent-rollback.mjs "$ADMIN32_ROLLBACK_ROOT/auth-service"
+
+      - name: Build exact deployed d5 schema32 application rollback
+        if: env.ADMIN32_SAME_SCHEMA_TASK_CONTEXT == 'true' || env.ADMIN32_LEGACY_ASSET_FIX_TASK_CONTEXT == 'true' || env.ADMIN32_SAME_SCHEMA_FORMAL_CONTEXT == 'true'
+        env:
+          D5_ROLLBACK_ROOT: ${{ runner.temp }}/admin32-d5-rollback-${{ github.run_id }}-${{ github.run_attempt }}
+          VITE_MONITOR_URL: ${{ secrets.NSP_PUBLIC_MONITOR_ORIGIN }}
+        run: |
+          test ! -e "$D5_ROLLBACK_ROOT"
+          mkdir -p "$D5_ROLLBACK_ROOT"
+          git archive d5cafdbd9ae76432c80994771f490fde2509e3e2 auth-service website | tar -x -C "$D5_ROLLBACK_ROOT"
+          ln -s "$GITHUB_WORKSPACE/auth-service/node_modules" "$D5_ROLLBACK_ROOT/auth-service/node_modules"
+          ln -s "$GITHUB_WORKSPACE/website/node_modules" "$D5_ROLLBACK_ROOT/website/node_modules"
+          node "$GITHUB_WORKSPACE/auth-service/node_modules/typescript/bin/tsc" -p "$D5_ROLLBACK_ROOT/auth-service/tsconfig.json"
+          (cd "$D5_ROLLBACK_ROOT/website" && "$GITHUB_WORKSPACE/website/node_modules/.bin/vite" build)
+          test "$(sha256sum "$D5_ROLLBACK_ROOT/auth-service/dist/src/payment/pricing.js" | awk '{print $1}')" = \
+            "6aff457355395f275ed88eca51510741fb1fe226170b8ab5fdf3453f8a57cb36"
+          test "$(sha256sum "$D5_ROLLBACK_ROOT/website/dist/index.html" | awk '{print $1}')" = \
+            "201179449c13e4ae2d0cc06d755eda5124bbe089c80f9aba4b4673bb4b6c30ff"
+
       - name: Test release tooling
         run: node --test scripts/ops/consolidated-release-packet.test.mjs scripts/ops/release-safety-guards.test.mjs
 
       - name: Assemble twice and validate inventories
         env:
           BUNDLE_PARENT: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}
+          ADMIN32_ROLLBACK_ROOT: ${{ runner.temp }}/admin32-rollback-${{ github.run_id }}-${{ github.run_attempt }}
+          D5_ROLLBACK_ROOT: ${{ runner.temp }}/admin32-d5-rollback-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           test ! -e "$BUNDLE_PARENT"
           mkdir -p "$BUNDLE_PARENT"
+          if [ "$ADMIN32_SAME_SCHEMA_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_LEGACY_ASSET_FIX_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_SAME_SCHEMA_FORMAL_CONTEXT" = "true" ]; then
+            for ordinal in first second; do
+              node scripts/ops/assemble-consolidated-release.mjs \
+                --source "$GITHUB_WORKSPACE" --destination "$BUNDLE_PARENT/admin32-$ordinal" \
+                --expected-sha "$EXPECTED_SHA" --provenance-mode "$PROVENANCE_MODE" \
+                --schema-route standard32-32 --admin32-rollback-source "$D5_ROLLBACK_ROOT"
+              node scripts/ops/validate-release-open-http-contract.mjs \
+                --source "$BUNDLE_PARENT/admin32-$ordinal"
+              node scripts/ops/validate-consolidated-release-packet.mjs \
+                --source "$GITHUB_WORKSPACE" --expected-sha "$EXPECTED_SHA" \
+                --bundle "$BUNDLE_PARENT/admin32-$ordinal" \
+                --validation-mode "$VALIDATION_MODE" --schema-route standard32-32
+              node --check "$BUNDLE_PARENT/admin32-$ordinal/auth-service/rollback32/dist/src/server.js"
+              if find "$BUNDLE_PARENT/admin32-$ordinal" \
+                \( -type l -o -name node_modules -o -name '.env*' \
+                   -o -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
+                   -o -name '*.pem' -o -name '*.key' \) -print -quit | grep -q .; then
+                echo "forbidden admin32 same-schema bundle entry detected" >&2
+                exit 1
+              fi
+            done
+            cmp "$BUNDLE_PARENT/admin32-first/release-manifest.json" "$BUNDLE_PARENT/admin32-second/release-manifest.json"
+          elif [ "$ADMIN32_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_UPLOAD_FIX_TASK_CONTEXT" = "true" ] || [ "$ADMIN32_FORMAL_CONTEXT" = "true" ]; then
+            for ordinal in first second; do
+              node scripts/ops/assemble-consolidated-release.mjs \
+                --source "$GITHUB_WORKSPACE" --destination "$BUNDLE_PARENT/admin32-$ordinal" \
+                --expected-sha "$EXPECTED_SHA" --provenance-mode "$PROVENANCE_MODE" \
+                --schema-route standard31-32 --admin32-rollback-source "$ADMIN32_ROLLBACK_ROOT"
+              node scripts/ops/validate-release-open-http-contract.mjs \
+                --source "$BUNDLE_PARENT/admin32-$ordinal"
+              node scripts/ops/validate-consolidated-release-packet.mjs \
+                --source "$GITHUB_WORKSPACE" --expected-sha "$EXPECTED_SHA" \
+                --bundle "$BUNDLE_PARENT/admin32-$ordinal" \
+                --validation-mode "$VALIDATION_MODE" --schema-route standard31-32
+              if [ "$ordinal" = first ]; then
+                ln -s "$GITHUB_WORKSPACE/auth-service/node_modules" "$BUNDLE_PARENT/admin32-first/auth-service/node_modules"
+                node auth-service/test/admin32-independent-rollback.mjs \
+                  "$BUNDLE_PARENT/admin32-first/auth-service/rollback32"
+                unlink "$BUNDLE_PARENT/admin32-first/auth-service/node_modules"
+                node scripts/ops/validate-consolidated-release-packet.mjs \
+                  --source "$GITHUB_WORKSPACE" --expected-sha "$EXPECTED_SHA" \
+                  --bundle "$BUNDLE_PARENT/admin32-first" \
+                  --validation-mode "$VALIDATION_MODE" --schema-route standard31-32
+              fi
+              if find "$BUNDLE_PARENT/admin32-$ordinal" \
+                \( -type l -o -name node_modules -o -name '.env*' \
+                   -o -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
+                   -o -name '*.pem' -o -name '*.key' \) -print -quit | grep -q .; then
+                echo "forbidden admin32 review bundle entry detected" >&2
+                exit 1
+              fi
+            done
+            cmp "$BUNDLE_PARENT/admin32-first/release-manifest.json" "$BUNDLE_PARENT/admin32-second/release-manifest.json"
+          elif [ "$RESIDENTIAL31_TASK_CONTEXT" = "true" ] || [ "$RESIDENTIAL31_FORMAL_CONTEXT" = "true" ]; then
+            for ordinal in first second; do
+              node scripts/ops/assemble-consolidated-release.mjs \
+                --source "$GITHUB_WORKSPACE" --destination "$BUNDLE_PARENT/residential31-$ordinal" \
+                --expected-sha "$EXPECTED_SHA" --provenance-mode "$PROVENANCE_MODE" \
+                --schema-route standard26-31
+              node scripts/ops/validate-release-open-http-contract.mjs \
+                --source "$BUNDLE_PARENT/residential31-$ordinal"
+              node scripts/ops/validate-consolidated-release-packet.mjs \
+                --source "$GITHUB_WORKSPACE" --expected-sha "$EXPECTED_SHA" \
+                --bundle "$BUNDLE_PARENT/residential31-$ordinal" \
+                --validation-mode "$VALIDATION_MODE" --schema-route standard26-31
+              if find "$BUNDLE_PARENT/residential31-$ordinal" \
+                \( -type l -o -name node_modules -o -name '.env*' \
+                   -o -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
+                   -o -name '*.pem' -o -name '*.key' \) -print -quit | grep -q .; then
+                echo "forbidden residential31 bundle entry detected" >&2
+                exit 1
+              fi
+            done
+            cmp "$BUNDLE_PARENT/residential31-first/release-manifest.json" "$BUNDLE_PARENT/residential31-second/release-manifest.json"
+          else
+          if [ "$STANDARD26_TASK_CONTEXT" = "true" ] || [ "$STANDARD26_FORMAL_CONTEXT" = "true" ]; then
+            for ordinal in first second; do
+              node scripts/ops/assemble-consolidated-release.mjs \
+                --source "$GITHUB_WORKSPACE" \
+                --destination "$BUNDLE_PARENT/standard26-$ordinal" \
+                --expected-sha "$EXPECTED_SHA" \
+                --provenance-mode "$PROVENANCE_MODE" \
+                --schema-route standard26-30
+              node scripts/ops/validate-release-open-http-contract.mjs \
+                --source "$BUNDLE_PARENT/standard26-$ordinal"
+              node scripts/ops/validate-consolidated-release-packet.mjs \
+                --source "$GITHUB_WORKSPACE" \
+                --expected-sha "$EXPECTED_SHA" \
+                --bundle "$BUNDLE_PARENT/standard26-$ordinal" \
+                --validation-mode "$VALIDATION_MODE" \
+                --schema-route standard26-30
+              if find "$BUNDLE_PARENT/standard26-$ordinal" \
+                \( -type l -o -name node_modules -o -name '.env*' \
+                   -o -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
+                   -o -name '*.pem' -o -name '*.key' \) \
+                -print -quit | grep -q .; then
+                echo "forbidden standard26 review bundle entry detected" >&2
+                exit 1
+              fi
+            done
+            cmp "$BUNDLE_PARENT/standard26-first/release-manifest.json" \
+              "$BUNDLE_PARENT/standard26-second/release-manifest.json"
+          else
           node scripts/ops/assemble-consolidated-release.mjs \
             --source "$GITHUB_WORKSPACE" \
             --destination "$BUNDLE_PARENT/first" \
@@ -272,11 +490,98 @@ jobs:
             echo "forbidden standard19 release bundle entry detected" >&2
             exit 1
           fi
+          fi
+
+          fi
+
+      - name: Retain admin32 PR review bundle (never production)
+        if: env.ADMIN32_TASK_CONTEXT == 'true' || env.ADMIN32_UPLOAD_FIX_TASK_CONTEXT == 'true' || env.ADMIN32_SAME_SCHEMA_TASK_CONTEXT == 'true' || env.ADMIN32_LEGACY_ASSET_FIX_TASK_CONTEXT == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-release-admin32-review-${{ env.EXPECTED_SHA }}
+          path: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}/admin32-first/
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Retain exact admin32 push formal candidate
+        if: (env.ADMIN32_FORMAL_CONTEXT == 'true' || env.ADMIN32_SAME_SCHEMA_FORMAL_CONTEXT == 'true') && github.sha == env.EXPECTED_SHA
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-release-admin32-${{ env.EXPECTED_SHA }}
+          path: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}/admin32-first/
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Retain residential31 PR review bundle (never production)
+        if: env.RESIDENTIAL31_TASK_CONTEXT == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-release-residential31-review-${{ env.EXPECTED_SHA }}
+          path: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}/residential31-first/
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Retain exact standard26 PR review bundle (not a production release)
+        if: env.STANDARD26_TASK_CONTEXT == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-release-standard26-review-${{ env.EXPECTED_SHA }}
+          path: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}/standard26-first/
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
 
       - name: Verify lockfiles are unchanged
         run: |
           git diff --exit-code -- auth-service/package-lock.json
           git diff --exit-code -- website/package-lock.json
+
+      - name: Retain exact residential31 push formal candidate
+        id: upload-residential31-formal
+        if: env.RESIDENTIAL31_FORMAL_CONTEXT == 'true' && env.ADMIN32_FORMAL_CONTEXT != 'true' && env.ADMIN32_SAME_SCHEMA_FORMAL_CONTEXT != 'true' && github.sha == env.EXPECTED_SHA
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-release-residential31-${{ env.EXPECTED_SHA }}
+          path: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}/residential31-first/
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Record residential31 artifact proof
+        if: env.RESIDENTIAL31_FORMAL_CONTEXT == 'true' && env.ADMIN32_FORMAL_CONTEXT != 'true' && env.ADMIN32_SAME_SCHEMA_FORMAL_CONTEXT != 'true' && github.sha == env.EXPECTED_SHA
+        env:
+          ARTIFACT_ID: ${{ steps.upload-residential31-formal.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload-residential31-formal.outputs.artifact-digest }}
+        run: |
+          test "$GITHUB_SHA" = "$EXPECTED_SHA"
+          test -n "$ARTIFACT_ID"
+          printf '%s\n' "$ARTIFACT_DIGEST" | grep -Eq '^[a-f0-9]{64}$'
+          printf 'Residential31 candidate: `%s`, artifact `%s`, digest `sha256:%s`\n' "$EXPECTED_SHA" "$ARTIFACT_ID" "$ARTIFACT_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain exact independent standard26 formal candidate
+        id: upload-standard26-formal
+        if: env.STANDARD26_FORMAL_CONTEXT == 'true' && github.sha == env.EXPECTED_SHA
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-release-standard26-${{ env.EXPECTED_SHA }}
+          path: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}/standard26-first/
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Record independent standard26 artifact proof
+        if: env.STANDARD26_FORMAL_CONTEXT == 'true' && github.sha == env.EXPECTED_SHA
+        env:
+          ARTIFACT_ID: ${{ steps.upload-standard26-formal.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload-standard26-formal.outputs.artifact-digest }}
+        run: |
+          test "$GITHUB_SHA" = "$EXPECTED_SHA"
+          test -n "$ARTIFACT_ID"
+          printf '%s\n' "$ARTIFACT_DIGEST" | grep -Eq '^[a-f0-9]{64}$'
+          printf 'Independent standard26 candidate: `%s`, artifact `%s`, digest `sha256:%s`\n' "$EXPECTED_SHA" "$ARTIFACT_ID" "$ARTIFACT_DIGEST" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Retain exact integration release candidate
         id: upload-release-candidate

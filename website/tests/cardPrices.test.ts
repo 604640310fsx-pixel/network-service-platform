@@ -56,6 +56,8 @@ test("type and region cards use the lowest purchasable server price", () => {
   assert.equal(regionFromPriceFen(catalog, "residential", "jp"), 7900);
   // Sold-out and inactive tuples never set the "from" price.
   assert.equal(regionFromPriceFen(catalog, "residential", "sg"), 8950);
+  assert.equal(typeFromPriceFen(index([item({durationId:"month-12",priceFen:100}),item({priceFen:14900})]),"residential"),14900);
+  assert.equal(typeFromPriceFen(index([item({durationId:"month-3",priceFen:100})]),"residential"),null);
 });
 
 test("spec cards use the exact tuple's monthly price only", () => {
@@ -93,9 +95,15 @@ test("card prices come only from the server availability index", () => {
   assert.doesNotMatch(helper, /from ["'][^"']*subscribeCatalog["']|\.(?:startingPrice|monthlyPrice)\b/);
   assert.match(helper, /import type \{ PlanAvailabilityIndex, PlanAvailabilityItem \} from "\.\/planAvailability";/);
   assert.match(page, /typeFromPriceFen\(availability\.index, option\.id\)/);
-  assert.match(page, /regionFromPriceFen\(availability\.index, selection\.typeId, option\.id\)/);
+  // Region cards now show only the flag and name, per the approved presentation.
+  const regionSection = page.slice(page.indexOf('id="sub-section-region"'), page.indexOf('id="sub-section-isp"'));
+  assert.doesNotMatch(regionSection, /regionFromPriceFen|regionFromFen|sub-region-meta|sub-region-tags|sub-tag/);
+  assert.match(regionSection, /flagClass: option\.flagClass/);
+  const select = readFileSync(new URL("../app/components/subscribe/CatalogSelect.tsx", import.meta.url), "utf8");
+  assert.match(select, /<img className="sub-flag" src=\{`\/subscription-flags\/\$\{selected\.flagClass\}\.svg`\}/);
+  assert.match(select, /<img className="sub-flag" src=\{`\/subscription-flags\/\$\{option\.flagClass\}\.svg`\}/);
+  assert.match(regionSection, /ct\(option\.cardName \?\? option\.name\)/);
   assert.match(page, /specMonthlyPriceFen\(availability\.index, selection\.typeId, selection\.regionId, selection\.ispId, option\.id\)/);
-  // Each card still falls back to the fail-closed label.
+  // The two remaining card-price surfaces still fail closed.
   assert.equal(page.match(/=== null \? copy\.pricePending/g)?.length, 2);
-  assert.match(page, /regionFromFen === null \? <small>\{copy\.pricePending\}<\/small>/);
 });

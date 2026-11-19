@@ -12,6 +12,7 @@ import {
   updateSellablePlan,
 } from "../payment/commerce.js";
 import { readPaymentSession } from "../payment/http-auth.js";
+import { CatalogDirectoryNotFound, listCatalogDirectory, updateCatalogDirectoryStatus } from "../payment/catalog-directory.js";
 import {
   DELIVERY_MAX_ITEMS,
   encryptServiceDeliveryItem,
@@ -407,6 +408,59 @@ export function registerPaymentAdminHttpRoutes(
       return reply.code(503).send(errorResponse("payment_unavailable"));
     }
   });
+
+  app.get("/api/admin/catalog-directory", async (request, reply) => {
+    setNoStore(reply);
+    if (!dependencies.enabled) return reply.code(503).send(errorResponse("payment_unavailable"));
+    const auth = authorizeAdminSession(request, dependencies);
+    if (!auth.ok) return reply.code(auth.statusCode).send(errorResponse(auth.code));
+    try {
+      return reply.code(200).send(listCatalogDirectory(dependencies.database));
+    } catch {
+      return reply.code(503).send(errorResponse("payment_unavailable"));
+    }
+  });
+
+  async function patchDirectory(
+    request: FastifyRequest<{ Params: { typeId: string; regionId: string; ispId?: string }; Body: unknown }>,
+    reply: FastifyReply,
+    kind: "region" | "operator",
+  ) {
+    setNoStore(reply);
+    if (!dependencies.enabled) return reply.code(503).send(errorResponse("payment_unavailable"));
+    const auth = authorizeAdminSession(request, dependencies);
+    if (!auth.ok) return reply.code(auth.statusCode).send(errorResponse(auth.code));
+    if (!verifyAdminCsrf(request, dependencies, auth.admin.sessionTokenHash))
+      return reply.code(403).send(errorResponse("csrf_invalid"));
+    const body = request.body;
+    if (typeof body !== "object" || body === null || Array.isArray(body) ||
+        Object.keys(body).length !== 1 || typeof (body as Record<string, unknown>).isActive !== "boolean")
+      return reply.code(400).send(errorResponse("invalid_directory_patch"));
+    const { typeId, regionId, ispId } = request.params;
+    if (kind === "operator" && typeof ispId !== "string") return reply.code(404).send(errorResponse("not_found"));
+    try {
+      const item = updateCatalogDirectoryStatus(dependencies.database, {
+        kind, typeId, regionId, ...(ispId === undefined ? {} : { ispId }),
+        isActive: (body as { isActive: boolean }).isActive,
+        adminUserId: auth.admin.userId,
+        now: dependencies.now ?? (() => new Date()),
+      });
+      return reply.code(200).send(item);
+    } catch (error) {
+      if (error instanceof CatalogDirectoryNotFound) return reply.code(404).send(errorResponse("not_found"));
+      if (error instanceof PaymentDomainError) return reply.code(error.statusCode).send(errorResponse(error.code));
+      return reply.code(503).send(errorResponse("payment_unavailable"));
+    }
+  }
+
+  app.patch<{ Params: { typeId: string; regionId: string }; Body: unknown }>(
+    "/api/admin/catalog-directory/regions/:typeId/:regionId",
+    (request, reply) => patchDirectory(request, reply, "region"),
+  );
+  app.patch<{ Params: { typeId: string; regionId: string; ispId: string }; Body: unknown }>(
+    "/api/admin/catalog-directory/operators/:typeId/:regionId/:ispId",
+    (request, reply) => patchDirectory(request, reply, "operator"),
+  );
 
   app.patch<{ Params: { id: string }; Body: unknown }>(
     "/api/admin/plans/:id",

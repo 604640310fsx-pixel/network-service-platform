@@ -22,6 +22,7 @@ import {
 } from "../../lib/monitorEmbed";
 import { requestPostLogoutFocus } from "../auth/AuthShell";
 import { LanguageToggle } from "../common/LanguageToggle";
+import { AdminServiceChangeBadge, AdminServiceChangesProvider } from "../dashboard/AdminServiceChangePanel";
 import "./customer-center.css";
 
 type DrawerKind = "navigation" | "order";
@@ -191,7 +192,11 @@ function HeaderWalletChip() {
   );
 }
 
-export function CustomerCenterShell({
+export function CustomerCenterShell(props:{children:ReactNode;title:string;description:string;fill?:boolean}) {
+  return <AdminServiceChangesProvider><CustomerCenterContent {...props}/></AdminServiceChangesProvider>;
+}
+
+function CustomerCenterContent({
   children,
   title,
   description,
@@ -206,7 +211,7 @@ export function CustomerCenterShell({
 }) {
   const t = useT();
   const { theme, toggleTheme } = useThemePreference();
-  const { status: authStatus, logout } = useAuth();
+  const { status: authStatus, logout, principal } = useAuth();
   const navigate = useNavigate();
   const [activeDrawer, setActiveDrawer] = useState<DrawerKind | null>(null);
   const [logoutPending, setLogoutPending] = useState(false);
@@ -298,6 +303,14 @@ export function CustomerCenterShell({
             <button type="button" className="cc-sidebar-close" onClick={closeDrawer} aria-label={t.center.closeNav}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 6h18M3 12h18M3 18h18" /></svg></button>
           </div>
           <nav className="cc-navigation" aria-label={t.center.navLabel}>
+            {principal?.role === "admin" && <div className="cc-nav-group"><p>ADMIN</p>
+              <NavLink to="/admin" onClick={closeDrawer} className={({ isActive }) => isActive ? "is-active" : ""}>
+                <NavIcon href="/dashboard" /><span>{t.center.adminCenter}</span>
+              </NavLink>
+              <NavLink to="/admin#admin-service-changes" onClick={closeDrawer}>
+                <NavIcon href="/services"/><span>{t.center.manualChangeTodo} <AdminServiceChangeBadge/></span>
+              </NavLink>
+            </div>}
             {navigation.map((group) => (
               <div className="cc-nav-group" key={group.group}>
                 <p>{t.center.navGroups[group.group]}</p>

@@ -25,6 +25,7 @@ const MIGRATED = [
   "app/components/subscribe/StepProgress.tsx",
   "app/components/subscribe/MobileOrderBar.tsx",
   "app/components/subscribe/OrderSummary.tsx",
+  "app/components/subscribe/PendingOrderNotice.tsx",
   "app/components/subscribe/SubmitRequestPage.tsx",
   "app/components/subscribe/RequirementForm.tsx",
   "app/components/subscribe/OrderStatusPanel.tsx",
@@ -252,7 +253,7 @@ function dashboardRenderer() {
 
 const DASHBOARD_PAGES: Array<{ url: string; zh: string[]; en: string[] }> = [
   { url: "/dashboard", zh: ["仪表板", "买家概览", "快捷操作"], en: ["Dashboard", "Buyer overview", "Quick actions"] },
-  { url: "/subscribe", zh: ["套餐订阅", "选择网络方案架构", "真住宅宽带"], en: ["Plans", "Choose a network architecture", "Real Residential Broadband"] },
+  { url: "/subscribe", zh: ["套餐订阅", "选择网络类型", "真住宅宽带", "干净度好", "独享节点", "当地合作拉线真家宽", "Cogent", "ATT", "Comcast"], en: ["Plans", "Choose a network type", "Real Residential Broadband", "Clean IP", "Dedicated node", "Locally arranged residential broadband", "Cogent", "ATT", "Comcast"] },
   { url: "/subscribe/request?typeId=residential&regionId=vn&ispId=vnpt-corp&specId=shared-3&durationId=month-1", zh: ["提交方案需求", "核对已选方案"], en: ["Submit plan details", "Review the selected plan"] },
   { url: "/services", zh: ["当前套餐", "正在读取服务状态…"], en: ["My plans", "Loading service status…"] },
   { url: "/orders", zh: ["订单", "正在读取订单…"], en: ["Orders", "Loading orders…"] },
@@ -279,6 +280,35 @@ test("customer dashboard pages render in both languages with the shell, toggle a
         assert.deepEqual(attributes.filter((value) => CJK.test(value)), [], `${page.url} en attribute leaks`);
       }
     }
+  }
+}));
+
+test("subscribe selling points render as separate non-interactive labels in both languages", () => withBrowserStub(() => {
+  const render = dashboardRenderer();
+  for (const [lang, expected] of [
+    ["zh", ["IDC", "干净度好", "独享节点", "当地合作拉线真家宽", "NTT", "GTT", "Cogent", "ATT", "Verizon", "Comcast"]],
+    ["en", ["IDC", "Clean IP", "Dedicated node", "Locally arranged residential broadband", "NTT", "GTT", "Cogent", "ATT", "Verizon", "Comcast"]],
+  ] as const) {
+    const html = render("/subscribe", lang);
+    const labels = [...html.matchAll(/<span class="sub-product-point">([^<]+)<\/span>/g)].map((match) => match[1]);
+    assert.deepEqual(labels, expected);
+    assert.equal((html.match(/class="sub-product-points"/g) ?? []).length, 4);
+    assert.equal((html.match(/class="sub-product-audience"/g) ?? []).length, 4);
+  }
+}));
+
+test("retired Charter link prompts carrier re-selection and cannot render the purchase form", () => withBrowserStub(() => {
+  const render = dashboardRenderer();
+  const query = "type=us-local-carrier&region=us&isp=charter&spec=optimized-500g&duration=month-1";
+  for (const [lang, notice, invalid] of [
+    ["zh", "Charter 已不再提供此套餐的新购选择", "方案信息已失效"],
+    ["en", "Charter is no longer available for new purchases", "Plan details have expired"],
+  ] as const) {
+    const page = render(`/subscribe?${query}`, lang);
+    assert.ok(page.includes(notice));
+    const request = render(`/subscribe/request?${query}`, lang);
+    assert.ok(request.includes(invalid));
+    assert.doesNotMatch(request, /<form[\s>]/);
   }
 }));
 

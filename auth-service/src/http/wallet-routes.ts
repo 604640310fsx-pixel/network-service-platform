@@ -162,6 +162,7 @@ export function registerWalletHttpRoutes(app: FastifyInstance, dependencies: Wal
             key: quote.key, priceFen: quote.priceFen, currency: "CNY",
             durationId: quote.durationId, period: quote.period,
             previousEndsAt: quote.previousEndsAt, newEndsAt: quote.newEndsAt,
+            ...(quote.residentialOptions ? { residentialOptions: quote.residentialOptions } : {}),
           },
         });
       } catch (error) {

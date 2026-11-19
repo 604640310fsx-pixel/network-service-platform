@@ -23,9 +23,9 @@ function minPriceFen(
   return min;
 }
 
-/** 套餐类型卡片：该类型所有在售五元组的最低价（分）。 */
+/** 套餐类型卡片：该类型所有在售月付五元组的最低价（分）。 */
 export function typeFromPriceFen(index: PlanAvailabilityIndex | null, typeId: string): number | null {
-  return minPriceFen(index, (item) => item.typeId === typeId);
+  return minPriceFen(index, (item) => item.typeId === typeId && item.durationId === MONTHLY_DURATION_ID);
 }
 
 /** 地区卡片：当前类型下该地区所有在售五元组的最低价（分）。 */

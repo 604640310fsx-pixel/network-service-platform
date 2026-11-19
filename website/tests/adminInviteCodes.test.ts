@@ -128,15 +128,20 @@ test("admin invite UI is admin-only, binds email, and keeps plaintext transient"
     ),
     "utf8",
   );
-  const dashboard = readFileSync(
-    new URL("../app/components/dashboard/DashboardPage.tsx", import.meta.url),
+  const adminPage = readFileSync(
+    new URL("../app/components/dashboard/AdminManagementPage.tsx", import.meta.url),
+    "utf8",
+  );
+  const app = readFileSync(
+    new URL("../src/App.tsx", import.meta.url),
     "utf8",
   );
 
   assert.match(
-    dashboard,
-    /principal\?\.role === "admin" && <AdminInviteCodesPanel csrfToken=\{csrfToken\} \/>/,
+    adminPage,
+    /activeTab === "marketing" && <>[\s\S]*?<AdminInviteCodesPanel csrfToken=\{csrfToken\} \/>/,
   );
+  assert.match(app, /if \(principal\?\.role !== "admin"\) return <NotFoundPage \/>;/);
   assert.match(panel, /type="email"/);
   assert.match(panel, /收件邮箱/);
   assert.doesNotMatch(panel, /最大使用次数|setMaxUses/);

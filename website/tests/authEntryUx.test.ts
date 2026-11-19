@@ -15,8 +15,9 @@ test("login and protected routes expose a live session-checking status", () => {
 
   assert.equal(
     app.match(/if \(status === "checking"\) return <AuthSessionChecking \/>;/g)?.length,
-    2,
+    3,
   );
+  assert.match(app, /if \(principal\?\.role !== "admin"\) return <NotFoundPage \/>;/);
   assert.ok(app.indexOf('section === "subscribe" || section === "monitor"') < app.lastIndexOf('status === "checking"'));
   assert.match(shell, /role="status"/);
   assert.match(shell, /aria-live="polite"/);

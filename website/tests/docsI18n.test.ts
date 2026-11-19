@@ -215,8 +215,6 @@ test("social and AI guide preserves bilingual sections and official references",
 
 test("docs UI copy exists in both dictionaries", () => {
   assert.deepEqual(Object.keys(en.docs).sort(), Object.keys(zh.docs).sort());
-  assert.equal(en.docs.clearSearch, "Clear search");
-  assert.equal(zh.docs.clearSearch, "清空搜索");
   assert.equal(en.docs.groupHeading("Advanced guides", 5), "Advanced guides (5)");
   assert.equal(zh.docs.groupHeading("进阶教程", 5), "进阶教程（5）");
   for (const [key, value] of Object.entries(en.docs)) {

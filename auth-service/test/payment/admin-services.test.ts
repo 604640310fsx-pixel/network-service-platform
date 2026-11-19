@@ -130,7 +130,8 @@ test("admin user search matches email substrings literally and is bounded", asyn
     const found = await app.inject({ method: "GET", url: "/api/admin/users?q=BUYER", headers: json(admin, false) });
     assert.equal(found.statusCode, 200);
     assert.deepEqual(found.json().items.map((item: { email: string }) => item.email), ["buyer@example.com"]);
-    assert.deepEqual(Object.keys(found.json().items[0]).sort(), ["createdAt", "email", "id", "role", "status"]);
+    assert.deepEqual(Object.keys(found.json().items[0]).sort(), ["createdAt", "email", "id", "lastSuccessfulWebLoginAt", "role", "status"]);
+    assert.equal(found.json().items[0].lastSuccessfulWebLoginAt, null);
     const bulk = await app.inject({ method: "GET", url: "/api/admin/users?q=bulk", headers: json(admin, false) });
     assert.equal(bulk.json().items.length, 20);
     const wildcard = await app.inject({ method: "GET", url: "/api/admin/users?q=%25", headers: json(admin, false) });
@@ -139,6 +140,45 @@ test("admin user search matches email substrings literally and is bounded", asyn
       const invalid = await app.inject({ method: "GET", url, headers: json(admin, false) });
       assert.equal(invalid.statusCode, 400, url);
       assert.equal(invalid.json().error.code, "invalid_query");
+    }
+  });
+});
+
+test("admin user list loads bounded keyset pages, filters safely and exposes only allowed fields", async () => {
+  await withAdminFixture(async ({ app, admin, buyer, database, buyerId }) => {
+    for (let index = 0; index < 25; index += 1) {
+      insertAuthenticationUser(database, { email: `page${index}@example.com`, passwordHash: "hash", status: "active" });
+    }
+    database.prepare("UPDATE users SET last_successful_web_login_at = ? WHERE id = ?")
+      .run("2026-11-10T01:02:03.000Z", buyerId);
+    const url = "/api/admin/users/list";
+    assert.equal((await app.inject({ method: "GET", url })).statusCode, 401);
+    assert.equal((await app.inject({ method: "GET", url, headers: json(buyer, false) })).statusCode, 403);
+    const first = await app.inject({ method: "GET", url, headers: json(admin, false) });
+    assert.equal(first.statusCode, 200);
+    assert.equal(first.headers["cache-control"], "no-store");
+    assert.equal(first.json().items.length, 20);
+    assert.equal(typeof first.json().nextCursor, "number");
+    assert.deepEqual(Object.keys(first.json().items[0]).sort(), ["createdAt", "email", "id", "lastSuccessfulWebLoginAt", "role", "status"]);
+    const second = await app.inject({ method: "GET", url: `${url}?cursor=${first.json().nextCursor}`, headers: json(admin, false) });
+    assert.equal(second.statusCode, 200);
+    assert.equal(second.json().items.length, 7);
+    assert.equal(second.json().nextCursor, null);
+    const ids = [...first.json().items, ...second.json().items].map((item: { id: number }) => item.id);
+    assert.equal(new Set(ids).size, 27);
+    assert.deepEqual(ids, [...ids].sort((a, b) => b - a));
+    const buyerRow = second.json().items.find((item: { id: number }) => item.id === buyerId);
+    assert.equal(buyerRow.lastSuccessfulWebLoginAt, "2026-11-10T01:02:03.000Z");
+    const filtered = await app.inject({ method: "GET", url: `${url}?q=PAGE2`, headers: json(admin, false) });
+    assert.equal(filtered.statusCode, 200);
+    assert.deepEqual(filtered.json().items.map((item: { email: string }) => item.email).sort(),
+      ["page2@example.com", "page20@example.com", "page21@example.com", "page22@example.com", "page23@example.com", "page24@example.com"].sort());
+    const escaped = await app.inject({ method: "GET", url: `${url}?q=%25`, headers: json(admin, false) });
+    assert.deepEqual(escaped.json().items, []);
+    for (const bad of [`${url}?cursor=0`, `${url}?cursor=abc`, `${url}?q=${"a".repeat(101)}`]) {
+      const response = await app.inject({ method: "GET", url: bad, headers: json(admin, false) });
+      assert.equal(response.statusCode, 400, bad);
+      assert.equal(response.json().error.code, "invalid_query");
     }
   });
 });

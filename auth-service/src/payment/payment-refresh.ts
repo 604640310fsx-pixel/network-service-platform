@@ -33,6 +33,35 @@ export interface RefreshTarget {
   readonly amountFen: number;
 }
 
+// Historical payments can belong to a different merchant app. Reject them
+// before even claiming the query throttle; a provider miss is not evidence
+// that such a payment is unpaid or may be closed by the current merchant.
+function hasBoundPaymentTarget(
+  dependencies: PaymentRefreshDependencies,
+  target: RefreshTarget,
+): boolean {
+  if (!Number.isSafeInteger(target.paymentId) || target.paymentId <= 0 ||
+      !Number.isSafeInteger(target.amountFen) || target.amountFen <= 0 ||
+      typeof target.outTradeNo !== "string" || target.outTradeNo.length === 0 ||
+      typeof dependencies.appId !== "string" || dependencies.appId.length === 0) return false;
+  const rows = dependencies.database.prepare(`
+    SELECT p.out_trade_no, p.amount_fen, p.currency, p.app_id, p.status,
+           o.amount_fen AS order_amount_fen, o.currency AS order_currency,
+           o.status AS order_status
+    FROM payments p JOIN orders o ON o.id = p.order_id WHERE p.id = ?
+  `).all(target.paymentId);
+  if (rows.length !== 1) return false;
+  const row = rows[0];
+  if (typeof row !== "object" || row === null || Array.isArray(row)) return false;
+  const payment = row as Record<string, unknown>;
+  return payment.app_id === dependencies.appId &&
+    payment.out_trade_no === target.outTradeNo &&
+    payment.amount_fen === target.amountFen && payment.order_amount_fen === target.amountFen &&
+    payment.currency === "CNY" && payment.order_currency === "CNY" &&
+    (payment.status === "pending" || payment.status === "closed") &&
+    payment.order_status === payment.status;
+}
+
 type ValidatedAlipayTradeQueryResult = AlipayTradeQueryResult & {
   readonly tradeNo: string;
   readonly tradeStatus: string;
@@ -110,8 +139,10 @@ async function queryTrade(
   dependencies: PaymentRefreshDependencies,
   target: RefreshTarget,
 ): Promise<QueriedTrade | null> {
+  if (!hasBoundPaymentTarget(dependencies, target)) return null;
   try {
     const queried = await queryAlipayTrade(dependencies.sdk, target.outTradeNo);
+    if (!hasBoundPaymentTarget(dependencies, target)) return null;
     if (!queried.recognized) {
       logAlipayQueryDiagnostic({
         event: "query_rejected",
@@ -150,6 +181,7 @@ async function queryTrade(
       },
     };
   } catch {
+    if (!hasBoundPaymentTarget(dependencies, target)) return null;
     logAlipayQueryDiagnostic({
       event: "query_failed",
       source: "provider_exception",
@@ -165,12 +197,12 @@ async function queryTrade(
 async function queryAndDispatch(
   dependencies: PaymentRefreshDependencies,
   target: RefreshTarget,
-): Promise<AlipayTradeQueryResult | null> {
+): Promise<QueriedTrade | null> {
   const result = await queryTrade(dependencies, target);
   if (result === null) {
     return null;
   }
-  const { queried, event } = result;
+  const { event } = result;
   if (event !== null) {
     if (event.tradeStatus === "TRADE_SUCCESS" || event.tradeStatus === "TRADE_FINISHED") {
       finalizePaid(dependencies, event);
@@ -180,7 +212,7 @@ async function queryAndDispatch(
       acceptPendingPaymentEvent(dependencies, event);
     }
   }
-  return queried;
+  return result;
 }
 
 /* 关单观察结果：只把权威终态交还给调用方，由调用方在自己的事务里
@@ -203,6 +235,7 @@ export async function observePendingTradeForCancel(
   dependencies: PaymentRefreshDependencies,
   target: RefreshTarget,
 ): Promise<PendingTradeObservation> {
+  if (!hasBoundPaymentTarget(dependencies, target)) return { kind: "unknown" };
   // Same 15s provider throttle as the status refresh and the sweep: a retried
   // observation inside the window yields unknown (503), never a guessed close.
   if (!claimAlipayQuery(dependencies, target.paymentId)) {
@@ -224,10 +257,12 @@ export async function observePendingTradeForCancel(
   if (first === null) return { kind: "unknown" };
   const direct = observationFromEvent(first.event);
   if (direct !== null) return direct;
-  if (first.queried.tradeStatus === "WAIT_BUYER_PAY") {
+  if (first.event?.tradeStatus === "WAIT_BUYER_PAY") {
+    if (!hasBoundPaymentTarget(dependencies, target)) return { kind: "unknown" };
     try {
       await closeAlipayTrade(dependencies.sdk, target.outTradeNo);
     } catch {
+      if (!hasBoundPaymentTarget(dependencies, target)) return { kind: "unknown" };
       auditPaymentFailure(dependencies, "payment.close_failed", target.outTradeNo);
       return { kind: "unknown" };
     }
@@ -236,10 +271,10 @@ export async function observePendingTradeForCancel(
     if (second === null) return { kind: "unknown" };
     const mapped = observationFromEvent(second.event);
     if (mapped !== null) return mapped;
-    if (isTradeNotExist(second.queried)) return syntheticClosed();
+    if (isTradeNotExist(second.queried) && second.queried.tradeStatus === null) return syntheticClosed();
     return { kind: "unknown" };
   }
-  if (isTradeNotExist(first.queried)) return syntheticClosed();
+  if (isTradeNotExist(first.queried) && first.queried.tradeStatus === null) return syntheticClosed();
   return { kind: "unknown" };
 }
 
@@ -250,6 +285,7 @@ export async function refreshPaymentFromAlipay(
   dependencies: PaymentRefreshDependencies,
   target: RefreshTarget,
 ): Promise<void> {
+  if (!hasBoundPaymentTarget(dependencies, target)) return;
   if (!claimAlipayQuery(dependencies, target.paymentId)) {
     return;
   }
@@ -270,6 +306,7 @@ export async function refreshExpiredPendingPayment(
   dependencies: PaymentRefreshDependencies,
   target: RefreshTarget,
 ): Promise<void> {
+  if (!hasBoundPaymentTarget(dependencies, target)) return;
   if (!claimAlipayQuery(dependencies, target.paymentId)) {
     return;
   }
@@ -277,18 +314,21 @@ export async function refreshExpiredPendingPayment(
   if (first === null) {
     return;
   }
+  const { queried, event } = first;
   if (
-    first.tradeStatus === "TRADE_SUCCESS" ||
-    first.tradeStatus === "TRADE_FINISHED" ||
-    first.tradeStatus === "TRADE_CLOSED"
+    queried.tradeStatus === "TRADE_SUCCESS" ||
+    queried.tradeStatus === "TRADE_FINISHED" ||
+    queried.tradeStatus === "TRADE_CLOSED"
   ) {
     return;
   }
 
-  if (first.tradeStatus === "WAIT_BUYER_PAY") {
+  if (event?.tradeStatus === "WAIT_BUYER_PAY") {
+    if (!hasBoundPaymentTarget(dependencies, target)) return;
     try {
       await closeAlipayTrade(dependencies.sdk, target.outTradeNo);
     } catch {
+      if (!hasBoundPaymentTarget(dependencies, target)) return;
       auditPaymentFailure(dependencies, "payment.close_failed", target.outTradeNo);
       return;
     }
@@ -297,7 +337,7 @@ export async function refreshExpiredPendingPayment(
     return;
   }
 
-  if (isTradeNotExist(first)) {
+  if (isTradeNotExist(queried) && queried.tradeStatus === null) {
     const result = finalizeClosed(dependencies, {
       outTradeNo: target.outTradeNo,
       tradeNo: `LOCAL-EXPIRED-${target.outTradeNo}`,

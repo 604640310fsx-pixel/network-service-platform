@@ -16,6 +16,27 @@ import {
   createReleaseProvenance,
   releaseArtifactNameForRoute,
   DEFAULT_RELEASE_SCHEMA_ROUTE,
+  STANDARD26_30_RELEASE_SCHEMA_ROUTE,
+  STANDARD26_31_RELEASE_SCHEMA_ROUTE,
+  STANDARD31_32_RELEASE_SCHEMA_ROUTE,
+  STANDARD32_32_RELEASE_SCHEMA_ROUTE,
+  ADMIN32_SAME_SCHEMA_BASELINE,
+  ADMIN32_LEGACY_ASSET_FIX_BASE_SHA,
+  ADMIN32_LEGACY_ASSET_FIX_HEAD_REF,
+  ADMIN32_SAME_SCHEMA_WEBSITE_INDEX_SHA256,
+  ADMIN32_SAME_SCHEMA_PRICING_RUNTIME_SHA256,
+  ADMIN32_SAME_SCHEMA_LEGACY_PUBLIC_ASSETS,
+  ADMIN32_COMPAT_BASELINE,
+  ADMIN32_ROLLBACK_PATCH,
+  ADMIN32_ROLLBACK_PATCH_PATHS,
+  ADMIN32_ROLLBACK_WEBSITE_SOURCE,
+  ADMIN32_FORMAL_REF,
+  RESIDENTIAL31_FORMAL_REF,
+  RESIDENTIAL31_PRODUCT_BASELINE,
+  isFormalBoundRoute,
+  isAdmin32Route,
+  releaseProductBaselineForRoute,
+  verifyIndependentProductSource,
   isForbiddenBundlePath,
   isKnownReleaseSchemaRoute,
   releaseManifestCarriesSchemaRoute,
@@ -23,6 +44,10 @@ import {
   RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE,
   RELEASE_BUNDLE_FORMAT,
   RELEASE_INTEGRATION_REF,
+  STANDARD26_FORMAL_REF,
+  STANDARD26_PRODUCT_BASELINE,
+  releaseFormalRefForRoute,
+  verifyStandard26ProductSource,
   RELEASE_HTTP_CONTRACT_PATHS,
   RELEASE_MIGRATIONS,
   RELEASE_REPOSITORY,
@@ -571,6 +596,20 @@ export function validateRepository({
     "repository",
     routeMigrations,
   );
+  if (isAdmin32Route(schemaRoute)) {
+    const patchText = readText(join(sourceRoot, ADMIN32_ROLLBACK_PATCH), "admin32 rollback patch");
+    const patchBlocks = [...patchText.matchAll(/^diff --git a\/([^\n]+) b\/\1$/gm)].map((match) => match[1]);
+    const patchPaths = [...new Set(patchBlocks)].sort();
+    if (patchBlocks.length !== patchPaths.length + 1 ||
+        patchBlocks.filter((path) => path === "auth-service/src/db.ts").length !== 2 ||
+        patchPaths.join(",") !== [...ADMIN32_ROLLBACK_PATCH_PATHS].sort().join(",") ||
+        !patchText.includes("openRollbackDatabase32") ||
+        !patchText.includes("fileMustExist: true") ||
+        patchText.includes("/api/admin/catalog-directory") ||
+        patchText.includes("updateCatalogDirectoryStatus")) {
+      throw new ReleaseValidationError("SOURCE_INVALID", "admin32 rollback patch violates frozen source boundary");
+    }
+  }
 
   const databaseSource = readText(
     join(sourceRoot, "auth-service/src/db.ts"),
@@ -675,7 +714,11 @@ export function validateRepository({
             "## Migration 025 forward-only ticket attachments and grant link",
           ]
         : []),
-      ...(candidate === 26
+      ...(candidate === 32 ? ["## Schema 032 administrator route", "--schema-route standard31-32",
+        "EXACT_031_PRECHECK", "032_AWARE_ROLLBACK"] : []),
+      ...(schemaRoute === STANDARD32_32_RELEASE_SCHEMA_ROUTE ? ["## Schema 032 same-schema administrator update",
+        "--schema-route standard32-32", "EXACT_032_PRECHECK", "D5_SAME_SCHEMA_ROLLBACK", "D5_LEGACY_HTML_ASSETS"] : []),
+      ...(candidate === 26 || candidate === 30 || candidate === 31 || candidate === 32
         ? [
             "## Explicit DIRECT14 to 26 route",
             "--schema-route direct14-26",
@@ -773,7 +816,22 @@ export function validateRepository({
       "actions/upload-artifact@v4",
       "consolidated-release-${{ env.EXPECTED_SHA }}",
       "consolidated-release-direct14-${{ env.EXPECTED_SHA }}",
-      ...(candidate === 26
+      ...(candidate === 32 ? ["ADMIN32_TASK_CONTEXT", "ADMIN32_FORMAL_CONTEXT",
+        "ADMIN32_UPLOAD_FIX_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 166 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin32-upload-guard-fix-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.sha == '4857c9c62294a2dfdcca2187e17983720e991a2f' }}",
+        "--schema-route standard31-32", "consolidated-release-admin32-review-${{ env.EXPECTED_SHA }}",
+        "consolidated-release-admin32-${{ env.EXPECTED_SHA }}",
+        "sha256sum auth-service/dist/src/payment/pricing.js",
+        "6aff457355395f275ed88eca51510741fb1fe226170b8ab5fdf3453f8a57cb36"] : []),
+      ...(schemaRoute === STANDARD32_32_RELEASE_SCHEMA_ROUTE ? [
+        "ADMIN32_SAME_SCHEMA_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 167 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin-mobile-paging-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.sha == 'd5cafdbd9ae76432c80994771f490fde2509e3e2' }}",
+        "ADMIN32_LEGACY_ASSET_FIX_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.number == 168 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/nsp-admin-mobile-legacy-assets-fix-20261110-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.sha == '9a75eab4470b5008055c7cc122df541e6b903ae3' }}",
+        "ADMIN32_SAME_SCHEMA_FORMAL_CONTEXT: false", "--schema-route standard32-32",
+        "consolidated-release-admin32-${{ env.EXPECTED_SHA }}",
+        "Build exact deployed d5 schema32 application rollback",
+      ] : []),
+      // This independent route does not claim that the frozen 026 CI job
+      // creates 030 artifacts. Its old flags must remain intact.
+      ...(candidate === 26 || candidate === 30 || candidate === 31 || candidate === 32
         ? [
             "--schema-route direct14-26",
             "--schema-route standard16-26",
@@ -829,6 +887,26 @@ export function validateRepository({
     ],
     "CI workflow",
   );
+  if (candidate === 30) {
+    assertFragments(workflow, [
+      "STANDARD26_TASK_CONTEXT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/service-change-release-prepare-20261103' && github.event.pull_request.base.ref == 'integration/consolidate-project' }}",
+      'if [ "$STANDARD26_TASK_CONTEXT" = "true" ] || [ "$STANDARD26_FORMAL_CONTEXT" = "true" ]; then',
+      "STANDARD26_FORMAL_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'push' && github.ref == 'refs/heads/codex/service-change-release-prepare-20261103' }}",
+      "consolidated-release-standard26-${{ env.EXPECTED_SHA }}",
+      "--validation-mode ci-build",
+      "--schema-route standard26-30",
+      "consolidated-release-standard26-review-${{ env.EXPECTED_SHA }}",
+    ], "independent standard26 review CI route");
+  }
+  if (candidate === 31) {
+    assertFragments(workflow,[
+      "RESIDENTIAL31_TASK_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && ((github.event.pull_request.head.ref == 'codex/residential-options-local-20261105' && github.event.pull_request.base.ref == 'integration/consolidate-project') || (github.event.pull_request.head.ref == 'codex/nsp-subscribe-select-ui-20261105-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105') || (github.event.pull_request.head.ref == 'codex/nsp-subscribe-mobile-focus-footer-20261108-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105') || (github.event.pull_request.head.ref == 'codex/nsp-subscribe-line-price-20261108-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105') || (github.event.pull_request.head.ref == 'codex/nsp-subscribe-line-price-release-control-20261108-01' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105') || (github.event.pull_request.head.ref == 'codex/subscribe-design-tags-v13-r42-20261109' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105') || (github.event.pull_request.head.ref == 'codex/subscribe-us-dual-isp-charter-remove-20261109' && github.event.pull_request.base.ref == 'codex/residential-options-local-20261105')) }}",
+      "RESIDENTIAL31_FORMAL_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'push' && github.ref == 'refs/heads/codex/residential-options-local-20261105' }}",
+      "--schema-route standard26-31", "--validation-mode ci-build",
+      "consolidated-release-residential31-${{ env.EXPECTED_SHA }}",
+      "consolidated-release-residential31-review-${{ env.EXPECTED_SHA }}",
+    ],"independent residential31 CI route");
+  }
 
   const openValidator = readText(
     join(sourceRoot, "scripts/ops/validate-release-open-http-contract.mjs"),
@@ -951,13 +1029,18 @@ function validateProvenance({
     );
   const githubShape =
     Object.keys(provenance).sort().join(",") ===
-      "artifactName,eventName,githubSha,job,kind,ref,releaseUse,repository,runAttempt,runId,workflowRef" &&
+      (isFormalBoundRoute(schemaRoute)
+        ? "artifactName,eventName,githubSha,job,kind,productBaseline,ref,releaseUse,repository,runAttempt,runId,workflowRef"
+        : "artifactName,eventName,githubSha,job,kind,ref,releaseUse,repository,runAttempt,runId,workflowRef") &&
     provenance.kind === "github-actions" &&
     provenance.releaseUse === "requires-github-artifact-verification" &&
     provenance.repository === RELEASE_REPOSITORY &&
     provenance.job === RELEASE_WORKFLOW_JOB &&
     provenance.eventName === "push" &&
-    provenance.ref === RELEASE_INTEGRATION_REF &&
+    provenance.ref === releaseFormalRefForRoute(schemaRoute) &&
+    (!isFormalBoundRoute(schemaRoute) ||
+      (provenance.productBaseline === releaseProductBaselineForRoute(schemaRoute) &&
+        provenance.workflowRef === `${RELEASE_REPOSITORY}/.github/workflows/ci.yml@${releaseFormalRefForRoute(schemaRoute)}`)) &&
     provenance.githubSha === expectedSha &&
     provenance.artifactName === releaseArtifactNameForRoute(expectedSha, schemaRoute) &&
     typeof provenance.runId === "string" &&
@@ -1156,7 +1239,7 @@ function archiveFile(archive, path) {
   return result.stdout;
 }
 
-function validateGithubArtifactProof({
+export function validateGithubArtifactProof({
   artifactId,
   artifactArchive,
   expectedSha,
@@ -1164,6 +1247,8 @@ function validateGithubArtifactProof({
   inventory,
   bundleRoot,
   provenance,
+  schemaRoute,
+  source,
 }) {
   const id = requiredArtifactId(artifactId);
   const archive = existingArtifactArchive(artifactArchive);
@@ -1186,7 +1271,7 @@ function validateGithubArtifactProof({
     workflowRun?.path !== ".github/workflows/ci.yml" ||
     workflowRun?.event !== "push" ||
     workflowRun?.head_branch !==
-      RELEASE_INTEGRATION_REF.slice("refs/heads/".length) ||
+      provenance.ref.slice("refs/heads/".length) ||
     workflowRun?.head_sha !== expectedSha ||
     workflowRun?.status !== "completed" ||
     workflowRun?.conclusion !== "success" ||
@@ -1196,6 +1281,39 @@ function validateGithubArtifactProof({
       "PROVENANCE_REQUIRED",
       "live GitHub artifact or workflow metadata does not match the candidate",
     );
+  }
+  if ([STANDARD26_FORMAL_REF,RESIDENTIAL31_FORMAL_REF,ADMIN32_FORMAL_REF].includes(provenance.ref)) {
+    const jobs = githubApiJson(`repos/${RELEASE_REPOSITORY}/actions/runs/${provenance.runId}/attempts/${provenance.runAttempt}/jobs?per_page=100`);
+    for (const name of ["Website check and build", "Auth service build and test", "Consolidated release packet"]) {
+      const matching = jobs?.jobs?.filter(job => job.name === name);
+      if (matching?.length !== 1 || matching[0].head_sha !== expectedSha ||
+        matching[0].status !== "completed" || matching[0].conclusion !== "success") {
+        throw new ReleaseValidationError("PROVENANCE_REQUIRED", "formal standard26 candidate requires all three mandatory jobs to succeed at its exact head");
+      }
+    }
+  }
+  if (schemaRoute === STANDARD32_32_RELEASE_SCHEMA_ROUTE) {
+    const parents = spawnSync("git", ["-C", existingDirectory(source, "source"), "rev-list", "--parents", "-n", "1", expectedSha],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const commits = parents.status === 0 ? parents.stdout.trim().split(/\s+/) : [];
+    const accepted = commits[1] === ADMIN32_SAME_SCHEMA_BASELINE
+      ? { number: 167, headRef: "codex/nsp-admin-mobile-paging-20261110-01" }
+      : commits[1] === ADMIN32_LEGACY_ASSET_FIX_BASE_SHA
+        ? { number: 168, headRef: ADMIN32_LEGACY_ASSET_FIX_HEAD_REF }
+        : null;
+    if (accepted === null || commits.length !== 3 || commits[0] !== expectedSha) {
+      throw new ReleaseValidationError("PROVENANCE_REQUIRED", "schema32 candidate is not an approved normal merge");
+    }
+    const pr = githubApiJson(`repos/${RELEASE_REPOSITORY}/pulls/${accepted.number}`);
+    if (pr?.number !== accepted.number || pr?.merged !== true || !pr?.merged_at ||
+        pr?.merge_commit_sha !== expectedSha ||
+        pr?.head?.repo?.full_name !== RELEASE_REPOSITORY ||
+        pr?.base?.repo?.full_name !== RELEASE_REPOSITORY ||
+        pr?.head?.ref !== accepted.headRef ||
+        pr?.base?.ref !== "codex/residential-options-local-20261105" ||
+        commits[2] !== pr?.head?.sha) {
+      throw new ReleaseValidationError("PROVENANCE_REQUIRED", "schema32 candidate is not the exact approved PR normal merge");
+    }
   }
 
   const archivedFiles = archiveEntries(archive);
@@ -1229,6 +1347,7 @@ function validateGithubArtifactProof({
 }
 
 export function validateBundle({
+  source,
   bundle,
   expectedSha,
   validationMode,
@@ -1246,13 +1365,17 @@ export function validateBundle({
   const expectedBoundary = RELEASE_SCHEMA_BOUNDARIES[schemaRoute];
   const routeMigrations = releaseMigrationsForRoute(schemaRoute);
   const carriesSchemaRoute = releaseManifestCarriesSchemaRoute(schemaRoute);
+  const isAdmin32 = isAdmin32Route(schemaRoute);
+  const isSameSchema32 = schemaRoute === STANDARD32_32_RELEASE_SCHEMA_ROUTE;
   const bundleRoot = existingDirectory(bundle, "bundle");
   const sha = normalizedExpectedSha(expectedSha);
   const manifest = parsedManifest(bundleRoot);
 
   if (
     Object.keys(manifest).sort().join(",") !==
-      (carriesSchemaRoute
+      (isAdmin32
+        ? "applicationRollback,entrypoints,format,inventory,migrations,provenance,schemaBoundary,schemaRoute,sourceSha"
+        : carriesSchemaRoute
         ? "entrypoints,format,inventory,migrations,provenance,schemaBoundary,schemaRoute,sourceSha"
         : "entrypoints,format,inventory,migrations,provenance,schemaBoundary,sourceSha") ||
     (carriesSchemaRoute && manifest.schemaRoute !== schemaRoute) ||
@@ -1261,10 +1384,32 @@ export function validateBundle({
     typeof manifest.schemaBoundary !== "object" ||
     manifest.schemaBoundary === null ||
     Array.isArray(manifest.schemaBoundary) ||
-    Object.keys(manifest.schemaBoundary).sort().join(",") !==
-      "candidate,rollback" ||
-    manifest.schemaBoundary?.rollback !== expectedBoundary.rollback ||
-    manifest.schemaBoundary?.candidate !== expectedBoundary.candidate ||
+    JSON.stringify(manifest.schemaBoundary) !== JSON.stringify(expectedBoundary) ||
+    (isAdmin32 && (
+      typeof manifest.applicationRollback !== "object" ||
+      manifest.applicationRollback === null || Array.isArray(manifest.applicationRollback)
+    )) ||
+    (isSameSchema32 && (
+      Object.keys(manifest.applicationRollback).sort().join(",") !==
+        "authEntrypoint,baselineSourceSha,migrationStart,runningSchema,websiteEntrypoint,websiteSourceCommit" ||
+      manifest.applicationRollback.authEntrypoint !== "auth-service/rollback32/dist/src/server.js" ||
+      manifest.applicationRollback.baselineSourceSha !== ADMIN32_SAME_SCHEMA_BASELINE ||
+      manifest.applicationRollback.migrationStart !== 32 ||
+      manifest.applicationRollback.runningSchema !== 32 ||
+      manifest.applicationRollback.websiteEntrypoint !== "website/rollback32/dist/index.html" ||
+      manifest.applicationRollback.websiteSourceCommit !== ADMIN32_SAME_SCHEMA_BASELINE
+    )) ||
+    (schemaRoute === STANDARD31_32_RELEASE_SCHEMA_ROUTE && (
+      Object.keys(manifest.applicationRollback).sort().join(",") !==
+        "authEntrypoint,baselineSourceSha,migrationStart,patchSha256,patchSourceSha,runningSchema,websiteSourceCommit" ||
+      manifest.applicationRollback.authEntrypoint !== "auth-service/rollback32/dist/src/server.js" ||
+      manifest.applicationRollback.baselineSourceSha !== ADMIN32_COMPAT_BASELINE ||
+      manifest.applicationRollback.patchSourceSha !== sha ||
+      manifest.applicationRollback.migrationStart !== 31 ||
+      manifest.applicationRollback.runningSchema !== 32 ||
+      manifest.applicationRollback.websiteSourceCommit !== ADMIN32_ROLLBACK_WEBSITE_SOURCE ||
+      !/^[a-f0-9]{64}$/.test(manifest.applicationRollback.patchSha256)
+    )) ||
     !Array.isArray(manifest.migrations) ||
     manifest.migrations.length !== routeMigrations.length ||
     manifest.migrations.some(
@@ -1291,6 +1436,11 @@ export function validateBundle({
     schemaRoute,
     environment,
   });
+  if (isFormalBoundRoute(schemaRoute) && provenance.kind === "github-actions") {
+    if (typeof source !== "string") throw new ReleaseValidationError("PROVENANCE_REQUIRED", "formal standard26 validation requires its exact clean source repository");
+    try { verifyIndependentProductSource(existingDirectory(source, "source"), sha, schemaRoute); }
+    catch (error) { throw new ReleaseValidationError(error.code ?? "SOURCE_INVALID", "formal standard26 source policy failed"); }
+  }
 
   const inventoryPaths = [];
   let previousPath = "";
@@ -1362,6 +1512,74 @@ export function validateBundle({
       );
     }
   }
+  if (isSameSchema32) {
+    for (const path of ["auth-service/rollback32/dist/src/server.js", "auth-service/rollback32/dist/src/db.js",
+      "auth-service/rollback32/dist/src/http/admin-service-routes.js", "website/rollback32/dist/index.html"]) {
+      if (!inventoryPaths.includes(path)) throw new ReleaseValidationError("ARTIFACT_MISSING", `d5 rollback artifact missing: ${path}`);
+    }
+    if ((validationMode !== "local-dry-run" &&
+        (sha256(join(bundleRoot, "website/rollback32/dist/index.html")) !== ADMIN32_SAME_SCHEMA_WEBSITE_INDEX_SHA256 ||
+         sha256(join(bundleRoot, "auth-service/rollback32/dist/src/payment/pricing.js")) !== ADMIN32_SAME_SCHEMA_PRICING_RUNTIME_SHA256)) ||
+        readText(join(bundleRoot, "auth-service/rollback32/dist/src/http/admin-service-routes.js"), "d5 rollback admin routes")
+          .includes("/api/admin/users/list")) {
+      throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", "schema32 rollback is not the verified d5 application");
+    }
+    for (const migration of routeMigrations) {
+      const path = `auth-service/rollback32/src/migrations/${migration}`;
+      if (!inventoryPaths.includes(path) ||
+          sha256(join(bundleRoot, path)) !== sha256(join(bundleRoot, `auth-service/src/migrations/${migration}`))) {
+        throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", `d5 rollback migration differs: ${migration}`);
+      }
+    }
+    for (const html of ["index.html", "referral.html"]) {
+      const oldHtml = readText(join(bundleRoot, "website/rollback32/dist", html), "d5 rollback HTML");
+      const oldRefs = [...new Set(oldHtml.match(/\/assets\/[A-Za-z0-9._-]+/g) ?? [])].sort();
+      const expectedRefs = ADMIN32_SAME_SCHEMA_LEGACY_PUBLIC_ASSETS.filter((item) => item.usedBy.includes(html))
+        .map((item) => `/${item.path}`).sort();
+      if (oldRefs.join("\0") !== expectedRefs.join("\0")) {
+        throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", "d5 legacy HTML asset references changed");
+      }
+    }
+    for (const asset of ADMIN32_SAME_SCHEMA_LEGACY_PUBLIC_ASSETS) {
+      const forward = `website/dist/${asset.path}`;
+      const rollback = `website/rollback32/dist/${asset.path}`;
+      if (!inventoryPaths.includes(forward) || !inventoryPaths.includes(rollback) ||
+          sha256(join(bundleRoot, forward)) !== sha256(join(bundleRoot, rollback)) ||
+          (validationMode !== "local-dry-run" &&
+            (sha256(join(bundleRoot, rollback)) !== asset.sha256 || statSync(join(bundleRoot, rollback)).size !== asset.bytes))) {
+        throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", `legacy public asset does not match d5: ${asset.path}`);
+      }
+    }
+  } else if (isAdmin32) {
+    for (const path of [ADMIN32_ROLLBACK_PATCH, "auth-service/rollback32/dist/src/server.js",
+      "auth-service/rollback32/dist/src/db.js", "auth-service/rollback32/dist/src/payment/catalog-directory.js"]) {
+      if (!inventoryPaths.includes(path)) throw new ReleaseValidationError("ARTIFACT_MISSING", `admin32 rollback artifact missing: ${path}`);
+    }
+    if (sha256(join(bundleRoot, ADMIN32_ROLLBACK_PATCH)) !== manifest.applicationRollback.patchSha256)
+      throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", "admin32 rollback patch digest mismatch");
+    for (const migration of routeMigrations) {
+      if (!inventoryPaths.includes(`auth-service/rollback32/src/migrations/${migration}`))
+        throw new ReleaseValidationError("ARTIFACT_MISSING", `admin32 rollback migration missing: ${migration}`);
+      if (sha256(join(bundleRoot,`auth-service/rollback32/src/migrations/${migration}`)) !==
+          sha256(join(bundleRoot,`auth-service/src/migrations/${migration}`)))
+        throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", `admin32 rollback migration differs: ${migration}`);
+    }
+    const patchText = readText(join(bundleRoot, ADMIN32_ROLLBACK_PATCH), "admin32 rollback patch");
+    const patchBlocks = [...patchText.matchAll(/^diff --git a\/([^\n]+) b\/\1$/gm)].map((match) => match[1]);
+    const patchPaths = [...new Set(patchBlocks)].sort();
+    if (patchBlocks.length !== patchPaths.length + 1 ||
+        patchBlocks.filter((path) => path === "auth-service/src/db.ts").length !== 2 ||
+        patchPaths.join(",") !== [...ADMIN32_ROLLBACK_PATCH_PATHS].sort().join(","))
+      throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", "admin32 rollback patch path set mismatch");
+    const rollbackRoutes = readText(join(bundleRoot,"auth-service/rollback32/dist/src/http/admin-routes.js"),"rollback admin routes");
+    const rollbackDirectory = readText(join(bundleRoot,"auth-service/rollback32/dist/src/payment/catalog-directory.js"),"rollback directory guard");
+    if (rollbackRoutes.includes("/api/admin/catalog-directory") || rollbackDirectory.includes("updateCatalogDirectoryStatus") ||
+        rollbackDirectory.includes("listCatalogDirectory"))
+      throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", "rollback Auth includes forward administrator directory editing");
+    if (sha256(join(bundleRoot,"auth-service/rollback32/dist/src/server.js")) ===
+        sha256(join(bundleRoot,"auth-service/dist/src/server.js")))
+      throw new ReleaseValidationError("BUNDLE_INTEGRITY_FAILED", "rollback Auth server is not independent");
+  }
   const referralHtml = readText(
     join(bundleRoot, "website/dist/referral.html"),
     "built public referral entrypoint",
@@ -1400,6 +1618,11 @@ export function validateBundle({
     "bundle",
     routeMigrations,
   );
+  if (isAdmin32) assertExactMigrationFiles(
+    join(bundleRoot, "auth-service/rollback32/src/migrations"),
+    "admin32 rollback bundle",
+    routeMigrations,
+  );
   const bundledOpenValidator = readText(
     join(bundleRoot, "scripts/ops/validate-release-open-http-contract.mjs"),
     "bundled open HTTP contract validator",
@@ -1422,6 +1645,8 @@ export function validateBundle({
           inventory: manifest.inventory,
           bundleRoot,
           provenance,
+          schemaRoute,
+          source,
         })
       : null;
 
@@ -1464,19 +1689,28 @@ export function run(arguments_) {
   const source = requireOption(options, "--source");
   const expectedSha = requireOption(options, "--expected-sha");
   const bundle = options.get("--bundle");
-  // Without --bundle the repository gate stays strict on the current 001-020
-  // route; with --bundle it follows the bundle's explicit --schema-route.
+  // Default repository/CI behavior stays frozen at 026. Only the new explicit
+  // 26->30 route is allowed for source-only validation; old option behavior stays.
+  const explicitSourceRoute = isFormalBoundRoute(options.get("--schema-route"));
   const schemaRoute =
-    bundle === undefined
+    bundle === undefined && !explicitSourceRoute
       ? DEFAULT_RELEASE_SCHEMA_ROUTE
       : (options.get("--schema-route") ?? DEFAULT_RELEASE_SCHEMA_ROUTE);
   const repositoryResult = validateRepository({ source, expectedSha, schemaRoute });
   if (bundle === undefined) {
+    if (isFormalBoundRoute(schemaRoute) && options.get("--validation-mode") === "ci-build" &&
+      !options.has("--github-artifact-id") && !options.has("--artifact-archive")) {
+      try {
+        createReleaseProvenance({mode:"github-actions",expectedSha,schemaRoute});
+        verifyIndependentProductSource(existingDirectory(source, "source"), normalizedExpectedSha(expectedSha), schemaRoute);
+      } catch (error) { throw new ReleaseValidationError(error.code ?? "SOURCE_INVALID", "formal standard26 source policy failed"); }
+      return Object.freeze({...repositoryResult, productBaseline:releaseProductBaselineForRoute(schemaRoute)});
+    }
     if (
       options.has("--validation-mode") ||
       options.has("--github-artifact-id") ||
       options.has("--artifact-archive") ||
-      options.has("--schema-route")
+      (options.has("--schema-route") && !isFormalBoundRoute(schemaRoute))
     ) {
       throw new ReleaseValidationError(
         "ARGUMENT_ERROR",
@@ -1496,6 +1730,7 @@ export function run(arguments_) {
     );
   }
   return validateBundle({
+    source,
     bundle,
     expectedSha,
     validationMode,

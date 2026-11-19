@@ -72,6 +72,7 @@ test("creates one web family and Session atomically after successful authenticat
 
   await withAuthenticationDatabase(async (database) => {
     const { userId } = await insertActiveUser(database, password);
+    assert.equal((database.prepare("SELECT last_successful_web_login_at AS value FROM users WHERE id = ?").all(userId)[0] as { value: string | null }).value, null);
     const result = await loginAndCreateSession(
       database,
       " Login@Example.COM ",
@@ -115,6 +116,7 @@ test("creates one web family and Session atomically after successful authenticat
       revoked_at: null,
     }]);
     assert.equal(JSON.stringify({ families, sessions }).includes(result.rawSessionToken), false);
+    assert.equal((database.prepare("SELECT last_successful_web_login_at AS value FROM users WHERE id = ?").all(userId)[0] as { value: string | null }).value, NOW.toISOString());
     assert.equal(Buffer.from(result.rawSessionToken.split(".")[1] ?? "", "base64url").length, 32);
   });
 });
@@ -173,7 +175,7 @@ test("missing, wrong-password, and disabled login attempts create no Session sta
   });
 
   await withAuthenticationDatabase(async (database) => {
-    insertAuthenticationUser(database, {
+    const userId = insertAuthenticationUser(database, {
       email: "wrong@example.com",
       passwordHash,
       status: "active",
@@ -189,6 +191,7 @@ test("missing, wrong-password, and disabled login attempts create no Session sta
     );
     assert.equal(count(database, "session_families"), 0);
     assert.equal(count(database, "sessions"), 0);
+    assert.equal((database.prepare("SELECT last_successful_web_login_at AS value FROM users WHERE id = ?").all(userId)[0] as { value: string | null }).value, null);
   });
 
   await withAuthenticationDatabase(async (database) => {
