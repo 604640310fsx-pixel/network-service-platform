@@ -7,7 +7,7 @@ const componentSource = readFileSync(
   "utf8",
 );
 
-test("CustomerServicesPage preserves the GET /api/me/services response order", () => {
+test("CustomerServicesPage preserves API order within primary purchases, other purchases and gifts", () => {
   const responseItems = [
     { orderRef: "ORDER-OLDER-FIRST", createdAt: "2026-01-01T00:00:00.000Z" },
     { orderRef: "ORDER-NEWER-SECOND", createdAt: "2026-02-01T00:00:00.000Z" },
@@ -18,7 +18,7 @@ test("CustomerServicesPage preserves the GET /api/me/services response order", (
     responseItems.map((item) => item.orderRef),
     ["ORDER-OLDER-FIRST", "ORDER-NEWER-SECOND"],
   );
-  // Purchases and gifts are both stored exactly as the server listed them.
+  // Primary editable purchases are presented first; each group keeps server order.
   assert.match(componentSource, /setState\(\{ kind: "ready", items: services, grants \}\);/);
   assert.match(componentSource, /\{grants\.map\(\(grant\) => \(/);
   assert.match(componentSource, /\{items\.map\(\(item\) => \{/);

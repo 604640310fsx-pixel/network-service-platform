@@ -3,6 +3,7 @@ import { WALLET_RENEWAL_LIVE_STATES_SQL } from "./schema.js";
 import { findSellablePlan } from "../payment/commerce.js";
 import { addUtcMonths, parseEndsAt } from "../payment/admin-services.js";
 import { CATALOG_VERSION } from "../payment/pricing.js";
+import { scheduledRenewalTarget } from "../payment/service-change.js";
 import {
   finalizeClosed,
   finalizePaid,
@@ -188,11 +189,12 @@ function assertLiveService(db: DatabaseConnection, supplied: ServiceEligibility)
 const PERIOD_DURATION_ID: Readonly<Record<BillingPeriod, string>> = {
   MONTHLY: "month-1", QUARTERLY: "month-3", SEMIANNUAL: "month-6", ANNUAL: "month-12",
 };
-/** Server-side renewal quote. Derives everything from the owned paid service's order
-    tuple + the live sellable_plans row — caller/browser-supplied price, key or expiry
-    is never consulted. Any missing/inactive/ambiguous source fails QUOTE_UNAVAILABLE. */
+/** Server-side renewal quote. The owned paid order anchors owner/type/region/ISP;
+    a bound current entitlement supplies the effective spec after fulfilled changes.
+    A validated scheduled downgrade selects the NEXT paid period, without changing
+    current rights. No entitlement retains the original tuple. No caller price/key. */
 export function produceRenewalQuote(db: DatabaseConnection, serviceId: number, period: BillingPeriod, actorUserId: number): AuthoritativeQuote {
-  const row = one(db, `SELECT s.ends_at,o.user_id,o.type_id,o.region_id,o.isp_id,o.spec_id
+  const row = one(db, `SELECT s.ends_at,o.user_id,o.type_id,o.region_id,o.isp_id,o.spec_id,o.duration_id
     FROM services s JOIN payments p ON p.id=s.payment_id
     JOIN orders o ON o.id=p.order_id
     WHERE s.id=? AND s.status='open' AND p.status='paid' AND o.status='paid'`, serviceId);
@@ -206,7 +208,38 @@ export function produceRenewalQuote(db: DatabaseConnection, serviceId: number, p
     return value;
   };
   const typeId = field(row.type_id), regionId = field(row.region_id), ispId = field(row.isp_id);
-  const specId = row.spec_id === null ? null : field(row.spec_id);
+  let specId = row.spec_id === null ? null : field(row.spec_id);
+  let usesScheduledTarget = false;
+  // The historical wallet-only candidate schema has no entitlement table. A
+  // missing row preserves that baseline; an existing but inconsistent row fails
+  // closed rather than silently charging for the original, lower-quota plan.
+  if (one(db, "SELECT name FROM sqlite_master WHERE type='table' AND name='service_entitlements'") !== null) {
+    const effective = one(db, `SELECT e.user_id,p.type_id,p.region_id,p.isp_id,p.spec_id,p.duration_id,
+      m.type_id AS monthly_type_id,m.region_id AS monthly_region_id,m.isp_id AS monthly_isp_id,
+      m.spec_id AS monthly_spec_id,m.duration_id AS monthly_duration_id
+      FROM service_entitlements e LEFT JOIN sellable_plans p ON p.id=e.plan_id
+      LEFT JOIN sellable_plans m ON m.id=e.monthly_plan_id WHERE e.service_id=?`, serviceId);
+    if (effective !== null) {
+      if (effective.user_id !== actorUserId || effective.type_id !== typeId ||
+          effective.region_id !== regionId || effective.isp_id !== ispId ||
+          effective.duration_id !== row.duration_id ||
+          effective.monthly_type_id !== typeId || effective.monthly_region_id !== regionId ||
+          effective.monthly_isp_id !== ispId || effective.monthly_spec_id !== effective.spec_id ||
+          effective.monthly_duration_id !== "month-1") throw new WalletError("QUOTE_UNAVAILABLE");
+      specId = effective.spec_id === null ? null : field(effective.spec_id);
+    }
+  }
+  try {
+    const scheduled = scheduledRenewalTarget(db,actorUserId,serviceId);
+    if (scheduled !== null) {
+      if (scheduled.typeId !== typeId || scheduled.regionId !== regionId || scheduled.ispId !== ispId)
+        throw new WalletError("QUOTE_UNAVAILABLE");
+      specId = scheduled.specId;
+      usesScheduledTarget = true;
+    }
+  } catch {
+    throw new WalletError("QUOTE_UNAVAILABLE");
+  }
   /* Consent TERMS key: current catalog version + full tuple + CNY price + period
      duration. Expiry is deliberately NOT bound — terms identical across successive
      periods need no reconsent; the cycle snapshot (previousEndsAt/newEndsAt) is
@@ -222,7 +255,8 @@ export function produceRenewalQuote(db: DatabaseConnection, serviceId: number, p
   } catch {
     throw new WalletError("QUOTE_UNAVAILABLE");
   }
-  if (plan === null || !plan.isActive) throw new WalletError("QUOTE_UNAVAILABLE");
+  if (plan === null || !plan.isActive || (usesScheduledTarget && plan.totalSlots !== null &&
+      plan.occupiedSlots >= plan.totalSlots)) throw new WalletError("QUOTE_UNAVAILABLE");
   const previousEndsAt = endsAt.value;
   const newEndsAt = addUtcMonths(previousEndsAt, Number(months[1]));
   return {

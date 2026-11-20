@@ -33,8 +33,23 @@ export const RELEASE_WORKFLOW_JOB = "consolidated-release-packet";
 export const RELEASE_ARTIFACT_PREFIX = "consolidated-release-";
 export const DIRECT14_RELEASE_ARTIFACT_PREFIX = "consolidated-release-direct14-";
 export const STANDARD19_RELEASE_ARTIFACT_PREFIX = "consolidated-release-standard19-";
+export const STANDARD26_RELEASE_ARTIFACT_PREFIX = "consolidated-release-standard26-";
 export const RELEASE_INTEGRATION_REF =
   "refs/heads/integration/consolidate-project";
+export const STANDARD26_FORMAL_REF =
+  "refs/heads/codex/service-change-release-prepare-20261103";
+export const STANDARD26_PRODUCT_BASELINE =
+  "20b18764ff465cd690a433305fad5124ed4ecb60";
+export const STANDARD26_CONTROL_PATHS = Object.freeze([
+  ".github/workflows/ci.yml",
+  "scripts/ops/assemble-consolidated-release.mjs",
+  "scripts/ops/validate-consolidated-release-packet.mjs",
+  "scripts/ops/consolidated-release-packet.test.mjs",
+]);
+export function releaseFormalRefForRoute(schemaRoute) {
+  return schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE
+    ? STANDARD26_FORMAL_REF : RELEASE_INTEGRATION_REF;
+}
 // Historical routes (001-019) stay recognized so already-built 019 bundles
 // still validate; the current repository sequence is 001-020 (tickets).
 export const STANDARD16_19_RELEASE_SCHEMA_ROUTE = "standard16-19";
@@ -70,6 +85,8 @@ export const STANDARD19_25_RELEASE_SCHEMA_ROUTE = "standard19-25";
 export const STANDARD16_26_RELEASE_SCHEMA_ROUTE = "standard16-26";
 export const DIRECT14_26_RELEASE_SCHEMA_ROUTE = "direct14-26";
 export const STANDARD19_26_RELEASE_SCHEMA_ROUTE = "standard19-26";
+// Independent opt-in route. Never changes the frozen default/026 CI routes.
+export const STANDARD26_30_RELEASE_SCHEMA_ROUTE = "standard26-30";
 export const DEFAULT_RELEASE_SCHEMA_ROUTE = STANDARD16_26_RELEASE_SCHEMA_ROUTE;
 export const DIRECT14_RELEASE_SCHEMA_ROUTE = DIRECT14_26_RELEASE_SCHEMA_ROUTE;
 export const RELEASE_SCHEMA_BOUNDARIES = Object.freeze({
@@ -96,9 +113,10 @@ export const RELEASE_SCHEMA_BOUNDARIES = Object.freeze({
   [STANDARD16_26_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 16, candidate: 26 }),
   [DIRECT14_26_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 14, candidate: 26 }),
   [STANDARD19_26_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 19, candidate: 26 }),
+  [STANDARD26_30_RELEASE_SCHEMA_ROUTE]: Object.freeze({ rollback: 26, candidate: 30 }),
 });
 export const RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE =
-  "--schema-route must be standard16-19, direct14-19, standard16-20, direct14-20, standard19-20, standard16-21, direct14-21, standard19-21, standard16-22, direct14-22, standard19-22, standard16-23, direct14-23, standard19-23, standard16-24, direct14-24, standard19-24, standard16-25, direct14-25, standard19-25, standard16-26, direct14-26, or standard19-26";
+  "--schema-route must be standard16-19, direct14-19, standard16-20, direct14-20, standard19-20, standard16-21, direct14-21, standard19-21, standard16-22, direct14-22, standard19-22, standard16-23, direct14-23, standard19-23, standard16-24, direct14-24, standard19-24, standard16-25, direct14-25, standard19-25, standard16-26, direct14-26, standard19-26, or standard26-30";
 const DIRECT14_RELEASE_SCHEMA_ROUTES = Object.freeze(
   new Set([
     DIRECT14_19_RELEASE_SCHEMA_ROUTE,
@@ -132,7 +150,9 @@ export function releaseArtifactNameForRoute(sha, schemaRoute) {
       RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE,
     );
   }
-  const prefix = isDirect14ReleaseSchemaRoute(schemaRoute)
+  const prefix = schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE
+    ? STANDARD26_RELEASE_ARTIFACT_PREFIX
+    : isDirect14ReleaseSchemaRoute(schemaRoute)
     ? DIRECT14_RELEASE_ARTIFACT_PREFIX
     : schemaRoute === STANDARD19_20_RELEASE_SCHEMA_ROUTE ||
         schemaRoute === STANDARD19_21_RELEASE_SCHEMA_ROUTE ||
@@ -194,7 +214,14 @@ export const RELEASE_MIGRATIONS_001_026 = Object.freeze([
   ...RELEASE_MIGRATIONS_001_025,
   "026_wallet.sql",
 ]);
-// The exact sequence of the current repository source.
+export const RELEASE_MIGRATIONS_001_030 = Object.freeze([
+  ...RELEASE_MIGRATIONS_001_026,
+  "027_package_option_plans.sql",
+  "028_period_price_rule.sql",
+  "029_remove_single_payment_cap.sql",
+  "030_service_change_local.sql",
+]);
+// Frozen default contract, not a moving alias for the newest source.
 export const RELEASE_MIGRATIONS = RELEASE_MIGRATIONS_001_026;
 export function releaseMigrationsForRoute(schemaRoute) {
   if (!isKnownReleaseSchemaRoute(schemaRoute)) {
@@ -218,7 +245,57 @@ export function releaseMigrationsForRoute(schemaRoute) {
               ? RELEASE_MIGRATIONS_001_024
               : candidate === 25
                 ? RELEASE_MIGRATIONS_001_025
-                : RELEASE_MIGRATIONS_001_026;
+                : candidate === 30
+                  ? RELEASE_MIGRATIONS_001_030
+                  : RELEASE_MIGRATIONS_001_026;
+}
+
+/** Pure decision guard, NOT an executor or evidence collector. External facts
+ * must be bound to one closed-traffic release attempt. UNKNOWN is never true.
+ * The existing sqlite-backup verify operation supplies snapshotVerification;
+ * its hash must match the pre-migration snapshot bound to this database/attempt.
+ * No rollback SQL exists: eligible recovery restores that entire 026 snapshot
+ * with independently matched Auth AND Website artifacts. */
+export function assertStandard26RecoveryBoundary({ phase, attemptId, databaseBinding,
+  trafficClosed, oldApplicationStopped, candidateStopped, applicationWriters,
+  applicationWritesSinceSnapshot, paymentsSinceSnapshot, fulfillmentsSinceSnapshot, externalEffectsSinceSnapshot,
+  liveMigrations, snapshot, snapshotVerification, rollbackArtifacts } = {}) {
+  const deny = (message) => { throw new ReleaseAssemblyError("RESTORE_26_FORBIDDEN", message); };
+  const continuous = (versions, max) => Array.isArray(versions) && versions.length === max &&
+    versions.every((version, index) => version === index + 1);
+  const sha = (value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+  const bound = (proof) => proof?.attemptId === attemptId && proof?.databaseBinding === databaseBinding;
+  if (!["before-upgrade", "failed-upgrade"].includes(phase) ||
+      typeof attemptId !== "string" || attemptId.trim() === "" ||
+      typeof databaseBinding !== "string" || databaseBinding.trim() === "" ||
+      trafficClosed !== true || oldApplicationStopped !== true || candidateStopped !== true ||
+      applicationWriters !== 0 || applicationWritesSinceSnapshot !== 0 ||
+      paymentsSinceSnapshot !== 0 || fulfillmentsSinceSnapshot !== 0 || externalEffectsSinceSnapshot !== 0) {
+    deny("closed ingress, stopped applications, zero writers and zero new writes/external effects must all be proven; otherwise preserve current facts and forward-fix/reconcile, never start the old 026 binary");
+  }
+  // A failed migration may have committed a prefix 027..029. It can recover only
+  // before any non-migration write; future/contradictory schema is never eligible.
+  const last = Array.isArray(liveMigrations) ? liveMigrations.length : 0;
+  if ((phase === "before-upgrade" && !continuous(liveMigrations, 26)) ||
+      (phase === "failed-upgrade" && (last < 26 || last > 30 || !continuous(liveMigrations, last)))) {
+    deny("live schema must be exact 001-026 before upgrade or a continuous 026..030 failed-upgrade boundary");
+  }
+  if (!bound(snapshot) || !sha(snapshot?.sha256) ||
+      snapshotVerification?.status !== "ok" || snapshotVerification.operation !== "verify" ||
+      snapshotVerification.sha256 !== snapshot.sha256 || snapshotVerification.fileMode !== "0600" ||
+      snapshotVerification.quickCheck !== "ok" || snapshotVerification.foreignKeyFailures !== 0 ||
+      !Number.isSafeInteger(snapshotVerification.bytes) || snapshotVerification.bytes <= 0 ||
+      snapshotVerification.bytes !== snapshot.bytes || !continuous(snapshotVerification.migrations, 26)) {
+    deny("a matching current-attempt independently verified 001-026 snapshot is required");
+  }
+  if (!bound(rollbackArtifacts) || rollbackArtifacts?.verified !== true ||
+      rollbackArtifacts?.authSchemaBoundary !== 26 || !sha(rollbackArtifacts?.authSha256) ||
+      !sha(rollbackArtifacts?.websiteSha256)) {
+    deny("independently verified matching Auth026 and Website recovery artifacts are required");
+  }
+  return Object.freeze({ status: "ok", schemaRoute: STANDARD26_30_RELEASE_SCHEMA_ROUTE,
+    permittedAction: phase === "before-upgrade" ? "upgrade-026-to-030" : "restore-matched-026-snapshot-and-artifacts",
+    automaticRestore: false, requiresFreshProofAtExecution: true });
 }
 export const RELEASE_HTTP_CONTRACT_PATHS = Object.freeze([
   "ops/nginx/release-traffic-open.conf.example",
@@ -461,8 +538,10 @@ export function createReleaseProvenance({
 
   const isReleaseCandidateContext =
     eventName === "push" &&
-    ref === RELEASE_INTEGRATION_REF &&
-    githubSha === sha;
+    ref === releaseFormalRefForRoute(schemaRoute) &&
+    githubSha === sha &&
+    (schemaRoute !== STANDARD26_30_RELEASE_SCHEMA_ROUTE ||
+      workflowRef === `${RELEASE_REPOSITORY}/.github/workflows/ci.yml@${STANDARD26_FORMAL_REF}`);
   if (mode === "github-actions-test") {
     if (isReleaseCandidateContext) {
       throw new ReleaseAssemblyError(
@@ -489,6 +568,15 @@ export function createReleaseProvenance({
       "release-candidate provenance requires an exact integration push SHA",
     );
   }
+  if (schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE) {
+    let event;
+    try { event = JSON.parse(readFileSync(requiredEnvironment(environment, "GITHUB_EVENT_PATH"), "utf8")); }
+    catch { throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "formal standard26 source requires the actual push event payload"); }
+    if (event.ref !== STANDARD26_FORMAL_REF || event.after !== sha ||
+      event.repository?.full_name !== RELEASE_REPOSITORY || event.deleted !== false) {
+      throw new ReleaseAssemblyError("PROVENANCE_REQUIRED", "formal standard26 push payload does not match repository/ref/head");
+    }
+  }
 
   return Object.freeze({
     kind: "github-actions",
@@ -502,6 +590,8 @@ export function createReleaseProvenance({
     ref,
     githubSha,
     artifactName,
+    ...(schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE
+      ? { productBaseline: STANDARD26_PRODUCT_BASELINE } : {}),
   });
 }
 
@@ -546,6 +636,26 @@ function verifySourceRevision(source, expectedSha) {
       "source repository contains uncommitted files",
     );
   }
+}
+
+// This is a single frozen product source, not a general branch publishing rule.
+// Compare the entire tracked tree (not just payload paths), including SQL/locks.
+export function verifyStandard26ProductSource(source, expectedSha) {
+  source = existingDirectory(source, "source");
+  verifySourceRevision(source, normalizedExpectedSha(expectedSha));
+  const ancestor = spawnSync("git", ["-C", source, "merge-base", "--is-ancestor",
+    STANDARD26_PRODUCT_BASELINE, expectedSha], { encoding: "utf8" });
+  if (ancestor.status !== 0) {
+    throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH", "frozen product baseline must be an ancestor of the formal source");
+  }
+  const diff = spawnSync("git", ["-C", source, "diff", "--name-only", "--no-renames", "-z",
+    STANDARD26_PRODUCT_BASELINE, expectedSha], { encoding: "utf8" });
+  if (diff.status !== 0) throw new ReleaseAssemblyError("SOURCE_INVALID", "formal product tree comparison failed");
+  const changed = diff.stdout.split("\0").filter(Boolean);
+  if (changed.some(path => !STANDARD26_CONTROL_PATHS.includes(path))) {
+    throw new ReleaseAssemblyError("PRODUCT_SOURCE_MISMATCH", "formal source may differ from the frozen product baseline only in four release controls");
+  }
+  return STANDARD26_PRODUCT_BASELINE;
 }
 
 function normalizedRelativePath(path) {
@@ -728,6 +838,9 @@ export function assembleReleaseBundle({
   });
   const destinationRoot = newDestination(destination, sourceRoot);
   verifySourceRevision(sourceRoot, sha);
+  if (schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE && provenance.kind === "github-actions") {
+    verifyStandard26ProductSource(sourceRoot, sha);
+  }
   verifyMigrationInputs(sourceRoot, routeMigrations);
 
   let created = false;

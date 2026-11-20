@@ -342,7 +342,7 @@ function publicReservedUntil(order: StoredOrder): string | null {
   return order.reservedUntil;
 }
 
-function paymentResponse(order: StoredOrder): OrderCreationResult {
+export function paymentResponse(order: StoredOrder): OrderCreationResult {
   return {
     orderRef: order.orderRef,
     status: order.status,
@@ -361,7 +361,7 @@ function createReference(dependencies: OrderServiceDependencies): string {
   return `DL${compact}`;
 }
 
-function createStoredOrder(
+export function createStoredOrder(
   dependencies: OrderServiceDependencies,
   input: {
     readonly idempotencyKey: string;
@@ -376,6 +376,7 @@ function createStoredOrder(
     readonly planId: number;
     readonly couponId: number | null;
     readonly discountFen: number;
+    readonly skipPlanOccupancy?: boolean;
   },
 ): StoredOrder {
   const existing = findOrder(
@@ -471,14 +472,16 @@ function createStoredOrder(
                  NULL, NULL, NULL, NULL, ?, ?, ?)`,
     )
     .run(orderId, orderRef, dependencies.appId, input.amountFen, reservedUntil, now, now);
-  occupyPlanAndCoupon(dependencies.database, {
-    planId: input.planId,
-    couponId: input.couponId,
-    orderId,
-    userId: input.userId,
-    discountFen: input.discountFen,
-    now: () => created,
-  });
+  if (!input.skipPlanOccupancy) {
+    occupyPlanAndCoupon(dependencies.database, {
+      planId: input.planId,
+      couponId: input.couponId,
+      orderId,
+      userId: input.userId,
+      discountFen: input.discountFen,
+      now: () => created,
+    });
+  }
   dependencies.database
     .prepare(
       `INSERT INTO order_access_tokens (
@@ -641,6 +644,9 @@ export function retryPaymentOrder(
           ));
     if (oldOrder === null || !oldOrderAuthorized) {
       throw new PaymentDomainError(404, "not_found");
+    }
+    if (dependencies.database.prepare("SELECT id FROM service_changes WHERE order_id = ?").all(oldOrder.id).length !== 0) {
+      throw new PaymentDomainError(409, "service_change_retry_not_supported");
     }
     const selection: OrderSelection = {
       typeId: oldOrder.typeId,
@@ -1028,6 +1034,7 @@ export function listMyOrders(
        JOIN payments ON payments.order_id = orders.id
        LEFT JOIN services ON services.payment_id = payments.id
        WHERE orders.user_id = ?
+         AND NOT EXISTS (SELECT 1 FROM service_changes WHERE service_changes.order_id = orders.id)
        ORDER BY orders.created_at DESC, orders.id DESC`,
     )
     .all(userId);

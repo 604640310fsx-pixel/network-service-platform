@@ -16,6 +16,7 @@ import {
   createReleaseProvenance,
   releaseArtifactNameForRoute,
   DEFAULT_RELEASE_SCHEMA_ROUTE,
+  STANDARD26_30_RELEASE_SCHEMA_ROUTE,
   isForbiddenBundlePath,
   isKnownReleaseSchemaRoute,
   releaseManifestCarriesSchemaRoute,
@@ -23,6 +24,10 @@ import {
   RELEASE_SCHEMA_ROUTE_ARGUMENT_MESSAGE,
   RELEASE_BUNDLE_FORMAT,
   RELEASE_INTEGRATION_REF,
+  STANDARD26_FORMAL_REF,
+  STANDARD26_PRODUCT_BASELINE,
+  releaseFormalRefForRoute,
+  verifyStandard26ProductSource,
   RELEASE_HTTP_CONTRACT_PATHS,
   RELEASE_MIGRATIONS,
   RELEASE_REPOSITORY,
@@ -675,7 +680,7 @@ export function validateRepository({
             "## Migration 025 forward-only ticket attachments and grant link",
           ]
         : []),
-      ...(candidate === 26
+      ...(candidate === 26 || candidate === 30
         ? [
             "## Explicit DIRECT14 to 26 route",
             "--schema-route direct14-26",
@@ -773,7 +778,9 @@ export function validateRepository({
       "actions/upload-artifact@v4",
       "consolidated-release-${{ env.EXPECTED_SHA }}",
       "consolidated-release-direct14-${{ env.EXPECTED_SHA }}",
-      ...(candidate === 26
+      // This independent route does not claim that the frozen 026 CI job
+      // creates 030 artifacts. Its old flags must remain intact.
+      ...(candidate === 26 || candidate === 30
         ? [
             "--schema-route direct14-26",
             "--schema-route standard16-26",
@@ -829,6 +836,17 @@ export function validateRepository({
     ],
     "CI workflow",
   );
+  if (candidate === 30) {
+    assertFragments(workflow, [
+      "STANDARD26_TASK_CONTEXT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/service-change-release-prepare-20261103' && github.event.pull_request.base.ref == 'integration/consolidate-project' }}",
+      'if [ "$STANDARD26_TASK_CONTEXT" = "true" ] || [ "$STANDARD26_FORMAL_CONTEXT" = "true" ]; then',
+      "STANDARD26_FORMAL_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'push' && github.ref == 'refs/heads/codex/service-change-release-prepare-20261103' }}",
+      "consolidated-release-standard26-${{ env.EXPECTED_SHA }}",
+      "--validation-mode ci-build",
+      "--schema-route standard26-30",
+      "consolidated-release-standard26-review-${{ env.EXPECTED_SHA }}",
+    ], "independent standard26 review CI route");
+  }
 
   const openValidator = readText(
     join(sourceRoot, "scripts/ops/validate-release-open-http-contract.mjs"),
@@ -951,13 +969,18 @@ function validateProvenance({
     );
   const githubShape =
     Object.keys(provenance).sort().join(",") ===
-      "artifactName,eventName,githubSha,job,kind,ref,releaseUse,repository,runAttempt,runId,workflowRef" &&
+      (schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE
+        ? "artifactName,eventName,githubSha,job,kind,productBaseline,ref,releaseUse,repository,runAttempt,runId,workflowRef"
+        : "artifactName,eventName,githubSha,job,kind,ref,releaseUse,repository,runAttempt,runId,workflowRef") &&
     provenance.kind === "github-actions" &&
     provenance.releaseUse === "requires-github-artifact-verification" &&
     provenance.repository === RELEASE_REPOSITORY &&
     provenance.job === RELEASE_WORKFLOW_JOB &&
     provenance.eventName === "push" &&
-    provenance.ref === RELEASE_INTEGRATION_REF &&
+    provenance.ref === releaseFormalRefForRoute(schemaRoute) &&
+    (schemaRoute !== STANDARD26_30_RELEASE_SCHEMA_ROUTE ||
+      (provenance.productBaseline === STANDARD26_PRODUCT_BASELINE &&
+        provenance.workflowRef === `${RELEASE_REPOSITORY}/.github/workflows/ci.yml@${STANDARD26_FORMAL_REF}`)) &&
     provenance.githubSha === expectedSha &&
     provenance.artifactName === releaseArtifactNameForRoute(expectedSha, schemaRoute) &&
     typeof provenance.runId === "string" &&
@@ -1186,7 +1209,7 @@ function validateGithubArtifactProof({
     workflowRun?.path !== ".github/workflows/ci.yml" ||
     workflowRun?.event !== "push" ||
     workflowRun?.head_branch !==
-      RELEASE_INTEGRATION_REF.slice("refs/heads/".length) ||
+      provenance.ref.slice("refs/heads/".length) ||
     workflowRun?.head_sha !== expectedSha ||
     workflowRun?.status !== "completed" ||
     workflowRun?.conclusion !== "success" ||
@@ -1196,6 +1219,16 @@ function validateGithubArtifactProof({
       "PROVENANCE_REQUIRED",
       "live GitHub artifact or workflow metadata does not match the candidate",
     );
+  }
+  if (provenance.ref === STANDARD26_FORMAL_REF) {
+    const jobs = githubApiJson(`repos/${RELEASE_REPOSITORY}/actions/runs/${provenance.runId}/attempts/${provenance.runAttempt}/jobs?per_page=100`);
+    for (const name of ["Website check and build", "Auth service build and test", "Consolidated release packet"]) {
+      const matching = jobs?.jobs?.filter(job => job.name === name);
+      if (matching?.length !== 1 || matching[0].head_sha !== expectedSha ||
+        matching[0].status !== "completed" || matching[0].conclusion !== "success") {
+        throw new ReleaseValidationError("PROVENANCE_REQUIRED", "formal standard26 candidate requires all three mandatory jobs to succeed at its exact head");
+      }
+    }
   }
 
   const archivedFiles = archiveEntries(archive);
@@ -1229,6 +1262,7 @@ function validateGithubArtifactProof({
 }
 
 export function validateBundle({
+  source,
   bundle,
   expectedSha,
   validationMode,
@@ -1291,6 +1325,11 @@ export function validateBundle({
     schemaRoute,
     environment,
   });
+  if (schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE && provenance.kind === "github-actions") {
+    if (typeof source !== "string") throw new ReleaseValidationError("PROVENANCE_REQUIRED", "formal standard26 validation requires its exact clean source repository");
+    try { verifyStandard26ProductSource(existingDirectory(source, "source"), sha); }
+    catch (error) { throw new ReleaseValidationError(error.code ?? "SOURCE_INVALID", "formal standard26 source policy failed"); }
+  }
 
   const inventoryPaths = [];
   let previousPath = "";
@@ -1464,19 +1503,27 @@ export function run(arguments_) {
   const source = requireOption(options, "--source");
   const expectedSha = requireOption(options, "--expected-sha");
   const bundle = options.get("--bundle");
-  // Without --bundle the repository gate stays strict on the current 001-020
-  // route; with --bundle it follows the bundle's explicit --schema-route.
+  // Default repository/CI behavior stays frozen at 026. Only the new explicit
+  // 26->30 route is allowed for source-only validation; old option behavior stays.
   const schemaRoute =
-    bundle === undefined
+    bundle === undefined && options.get("--schema-route") !== STANDARD26_30_RELEASE_SCHEMA_ROUTE
       ? DEFAULT_RELEASE_SCHEMA_ROUTE
       : (options.get("--schema-route") ?? DEFAULT_RELEASE_SCHEMA_ROUTE);
   const repositoryResult = validateRepository({ source, expectedSha, schemaRoute });
   if (bundle === undefined) {
+    if (schemaRoute === STANDARD26_30_RELEASE_SCHEMA_ROUTE && options.get("--validation-mode") === "ci-build" &&
+      !options.has("--github-artifact-id") && !options.has("--artifact-archive")) {
+      try {
+        createReleaseProvenance({mode:"github-actions",expectedSha,schemaRoute});
+        verifyStandard26ProductSource(existingDirectory(source, "source"), normalizedExpectedSha(expectedSha));
+      } catch (error) { throw new ReleaseValidationError(error.code ?? "SOURCE_INVALID", "formal standard26 source policy failed"); }
+      return Object.freeze({...repositoryResult, productBaseline:STANDARD26_PRODUCT_BASELINE});
+    }
     if (
       options.has("--validation-mode") ||
       options.has("--github-artifact-id") ||
       options.has("--artifact-archive") ||
-      options.has("--schema-route")
+      (options.has("--schema-route") && schemaRoute !== STANDARD26_30_RELEASE_SCHEMA_ROUTE)
     ) {
       throw new ReleaseValidationError(
         "ARGUMENT_ERROR",
@@ -1496,6 +1543,7 @@ export function run(arguments_) {
     );
   }
   return validateBundle({
+    source,
     bundle,
     expectedSha,
     validationMode,

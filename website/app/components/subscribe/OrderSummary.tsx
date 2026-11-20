@@ -26,7 +26,7 @@ export function OrderSummary({ summary, canRequest, drawer = false, onRequest }:
       <div className="sub-summary-rows">
         <div><span>{copy.type}</span><b>{value(summary.type)}</b></div>
         <div><span>{copy.region}</span><b>{value(summary.region)}</b></div>
-        <div><span>{copy.isp}</span><b>{value(summary.isp)}</b></div>
+        {!summary.ispImplied && <div><span>{copy.isp}</span><b>{value(summary.isp)}</b></div>}
         <div><span>{copy.spec}</span><b>{value(summary.spec)}</b></div>
         <div><span>{copy.duration}</span><b>{value(summary.duration)}</b></div>
         <hr />

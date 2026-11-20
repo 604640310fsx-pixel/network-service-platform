@@ -5,7 +5,6 @@ import { CustomerCenterShell } from "../customer/CustomerCenterShell";
 import { RequirementForm } from "./RequirementForm";
 import { OrderStatusPanel } from "./OrderStatusPanel";
 import {
-  PAYMENT_MAX_SINGLE_FEN_FRONTEND,
   readLastOrderRef,
   type PaymentOrderResult,
 } from "../../lib/payment-api";
@@ -48,8 +47,6 @@ export function SubmitRequestPage() {
     ? readLastOrderRef() ?? ""
     : "";
   const visibleOrderRef = orderRef || restoredOrderRef;
-  const amountFen = summary.total === null ? null : Math.round(summary.total * 100);
-  const overPaymentLimit = amountFen !== null && amountFen > PAYMENT_MAX_SINGLE_FEN_FRONTEND;
   const unavailable = summary.availability === "sold_out" || summary.availability === "unavailable";
 
   useEffect(() => {
@@ -78,13 +75,7 @@ export function SubmitRequestPage() {
     <CustomerCenterShell title={copy.title} description={copy.description}>
       <main className="sub-page">
         <div className="sub-request-page">
-          {overPaymentLimit ? (
-            <section className="sub-section sub-request-invalid" role="status">
-              <h2>{copy.overLimitTitle}</h2>
-              <p>{copy.overLimitBody}</p>
-              <Link className="sub-request-back-btn" to={`/subscribe?${selectionToQuery(selection)}`}>{copy.backToEdit}</Link>
-            </section>
-          ) : !summary.complete ? (
+          {!summary.complete ? (
             <section className="sub-section sub-request-invalid" role="status">
               <h2>{copy.invalidTitle}</h2>
               <p>{copy.invalidBody}</p>

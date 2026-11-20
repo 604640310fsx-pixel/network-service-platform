@@ -166,7 +166,7 @@ test("Migration 021 rebuild preserves every 020 user, reference, index, trigger,
     const database = initializeDatabase(path);
     try {
       assert.deepEqual(rows(database, "SELECT version FROM schema_migrations ORDER BY version").map((row) => (row as { version: number }).version),
-        Array.from({ length: 26 }, (_, index) => index + 1));
+        Array.from({ length: 30 }, (_, index) => index + 1));
       const after = snapshot(database);
       // Initializing runs through 022 as well, which only adds three nullable services
       // columns: they must be NULL on existing rows, and every other field is unchanged.
@@ -229,7 +229,7 @@ test("Migration 021 rebuild preserves every 020 user, reference, index, trigger,
 
     const restarted = initializeDatabase(path);
     try {
-      assert.equal(value(restarted, "SELECT COUNT(*) FROM schema_migrations"), 26);
+      assert.equal(value(restarted, "SELECT COUNT(*) FROM schema_migrations"), 30);
       assert.deepEqual(snapshot(restarted).users, before.users);
       assert.equal(restarted.pragma("foreign_keys", { simple: true }), 1);
     } finally {

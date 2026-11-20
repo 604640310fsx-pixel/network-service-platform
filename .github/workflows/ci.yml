@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - integration/consolidate-project
+      - codex/service-change-release-prepare-20261103
 
 permissions:
   contents: read
@@ -96,6 +97,10 @@ jobs:
     timeout-minutes: 30
     env:
       EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      # Only this same-repository review PR opts into the independent 026->030 route.
+      # A fork with the same branch name and every other PR keep the frozen 026 gate.
+      STANDARD26_TASK_CONTEXT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/service-change-release-prepare-20261103' && github.event.pull_request.base.ref == 'integration/consolidate-project' }}
+      STANDARD26_FORMAL_CONTEXT: ${{ github.repository == '604640310fsx-pixel/network-service-platform' && github.event_name == 'push' && github.ref == 'refs/heads/codex/service-change-release-prepare-20261103' }}
       PROVENANCE_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'github-actions' || 'github-actions-test' }}
       VALIDATION_MODE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'ci-build' || 'ci-test' }}
       MONITOR_ORIGIN_POLICY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/integration/consolidate-project' && 'required' || 'optional' }}
@@ -104,6 +109,12 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Select independent standard26 formal build modes
+        if: env.STANDARD26_FORMAL_CONTEXT == 'true'
+        run: |
+          printf '%s\n' 'PROVENANCE_MODE=github-actions' 'VALIDATION_MODE=ci-build' 'MONITOR_ORIGIN_POLICY=required' >> "$GITHUB_ENV"
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -119,9 +130,21 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           node scripts/ops/validate-release-open-http-contract.mjs \
             --source "$GITHUB_WORKSPACE"
-          node scripts/ops/validate-consolidated-release-packet.mjs \
-            --source "$GITHUB_WORKSPACE" \
-            --expected-sha "$EXPECTED_SHA"
+          if [ "$STANDARD26_FORMAL_CONTEXT" = "true" ]; then
+            node scripts/ops/validate-consolidated-release-packet.mjs \
+              --source "$GITHUB_WORKSPACE" \
+              --expected-sha "$EXPECTED_SHA" \
+              --schema-route standard26-30 --validation-mode ci-build
+          elif [ "$STANDARD26_TASK_CONTEXT" = "true" ]; then
+            node scripts/ops/validate-consolidated-release-packet.mjs \
+              --source "$GITHUB_WORKSPACE" \
+              --expected-sha "$EXPECTED_SHA" \
+              --schema-route standard26-30
+          else
+            node scripts/ops/validate-consolidated-release-packet.mjs \
+              --source "$GITHUB_WORKSPACE" \
+              --expected-sha "$EXPECTED_SHA"
+          fi
 
       - name: Run monitor gateway offline tests
         run: |
@@ -162,6 +185,34 @@ jobs:
         run: |
           test ! -e "$BUNDLE_PARENT"
           mkdir -p "$BUNDLE_PARENT"
+          if [ "$STANDARD26_TASK_CONTEXT" = "true" ] || [ "$STANDARD26_FORMAL_CONTEXT" = "true" ]; then
+            for ordinal in first second; do
+              node scripts/ops/assemble-consolidated-release.mjs \
+                --source "$GITHUB_WORKSPACE" \
+                --destination "$BUNDLE_PARENT/standard26-$ordinal" \
+                --expected-sha "$EXPECTED_SHA" \
+                --provenance-mode "$PROVENANCE_MODE" \
+                --schema-route standard26-30
+              node scripts/ops/validate-release-open-http-contract.mjs \
+                --source "$BUNDLE_PARENT/standard26-$ordinal"
+              node scripts/ops/validate-consolidated-release-packet.mjs \
+                --source "$GITHUB_WORKSPACE" \
+                --expected-sha "$EXPECTED_SHA" \
+                --bundle "$BUNDLE_PARENT/standard26-$ordinal" \
+                --validation-mode "$VALIDATION_MODE" \
+                --schema-route standard26-30
+              if find "$BUNDLE_PARENT/standard26-$ordinal" \
+                \( -type l -o -name node_modules -o -name '.env*' \
+                   -o -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \
+                   -o -name '*.pem' -o -name '*.key' \) \
+                -print -quit | grep -q .; then
+                echo "forbidden standard26 review bundle entry detected" >&2
+                exit 1
+              fi
+            done
+            cmp "$BUNDLE_PARENT/standard26-first/release-manifest.json" \
+              "$BUNDLE_PARENT/standard26-second/release-manifest.json"
+          else
           node scripts/ops/assemble-consolidated-release.mjs \
             --source "$GITHUB_WORKSPACE" \
             --destination "$BUNDLE_PARENT/first" \
@@ -272,11 +323,44 @@ jobs:
             echo "forbidden standard19 release bundle entry detected" >&2
             exit 1
           fi
+          fi
+
+      - name: Retain exact standard26 PR review bundle (not a production release)
+        if: env.STANDARD26_TASK_CONTEXT == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-release-standard26-review-${{ env.EXPECTED_SHA }}
+          path: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}/standard26-first/
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
 
       - name: Verify lockfiles are unchanged
         run: |
           git diff --exit-code -- auth-service/package-lock.json
           git diff --exit-code -- website/package-lock.json
+
+      - name: Retain exact independent standard26 formal candidate
+        id: upload-standard26-formal
+        if: env.STANDARD26_FORMAL_CONTEXT == 'true' && github.sha == env.EXPECTED_SHA
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-release-standard26-${{ env.EXPECTED_SHA }}
+          path: ${{ runner.temp }}/consolidated-release-${{ github.run_id }}-${{ github.run_attempt }}/standard26-first/
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Record independent standard26 artifact proof
+        if: env.STANDARD26_FORMAL_CONTEXT == 'true' && github.sha == env.EXPECTED_SHA
+        env:
+          ARTIFACT_ID: ${{ steps.upload-standard26-formal.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload-standard26-formal.outputs.artifact-digest }}
+        run: |
+          test "$GITHUB_SHA" = "$EXPECTED_SHA"
+          test -n "$ARTIFACT_ID"
+          printf '%s\n' "$ARTIFACT_DIGEST" | grep -Eq '^[a-f0-9]{64}$'
+          printf 'Independent standard26 candidate: `%s`, artifact `%s`, digest `sha256:%s`\n' "$EXPECTED_SHA" "$ARTIFACT_ID" "$ARTIFACT_DIGEST" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Retain exact integration release candidate
         id: upload-release-candidate

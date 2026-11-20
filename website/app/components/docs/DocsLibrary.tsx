@@ -144,7 +144,6 @@ export function DocsLibrary({ articles: sourceArticles = [], initialArticleId }:
   const articles = useMemo(() => localizeDocumentationArticles(sourceArticles, lang), [sourceArticles, lang]);
   const instanceId = useId();
   const readerRef = useRef<HTMLElement>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [searchCollapsedGroups, setSearchCollapsedGroups] = useState<Record<string, boolean>>({});
@@ -159,12 +158,6 @@ export function DocsLibrary({ articles: sourceArticles = [], initialArticleId }:
     visibleArticles.find((article) => article.id === selectedId) ??
     (selectedId === null && !searching ? visibleArticles.find((article) => article.id === "home-ip-quality") : undefined) ??
     visibleArticles[0] ?? null;
-
-  function updateQuery(nextQuery: string) {
-    setQuery(nextQuery);
-    if (nextQuery.trim().length === 0) setExpandedGroups({});
-    setSearchCollapsedGroups({});
-  }
 
   function selectArticle(article: DocumentationArticle) {
     setSelectedId(article.id);
@@ -222,12 +215,16 @@ export function DocsLibrary({ articles: sourceArticles = [], initialArticleId }:
           <label className="cc-docs-search" htmlFor={`${instanceId}-search`}>
             <span>{copy.searchLabel}</span>
             <input
-              ref={searchRef}
               id={`${instanceId}-search`}
               type="search"
               value={query}
               placeholder={copy.searchPlaceholder}
-              onChange={(event) => updateQuery(event.currentTarget.value)}
+              onChange={(event) => {
+                const nextQuery = event.currentTarget.value;
+                setQuery(nextQuery);
+                if (nextQuery.trim().length === 0) setExpandedGroups({});
+                setSearchCollapsedGroups({});
+              }}
             />
           </label>
 
@@ -240,16 +237,6 @@ export function DocsLibrary({ articles: sourceArticles = [], initialArticleId }:
             <div className="cc-docs-notice" role="status">
               <strong>{copy.noMatchTitle}</strong>
               <p>{copy.noMatchBody}</p>
-              <button
-                type="button"
-                className="cc-docs-download-entry"
-                onClick={() => {
-                  updateQuery("");
-                  searchRef.current?.focus();
-                }}
-              >
-                <strong>{copy.clearSearch}</strong>
-              </button>
             </div>
           ) : groups.length > 0 ? (
             <div className="cc-docs-groups">

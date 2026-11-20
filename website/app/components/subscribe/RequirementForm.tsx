@@ -3,7 +3,6 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
 import { useCatalogText, useT, type Messages } from "../../lib/i18n";
 import {
-  PAYMENT_MAX_SINGLE_FEN_FRONTEND,
   PaymentApiError,
   bindOrderAccess,
   clearCheckoutAttempt,
@@ -120,9 +119,8 @@ export function RequirementForm({
       : null;
   const listPriceFen = activeQuote?.listPriceFen ?? (summary.total === null ? null : Math.round(summary.total * 100));
   const discountFen = activeQuote?.discountFen ?? 0;
-  const overPaymentLimit = amountFen !== null && amountFen > PAYMENT_MAX_SINGLE_FEN_FRONTEND;
   const canSubmit =
-    signedIn && priceKnown && amountFen !== null && !overPaymentLimit && contact.trim() !== "" && !submitting && !quoteLoading;
+    signedIn && priceKnown && amountFen !== null && contact.trim() !== "" && !submitting && !quoteLoading;
 
   function toggleScenario(id: string) {
     setScenarios((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
@@ -159,7 +157,7 @@ export function RequirementForm({
     event.preventDefault();
     setContactTouched(true);
     setSubmitError(null);
-    if (!signedIn || csrfToken === null || submitting || contact.trim() === "" || amountFen === null || overPaymentLimit) return;
+    if (!signedIn || csrfToken === null || submitting || contact.trim() === "" || amountFen === null) return;
 
     const draft: RequirementDraft = {
       selection,
@@ -208,7 +206,7 @@ export function RequirementForm({
         <div className="sub-request-recap-grid">
           <div><span>{t.subscribe.summary.type}</span><b>{recapValue(summary.type)}</b></div>
           <div><span>{t.subscribe.summary.region}</span><b>{recapValue(summary.region)}</b></div>
-          <div><span>{t.subscribe.summary.isp}</span><b>{recapValue(summary.isp)}</b></div>
+          {!summary.ispImplied && <div><span>{t.subscribe.summary.isp}</span><b>{recapValue(summary.isp)}</b></div>}
           <div><span>{t.subscribe.summary.spec}</span><b>{recapValue(summary.spec)}</b></div>
           <div><span>{copy.term}</span><b>{recapValue(summary.duration)}</b></div>
         </div>
@@ -319,9 +317,7 @@ export function RequirementForm({
           <button type="submit" disabled={!canSubmit} aria-busy={submitting}>
             {submitting
               ? copy.submitting
-              : overPaymentLimit
-                ? copy.overLimit
-                : priceKnown && amountFen !== null
+              : priceKnown && amountFen !== null
                   ? copy.submit(formatFen(amountFen))
                   : t.subscribe.pricePending}
           </button>

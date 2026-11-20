@@ -110,8 +110,12 @@ test("each radio group has one enabled tab stop and uses the existing selection 
   const card = source("../app/components/subscribe/OptionCard.tsx");
   const page = source("../app/components/subscribe/SubscribePage.tsx");
   assert.match(card, /role="radio"[\s\S]*?disabled=\{disabled\}[\s\S]*?tabIndex=\{tabIndex\}/);
-  assert.equal(page.match(/role="radiogroup"/g)?.length, 5);
-  assert.equal(page.match(/onKeyDown=\{handleRadioGroupKeyDown\}/g)?.length, 5);
+  // Route and traffic are independent choices in addition to the five original groups.
+  assert.equal(page.match(/role="radiogroup"/g)?.length, 7);
+  assert.equal(page.match(/onKeyDown=\{handleRadioGroupKeyDown\}/g)?.length, 7);
+  for (const callback of ["selectType","selectRegion","selectIsp","selectSpec","selectLine","selectTraffic","selectDuration"]) {
+    assert.ok(page.includes(`selection.${callback}(`), `missing selection callback ${callback}`);
+  }
   assert.match(page, /nextRadio\.click\(\);\s*nextRadio\.focus\(\);/);
   assert.match(page, /disabled=\{durationDisabled\}/);
 });

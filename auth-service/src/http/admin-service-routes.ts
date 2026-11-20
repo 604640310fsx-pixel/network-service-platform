@@ -10,6 +10,8 @@ import {
   type GrantDeliveryInput,
 } from "../payment/delivery-crypto.js";
 import { normalizeMonitorTargetKey } from "../monitor/target-catalog.js";
+import { confirmManualServiceChange, confirmManualServiceFacts, listManualServiceChanges, readManualServiceFacts,
+  type ManualServiceFacts } from "../payment/service-change.js";
 import {
   bindGrantDeliveryForAdmin,
   bindServiceDeliveryForAdmin,
@@ -238,6 +240,53 @@ export function registerAdminServiceHttpRoutes(
     }
     return reply.code(503).send(errorResponse("payment_unavailable"));
   }
+
+  app.get("/api/admin/service-changes",async(request,reply)=>{
+    setNoStore(reply);
+    if(!dependencies.enabled) return reply.code(503).send(errorResponse("payment_unavailable"));
+    const auth=authorizeAdminSession(request,dependencies);
+    if(!auth.ok) return reply.code(auth.statusCode).send(errorResponse(auth.code));
+    try {return reply.send(listManualServiceChanges(dependencies.database,(dependencies.now??(()=>new Date()))()));}
+    catch(error){return sendDomainError(reply,error);}
+  });
+  app.get<{Params:{id:string}}>("/api/admin/services/:id/change-facts",async(request,reply)=>{
+    setNoStore(reply);
+    if(!dependencies.enabled) return reply.code(503).send(errorResponse("payment_unavailable"));
+    const auth=authorizeAdminSession(request,dependencies);
+    if(!auth.ok) return reply.code(auth.statusCode).send(errorResponse(auth.code));
+    const id=positiveId(request.params.id);if(id===null) return reply.code(404).send(errorResponse("not_found"));
+    try{return reply.send(readManualServiceFacts(dependencies.database,id));}catch(error){return sendDomainError(reply,error);}
+  });
+  app.post<{Params:{id:string};Body:unknown}>("/api/admin/services/:id/change-facts",async(request,reply)=>{
+    setNoStore(reply);
+    if(!dependencies.enabled) return reply.code(503).send(errorResponse("payment_unavailable"));
+    const auth=authorizeAdminSession(request,dependencies);
+    if(!auth.ok) return reply.code(auth.statusCode).send(errorResponse(auth.code));
+    if(!verifyAdminCsrf(request,dependencies,auth.admin.sessionTokenHash)) return reply.code(403).send(errorResponse("csrf_invalid"));
+    const id=positiveId(request.params.id),body=plainObject(request.body);
+    if(id===null || body===null || !onlyKeys(body,new Set(["expectedVersion","specId","monthlyPriceFen","periodStart","usageStart","usageUsedGb"])) ||
+      Object.keys(body).length!==6 || !(body.specId===null || typeof body.specId==="string") ||
+      typeof body.periodStart!=="string" || typeof body.usageStart!=="string" || typeof body.monthlyPriceFen!=="number" ||
+      typeof body.usageUsedGb!=="number" || typeof body.expectedVersion!=="number")
+      return reply.code(400).send(errorResponse("invalid_service_facts"));
+    try{return reply.send(confirmManualServiceFacts(dependencies.database,id,{id:auth.admin.userId,email:auth.admin.email},
+      body as unknown as ManualServiceFacts,(dependencies.now??(()=>new Date()))()));}catch(error){return sendDomainError(reply,error);}
+  });
+  app.post<{Params:{id:string;changeId:string};Body:unknown}>("/api/admin/services/:id/changes/:changeId/confirm-configured",async(request,reply)=>{
+    setNoStore(reply);
+    if(!dependencies.enabled) return reply.code(503).send(errorResponse("payment_unavailable"));
+    const auth=authorizeAdminSession(request,dependencies);
+    if(!auth.ok) return reply.code(auth.statusCode).send(errorResponse(auth.code));
+    if(!verifyAdminCsrf(request,dependencies,auth.admin.sessionTokenHash)) return reply.code(403).send(errorResponse("csrf_invalid"));
+    const id=positiveId(request.params.id),changeId=positiveId(request.params.changeId),body=plainObject(request.body);
+    if(id===null || changeId===null || body===null || !onlyKeys(body,new Set(["ownerId","expectedVersion","configured"])) ||
+      Object.keys(body).length!==3 || typeof body.ownerId!=="number" || !Number.isSafeInteger(body.ownerId) || body.ownerId<=0 ||
+      typeof body.expectedVersion!=="number" || body.configured!==true)
+      return reply.code(400).send(errorResponse("invalid_manual_confirmation"));
+    try{return reply.send(confirmManualServiceChange(dependencies.database,id,changeId,{id:auth.admin.userId,email:auth.admin.email},
+      {ownerId:body.ownerId,expectedVersion:body.expectedVersion,configured:true},(dependencies.now??(()=>new Date()))()));}
+    catch(error){return sendDomainError(reply,error);}
+  });
 
   /* Every non-null target must be active in the live catalog (same rule as service opening):
      catalog missing or failing -> 503 monitor_unavailable, unknown/inactive -> 400. On success the

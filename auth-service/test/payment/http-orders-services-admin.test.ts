@@ -88,7 +88,7 @@ test("create-order API stores only the client credential hash and returns the fr
   });
 });
 
-test("server pricing rejects changed and over-limit amounts before any SDK pageExecute call", async () => {
+test("server pricing rejects changed amounts and accepts an authoritative plan above the old cap", async () => {
   await withAuthenticationDatabase(async (database) => {
     const sdk = new FakeAlipaySdk();
     const dependencies = paymentDependencies(database, sdk);
@@ -147,18 +147,11 @@ test("server pricing rejects changed and over-limit amounts before any SDK pageE
           acknowledgedAmountFen: 632_600,
         },
       });
-      // Migration 012 seeds every combination priced above the single-payment
-      // cap as is_active=0 (residential/us/comcast/dedicated/month-12 is one
-      // of the frozen 29), so plan_unavailable now fires before the amount
-      // check ever runs — this is the correct, spec-mandated outcome, not a
-      // regression of the amount guard itself (see the commerce.test.ts
-      // "actively priced above the cap" case for that guard in isolation).
-      assert.equal(overLimit.statusCode, 409);
-      assert.deepEqual(overLimit.json(), {
-        error: { code: "plan_unavailable" },
-      });
-      assert.equal(sdk.pageCalls.length, 0);
-      assert.equal(firstValue(database, "SELECT COUNT(*) FROM orders"), 0);
+      // Migration 029 re-enables the 29 seed rows without changing their price.
+      assert.equal(overLimit.statusCode, 200);
+      assert.equal(overLimit.json().amountFen, 632_600);
+      assert.equal(sdk.pageCalls.length, 1);
+      assert.equal(firstValue(database, "SELECT COUNT(*) FROM orders"), 1);
     } finally {
       await app.close();
     }
@@ -812,7 +805,7 @@ test("public catalog and quote stay anonymous, validate input, and map domain er
       assert.equal(catalog.statusCode, 200);
       assert.equal(catalog.headers["cache-control"], "no-store");
       const catalogItems = catalog.json().items as Array<Record<string, unknown>>;
-      assert.equal(catalogItems.length, 255);
+      assert.equal(catalogItems.length, 1014);
       assert.deepEqual(
         catalogItems.find(
           (item) =>
@@ -881,8 +874,8 @@ test("public catalog and quote stay anonymous, validate input, and map domain er
           couponCode: null,
         },
       });
-      assert.equal(offSale.statusCode, 409);
-      assert.deepEqual(offSale.json(), { error: { code: "plan_unavailable" } });
+      assert.equal(offSale.statusCode, 200);
+      assert.equal(offSale.json().amountFen, 632_600);
     } finally {
       await app.close();
     }
@@ -926,7 +919,7 @@ test("admin plans require an admin session and CSRF, validate patches, and map p
       });
       assert.equal(listed.statusCode, 200);
       const plans = listed.json().items as Array<Record<string, unknown>>;
-      assert.equal(plans.length, 255);
+      assert.equal(plans.length, 1014);
       const plan = plans.find(
         (item) =>
           item.typeId === "local-isp" &&
