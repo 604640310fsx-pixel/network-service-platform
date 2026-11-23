@@ -7,7 +7,7 @@ const loader = createTsxLoader();
 const { subscriptionLineDisplay, subscriptionLineSubtitle, isRecommendedLine } = loader.load("app/components/subscribe/lineDisplay.ts") as {
   subscriptionLineDisplay: (text: string, lang: "zh" | "en", catalogText: (text: string) => string) => string;
   subscriptionLineSubtitle: (lineIdOrName: string, lang: "zh" | "en") => string | null;
-  isRecommendedLine: (lineId: string) => boolean;
+  isRecommendedLine: (lineId: string, availableLineIds?: readonly string[]) => boolean;
 };
 const { residentialLines, LOCAL_ISP_BASE_LINE_ID } = loader.load("app/lib/subscribeCatalog.ts") as {
   residentialLines: { id: string; name: string }[];
@@ -160,4 +160,16 @@ test("route and traffic cards announce their prices and the badge is a corner ta
   assert.match(css, /\.sub-line-badge \{ position: absolute; top: -1px; right: -1px; z-index: 1; padding: 1px 8px; border: 0; border-radius: 0 10px 0 9px; background: #f59e0b; color: #1d1b17;/);
   assert.match(css, /\.sub-package-lines \.sub-package-option::after \{[^}]*border: 1\.5px solid var\(--cc-text-3\)/);
   assert.match(css, /\.cc-shell\[data-theme="light"\] \.sub-configurator-v11 \.sub-package-option :is\(\.sub-addon, \.sub-traffic-monthly-price:not\(\.is-pending\)\) \{ color: #945a00; \}/);
+});
+
+test("optimized route is recommended only when the package has no high-speed route", () => {
+  // 独享双ISP静态原生 (us-local-carrier) offers direct + optimized only.
+  assert.equal(isRecommendedLine("optimized", ["direct", "optimized"]), true);
+  assert.equal(isRecommendedLine("direct", ["direct", "optimized"]), false);
+  // Packages with a high-speed route keep recommending it, not the optimized one.
+  assert.equal(isRecommendedLine("optimized", ["direct", "optimized", "highspeed", "live"]), false);
+  assert.equal(isRecommendedLine("half", ["ordinary", "half", "high", "three-net"]), false);
+  assert.equal(isRecommendedLine("highspeed", ["direct", "optimized", "highspeed", "live"]), true);
+  const page = readFileSync(new URL("../app/components/subscribe/SubscribePage.tsx", import.meta.url), "utf8");
+  assert.match(page, /isRecommendedLine\(line\.id, selection\.availableLines\.map\(\(option\) => option\.id\)\)/);
 });

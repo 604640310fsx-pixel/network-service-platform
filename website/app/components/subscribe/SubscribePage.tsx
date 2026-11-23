@@ -251,7 +251,7 @@ export function SubscribePage() {
                 <div className="sub-grid sub-package-lines" role="radiogroup" aria-label={copy.specSection.lineTitle} aria-describedby="sub-line-hint" onKeyDown={handleRadioGroupKeyDown}>
                   {selection.availableLines.map((line) => {
                     const subtitle = subscriptionLineSubtitle(line.id, lang) ?? subscriptionLineSubtitle(line.name, lang);
-                    const recommended = isRecommendedLine(line.id);
+                    const recommended = isRecommendedLine(line.id, selection.availableLines.map((option) => option.id));
                     const lineAddonFen = optionAddon(selection.packageSpecId(line.id, selection.selectedTrafficId ?? ""));
                     const lineAddonText = lineAddonFen !== null ? `+${formatCardYuan(lineAddonFen)}${copy.configurator.perMonth}` : null;
                     const cardLabel = [lineText(line.name), recommended ? copy.specSection.lineRecommended : null, subtitle, lineAddonText].filter(Boolean).join(" ");

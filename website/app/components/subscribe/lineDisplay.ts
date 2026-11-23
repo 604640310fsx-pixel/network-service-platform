@@ -49,7 +49,11 @@ export function subscriptionLineSubtitle(lineIdOrName: string, lang: Lang): stri
   return tier ? subtitles[tier][lang] : null;
 }
 
-/** The route tier the subscribe page marks as recommended (high-speed). */
-export function isRecommendedLine(lineId: string): boolean {
-  return tierById[lineId] === "high";
+/** The route the subscribe page marks as recommended: high-speed when the package offers it,
+ *  otherwise the optimized route (e.g. 独享双ISP静态原生 only has direct + optimized). */
+export function isRecommendedLine(lineId: string, availableLineIds?: readonly string[]): boolean {
+  const tier = tierById[lineId];
+  if (tier === "high") return true;
+  if (tier !== "optimized" || !availableLineIds) return false;
+  return !availableLineIds.some((id) => tierById[id] === "high");
 }
