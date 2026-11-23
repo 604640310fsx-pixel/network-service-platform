@@ -112,7 +112,7 @@
 .sub-configurator-v11 .sub-line-text strong { overflow-wrap: anywhere; }
 .sub-configurator-v11 .sub-line-subtitle { color: var(--cc-text-3); line-height: 1.4; }
 .sub-configurator-v11 .sub-line-name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
-.sub-configurator-v11 .sub-line-badge { padding: 0 6px; font-size: 11px; line-height: 1.6; }
+.sub-configurator-v11 .sub-line-badge { padding: 1px 7px; border-color: #f59e0b; background: #f59e0b; color: #1d1b17; font-size: 11.5px; font-weight: 700; line-height: 1.5; letter-spacing: .02em; }
 .sub-configurator-v11 .sub-package-option::before,
 .sub-configurator-v11 .sub-package-traffic .sub-package-option::after { display: none; }
 .sub-configurator-v11 .sub-package-option strong { font-size: 13px; font-weight: 550; }
