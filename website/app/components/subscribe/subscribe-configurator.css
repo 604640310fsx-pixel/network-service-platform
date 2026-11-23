@@ -107,6 +107,10 @@
 .sub-configurator-v11 .sub-package-lines .sub-package-option { padding-left: 38px; }
 .sub-configurator-v11 .sub-package-lines .sub-package-option::after { display: block; box-sizing: border-box; left: 13px; top: 16px; right: auto; width: 16px; height: 16px; border: 1px solid var(--cc-line); border-radius: 50%; background: var(--cc-panel); }
 .sub-configurator-v11 .sub-package-lines .is-selected::after { border: 5px solid #f59e0b; }
+.sub-configurator-v11 .sub-line-hint { margin: 0 0 8px; color: var(--cc-text-3); font-size: 12px; line-height: 1.5; }
+.sub-configurator-v11 .sub-line-text { display: grid; gap: 2px; min-width: 0; }
+.sub-configurator-v11 .sub-line-text strong { overflow-wrap: anywhere; }
+.sub-configurator-v11 .sub-line-subtitle { color: var(--cc-text-3); line-height: 1.4; }
 .sub-configurator-v11 .sub-package-option::before,
 .sub-configurator-v11 .sub-package-traffic .sub-package-option::after { display: none; }
 .sub-configurator-v11 .sub-package-option strong { font-size: 13px; font-weight: 550; }

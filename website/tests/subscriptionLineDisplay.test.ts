@@ -4,8 +4,9 @@ import test from "node:test";
 import { createTsxLoader } from "./support/tsxModules.ts";
 
 const loader = createTsxLoader();
-const { subscriptionLineDisplay } = loader.load("app/components/subscribe/lineDisplay.ts") as {
+const { subscriptionLineDisplay, subscriptionLineSubtitle } = loader.load("app/components/subscribe/lineDisplay.ts") as {
   subscriptionLineDisplay: (text: string, lang: "zh" | "en", catalogText: (text: string) => string) => string;
+  subscriptionLineSubtitle: (lineIdOrName: string, lang: "zh" | "en") => string | null;
 };
 const { residentialLines, LOCAL_ISP_BASE_LINE_ID } = loader.load("app/lib/subscribeCatalog.ts") as {
   residentialLines: { id: string; name: string }[];
@@ -26,18 +27,18 @@ const display = (text: string, lang: "zh" | "en" = "zh") => subscriptionLineDisp
 
 test("direct and optimized catalogue names display consistently without repeated suffixes", () => {
   for (const raw of ["普通线路", "默认线路", "普通路线", "默认路线", "默认直连", "默认直连（高峰期不稳定）"]) {
-    assert.equal(display(raw), "基础直连（适合搭配前置中转）", raw);
-    assert.equal(display(`${raw} · 200G`), "基础直连（适合搭配前置中转） · 200G", raw);
+    assert.equal(display(raw), "默认直连", raw);
+    assert.equal(display(`${raw} · 200G`), "默认直连 · 200G", raw);
   }
   for (const raw of ["半优化线路", "优化线路"]) {
-    assert.equal(display(raw), "回国优化线路（日常直连推荐）", raw);
-    assert.equal(display(`${raw} · 1T`), "回国优化线路（日常直连推荐） · 1T", raw);
+    assert.equal(display(raw), "优化线路", raw);
+    assert.equal(display(`${raw} · 1T`), "优化线路 · 1T", raw);
   }
-  assert.equal(display("基础直连（适合搭配前置中转） · 300G"), "基础直连（适合搭配前置中转） · 300G");
-  assert.equal(display("回国优化线路（日常直连推荐）"), "回国优化线路（日常直连推荐）");
-  assert.equal(display("Default direct (unstable at peak times)", "en"), "Basic direct (best with relay)");
-  assert.equal(display("Partially optimized route · 500G", "en"), "Optimized route (recommended for daily direct use) · 500G");
-  assert.equal(display("Basic direct (best with relay)", "en"), "Basic direct (best with relay)");
+  assert.equal(display("默认直连 · 300G"), "默认直连 · 300G");
+  assert.equal(display("优化线路"), "优化线路");
+  assert.equal(display("Default direct (unstable at peak times)", "en"), "Default direct");
+  assert.equal(display("Partially optimized route · 500G", "en"), "Optimized route · 500G");
+  assert.equal(display("Default direct", "en"), "Default direct");
 });
 
 test("other tiers and ordinary narrative remain unchanged", () => {
@@ -55,8 +56,8 @@ test("selected line and summary use display copy while catalogue IDs, prices and
   } };
   const resolved = resolveSelection(selection, availability);
   assert.equal(resolved.selectedLine?.id, "direct");
-  assert.equal(display(resolved.selectedLine!.name), "基础直连（适合搭配前置中转）");
-  assert.equal(display(resolved.summary.spec), "基础直连（适合搭配前置中转） · 200G");
+  assert.equal(display(resolved.selectedLine!.name), "默认直连");
+  assert.equal(display(resolved.summary.spec), "默认直连 · 200G");
   assert.equal(residentialLines[0]?.name, "默认直连（高峰期不稳定）");
   assert.equal(residentialLines[1]?.id, "optimized");
   assert.equal(LOCAL_ISP_BASE_LINE_ID, "ordinary");
@@ -65,10 +66,10 @@ test("selected line and summary use display copy while catalogue IDs, prices and
   assert.equal(availability[planAvailabilityKey("residential", "vn", "vnpt-corp", "res-v2-direct-200g", "month-1")]?.priceFen, priceFen);
   const optimized = resolveSelection({ ...selection, specId: "res-v2-optimized-200g" });
   assert.equal(optimized.selectedLine?.id, "optimized");
-  assert.equal(display(optimized.summary.spec), "回国优化线路（日常直连推荐） · 200G");
+  assert.equal(display(optimized.summary.spec), "优化线路 · 200G");
   const local = resolveSelection({ typeId: "local-isp", regionId: "us", ispId: "us-verizon", specId: null, durationId: "month-1" });
   assert.equal(local.selectedLine?.id, "ordinary");
-  assert.equal(display(local.summary.spec), "基础直连（适合搭配前置中转） · 200G");
+  assert.equal(display(local.summary.spec), "默认直连 · 200G");
 });
 
 test("existing admin pending-open reminder presents the new spec as a readable line and traffic tier", () => {
@@ -79,8 +80,8 @@ test("existing admin pending-open reminder presents the new spec as a readable l
   for (const fact of ["summary.type", "summary.region", "summary.isp", "specLabel", "summary.duration"]) {
     assert.ok(source.includes(`<dd>{${fact}}</dd>`), fact);
   }
-  for (const [specId, label] of [["direct-200g", "基础直连（适合搭配前置中转） · 200G"],
-    ["optimized-500g", "回国优化线路（日常直连推荐） · 500G"]] as const) {
+  for (const [specId, label] of [["direct-200g", "默认直连 · 200G"],
+    ["optimized-500g", "优化线路 · 500G"]] as const) {
     const selection = { typeId: "us-local-carrier", regionId: "us", ispId: "ntt", specId, durationId: "month-1" };
     const summary = resolveSelection(selection).summary;
     assert.equal(summary.type, "独享双ISP静态原生");
@@ -89,4 +90,48 @@ test("existing admin pending-open reminder presents the new spec as a readable l
     assert.equal(display(summary.spec), label);
     assert.equal(summary.duration, "月付");
   }
+});
+
+test("summary labels are clean four-character tier names in zh", () => {
+  const raws = ["普通线路", "默认直连（高峰期不稳定）", "半优化线路", "优化线路", "高速线路", "三网专线", "直播专线"];
+  for (const raw of raws) {
+    const label = display(raw);
+    assert.equal([...label].length, 4, `${raw} -> ${label}`);
+    assert.doesNotMatch(label, /[（(]/, raw);
+  }
+  assert.equal(display("Direct, unoptimized (poor stability)", "en"), "Default direct");
+  assert.equal(display("Optimized route (slower at peak times) · 1T", "en"), "Optimized route · 1T");
+});
+
+test("every route tier has an exact six-character muted subtitle", () => {
+  const expected: [string[], string, string][] = [
+    [["direct", "ordinary", "默认直连（高峰期不稳定）", "普通路线"], "晚高峰易卡顿", "Prone to peak lag"],
+    [["half", "optimized", "半优化线路", "优化线路"], "日常轻度使用", "Light daily use"],
+    [["high", "highspeed", "高速线路"], "全天流畅推荐", "Smooth all day"],
+    [["three-net", "live", "三网专线", "直播专线"], "低延迟高稳定", "Low latency & steady"],
+  ];
+  for (const [keys, zh, en] of expected) {
+    assert.equal([...zh].length, 6, zh);
+    for (const key of keys) {
+      assert.equal(subscriptionLineSubtitle(key, "zh"), zh, key);
+      assert.equal(subscriptionLineSubtitle(key, "en"), en, key);
+    }
+  }
+  assert.equal(subscriptionLineSubtitle("unknown-line", "zh"), null);
+});
+
+test("route cards render the subtitle and the 选择线路 helper note", () => {
+  const page = readFileSync(new URL("../app/components/subscribe/SubscribePage.tsx", import.meta.url), "utf8");
+  assert.match(page, /<h3>\{copy\.specSection\.lineTitle\}<\/h3><p className="sub-line-hint" id="sub-line-hint">\{copy\.specSection\.lineHint\}<\/p>/);
+  assert.match(page, /aria-describedby="sub-line-hint"/);
+  assert.match(page, /subscriptionLineSubtitle\(line\.id, lang\)/);
+  assert.match(page, /<small className="sub-line-subtitle">\{subtitle\}<\/small>/);
+  assert.match(page, /line\.notice && <small>\{ct\(line\.notice\)\}<\/small>/);
+  const zh = readFileSync(new URL("../app/i18n/zh.ts", import.meta.url), "utf8");
+  const en = readFileSync(new URL("../app/i18n/en.ts", import.meta.url), "utf8");
+  assert.ok(zh.includes('lineHint: "决定国内连接速度与晚高峰表现；自备中转前置选「默认直连」即可"'));
+  assert.ok(en.includes('lineHint: "Sets direct connection speed and peak-hour performance; choose Default direct if using your own relay"'));
+  const css = readFileSync(new URL("../app/components/subscribe/subscribe-configurator.css", import.meta.url), "utf8");
+  assert.match(css, /\.sub-line-subtitle \{ color: var\(--cc-text-3\)/);
+  assert.match(css, /\.sub-line-hint \{[^}]*color: var\(--cc-text-3\)/);
 });

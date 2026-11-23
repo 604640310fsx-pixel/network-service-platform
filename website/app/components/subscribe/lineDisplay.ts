@@ -17,7 +17,34 @@ export function subscriptionLineDisplay(text: string, lang: Lang, catalogText: (
   const match = /^(.*?)( · (?:\d+G|\d+T))?$/.exec(text);
   const name = match?.[1] ?? text;
   const traffic = match?.[2] ?? "";
-  if (directNames.has(name)) return `${lang === "zh" ? "基础直连（适合搭配前置中转）" : "Basic direct (best with relay)"}${traffic}`;
-  if (optimizedNames.has(name)) return `${lang === "zh" ? "回国优化线路（日常直连推荐）" : "Optimized route (recommended for daily direct use)"}${traffic}`;
+  if (directNames.has(name)) return `${lang === "zh" ? "默认直连" : "Default direct"}${traffic}`;
+  if (optimizedNames.has(name)) return `${lang === "zh" ? "优化线路" : "Optimized route"}${traffic}`;
   return catalogText(text);
+}
+
+type LineTier = "direct" | "optimized" | "high" | "dedicated";
+const tierById: Record<string, LineTier> = {
+  direct: "direct", ordinary: "direct",
+  half: "optimized", optimized: "optimized",
+  high: "high", highspeed: "high",
+  "three-net": "dedicated", live: "dedicated",
+};
+const tierByName: Record<string, LineTier> = {
+  "高速线路": "high", "High-speed route": "high",
+  "三网专线": "dedicated", "Triple-carrier route": "dedicated",
+  "直播专线": "dedicated", "Live-streaming route": "dedicated",
+};
+const subtitles: Record<LineTier, { zh: string; en: string }> = {
+  direct: { zh: "晚高峰易卡顿", en: "Prone to peak lag" },
+  optimized: { zh: "日常轻度使用", en: "Light daily use" },
+  high: { zh: "全天流畅推荐", en: "Smooth all day" },
+  dedicated: { zh: "低延迟高稳定", en: "Low latency & steady" },
+};
+
+/** Muted one-line subtitle for a route card, by line ID or catalogue name; null for unknown lines. */
+export function subscriptionLineSubtitle(lineIdOrName: string, lang: Lang): string | null {
+  const name = lineIdOrName.replace(/ · (?:\d+G|\d+T)$/, "");
+  const tier = tierById[name] ?? tierByName[name] ??
+    (directNames.has(name) ? "direct" : optimizedNames.has(name) ? "optimized" : undefined);
+  return tier ? subtitles[tier][lang] : null;
 }

@@ -47,6 +47,8 @@
 .sub-package-option { min-height: 58px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .sub-package-option strong { font-size: 15px; }
 .sub-package-option small { color: var(--cc-text-3); font-size: 12px; }
+.sub-line-hint { margin: -4px 0 8px; color: var(--cc-text-3); font-size: 12px; }
+.sub-line-text { display: grid; gap: 2px; }
 .sub-isp-grid { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
 /* auto-fit 按容器实际宽度响应，而不是整窗宽度——侧边栏/摘要面板会吃掉横向空间，
    固定断点在 1280px 这类常见笔记本宽度下会误判（实测内容区只剩 577px，

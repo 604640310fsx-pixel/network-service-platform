@@ -501,6 +501,7 @@ export const en: Messages = {
     },
     specSection: {
       lineTitle: "Choose a route",
+      lineHint: "Sets direct connection speed and peak-hour performance; choose Default direct if using your own relay",
       trafficTitle: "Monthly traffic",
       trafficGroupLabel: "Choose monthly traffic",
       title: "Choose a spec",
