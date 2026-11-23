@@ -117,10 +117,10 @@
 .sub-configurator-v11 .sub-package-option small { font-size: 11px; }
 .sub-configurator-v11 .sub-addon { margin-left: auto; color: var(--cc-accent); font-size: 13px; font-weight: 600; white-space: nowrap; }
 .sub-configurator-v11 .sub-package-traffic .sub-package-option { align-items: start; flex-direction: column; gap: 4px; }
-.sub-configurator-v11 .sub-package-traffic strong { font-size: 17px; }
+.sub-configurator-v11 .sub-package-traffic strong { font-size: 17px; line-height: 1.25; }
 .sub-configurator-v11 .sub-package-traffic .sub-addon { margin: 0; }
-.sub-configurator-v11 .sub-traffic-monthly { display: grid; gap: 4px; margin-top: 4px; }
-.sub-configurator-v11 .sub-traffic-monthly-price { display: block; color: var(--cc-accent); font-size: 15px; font-weight: 600; line-height: 1.5; white-space: nowrap; }
+.sub-configurator-v11 .sub-traffic-monthly { display: grid; gap: 4px; margin-top: 0; }
+.sub-configurator-v11 .sub-traffic-monthly-price { display: block; color: var(--cc-accent); font-size: 15px; font-weight: 600; line-height: 1.3; white-space: nowrap; }
 .sub-configurator-v11 .sub-traffic-monthly-price.is-pending { color: var(--cc-text-2); font-size: 12px; }
 .sub-configurator-v11 .sub-traffic-included { display: block; color: var(--cc-text-2); font-weight: 400; white-space: nowrap; }
 .sub-configurator-v11 .sub-grid-four { grid-template-columns: repeat(auto-fit,minmax(110px,1fr)); }
