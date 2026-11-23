@@ -120,10 +120,10 @@ test("initial language: a saved zh/en choice wins, everything else is English", 
   assert.equal(LANG_STORAGE_KEY, "nsp.lang");
   assert.equal(resolveInitialLang("en"), "en");
   assert.equal(resolveInitialLang("zh"), "zh");
-  assert.equal(resolveInitialLang(null), "en");
-  assert.equal(resolveInitialLang(""), "en");
-  assert.equal(resolveInitialLang("fr"), "en");
-  assert.equal(resolveInitialLang("zh-CN"), "en");
+  assert.equal(resolveInitialLang(null), "zh");
+  assert.equal(resolveInitialLang(""), "zh");
+  assert.equal(resolveInitialLang("fr"), "zh");
+  assert.equal(resolveInitialLang("zh-CN"), "zh");
   assert.equal(htmlLangFor("zh"), "zh-CN");
   assert.equal(htmlLangFor("en"), "en");
 });
@@ -361,20 +361,22 @@ test("the provider reads and persists nsp.lang and switches the dictionary", () 
     assert.equal(store.get("nsp.lang"), "zh");
     store.delete("nsp.lang");
     renderToStaticMarkup(react.createElement(i18n.I18nProvider as never, null, react.createElement(Probe)));
-    assert.equal(captured?.lang, "en", "no storage defaults to English even for a zh-CN browser");
+    assert.equal(captured?.lang, "zh", "no storage defaults to Chinese");
+    captured?.setLang("en");
+    assert.equal(store.get("nsp.lang"), "en", "switching to English persists en");
     store.set("nsp.lang", "zh");
     renderToStaticMarkup(react.createElement(i18n.I18nProvider as never, null, react.createElement(Probe)));
     assert.equal(captured?.lang, "zh", "saved zh is retained");
     store.set("nsp.lang", "fr");
     renderToStaticMarkup(react.createElement(i18n.I18nProvider as never, null, react.createElement(Probe)));
-    assert.equal(captured?.lang, "en", "invalid saved value falls back to English");
+    assert.equal(captured?.lang, "zh", "invalid saved value falls back to Chinese");
     assert.equal(store.get("nsp.lang"), "fr", "an invalid value is not cleared or rewritten");
   } finally {
     (globalThis as { window?: unknown }).window = previous;
   }
 });
 
-test("provider defaults to English for any navigator language, a failing store, and without a window", () => {
+test("provider defaults to Chinese for any navigator language, a failing store, and without a window", () => {
   const previous = (globalThis as { window?: unknown }).window;
   const loader = createTsxLoader();
   const react = loader.requirePackage("react") as typeof import("react");
@@ -395,15 +397,15 @@ test("provider defaults to English for any navigator language, a failing store, 
     for (const navigator of [{ language: "zh-CN" }, { language: "zh-TW" }, { language: "en-US" }, { language: "" }, undefined]) {
       (globalThis as { window?: unknown }).window = { localStorage: emptyStore, navigator };
       render();
-      assert.equal(captured?.lang, "en", JSON.stringify(navigator));
+      assert.equal(captured?.lang, "zh", JSON.stringify(navigator));
     }
     (globalThis as { window?: unknown }).window = { localStorage: throwingStore, navigator: { language: "zh-CN" } };
     render();
-    assert.equal(captured?.lang, "en", "unreadable storage defaults to English");
-    assert.doesNotThrow(() => captured?.setLang("zh"), "a failing store must not block the switch");
+    assert.equal(captured?.lang, "zh", "unreadable storage defaults to Chinese");
+    assert.doesNotThrow(() => captured?.setLang("en"), "a failing store must not block the switch");
     (globalThis as { window?: unknown }).window = undefined;
     render();
-    assert.equal(captured?.lang, "en", "no window (SSR) defaults to English");
+    assert.equal(captured?.lang, "zh", "no window (SSR) defaults to Chinese");
   } finally {
     (globalThis as { window?: unknown }).window = previous;
   }

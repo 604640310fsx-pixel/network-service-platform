@@ -434,7 +434,7 @@ export const zh = {
     residentialReconfirm: "原链接已更新为新购住宅规格，初始为默认直连、200G、月付。旧订单权益不变，请核对当前线路、流量和价格并确认新购方案。",
     residentialConfirm: "确认新购方案",
     retiredCarrierRechoose: "Charter 已不再提供此套餐的新购选择，请重新选择运营商。原有订单和服务不受影响。",
-    residentialDevices: (n: number | null) => n === null ? "设备额度未指定（沿用原套餐资料）" : `${n}台设备（人工配置）`,
+    residentialDevices: (n: number | null) => n === null ? "设备额度未指定（沿用原套餐资料）" : `${n}台设备`,
     residentialTrafficDevices: (n: number | null) => n === null ? "设备限制：待确认" : `设备限制：${n}台`,
     residentialMonthlyPrice: (price: string) => `月付 ${price}/月`,
     residentialMonthlyPending: "月付价格待确认",
@@ -1880,7 +1880,6 @@ export const zh = {
   residentialOptions: {
     line: "线路", traffic: "月流量", device: "设备额度", base: "基准月价", addon: "线路月附加", final: "最终月价",
     basePeriod: "原套餐周期价", addonPeriod: "线路周期附加", finalPeriod: "周期合计",
-    manual: "设备额度为管理员人工配置资料，不代表系统自动执行物理设备限制。",
     lines: { direct: "默认直连（高峰期不稳定）", optimized: "优化线路", highspeed: "高速线路", live: "直播专线" } as Record<string,string>,
   },
   catalog: {} as Record<string, string>,

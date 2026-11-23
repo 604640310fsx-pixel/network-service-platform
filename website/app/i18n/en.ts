@@ -435,7 +435,7 @@ export const en: Messages = {
     residentialReconfirm: "This old link now opens the new residential model, initially default direct, 200G and monthly. Existing rights are unchanged. Review the current route, traffic and price and confirm.",
     residentialConfirm: "Confirm new selection",
     retiredCarrierRechoose: "Charter is no longer available for new purchases of this plan. Choose another carrier. Existing orders and services are unaffected.",
-    residentialDevices: (n: number | null) => n === null ? "Device allowance unspecified (retain existing plan records)" : `${n} devices (manual configuration)`,
+    residentialDevices: (n: number | null) => n === null ? "Device allowance unspecified (retain existing plan records)" : `${n} devices`,
     residentialTrafficDevices: (n: number | null) => n === null ? "Device limit: pending confirmation" : `Device limit: ${n}`,
     residentialMonthlyPrice: (price: string) => `Monthly ${price}/mo`,
     residentialMonthlyPending: "Monthly price pending",
@@ -443,8 +443,8 @@ export const en: Messages = {
     productCards: {
       "us-local-carrier": { tag: "Dual-ISP native", bandwidth: "200Mbps bandwidth", audience: "For: risk-control prevention · steady Claude / GPT / Cursor use · US account warming", sellingPoints: ["US dual-ISP native", "NTT / GTT", "Dedicated static IP"] },
       residential: { tag: "Real residential ISP", bandwidth: "100Mbps bandwidth", audience: "For: protecting $100–200 core main accounts · long-lived terminal sessions · social / live streaming", sellingPoints: ["Locally installed home broadband", "Full UDP · multi-device", "Optional high-speed / dedicated line"] },
-      "local-isp": { tag: "Local static residential", bandwidth: "100Mbps bandwidth", audience: "For: keeping Gemini out of China routing / Claude ban prevention · local social and R&D in 13 countries", sellingPoints: ["US, JP, TW, SG and more: 13 countries", "AT&T / Verizon and more", "Consumer broadband ISPs"] },
-      "pure-native-ip": { tag: "Static dedicated IP", bandwidth: "100Mbps bandwidth", audience: "For: no more shared-airport verification prompts · daily AI chats · chained proxy exit", sellingPoints: ["One dedicated IP per user", "US native option", "Dedicated lines on all three carriers"] },
+      "local-isp": { tag: "Local static residential", bandwidth: "100Mbps bandwidth", audience: "For: stable Gemini region routing / Claude ban prevention · local social and R&D in 13 countries", sellingPoints: ["US, JP, TW, SG and more: 13 countries", "AT&T / Verizon and more", "Consumer broadband ISPs"] },
+      "pure-native-ip": { tag: "Static dedicated IP", bandwidth: "100Mbps bandwidth", audience: "For: no more shared-proxy verification prompts · daily AI chats · chained proxy exit", sellingPoints: ["One dedicated IP per user", "US native option", "Dedicated lines on all three carriers"] },
     },
     solutions: {
       "us-local-carrier": { label: "US local carriers", highlights: ["NTT", "GTT", "Cogent", "Charter"] },
@@ -1880,7 +1880,6 @@ export const en: Messages = {
   residentialOptions: {
     line: "Route", traffic: "Monthly traffic", device: "Device allowance", base: "Base monthly price", addon: "Monthly route add-on", final: "Final monthly price",
     basePeriod: "Original package period price", addonPeriod: "Period route add-on", finalPeriod: "Period total",
-    manual: "Device allowance is an administrator-configured record, not automatic physical-device enforcement.",
     lines: { direct: "Default direct (unstable at peak times)", optimized: "Optimized route", highspeed: "High-speed route", live: "Live-stream route" },
   },
   catalog: {

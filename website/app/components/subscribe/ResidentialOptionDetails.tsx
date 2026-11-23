@@ -16,6 +16,6 @@ export function ResidentialOptionDetails({ options }: { options: ResidentialOpti
       {options.basePeriodFen !== undefined && <><div><dt>{copy.basePeriod}</dt><dd>{money(options.basePeriodFen)}</dd></div>
         <div><dt>{copy.addonPeriod}</dt><dd>+{money(options.addonPeriodFen!)}</dd></div>
         <div><dt>{copy.finalPeriod}</dt><dd>{money(options.finalPeriodFen!)}</dd></div></>}
-    </dl><small>{copy.manual}</small>
+    </dl>
   </div>;
 }

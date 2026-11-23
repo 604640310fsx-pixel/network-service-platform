@@ -2,8 +2,8 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { en } from "../i18n/en";
 import { zh, type Messages } from "../i18n/zh";
 
-/* 零依赖界面语言：English（默认）/ 中文。
-   初始语言 = localStorage `nsp.lang`（仅 zh/en 有效），否则一律 English，不按浏览器语言判断。
+/* 零依赖界面语言：中文（默认）/ English。
+   初始语言 = localStorage `nsp.lang`（仅 zh/en 有效），否则一律中文，不按浏览器语言判断。
    切换后写回 localStorage，并同步 <html lang>。只翻译界面文案，不翻译服务端返回内容。 */
 
 export type Lang = "zh" | "en";
@@ -13,7 +13,7 @@ export const LANG_STORAGE_KEY = "nsp.lang";
 export const dictionaries: Readonly<Record<Lang, Messages>> = { zh, en };
 
 export function resolveInitialLang(stored: string | null): Lang {
-  return stored === "zh" || stored === "en" ? stored : "en";
+  return stored === "en" ? "en" : "zh";
 }
 
 export function htmlLangFor(lang: Lang): string {
@@ -37,7 +37,7 @@ function writeStoredLang(lang: Lang): void {
 }
 
 function initialLang(): Lang {
-  if (typeof window === "undefined") return "en";
+  if (typeof window === "undefined") return "zh";
   return resolveInitialLang(readStoredLang());
 }
 
@@ -47,7 +47,7 @@ type I18nValue = {
   readonly setLang: (lang: Lang) => void;
 };
 
-// Provider 之外（例如单独渲染的组件测试）回落到 English、切换无效。
+// Provider 之外（例如单独渲染的组件测试）回落到 English、切换无效；真实页面均包在 I18nProvider 内，首访默认中文。
 const I18nContext = createContext<I18nValue>({ lang: "en", t: en, setLang: () => undefined });
 
 export function I18nProvider({ children, initial }: { children: ReactNode; initial?: Lang }) {

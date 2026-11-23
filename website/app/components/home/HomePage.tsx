@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useCatalogText, useT } from "../../lib/i18n";
 import { useThemePreference } from "../../lib/theme";
 import { regions } from "../../lib/subscribeCatalog";
+import { homeRegionHref } from "./homeRegionLinks";
 import { SiteHeader } from "./SiteHeader";
 import { SiteFooter } from "./SiteFooter";
 import "./home.css";
@@ -802,7 +803,11 @@ export function HomePage() {
                   if (!region) return [];
                   const tags = copy.regions.tags[region.id];
                   return (
-                    <div className={`home-region${region.id === "more" ? " is-more" : ""}`} key={region.id}>
+                    <Link
+                      to={homeRegionHref(region.id)}
+                      className={`home-region${region.id === "more" ? " is-more" : ""}`}
+                      key={region.id}
+                    >
                       <div className="home-region-top">
                         <span className={`home-flag is-${region.flagClass}`} aria-hidden="true" />
                         <span className="home-region-copy">
@@ -818,7 +823,7 @@ export function HomePage() {
                       ) : (
                         <small className="home-region-note">{region.badge ? ct(region.badge) : "—"}</small>
                       )}
-                    </div>
+                    </Link>
                   );
                 })}
               </div>
