@@ -43,12 +43,14 @@ test("v11 preserves shell and new-purchase-only normalization; pending reminders
   assert.match(page, /className="sub-type-spec-label">\{product\.tag\}/);
   assert.doesNotMatch(page, /className="sub-product-tag"/);
 });
-test("product card specs use a muted dot separator and a compact three-row mobile layout without a split divider",()=>{
+test("product card specs use a muted dot separator and a compact three-row mobile layout with the price bottom-right",()=>{
   const css=readFileSync(new URL("../app/components/subscribe/subscribe-configurator.css",import.meta.url),"utf8");
   assert.match(css,/\.sub-type-spec-label::after \{ content: "·"; margin-left: 6px; color: var\(--cc-text-3\); \}/);
   assert.match(css,/\.sub-type-specs \{ display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 6px;/);
   const mobile=css.slice(css.indexOf("@media (max-width: 600px)"));
-  assert.match(mobile,/\.sub-type-price \{ grid-column: 2; grid-row: 1; align-self: center;[^}]*padding: 0 28px 0 0; border-top: 0; white-space: nowrap; \}/);
-  assert.match(mobile,/\.sub-solution-footer \{ grid-column: 1 \/ -1; grid-row: 3;[^}]*padding-top: 0; border-top: 0; \}/);
+  assert.match(mobile,/\.sub-type-price \{ grid-column: 2; grid-row: 3; align-self: end;[^}]*padding: 0; border-top: 0; white-space: nowrap; \}/);
+  assert.match(mobile,/\.sub-type-price b \{ font-size: 24px; font-weight: 700;/);
+  assert.match(mobile,/\.sub-solution-top \{ grid-column: 1 \/ -1; grid-row: 1;[^}]*padding-right: 28px; \}/);
+  assert.match(mobile,/\.sub-solution-footer \{ grid-column: 1; grid-row: 3; align-self: end;[^}]*padding-top: 0; border-top: 0; \}/);
   assert.match(mobile,/\.sub-type-option::after \{ content: ""; position: absolute;[^}]*border: 1\.5px solid var\(--cc-text-3\);/);
 });
