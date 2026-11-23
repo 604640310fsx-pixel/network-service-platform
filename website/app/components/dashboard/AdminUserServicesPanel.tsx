@@ -308,7 +308,7 @@ function ServiceRow({
           </span>
         </div>
         <p className="dash-usvc-meta">{copy.snapshot}: {snapshotLabel(service)}</p>
-        {service.residentialOptions && <ResidentialOptionDetails options={service.residentialOptions} />}
+        {service.residentialOptions && <ResidentialOptionDetails options={service.residentialOptions} adminNote />}
         <div className="dash-usvc-grid">
           <label>
             {copy.endsAt}

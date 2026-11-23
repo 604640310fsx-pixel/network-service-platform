@@ -25,16 +25,24 @@ test("English card copy uses the polished audience wording", () => {
   assert.doesNotMatch(cards["pure-native-ip"].audience, /airport/);
 });
 
-test("buyer residential details drop the admin-only device disclaimer", () => {
+test("residential details show the device disclaimer to admins only", () => {
   assert.equal(zh.subscribe.residentialDevices(3), "3台设备");
   assert.equal(en.subscribe.residentialDevices(3), "3 devices");
   assert.equal(zh.subscribe.residentialDevices(null), "设备额度未指定（沿用原套餐资料）");
   assert.equal(en.subscribe.residentialDevices(null), "Device allowance unspecified (retain existing plan records)");
   const details = source("../app/components/subscribe/ResidentialOptionDetails.tsx");
-  assert.doesNotMatch(details, /copy\.manual/);
-  assert.doesNotMatch(details, /<small>/);
-  assert.equal("manual" in zh.residentialOptions, false);
-  assert.equal("manual" in en.residentialOptions, false);
+  assert.match(details, /adminNote = false/);
+  assert.match(details, /\{adminNote && <small>\{copy\.manual\}<\/small>\}/);
+  assert.match(zh.residentialOptions.manual, /管理员人工配置/);
+  assert.match(en.residentialOptions.manual, /administrator-configured/);
+  for (const admin of ["AdminPendingServices", "AdminUserServicesPanel"]) {
+    assert.match(source(`../app/components/dashboard/${admin}.tsx`), /<ResidentialOptionDetails options=\{[a-z]+\.residentialOptions\} adminNote \/>/, admin);
+  }
+  for (const buyer of ["subscribe/RequirementForm", "subscribe/OrderStatusPanel", "customer/CustomerServicesPage"]) {
+    const usage = source(`../app/components/${buyer}.tsx`).match(/<ResidentialOptionDetails [^>]*\/>/)?.[0] ?? "";
+    assert.ok(usage, buyer);
+    assert.doesNotMatch(usage, /adminNote/, buyer);
+  }
 });
 
 test("home region cards link to a complete, priced residential plan; more goes to local ISP", () => {

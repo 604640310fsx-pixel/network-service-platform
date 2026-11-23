@@ -1,7 +1,8 @@
 import { useI18n, useT } from "../../lib/i18n";
 import { subscriptionLineDisplay } from "./lineDisplay";
 import type { ResidentialOptions } from "../../lib/residential-options";
-export function ResidentialOptionDetails({ options }: { options: ResidentialOptions }) {
+// adminNote：仅管理员视图显示"设备额度为人工配置资料"的内部说明；买家结账 / 订单 / 我的服务不显示。
+export function ResidentialOptionDetails({ options, adminNote = false }: { options: ResidentialOptions; adminNote?: boolean }) {
   const t = useT(), copy = t.residentialOptions;
   const { lang } = useI18n();
   const money = (fen: number) => `¥${(fen / 100).toFixed(2).replace(/\.00$/, "")}`;
@@ -16,6 +17,6 @@ export function ResidentialOptionDetails({ options }: { options: ResidentialOpti
       {options.basePeriodFen !== undefined && <><div><dt>{copy.basePeriod}</dt><dd>{money(options.basePeriodFen)}</dd></div>
         <div><dt>{copy.addonPeriod}</dt><dd>+{money(options.addonPeriodFen!)}</dd></div>
         <div><dt>{copy.finalPeriod}</dt><dd>{money(options.finalPeriodFen!)}</dd></div></>}
-    </dl>
+    </dl>{adminNote && <small>{copy.manual}</small>}
   </div>;
 }

@@ -1880,6 +1880,7 @@ export const en: Messages = {
   residentialOptions: {
     line: "Route", traffic: "Monthly traffic", device: "Device allowance", base: "Base monthly price", addon: "Monthly route add-on", final: "Final monthly price",
     basePeriod: "Original package period price", addonPeriod: "Period route add-on", finalPeriod: "Period total",
+    manual: "Device allowance is an administrator-configured record, not automatic physical-device enforcement.",
     lines: { direct: "Default direct (unstable at peak times)", optimized: "Optimized route", highspeed: "High-speed route", live: "Live-stream route" },
   },
   catalog: {

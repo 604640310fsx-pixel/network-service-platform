@@ -1880,6 +1880,7 @@ export const zh = {
   residentialOptions: {
     line: "线路", traffic: "月流量", device: "设备额度", base: "基准月价", addon: "线路月附加", final: "最终月价",
     basePeriod: "原套餐周期价", addonPeriod: "线路周期附加", finalPeriod: "周期合计",
+    manual: "设备额度为管理员人工配置资料，不代表系统自动执行物理设备限制。",
     lines: { direct: "默认直连（高峰期不稳定）", optimized: "优化线路", highspeed: "高速线路", live: "直播专线" } as Record<string,string>,
   },
   catalog: {} as Record<string, string>,
