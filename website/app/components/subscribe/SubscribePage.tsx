@@ -252,15 +252,17 @@ export function SubscribePage() {
                   {selection.availableLines.map((line) => {
                     const subtitle = subscriptionLineSubtitle(line.id, lang) ?? subscriptionLineSubtitle(line.name, lang);
                     const recommended = isRecommendedLine(line.id);
-                    const cardLabel = [lineText(line.name), recommended ? copy.specSection.lineRecommended : null, subtitle].filter(Boolean).join(" ");
+                    const lineAddonFen = optionAddon(selection.packageSpecId(line.id, selection.selectedTrafficId ?? ""));
+                    const lineAddonText = lineAddonFen !== null ? `+${formatCardYuan(lineAddonFen)}${copy.configurator.perMonth}` : null;
+                    const cardLabel = [lineText(line.name), recommended ? copy.specSection.lineRecommended : null, subtitle, lineAddonText].filter(Boolean).join(" ");
                     return <OptionCard key={line.id} selected={selection.selectedLine?.id === line.id}
-                    onSelect={() => selection.selectLine(line.id)} label={cardLabel} className="sub-package-option"
+                    onSelect={() => selection.selectLine(line.id)} label={cardLabel} className={`sub-package-option${recommended ? " is-recommended" : ""}`}
                     tabIndex={optionTabIndex(selection.availableLines, selection.selectedLine?.id ?? null, line.id)}>
                     <span className="sub-line-text"><span className="sub-line-name"><strong>{lineText(line.name)}</strong>
                       {recommended && <i className="sub-tag is-accent sub-line-badge">{copy.specSection.lineRecommended}</i>}</span>
                       {subtitle && <small className="sub-line-subtitle">{subtitle}</small>}
                       {line.notice && <small>{ct(line.notice)}</small>}</span>
-                    {optionAddon(selection.packageSpecId(line.id, selection.selectedTrafficId ?? "")) !== null && <b className="sub-addon">+{formatCardYuan(optionAddon(selection.packageSpecId(line.id, selection.selectedTrafficId ?? ""))!)}{copy.configurator.perMonth}</b>}
+                    {lineAddonText && <b className="sub-addon">{lineAddonText}</b>}
                   </OptionCard>;
                   })}
                 </div></div>
@@ -273,23 +275,28 @@ export function SubscribePage() {
                     const exactTrafficPrice = selection.typeId === "us-local-carrier" || selection.typeId === "pure-native-ip";
                     const trafficMonthly = (selection.typeId === "residential" || exactTrafficPrice) && specId !== undefined
                       ? monthlyPresentation(availability.index, { ...currentSelection, specId }) : null;
+                    const isResidential = selection.typeId === "residential";
+                    const devicesText = isResidential ? copy.residentialTrafficDevices(selection.availableSpecs.find(option => option.lineId === selection.selectedLine?.id && option.trafficId === traffic.id)?.deviceAllowance ?? null) : null;
+                    const monthlyText = exactTrafficPrice
+                      ? (trafficMonthly ? `${formatCardYuan(trafficMonthly.monthlyFen)}${copy.configurator.perMonth}` : copy.pricePending)
+                      : isResidential
+                        ? (trafficMonthly ? copy.residentialMonthlyPrice(formatCardYuan(trafficMonthly.monthlyFen)) : copy.residentialMonthlyPending)
+                        : null;
+                    const includedText = isResidential && trafficMonthly?.addonMonthlyFen != null && trafficMonthly.addonMonthlyFen > 0
+                      ? copy.residentialIncludedAddon(formatCardYuan(trafficMonthly.addonMonthlyFen)) : null;
+                    const trafficAddonFen = monthlyText === null ? optionAddon(specId) : null;
+                    const trafficAddonText = trafficAddonFen !== null ? `+${formatCardYuan(trafficAddonFen)}${copy.configurator.perMonth}` : null;
+                    const trafficLabel = [traffic.name, devicesText, monthlyText, includedText, trafficAddonText].filter(Boolean).join(" ");
                     return (
                     <OptionCard key={traffic.id} selected={selection.selectedTrafficId === traffic.id}
-                      onSelect={() => selection.selectTraffic(traffic.id)} label={traffic.name} className="sub-package-option"
+                      onSelect={() => selection.selectTraffic(traffic.id)} label={trafficLabel} className="sub-package-option"
                       tabIndex={optionTabIndex(shownTrafficOptions, selection.selectedTrafficId, traffic.id)}>
                       <strong>{traffic.name}</strong>
-                      {selection.typeId === "residential" && <small>{copy.residentialTrafficDevices(selection.availableSpecs.find(option => option.lineId === selection.selectedLine?.id && option.trafficId === traffic.id)?.deviceAllowance ?? null)}</small>}
-                      {exactTrafficPrice ? <span className="sub-traffic-monthly">
-                        <b className={`sub-traffic-monthly-price${trafficMonthly ? "" : " is-pending"}`}>{trafficMonthly
-                          ? `${formatCardYuan(trafficMonthly.monthlyFen)}${copy.configurator.perMonth}`
-                          : copy.pricePending}</b>
-                      </span> : selection.typeId === "residential" ? <span className="sub-traffic-monthly">
-                        <b className={`sub-traffic-monthly-price${trafficMonthly ? "" : " is-pending"}`}>{trafficMonthly
-                          ? copy.residentialMonthlyPrice(formatCardYuan(trafficMonthly.monthlyFen))
-                          : copy.residentialMonthlyPending}</b>
-                        {trafficMonthly?.addonMonthlyFen != null && trafficMonthly.addonMonthlyFen > 0 &&
-                          <small className="sub-traffic-included">{copy.residentialIncludedAddon(formatCardYuan(trafficMonthly.addonMonthlyFen))}</small>}
-                      </span> : optionAddon(specId) !== null && <b className="sub-addon">+{formatCardYuan(optionAddon(specId)!)}{copy.configurator.perMonth}</b>}
+                      {devicesText && <small>{devicesText}</small>}
+                      {monthlyText !== null ? <span className="sub-traffic-monthly">
+                        <b className={`sub-traffic-monthly-price${trafficMonthly ? "" : " is-pending"}`}>{monthlyText}</b>
+                        {includedText && <small className="sub-traffic-included">{includedText}</small>}
+                      </span> : trafficAddonText && <b className="sub-addon">{trafficAddonText}</b>}
                     </OptionCard>
                     );
                   })}

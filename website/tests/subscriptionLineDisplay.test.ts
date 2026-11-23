@@ -133,8 +133,9 @@ test("route cards render the subtitle and the 选择线路 helper note", () => {
   assert.ok(zh.includes('lineHint: "决定国内连接速度与晚高峰表现；自备中转前置选「默认直连」即可"'));
   assert.ok(en.includes('lineHint: "Sets direct connection speed and peak-hour performance; choose Default direct if using your own relay"'));
   const css = readFileSync(new URL("../app/components/subscribe/subscribe-configurator.css", import.meta.url), "utf8");
-  assert.match(css, /\.sub-line-subtitle \{ color: var\(--cc-text-3\)/);
-  assert.match(css, /\.sub-line-hint \{[^}]*color: var\(--cc-text-3\)/);
+  // Muted but AA-contrast (text-2) secondary copy.
+  assert.match(css, /\.sub-line-subtitle \{ color: var\(--cc-text-2\)/);
+  assert.match(css, /\.sub-line-hint \{[^}]*color: var\(--cc-text-2\)/);
 });
 
 test("only the high-speed route card carries the 推荐 badge", () => {
@@ -146,4 +147,17 @@ test("only the high-speed route card carries the 推荐 badge", () => {
   const en = readFileSync(new URL("../app/i18n/en.ts", import.meta.url), "utf8");
   assert.ok(zh.includes('lineRecommended: "推荐"'));
   assert.ok(en.includes('lineRecommended: "Recommended"'));
+});
+
+test("route and traffic cards announce their prices and the badge is a corner tag", () => {
+  const page = readFileSync(new URL("../app/components/subscribe/SubscribePage.tsx", import.meta.url), "utf8");
+  // aria-label replaces card content for screen readers, so it must carry the visible price facts.
+  assert.match(page, /const cardLabel = \[lineText\(line\.name\), recommended \? copy\.specSection\.lineRecommended : null, subtitle, lineAddonText\]/);
+  assert.match(page, /const trafficLabel = \[traffic\.name, devicesText, monthlyText, includedText, trafficAddonText\]/);
+  assert.match(page, /label=\{trafficLabel\}/);
+  assert.match(page, /className=\{`sub-package-option\$\{recommended \? " is-recommended" : ""\}`\}/);
+  const css = readFileSync(new URL("../app/components/subscribe/subscribe-configurator.css", import.meta.url), "utf8");
+  assert.match(css, /\.sub-line-badge \{ position: absolute; top: -1px; right: -1px; z-index: 1; padding: 1px 8px; border: 0; border-radius: 0 10px 0 9px; background: #f59e0b; color: #1d1b17;/);
+  assert.match(css, /\.sub-package-lines \.sub-package-option::after \{[^}]*border: 1\.5px solid var\(--cc-text-3\)/);
+  assert.match(css, /\.cc-shell\[data-theme="light"\] \.sub-configurator-v11 \.sub-package-option :is\(\.sub-addon, \.sub-traffic-monthly-price:not\(\.is-pending\)\) \{ color: #945a00; \}/);
 });
