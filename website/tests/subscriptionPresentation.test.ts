@@ -39,7 +39,7 @@ test("v11 preserves shell and new-purchase-only normalization; pending reminders
   assert.doesNotMatch(notice,/getOrderStatus|fetch\(|method:.*POST|simulate|localStorage/);
   assert.match(page,/sub-configurator-v11/);
   const copy=source("../app/i18n/zh.ts");
-  assert.ok(copy.includes("适合人群：告别共享机场弹验证 · 日常AI对话 · 链式代理落地"));
+  assert.ok(copy.includes('"pure-native-ip": { tag: "200G–1T流量", bandwidth: "带宽100Mbps", audience: ""'));
   assert.match(page, /className="sub-type-spec-label">\{product\.tag\}/);
   assert.doesNotMatch(page, /className="sub-product-tag"/);
 });

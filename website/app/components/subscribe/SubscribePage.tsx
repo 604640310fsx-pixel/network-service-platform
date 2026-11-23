@@ -24,7 +24,7 @@ const STEP_KEYS_WITH_SPEC = ["type", "region", "isp", "spec", "duration", "confi
 const STEP_KEYS_WITHOUT_SPEC = ["type", "region", "isp", "duration", "confirm"] as const;
 
 // Presentation only: keep catalog IDs, default selection, prices and order identity.
-const productCardOrder = ["us-local-carrier", "residential", "local-isp", "pure-native-ip"];
+const productCardOrder = ["pure-native-ip", "us-local-carrier", "local-isp", "residential"];
 const displayNetworkTypes = [...networkTypes].sort((a, b) => productCardOrder.indexOf(a.id) - productCardOrder.indexOf(b.id));
 
 function optionTabIndex<T extends { id: string }>(
@@ -185,7 +185,7 @@ export function SubscribePage() {
                       <span className="sub-solution-title"><strong>{ct(option.name)}</strong></span>
                     </span>
                     <span className="sub-product-details">
-                      <span className="sub-product-audience">{product.audience.replace(/^适合人群：|^For: /, "")}</span>
+                      {product.audience && <span className="sub-product-audience">{product.audience.replace(/^适合人群：|^For: /, "")}</span>}
                       <span className="sub-product-points">{product.sellingPoints.map((point) => <span className="sub-product-point" key={point}>{point}</span>)}</span>
                     </span>
                     <span className="sub-type-price">{typeFromFen === null ? copy.pricePending : <><b>{formatCardYuan(typeFromFen)}</b><small>{copy.configurator.monthlyFrom}</small></>}</span>

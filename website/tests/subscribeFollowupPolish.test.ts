@@ -17,12 +17,23 @@ const { parseSelectionParams, resolveNewPurchaseSelection, withPackageDefaults }
   withPackageDefaults: (selection: Selection) => Selection;
 };
 
-test("English card copy uses the polished audience wording", () => {
-  const cards = en.subscribe.productCards;
-  assert.match(cards["local-isp"].audience, /stable Gemini region routing/);
-  assert.doesNotMatch(cards["local-isp"].audience, /keeping Gemini out of China routing/);
-  assert.match(cards["pure-native-ip"].audience, /shared-proxy/);
-  assert.doesNotMatch(cards["pure-native-ip"].audience, /airport/);
+test("product cards carry only traffic, bandwidth and short selling points (no audience line)", () => {
+  const expected = {
+    "pure-native-ip": { zh: { tag: "200G–1T流量", bandwidth: "带宽100Mbps", sellingPoints: ["一人一IP", "美区原生可选"] }, en: { tag: "200G–1T data", bandwidth: "100Mbps", sellingPoints: ["Dedicated 1-to-1 IP", "US native optional"] } },
+    "us-local-carrier": { zh: { tag: "200G / 500G流量", bandwidth: "带宽200Mbps", sellingPoints: ["NTT", "GTT", "Cogent"] }, en: { tag: "200G / 500G data", bandwidth: "200Mbps", sellingPoints: ["NTT", "GTT", "Cogent"] } },
+    "local-isp": { zh: { tag: "200G–1T流量", bandwidth: "带宽100Mbps", sellingPoints: ["AT&T", "Verizon", "Cox"] }, en: { tag: "200G–1T data", bandwidth: "100Mbps", sellingPoints: ["AT&T", "Verizon", "Cox"] } },
+    residential: { zh: { tag: "200G–1T流量", bandwidth: "带宽100Mbps", sellingPoints: ["当地拉线真家宽", "长期稳定选择"] }, en: { tag: "200G–1T data", bandwidth: "100Mbps", sellingPoints: ["Locally installed broadband", "Long-term stability"] } },
+  } as const;
+  for (const [id, byLang] of Object.entries(expected)) {
+    for (const [lang, dict] of [["zh", zh], ["en", en]] as const) {
+      const card = dict.subscribe.productCards[id]!;
+      assert.equal(card.audience, "", `${lang} ${id} audience`);
+      assert.deepEqual({ tag: card.tag, bandwidth: card.bandwidth, sellingPoints: card.sellingPoints }, byLang[lang], `${lang} ${id}`);
+    }
+  }
+  const page = readFileSync(new URL("../app/components/subscribe/SubscribePage.tsx", import.meta.url), "utf8");
+  assert.match(page, /const productCardOrder = \["pure-native-ip", "us-local-carrier", "local-isp", "residential"\];/);
+  assert.match(page, /\{product\.audience && <span className="sub-product-audience">/);
 });
 
 test("residential details show the device disclaimer to admins only", () => {

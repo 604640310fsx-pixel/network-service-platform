@@ -85,7 +85,7 @@ test("existing admin pending-open reminder presents the new spec as a readable l
     ["optimized-500g", "优化线路 · 500G"]] as const) {
     const selection = { typeId: "us-local-carrier", regionId: "us", ispId: "ntt", specId, durationId: "month-1" };
     const summary = resolveSelection(selection).summary;
-    assert.equal(summary.type, "独享双ISP静态原生");
+    assert.equal(summary.type, "原生双ISP");
     assert.equal(summary.region, "美国");
     assert.equal(summary.isp, "NTT");
     assert.equal(display(summary.spec), label);

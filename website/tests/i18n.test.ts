@@ -138,9 +138,12 @@ test("English copy contains no Chinese except the language switch, and every cat
   assert.deepEqual(leaks, []);
   const catalogText = new Set([...chineseLiterals("app/lib/subscribeCatalog.ts"), "不适用"]);
   assert.deepEqual([...catalogText].filter((text) => !(text in en.catalog)), [], "untranslated catalog text");
-  assert.deepEqual(Object.keys(en.catalog).filter((text) => !catalogText.has(text)), [], "stale catalog translations");
+  // Former product titles stay translated so older orders and links still render in English.
+  const legacyTitles = new Set(["独享双ISP静态原生", "本地住宅原生静态IP", "纯净静态独享IP"]);
+  for (const title of legacyTitles) assert.ok(title in en.catalog, `legacy title ${title}`);
+  assert.deepEqual(Object.keys(en.catalog).filter((text) => !catalogText.has(text) && !legacyTitles.has(text)), [], "stale catalog translations");
   // Chinese strings are never empty, except affixes that only one language uses.
-  const affixes = new Set(["subscribe.fromPrefix"]);
+  const affixes = new Set(["subscribe.fromPrefix", ...["pure-native-ip", "us-local-carrier", "local-isp", "residential"].map((id) => `subscribe.productCards.${id}.audience`)]);
   for (const [path, value] of strings(zh)) if (!affixes.has(path)) assert.notEqual(value.trim(), "", path);
 });
 
@@ -253,7 +256,7 @@ function dashboardRenderer() {
 
 const DASHBOARD_PAGES: Array<{ url: string; zh: string[]; en: string[] }> = [
   { url: "/dashboard", zh: ["仪表板", "买家概览", "快捷操作"], en: ["Dashboard", "Buyer overview", "Quick actions"] },
-  { url: "/subscribe", zh: ["套餐订阅", "选择网络类型", "真住宅宽带", "一人一IP独享", "支持三网专线", "当地实装家宽", "NTT / GTT", "AT&amp;T / Verizon等"], en: ["Plans", "Choose a network type", "Real Residential Broadband", "One dedicated IP per user", "Locally installed home broadband", "NTT / GTT", "AT&amp;T / Verizon and more"] },
+  { url: "/subscribe", zh: ["套餐订阅", "选择网络类型", "真住宅宽带", "独享静态IP", "原生双ISP", "本地住宅IP", "一人一IP", "当地拉线真家宽", "Cogent"], en: ["Plans", "Choose a network type", "Real Residential Broadband", "Dedicated Static IP", "Native Dual-ISP", "Local Residential IP", "Dedicated 1-to-1 IP", "Locally installed broadband", "Cogent"] },
   { url: "/subscribe/request?typeId=residential&regionId=vn&ispId=vnpt-corp&specId=shared-3&durationId=month-1", zh: ["提交方案需求", "核对已选方案"], en: ["Submit plan details", "Review the selected plan"] },
   { url: "/services", zh: ["当前套餐", "正在读取服务状态…"], en: ["My plans", "Loading service status…"] },
   { url: "/orders", zh: ["订单", "正在读取订单…"], en: ["Orders", "Loading orders…"] },
@@ -286,15 +289,19 @@ test("customer dashboard pages render in both languages with the shell, toggle a
 test("subscribe selling points render as separate non-interactive labels in both languages", () => withBrowserStub(() => {
   const render = dashboardRenderer();
   for (const [lang, expected] of [
-    // Card order: dual-ISP, residential, local ISP, pure native IP. No Comcast: local-isp US does not offer it.
-    ["zh", ["美区双ISP原生", "NTT / GTT", "独享静态IP", "当地实装家宽", "完整UDP·多设备", "可选高速/专线", "美日台新等13国", "AT&amp;T / Verizon等", "民用宽带ISP", "一人一IP独享", "美区原生可选", "支持三网专线"]],
-    ["en", ["US dual-ISP native", "NTT / GTT", "Dedicated static IP", "Locally installed home broadband", "Full UDP · multi-device", "Optional high-speed / dedicated line", "US, JP, TW, SG and more: 13 countries", "AT&amp;T / Verizon and more", "Consumer broadband ISPs", "One dedicated IP per user", "US native option", "Dedicated lines on all three carriers"]],
+    // Card order by ascending price: dedicated static IP ¥19, dual-ISP ¥49, local residential IP ¥79, residential ¥89.
+    ["zh", ["一人一IP", "美区原生可选", "NTT", "GTT", "Cogent", "AT&amp;T", "Verizon", "Cox", "当地拉线真家宽", "长期稳定选择"]],
+    ["en", ["Dedicated 1-to-1 IP", "US native optional", "NTT", "GTT", "Cogent", "AT&amp;T", "Verizon", "Cox", "Locally installed broadband", "Long-term stability"]],
   ] as const) {
     const html = render("/subscribe", lang);
     const labels = [...html.matchAll(/<span class="sub-product-point">([^<]+)<\/span>/g)].map((match) => match[1]);
     assert.deepEqual(labels, expected);
     assert.equal((html.match(/class="sub-product-points"/g) ?? []).length, 4);
-    assert.equal((html.match(/class="sub-product-audience"/g) ?? []).length, 4);
+    // Audience lines were removed; no empty spacer element is rendered.
+    assert.equal((html.match(/class="sub-product-audience"/g) ?? []).length, 0);
+    const titles = [...html.matchAll(/<span class="sub-solution-title"><strong>([^<]+)<\/strong>/g)].map((match) => match[1]);
+    assert.deepEqual(titles, lang === "zh" ? ["独享静态IP", "原生双ISP", "本地住宅IP", "真住宅宽带"]
+      : ["Dedicated Static IP", "Native Dual-ISP", "Local Residential IP", "Real Residential Broadband"]);
   }
 }));
 

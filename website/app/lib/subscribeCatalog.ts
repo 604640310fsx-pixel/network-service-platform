@@ -99,7 +99,7 @@ export const networkTypes: NetworkTypeOption[] = [
   },
   {
     id: "us-local-carrier",
-    name: "独享双ISP静态原生",
+    name: "原生双ISP",
     startingPrice: 49,
     description: "美国本地运营商网络方案",
     features: ["双 ISP 独享静态原生 IP", "美国直连优化路线", "200G / 500G 流量", "200M 带宽"],
@@ -115,7 +115,7 @@ export const networkTypes: NetworkTypeOption[] = [
   },
   {
     id: "local-isp",
-    name: "本地住宅原生静态IP",
+    name: "本地住宅IP",
     startingPrice: 79,
     description: "精品本地运营商网络",
     features: ["精品本地运营商网络", "原生静态住宅IP", "200G 流量", "100M 带宽"],
@@ -129,7 +129,7 @@ export const networkTypes: NetworkTypeOption[] = [
   },
   {
     id: "pure-native-ip",
-    name: "纯净静态独享IP",
+    name: "独享静态IP",
     startingPrice: 19,
     description: "纯净独享 · 支持 ChatGPT / Claude · 流媒体全解锁",
     features: ["200G / 500G / 1T 流量", "按月计费"],
