@@ -15,7 +15,7 @@ import { hasPurchasablePlan } from "./catalogSelectModel";
 import { getNextEnabledRadioIndex, getRovingRadioTabIndex, OptionCard } from "./OptionCard";
 import { OrderSummary } from "./OrderSummary";
 import { StepProgress } from "./StepProgress";
-import { subscriptionLineDisplay, subscriptionLineSubtitle } from "./lineDisplay";
+import { isRecommendedLine, subscriptionLineDisplay, subscriptionLineSubtitle } from "./lineDisplay";
 import { useSubscriptionSelection } from "./useSubscriptionSelection";
 import "./subscribe.css";
 import "./subscribe-configurator.css";
@@ -251,10 +251,13 @@ export function SubscribePage() {
                 <div className="sub-grid sub-package-lines" role="radiogroup" aria-label={copy.specSection.lineTitle} aria-describedby="sub-line-hint" onKeyDown={handleRadioGroupKeyDown}>
                   {selection.availableLines.map((line) => {
                     const subtitle = subscriptionLineSubtitle(line.id, lang) ?? subscriptionLineSubtitle(line.name, lang);
+                    const recommended = isRecommendedLine(line.id);
+                    const cardLabel = [lineText(line.name), recommended ? copy.specSection.lineRecommended : null, subtitle].filter(Boolean).join(" ");
                     return <OptionCard key={line.id} selected={selection.selectedLine?.id === line.id}
-                    onSelect={() => selection.selectLine(line.id)} label={subtitle ? `${lineText(line.name)} ${subtitle}` : lineText(line.name)} className="sub-package-option"
+                    onSelect={() => selection.selectLine(line.id)} label={cardLabel} className="sub-package-option"
                     tabIndex={optionTabIndex(selection.availableLines, selection.selectedLine?.id ?? null, line.id)}>
-                    <span className="sub-line-text"><strong>{lineText(line.name)}</strong>
+                    <span className="sub-line-text"><span className="sub-line-name"><strong>{lineText(line.name)}</strong>
+                      {recommended && <i className="sub-tag is-accent sub-line-badge">{copy.specSection.lineRecommended}</i>}</span>
                       {subtitle && <small className="sub-line-subtitle">{subtitle}</small>}
                       {line.notice && <small>{ct(line.notice)}</small>}</span>
                     {optionAddon(selection.packageSpecId(line.id, selection.selectedTrafficId ?? "")) !== null && <b className="sub-addon">+{formatCardYuan(optionAddon(selection.packageSpecId(line.id, selection.selectedTrafficId ?? ""))!)}{copy.configurator.perMonth}</b>}

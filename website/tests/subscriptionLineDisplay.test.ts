@@ -4,9 +4,10 @@ import test from "node:test";
 import { createTsxLoader } from "./support/tsxModules.ts";
 
 const loader = createTsxLoader();
-const { subscriptionLineDisplay, subscriptionLineSubtitle } = loader.load("app/components/subscribe/lineDisplay.ts") as {
+const { subscriptionLineDisplay, subscriptionLineSubtitle, isRecommendedLine } = loader.load("app/components/subscribe/lineDisplay.ts") as {
   subscriptionLineDisplay: (text: string, lang: "zh" | "en", catalogText: (text: string) => string) => string;
   subscriptionLineSubtitle: (lineIdOrName: string, lang: "zh" | "en") => string | null;
+  isRecommendedLine: (lineId: string) => boolean;
 };
 const { residentialLines, LOCAL_ISP_BASE_LINE_ID } = loader.load("app/lib/subscribeCatalog.ts") as {
   residentialLines: { id: string; name: string }[];
@@ -134,4 +135,15 @@ test("route cards render the subtitle and the 选择线路 helper note", () => {
   const css = readFileSync(new URL("../app/components/subscribe/subscribe-configurator.css", import.meta.url), "utf8");
   assert.match(css, /\.sub-line-subtitle \{ color: var\(--cc-text-3\)/);
   assert.match(css, /\.sub-line-hint \{[^}]*color: var\(--cc-text-3\)/);
+});
+
+test("only the high-speed route card carries the 推荐 badge", () => {
+  for (const id of ["high", "highspeed"]) assert.equal(isRecommendedLine(id), true, id);
+  for (const id of ["direct", "ordinary", "half", "optimized", "three-net", "live", "unknown"]) assert.equal(isRecommendedLine(id), false, id);
+  const page = readFileSync(new URL("../app/components/subscribe/SubscribePage.tsx", import.meta.url), "utf8");
+  assert.match(page, /\{recommended && <i className="sub-tag is-accent sub-line-badge">\{copy\.specSection\.lineRecommended\}<\/i>\}/);
+  const zh = readFileSync(new URL("../app/i18n/zh.ts", import.meta.url), "utf8");
+  const en = readFileSync(new URL("../app/i18n/en.ts", import.meta.url), "utf8");
+  assert.ok(zh.includes('lineRecommended: "推荐"'));
+  assert.ok(en.includes('lineRecommended: "Recommended"'));
 });

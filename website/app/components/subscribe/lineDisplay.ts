@@ -48,3 +48,8 @@ export function subscriptionLineSubtitle(lineIdOrName: string, lang: Lang): stri
     (directNames.has(name) ? "direct" : optimizedNames.has(name) ? "optimized" : undefined);
   return tier ? subtitles[tier][lang] : null;
 }
+
+/** The route tier the subscribe page marks as recommended (high-speed). */
+export function isRecommendedLine(lineId: string): boolean {
+  return tierById[lineId] === "high";
+}

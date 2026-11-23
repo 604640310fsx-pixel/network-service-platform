@@ -501,6 +501,7 @@ export const zh = {
     specSection: {
       lineTitle: "选择线路",
       lineHint: "决定国内连接速度与晚高峰表现；自备中转前置选「默认直连」即可",
+      lineRecommended: "推荐",
       trafficTitle: "月流量",
       trafficGroupLabel: "选择月流量",
       title: "选择使用规格",
