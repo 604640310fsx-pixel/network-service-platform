@@ -440,10 +440,10 @@ export const zh = {
     residentialMonthlyPending: "月付价格待确认",
     residentialIncludedAddon: (price: string) => `已含线路费 ${price}/月`,
     productCards: {
-      residential: { tag: "真实家宽IP", bandwidth: "带宽100Mbps", audience: "适合人群：长期稳定！社媒运营/直播/Claude Max与Ultra用户", sellingPoints: ["当地合作拉线真家宽"] },
-      "us-local-carrier": { tag: "200G / 500G流量", bandwidth: "带宽200Mbps", audience: "适合人群：独享干净/社媒养号/ChatGPT Plus用户", sellingPoints: ["NTT", "GTT", "Cogent"] },
-      "local-isp": { tag: "住宅静态IP", bandwidth: "带宽100Mbps", audience: "适合人群：社媒运营/直播/ChatGPT Pro/Claude Pro用户", sellingPoints: ["ATT", "Verizon", "Comcast"] },
-      "pure-native-ip": { tag: "独享纯净IP", bandwidth: "带宽100Mbps", audience: "独享干净•流媒体全解锁、ChatGPT Plus用户", sellingPoints: ["IDC", "干净度好", "独享节点"] },
+      "us-local-carrier": { tag: "双ISP原生", bandwidth: "带宽200Mbps", audience: "适合人群：预防风控 · Claude / GPT / Cursor 稳用 · 美区养号", sellingPoints: ["美区双ISP原生", "NTT / GTT", "独享静态IP"] },
+      residential: { tag: "真实家宽ISP", bandwidth: "带宽100Mbps", audience: "适合人群：100–200刀核心主号保障 · 终端长连接 · 社媒/直播", sellingPoints: ["当地实装家宽", "完整UDP·多设备", "可选高速/专线"] },
+      "local-isp": { tag: "本土住宅静态", bandwidth: "带宽100Mbps", audience: "适合人群：Gemini防送中 / Claude防封 · 13国本土社媒与研发", sellingPoints: ["美日台新等13国", "AT&T / Verizon等", "民用宽带ISP"] },
+      "pure-native-ip": { tag: "静态独享IP", bandwidth: "带宽100Mbps", audience: "适合人群：告别共享机场弹验证 · 日常AI对话 · 链式代理落地", sellingPoints: ["一人一IP独享", "美区原生可选", "支持三网专线"] },
     } as Record<string, { tag: string; bandwidth: string; audience: string; sellingPoints: string[] }>,
     solutions: {
       "us-local-carrier": { label: "美国本地运营商", highlights: ["NTT", "GTT", "Cogent", "Charter"] },

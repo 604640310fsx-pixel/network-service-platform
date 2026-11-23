@@ -21,6 +21,7 @@ type Hook = Selection & {
   selectTraffic: (trafficId: string) => void;
   selectRegion: (regionId: string) => void;
   selectIsp: (ispId: string) => void;
+  selectType: (typeId: string) => void;
 };
 
 const loader = createTsxLoader();
@@ -30,6 +31,7 @@ const { planAvailabilityKey } = loader.load("app/lib/planAvailability.ts") as {
 const imports: Record<string, unknown> = {
   "../../lib/subscribeCatalog": loader.load("app/lib/subscribeCatalog.ts"),
   "../../lib/resolveSelection": loader.load("app/lib/resolveSelection.ts"),
+  "./catalogSelectModel": loader.load("app/components/subscribe/catalogSelectModel.ts"),
 };
 
 let slots: unknown[] = [];
@@ -168,13 +170,77 @@ test("link restore, selected period and country/ISP invalidation are unchanged",
   assert.equal(page.state.durationId, "month-3");
   assert.equal(page.act((hook) => hook.selectLine("live")).durationId, "month-3");
   assert.equal(page.act((hook) => hook.selectTraffic("1t")).durationId, "month-3");
-  // A new country clears the ISP until it is chosen again; the line × tier and period are then re-validated.
+  // The index only offers VN, so Singapore has no purchasable ISP: the ISP stays empty (fail closed) until chosen;
+  // the line × tier and period are then re-validated.
   const moved = page.act((hook) => hook.selectRegion("sg"));
   assert.equal(moved.ispId, null);
   assert.equal(moved.summary.complete, false);
   const reselected = page.act((hook) => hook.selectIsp("sptel"));
   assert.equal(reselected.specId, spec("live", "1t"));
   assert.equal(reselected.durationId, "month-3");
+  // Without a loaded index, the new country's first ISP is pre-selected and the same line × tier and period survive.
+  const offline = mount({ ...vn, specId: spec("highspeed", "300g"), durationId: "month-3" });
+  offline.act((hook) => hook.selectLine("live"));
+  offline.act((hook) => hook.selectTraffic("1t"));
+  const auto = offline.act((hook) => hook.selectRegion("sg"));
+  assert.deepEqual([auto.ispId, auto.specId, auto.durationId, auto.summary.complete], ["sptel", spec("live", "1t"), "month-3", true]);
+});
+
+function row(typeId: string, regionId: string, ispId: string, specId: string | null, priceFen = 1900, extra: Partial<Row> = {}): Row {
+  return { typeId, regionId, ispId, specId, durationId: "month-1", priceFen, isActive: true, soldOut: false, ...extra };
+}
+const indexOf = (rows: Row[]) => Object.fromEntries(rows.map((r) => [planAvailabilityKey(r.typeId, r.regionId, r.ispId, r.specId, r.durationId), r]));
+
+test("switching network type pre-selects the first configured region and ISP with package defaults", () => {
+  const page = mount({ typeId: "us-local-carrier", regionId: "us", ispId: "ntt", specId: "direct-200g", durationId: "month-1" });
+  const expected = [
+    ["residential", "sg", "sptel", "res-v2-direct-200g"],
+    ["local-isp", "us", "us-verizon", null],
+    ["pure-native-ip", "us", "native-ip", "ordinary-200g"],
+    ["us-local-carrier", "us", "ntt", "direct-200g"],
+  ] as const;
+  for (const [typeId, regionId, ispId, specId] of expected) {
+    const state = page.act((hook) => hook.selectType(typeId));
+    assert.deepEqual([state.typeId, state.regionId, state.ispId, state.specId, state.durationId], [typeId, regionId, ispId, specId, "month-1"], typeId);
+    assert.equal(state.summary.complete, true, typeId);
+    assert.equal(state.currentStep, 4, typeId);
+  }
+});
+
+test("type switch with a loaded index skips regions and ISPs without a purchasable plan; none purchasable fails closed", () => {
+  const index = indexOf([
+    row("residential", "sg", "sptel", "res-v2-direct-200g", 15900, { soldOut: true }),
+    row("residential", "jp", "glbb-japan", "res-v2-direct-200g", 14900, { isActive: false }),
+    row("residential", "vn", "vnpt-corp", "res-v2-direct-200g", 8900),
+    row("us-local-carrier", "us", "gtt", "direct-200g", 4900),
+  ]);
+  const page = mount({ typeId: "local-isp", regionId: "us", ispId: "us-verizon", specId: null, durationId: "month-1" }, index);
+  const residential = page.act((hook) => hook.selectType("residential"));
+  assert.deepEqual([residential.regionId, residential.ispId, residential.specId], ["vn", "vnpt-corp", "res-v2-direct-200g"]);
+  assert.equal(residential.summary.total, 89);
+  const dual = page.act((hook) => hook.selectType("us-local-carrier"));
+  assert.equal(dual.ispId, "gtt", "NTT has no purchasable plan, so the first purchasable carrier is chosen");
+  assert.equal(dual.summary.total, 49);
+  const none = page.act((hook) => hook.selectType("pure-native-ip"));
+  assert.deepEqual([none.regionId, none.ispId, none.specId, none.durationId, none.currentStep], [null, null, null, null, 2]);
+  assert.equal(none.summary.complete, false);
+});
+
+test("region switch keeps a still-valid ISP, otherwise picks the first purchasable one, and fails closed when none", () => {
+  const index = indexOf([
+    row("local-isp", "us", "us-verizon", null, 7900),
+    row("local-isp", "us", "us-att", null, 7900),
+    row("local-isp", "jp", "jp-ntt", null, 7900),
+  ]);
+  const page = mount({ typeId: "local-isp", regionId: "us", ispId: "us-att", specId: null, durationId: "month-1" }, index);
+  assert.equal(page.act((hook) => hook.selectRegion("us")).ispId, "us-att");
+  const jp = page.act((hook) => hook.selectRegion("jp"));
+  assert.equal(jp.ispId, "jp-ntt", "SoftBank is listed first but has no purchasable plan");
+  assert.equal(jp.summary.complete, true);
+  const kr = page.act((hook) => hook.selectRegion("kr"));
+  assert.equal(kr.ispId, null, "no purchasable Korean ISP in the index: stay on the carrier step");
+  assert.equal(kr.currentStep, 3);
+  assert.equal(kr.summary.complete, false);
 });
 
 test("non-residential packages keep their own 200G/500G/1T tiers and catalogue-only lines", () => {

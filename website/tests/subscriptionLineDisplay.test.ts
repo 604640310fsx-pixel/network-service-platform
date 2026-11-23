@@ -26,18 +26,18 @@ const display = (text: string, lang: "zh" | "en" = "zh") => subscriptionLineDisp
 
 test("direct and optimized catalogue names display consistently without repeated suffixes", () => {
   for (const raw of ["普通线路", "默认线路", "普通路线", "默认路线", "默认直连", "默认直连（高峰期不稳定）"]) {
-    assert.equal(display(raw), "直连无优化（稳定性差）", raw);
-    assert.equal(display(`${raw} · 200G`), "直连无优化（稳定性差） · 200G", raw);
+    assert.equal(display(raw), "基础直连（适合搭配前置中转）", raw);
+    assert.equal(display(`${raw} · 200G`), "基础直连（适合搭配前置中转） · 200G", raw);
   }
   for (const raw of ["半优化线路", "优化线路"]) {
-    assert.equal(display(raw), "优化线路（高峰期稍慢）", raw);
-    assert.equal(display(`${raw} · 1T`), "优化线路（高峰期稍慢） · 1T", raw);
+    assert.equal(display(raw), "回国优化线路（日常直连推荐）", raw);
+    assert.equal(display(`${raw} · 1T`), "回国优化线路（日常直连推荐） · 1T", raw);
   }
-  assert.equal(display("直连无优化（稳定性差） · 300G"), "直连无优化（稳定性差） · 300G");
-  assert.equal(display("优化线路（高峰期稍慢）"), "优化线路（高峰期稍慢）");
-  assert.equal(display("Default direct (unstable at peak times)", "en"), "Direct, unoptimized (poor stability)");
-  assert.equal(display("Partially optimized route · 500G", "en"), "Optimized route (slower at peak times) · 500G");
-  assert.equal(display("Direct, unoptimized (poor stability)", "en"), "Direct, unoptimized (poor stability)");
+  assert.equal(display("基础直连（适合搭配前置中转） · 300G"), "基础直连（适合搭配前置中转） · 300G");
+  assert.equal(display("回国优化线路（日常直连推荐）"), "回国优化线路（日常直连推荐）");
+  assert.equal(display("Default direct (unstable at peak times)", "en"), "Basic direct (best with relay)");
+  assert.equal(display("Partially optimized route · 500G", "en"), "Optimized route (recommended for daily direct use) · 500G");
+  assert.equal(display("Basic direct (best with relay)", "en"), "Basic direct (best with relay)");
 });
 
 test("other tiers and ordinary narrative remain unchanged", () => {
@@ -55,8 +55,8 @@ test("selected line and summary use display copy while catalogue IDs, prices and
   } };
   const resolved = resolveSelection(selection, availability);
   assert.equal(resolved.selectedLine?.id, "direct");
-  assert.equal(display(resolved.selectedLine!.name), "直连无优化（稳定性差）");
-  assert.equal(display(resolved.summary.spec), "直连无优化（稳定性差） · 200G");
+  assert.equal(display(resolved.selectedLine!.name), "基础直连（适合搭配前置中转）");
+  assert.equal(display(resolved.summary.spec), "基础直连（适合搭配前置中转） · 200G");
   assert.equal(residentialLines[0]?.name, "默认直连（高峰期不稳定）");
   assert.equal(residentialLines[1]?.id, "optimized");
   assert.equal(LOCAL_ISP_BASE_LINE_ID, "ordinary");
@@ -65,10 +65,10 @@ test("selected line and summary use display copy while catalogue IDs, prices and
   assert.equal(availability[planAvailabilityKey("residential", "vn", "vnpt-corp", "res-v2-direct-200g", "month-1")]?.priceFen, priceFen);
   const optimized = resolveSelection({ ...selection, specId: "res-v2-optimized-200g" });
   assert.equal(optimized.selectedLine?.id, "optimized");
-  assert.equal(display(optimized.summary.spec), "优化线路（高峰期稍慢） · 200G");
+  assert.equal(display(optimized.summary.spec), "回国优化线路（日常直连推荐） · 200G");
   const local = resolveSelection({ typeId: "local-isp", regionId: "us", ispId: "us-verizon", specId: null, durationId: "month-1" });
   assert.equal(local.selectedLine?.id, "ordinary");
-  assert.equal(display(local.summary.spec), "直连无优化（稳定性差） · 200G");
+  assert.equal(display(local.summary.spec), "基础直连（适合搭配前置中转） · 200G");
 });
 
 test("existing admin pending-open reminder presents the new spec as a readable line and traffic tier", () => {
@@ -79,8 +79,8 @@ test("existing admin pending-open reminder presents the new spec as a readable l
   for (const fact of ["summary.type", "summary.region", "summary.isp", "specLabel", "summary.duration"]) {
     assert.ok(source.includes(`<dd>{${fact}}</dd>`), fact);
   }
-  for (const [specId, label] of [["direct-200g", "直连无优化（稳定性差） · 200G"],
-    ["optimized-500g", "优化线路（高峰期稍慢） · 500G"]] as const) {
+  for (const [specId, label] of [["direct-200g", "基础直连（适合搭配前置中转） · 200G"],
+    ["optimized-500g", "回国优化线路（日常直连推荐） · 500G"]] as const) {
     const selection = { typeId: "us-local-carrier", regionId: "us", ispId: "ntt", specId, durationId: "month-1" };
     const summary = resolveSelection(selection).summary;
     assert.equal(summary.type, "独享双ISP静态原生");

@@ -253,7 +253,7 @@ function dashboardRenderer() {
 
 const DASHBOARD_PAGES: Array<{ url: string; zh: string[]; en: string[] }> = [
   { url: "/dashboard", zh: ["仪表板", "买家概览", "快捷操作"], en: ["Dashboard", "Buyer overview", "Quick actions"] },
-  { url: "/subscribe", zh: ["套餐订阅", "选择网络类型", "真住宅宽带", "干净度好", "独享节点", "当地合作拉线真家宽", "Cogent", "ATT", "Comcast"], en: ["Plans", "Choose a network type", "Real Residential Broadband", "Clean IP", "Dedicated node", "Locally arranged residential broadband", "Cogent", "ATT", "Comcast"] },
+  { url: "/subscribe", zh: ["套餐订阅", "选择网络类型", "真住宅宽带", "一人一IP独享", "支持三网专线", "当地实装家宽", "NTT / GTT", "AT&amp;T / Verizon等"], en: ["Plans", "Choose a network type", "Real Residential Broadband", "One dedicated IP per user", "Locally installed home broadband", "NTT / GTT", "AT&amp;T / Verizon and more"] },
   { url: "/subscribe/request?typeId=residential&regionId=vn&ispId=vnpt-corp&specId=shared-3&durationId=month-1", zh: ["提交方案需求", "核对已选方案"], en: ["Submit plan details", "Review the selected plan"] },
   { url: "/services", zh: ["当前套餐", "正在读取服务状态…"], en: ["My plans", "Loading service status…"] },
   { url: "/orders", zh: ["订单", "正在读取订单…"], en: ["Orders", "Loading orders…"] },
@@ -286,8 +286,9 @@ test("customer dashboard pages render in both languages with the shell, toggle a
 test("subscribe selling points render as separate non-interactive labels in both languages", () => withBrowserStub(() => {
   const render = dashboardRenderer();
   for (const [lang, expected] of [
-    ["zh", ["IDC", "干净度好", "独享节点", "当地合作拉线真家宽", "NTT", "GTT", "Cogent", "ATT", "Verizon", "Comcast"]],
-    ["en", ["IDC", "Clean IP", "Dedicated node", "Locally arranged residential broadband", "NTT", "GTT", "Cogent", "ATT", "Verizon", "Comcast"]],
+    // Card order: dual-ISP, residential, local ISP, pure native IP. No Comcast: local-isp US does not offer it.
+    ["zh", ["美区双ISP原生", "NTT / GTT", "独享静态IP", "当地实装家宽", "完整UDP·多设备", "可选高速/专线", "美日台新等13国", "AT&amp;T / Verizon等", "民用宽带ISP", "一人一IP独享", "美区原生可选", "支持三网专线"]],
+    ["en", ["US dual-ISP native", "NTT / GTT", "Dedicated static IP", "Locally installed home broadband", "Full UDP · multi-device", "Optional high-speed / dedicated line", "US, JP, TW, SG and more: 13 countries", "AT&amp;T / Verizon and more", "Consumer broadband ISPs", "One dedicated IP per user", "US native option", "Dedicated lines on all three carriers"]],
   ] as const) {
     const html = render("/subscribe", lang);
     const labels = [...html.matchAll(/<span class="sub-product-point">([^<]+)<\/span>/g)].map((match) => match[1]);

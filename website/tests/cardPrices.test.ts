@@ -102,7 +102,8 @@ test("card prices come only from the server availability index", () => {
   const select = readFileSync(new URL("../app/components/subscribe/CatalogSelect.tsx", import.meta.url), "utf8");
   assert.match(select, /<img className="sub-flag" src=\{`\/subscription-flags\/\$\{selected\.flagClass\}\.svg`\}/);
   assert.match(select, /<img className="sub-flag" src=\{`\/subscription-flags\/\$\{option\.flagClass\}\.svg`\}/);
-  assert.match(regionSection, /ct\(option\.cardName \?\? option\.name\)/);
+  // Pure native IP shows the full region name (e.g. "台湾（广播IP）"); other types keep the card name.
+  assert.match(regionSection, /ct\(selection\.typeId === "pure-native-ip" \? option\.name : option\.cardName \?\? option\.name\)/);
   assert.match(page, /specMonthlyPriceFen\(availability\.index, selection\.typeId, selection\.regionId, selection\.ispId, option\.id\)/);
   // The two remaining card-price surfaces still fail closed.
   assert.equal(page.match(/=== null \? copy\.pricePending/g)?.length, 2);

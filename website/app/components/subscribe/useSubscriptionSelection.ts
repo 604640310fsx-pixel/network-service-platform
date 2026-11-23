@@ -14,6 +14,7 @@ import {
   type CatalogSelection,
 } from "../../lib/resolveSelection";
 import type { PlanAvailabilityIndex } from "../../lib/planAvailability";
+import { hasPurchasablePlan } from "./catalogSelectModel";
 
 // SelectionSummary 的真源已迁到 resolveSelection；此处继续 re-export，
 // 让 OrderSummary / MobileOrderBar / RequirementForm 的现有引用保持不变。
@@ -67,6 +68,33 @@ function seedSelection(initial?: CatalogSelection): { selection: CatalogSelectio
   return { selection: { ...defaultCatalogSelection }, step: 5 };
 }
 
+/* 当前可新购的首个运营商：已加载服务端 availability 时只取有可售方案的，未加载时取目录第一项；
+   该地区确无可售运营商时返回 null（fail closed，停在运营商这一步）。 */
+function firstPurchasableIsp(
+  typeId: string,
+  regionId: string,
+  availability: PlanAvailabilityIndex | undefined,
+): string | null {
+  const isps = resolveNewPurchaseSelection({ typeId, regionId, ispId: null, specId: null, durationId: null }).availableIsps;
+  const isp = isps.find((option) =>
+    availability === undefined || hasPurchasablePlan(availability, typeId, regionId, option.id) === true);
+  return isp?.id ?? null;
+}
+
+/* 切换网络类型时的首个可购地区 + 运营商：已配置的地区里，第一个有可售运营商的。 */
+function firstPurchasableRegion(
+  typeId: string,
+  availability: PlanAvailabilityIndex | undefined,
+): { regionId: string; ispId: string } | null {
+  const regions = resolveNewPurchaseSelection({ typeId, regionId: null, ispId: null, specId: null, durationId: null })
+    .availableRegions.filter((option) => option.configured);
+  for (const region of regions) {
+    const ispId = firstPurchasableIsp(typeId, region.id, availability);
+    if (ispId) return { regionId: region.id, ispId };
+  }
+  return null;
+}
+
 export function useSubscriptionSelection(
   initial?: CatalogSelection,
   availability?: PlanAvailabilityIndex,
@@ -106,30 +134,40 @@ export function useSubscriptionSelection(
 
   function selectType(nextId: string) {
     if (nextId === typeId) return;
+    // 切卡即带上首个可购地区与运营商及默认线路 × 流量、月付，不落入"方案待配置 / 价格待确认"的空状态。
+    const first = firstPurchasableRegion(nextId, availability);
+    const next = first
+      ? withPackageDefaults(withImpliedIsp({ typeId: nextId, regionId: first.regionId, ispId: first.ispId, specId: null, durationId: null }))
+      : { typeId: nextId, regionId: null, ispId: null, specId: null, durationId: null };
     setTypeId(nextId);
-    setRegionId(null);
-    setIspId(null);
-    setSpecId(null);
-    setDurationId(null);
-    setCurrentStep(2);
+    setRegionId(next.regionId);
+    setIspId(next.ispId);
+    setSpecId(next.specId);
+    setDurationId(next.durationId);
+    setCurrentStep(next.ispId ? 4 : 2);
   }
 
   function selectRegion(nextId: string) {
     // impliedIsp 类型（纯净原生独享 IP）：地区唯一对应的 ispId 直接带上，跳过运营商确认，进入线路与流量。
     const impliedIspId = withImpliedIsp({ typeId, regionId: nextId, ispId: null, specId: null, durationId: null }).ispId;
+    // 其余类型：当前运营商在新地区仍可购则保留，否则带上新地区首个可购运营商；确无可购运营商时停在运营商这一步。
+    const keepIsp = !!typeId && !!ispId && resolveNewPurchaseSelection({ typeId, regionId: nextId, ispId: null, specId: null, durationId: null })
+      .availableIsps.some((option) => option.id === ispId) &&
+      (availability === undefined || hasPurchasablePlan(availability, typeId, nextId, ispId) === true);
+    const nextIspId = impliedIspId ?? (keepIsp ? ispId : typeId ? firstPurchasableIsp(typeId, nextId, availability) : null);
     setRegionId(nextId);
-    setIspId(impliedIspId);
-    if (isPackageType && impliedIspId) {
-      // B：地区即确定 IP 项；保留在新地区仍合法的线路 × 流量 / 有效期，否则落到普通路线 200G、月付。
-      const next = withPackageDefaults({ typeId, regionId: nextId, ispId: impliedIspId, specId, durationId });
+    setIspId(nextIspId);
+    if (isPackageType && nextIspId) {
+      // 保留在新地区仍合法的线路 × 流量 / 有效期，否则落到默认路线 200G、月付。
+      const next = withPackageDefaults({ typeId, regionId: nextId, ispId: nextIspId, specId, durationId });
       setSpecId(next.specId);
       setDurationId(next.durationId);
     } else if (!isPackageType) {
       setSpecId(null);
       setDurationId(null);
     }
-    // A：运营商尚未选，线路 × 流量 / 有效期暂留，选运营商时再按新地区校验（不合法的落到默认值）。
-    setCurrentStep(impliedIspId ? 4 : 3);
+    // 运营商仍未确定时，线路 × 流量 / 有效期暂留，选运营商时再按新地区校验（不合法的落到默认值）。
+    setCurrentStep(nextIspId ? 4 : 3);
   }
 
   function selectIsp(nextId: string) {

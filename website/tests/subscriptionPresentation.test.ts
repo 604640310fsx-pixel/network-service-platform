@@ -39,7 +39,7 @@ test("v11 preserves shell and new-purchase-only normalization; pending reminders
   assert.doesNotMatch(notice,/getOrderStatus|fetch\(|method:.*POST|simulate|localStorage/);
   assert.match(page,/sub-configurator-v11/);
   const copy=source("../app/i18n/zh.ts");
-  assert.ok(copy.includes("独享干净•流媒体全解锁、ChatGPT Plus用户"));
+  assert.ok(copy.includes("适合人群：告别共享机场弹验证 · 日常AI对话 · 链式代理落地"));
   assert.match(page, /className="sub-type-spec-label">\{product\.tag\}/);
   assert.doesNotMatch(page, /className="sub-product-tag"/);
 });

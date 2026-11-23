@@ -441,10 +441,10 @@ export const en: Messages = {
     residentialMonthlyPending: "Monthly price pending",
     residentialIncludedAddon: (price: string) => `Includes route fee ${price}/mo`,
     productCards: {
-      residential: { tag: "Real residential IP", bandwidth: "100Mbps bandwidth", audience: "For: long-term stability! Social operations / live streaming / Claude Max and Ultra users", sellingPoints: ["Locally arranged residential broadband"] },
-      "us-local-carrier": { tag: "200G / 500G traffic", bandwidth: "200Mbps bandwidth", audience: "For: clean dedicated access / social account growth / ChatGPT Plus users", sellingPoints: ["NTT", "GTT", "Cogent"] },
-      "local-isp": { tag: "Static residential IP", bandwidth: "100Mbps bandwidth", audience: "For: social operations / live streaming / ChatGPT Pro / Claude Pro users", sellingPoints: ["ATT", "Verizon", "Comcast"] },
-      "pure-native-ip": { tag: "Clean dedicated IP", bandwidth: "100Mbps bandwidth", audience: "For: clean dedicated access! Full streaming access / ChatGPT Plus users", sellingPoints: ["IDC", "Clean IP", "Dedicated node"] },
+      "us-local-carrier": { tag: "Dual-ISP native", bandwidth: "200Mbps bandwidth", audience: "For: risk-control prevention · steady Claude / GPT / Cursor use · US account warming", sellingPoints: ["US dual-ISP native", "NTT / GTT", "Dedicated static IP"] },
+      residential: { tag: "Real residential ISP", bandwidth: "100Mbps bandwidth", audience: "For: protecting $100–200 core main accounts · long-lived terminal sessions · social / live streaming", sellingPoints: ["Locally installed home broadband", "Full UDP · multi-device", "Optional high-speed / dedicated line"] },
+      "local-isp": { tag: "Local static residential", bandwidth: "100Mbps bandwidth", audience: "For: keeping Gemini out of China routing / Claude ban prevention · local social and R&D in 13 countries", sellingPoints: ["US, JP, TW, SG and more: 13 countries", "AT&T / Verizon and more", "Consumer broadband ISPs"] },
+      "pure-native-ip": { tag: "Static dedicated IP", bandwidth: "100Mbps bandwidth", audience: "For: no more shared-airport verification prompts · daily AI chats · chained proxy exit", sellingPoints: ["One dedicated IP per user", "US native option", "Dedicated lines on all three carriers"] },
     },
     solutions: {
       "us-local-carrier": { label: "US local carriers", highlights: ["NTT", "GTT", "Cogent", "Charter"] },

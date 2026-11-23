@@ -24,7 +24,7 @@ const STEP_KEYS_WITH_SPEC = ["type", "region", "isp", "spec", "duration", "confi
 const STEP_KEYS_WITHOUT_SPEC = ["type", "region", "isp", "duration", "confirm"] as const;
 
 // Presentation only: keep catalog IDs, default selection, prices and order identity.
-const productCardOrder = ["pure-native-ip", "residential", "us-local-carrier", "local-isp"];
+const productCardOrder = ["us-local-carrier", "residential", "local-isp", "pure-native-ip"];
 const displayNetworkTypes = [...networkTypes].sort((a, b) => productCardOrder.indexOf(a.id) - productCardOrder.indexOf(b.id));
 
 function optionTabIndex<T extends { id: string }>(
@@ -210,7 +210,8 @@ export function SubscribePage() {
               value={selection.regionId}
               options={selection.availableRegions.map(option => ({
                 id: option.id,
-                label: ct(option.cardName ?? option.name),
+                // 纯净原生独享 IP：下拉明示原生IP / 广播IP（如"台湾（广播IP）"）。
+                label: ct(selection.typeId === "pure-native-ip" ? option.name : option.cardName ?? option.name),
                 // Existing catalogue flag CSS; the search matches both Chinese and English names.
                 flagClass: option.flagClass,
                 search: [option.name, option.cardName, translateCatalogText(en, "en", option.cardName ?? option.name), translateCatalogText(en, "en", option.name), option.id].join(" "),
@@ -260,7 +261,8 @@ export function SubscribePage() {
                     const specId = selection.packageSpecId(selection.selectedLine!.id, traffic.id);
                     // Display only: each tier resolves its own exact monthly offer.
                     // A missing month must not change selected-period eligibility.
-                    const trafficMonthly = (selection.typeId === "residential" || selection.typeId === "us-local-carrier") && specId !== undefined
+                    const exactTrafficPrice = selection.typeId === "us-local-carrier" || selection.typeId === "pure-native-ip";
+                    const trafficMonthly = (selection.typeId === "residential" || exactTrafficPrice) && specId !== undefined
                       ? monthlyPresentation(availability.index, { ...currentSelection, specId }) : null;
                     return (
                     <OptionCard key={traffic.id} selected={selection.selectedTrafficId === traffic.id}
@@ -268,7 +270,7 @@ export function SubscribePage() {
                       tabIndex={optionTabIndex(shownTrafficOptions, selection.selectedTrafficId, traffic.id)}>
                       <strong>{traffic.name}</strong>
                       {selection.typeId === "residential" && <small>{copy.residentialTrafficDevices(selection.availableSpecs.find(option => option.lineId === selection.selectedLine?.id && option.trafficId === traffic.id)?.deviceAllowance ?? null)}</small>}
-                      {selection.typeId === "us-local-carrier" ? <span className="sub-traffic-monthly">
+                      {exactTrafficPrice ? <span className="sub-traffic-monthly">
                         <b className={`sub-traffic-monthly-price${trafficMonthly ? "" : " is-pending"}`}>{trafficMonthly
                           ? `${formatCardYuan(trafficMonthly.monthlyFen)}${copy.configurator.perMonth}`
                           : copy.pricePending}</b>

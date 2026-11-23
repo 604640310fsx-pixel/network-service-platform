@@ -615,9 +615,9 @@ export const durationsByType: Record<string, DurationOption[]> = {
 };
 
 export const defaultCatalogSelection = {
-  typeId: "residential",
-  regionId: "vn",
-  ispId: "vnpt-corp",
-  specId: RESIDENTIAL_DEFAULT_SPEC,
+  typeId: "us-local-carrier",
+  regionId: "us",
+  ispId: "ntt",
+  specId: "direct-200g",
   durationId: "month-1",
 } as const;
