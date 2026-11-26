@@ -30,7 +30,8 @@ function SectionRoute() {
   const { status } = useAuth();
 
   if (!isSectionKey(section)) return <NotFoundPage />;
-  if (section === "subscribe" || section === "monitor" || section === "status") return <DashboardShell />;
+  // /docs 使用文档对外开放：未登录也可阅读（用户决定 2026-11-26）。
+  if (section === "docs" || section === "subscribe" || section === "monitor" || section === "status") return <DashboardShell />;
   if (status === "checking") return <AuthSessionChecking />;
   if (status === "unauthenticated") return <Navigate to="/login" replace />;
   return <DashboardShell />;

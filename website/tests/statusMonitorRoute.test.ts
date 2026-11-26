@@ -38,3 +38,11 @@ test("customer-shell /status reuses the same public embed and follows the shell 
   const customerShell = source("../app/components/customer/CustomerCenterShell.tsx");
   assert.match(customerShell, /<CustomerShellThemeContext\.Provider value=\{theme\}>\{children\}<\/CustomerShellThemeContext\.Provider>/);
 });
+
+test("/docs is public: readable without a login redirect", () => {
+  const app = source("../src/App.tsx");
+  const route = app.slice(app.indexOf("function SectionRoute()"), app.indexOf("function AdminRoute()"));
+  const publicLine = route.indexOf('section === "docs" ||');
+  assert.ok(publicLine > 0, "docs must be in the public section list");
+  assert.ok(publicLine < route.indexOf('status === "unauthenticated"'), "public check must run before the login redirect");
+});
