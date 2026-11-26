@@ -46,3 +46,10 @@ test("/docs is public: readable without a login redirect", () => {
   assert.ok(publicLine > 0, "docs must be in the public section list");
   assert.ok(publicLine < route.indexOf('status === "unauthenticated"'), "public check must run before the login redirect");
 });
+
+test("home header and footer link to the public docs", () => {
+  const header = source("../app/components/home/SiteHeader.tsx");
+  assert.match(header, /\{ key: "docs", to: "\/docs" \}/);
+  const footer = source("../app/components/home/SiteFooter.tsx");
+  assert.match(footer, /<Link to="\/docs">\{t\.footer\.docs\}<\/Link>/);
+});
