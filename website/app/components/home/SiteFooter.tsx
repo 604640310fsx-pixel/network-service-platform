@@ -24,6 +24,7 @@ export function SiteFooter() {
               <Link to="/subscribe">{t.footer.plans}</Link>
               <Link to="/diagnosis">{t.footer.diagnosis}</Link>
               <Link to="/monitor">{t.footer.monitor}</Link>
+              <Link to="/docs">{t.footer.docs}</Link>
             </div>
             <div className="home-footer-col">
               <b>{t.footer.accountTitle}</b>

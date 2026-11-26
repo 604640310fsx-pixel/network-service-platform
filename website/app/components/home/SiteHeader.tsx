@@ -13,6 +13,7 @@ const navEntries = [
   { key: "plans", to: "/subscribe" },
   { key: "diagnosis", to: "/diagnosis" },
   { key: "status", to: "/monitor" },
+  { key: "docs", to: "/docs" },
 ] as const;
 
 export type MobileMenuKeyAction =
